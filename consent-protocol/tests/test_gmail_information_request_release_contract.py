@@ -43,7 +43,19 @@ def test_uat_deploy_wires_the_personal_gmail_monitor_identity() -> None:
         "}}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
     ) in workflow
     assert "Activate personal Gmail monitor" in workflow
-    assert "deploy/gmail/setup_personal_information_request_monitor_scheduler.sh" in workflow
+    assert (
+        'bash "${RUNNER_TEMP}/release-tools/gmail/setup_personal_information_request_monitor_scheduler.sh"'
+        in workflow
+    )
+    step = next(
+        s
+        for s in yaml.safe_load(workflow)["jobs"]["deploy"]["steps"]
+        if s.get("id") == "activate-personal-gmail-monitor"
+    )
+    assert (
+        step["env"]["GMAIL_MONITOR_CONFIGURED"]
+        == "${{ steps.verify-parity-1.outputs.gmail_required || 'true' }}"
+    )
 
 
 def test_production_release_pins_personal_gmail_monitor_oidc_contract() -> None:
@@ -135,6 +147,14 @@ elif args[:3] == ["scheduler", "jobs", "describe"]:
         else:
             print("\t".join([job["state"], job["schedule"], job["uri"], job["http-method"],
                              job["oidc-service-account-email"], job["oidc-token-audience"]]))
+elif args[:3] == ["scheduler", "jobs", "list"]:
+    if os.environ.get("MOCK_READ_FAILURE") == "1":
+        sys.exit(97)
+    if state["job"]:
+        print(state["job"]["state"])
+elif args[:3] == ["scheduler", "jobs", "pause"]:
+    if os.environ.get("MOCK_PAUSE_TAKES", "1") == "1":
+        state["job"]["state"] = "PAUSED"
 elif args[:2] == ["scheduler", "jobs"] and args[2] in ("create", "update"):
     flags = dict(arg[2:].split("=", 1) for arg in args if arg.startswith("--") and "=" in arg)
     header_flag = "headers" if args[2] == "create" else "update-headers"
@@ -178,6 +198,78 @@ def test_scheduler_does_not_mutate_the_client_service_account_policy() -> None:
     setup = SETUP.read_text(encoding="utf-8")
     assert "iam service-accounts add-iam-policy-binding" not in setup
     assert "roles/iam.serviceAccountTokenCreator" not in setup
+
+
+@pytest.mark.parametrize("existing_job,paused", [(False, False), (True, False), (True, True)])
+def test_unconfigured_uat_gmail_only_pauses_existing_job(tmp_path, existing_job, paused):
+    result, calls, state = _run_setup(
+        tmp_path,
+        existing_job=existing_job,
+        paused=paused,
+        PROJECT_ID="hushh-pda-uat",
+        BACKEND_URL="https://api.uat.hushh.ai",
+        GMAIL_MONITOR_CONFIGURED="false",
+    )
+    assert result.returncode == 0, result.stderr
+    assert not any(call[:2] == ["iam", "service-accounts"] for call in calls)
+    assert not any(
+        call[:3] == ["scheduler", "jobs", verb]
+        for call in calls
+        for verb in ("create", "update", "resume")
+    )
+    assert state["job"] == ({"state": "PAUSED"} if existing_job else None)
+
+
+@pytest.mark.parametrize("project", ["hushh-pda", "other-project"])
+@pytest.mark.parametrize("configured", ["true", "false"])
+def test_candidate_gmail_reconciliation_cannot_change_another_environment(
+    tmp_path, project, configured
+):
+    result, calls, _ = _run_setup(tmp_path, PROJECT_ID=project, GMAIL_MONITOR_CONFIGURED=configured)
+    assert result.returncode != 0
+    assert calls == []
+
+
+@pytest.mark.parametrize("defect,code", [("MOCK_READ_FAILURE", 97), ("MOCK_PAUSE_TAKES", 1)])
+def test_unconfigured_monitor_must_prove_pause_or_absence(tmp_path, defect, code):
+    result, calls, state = _run_setup(
+        tmp_path,
+        existing_job=True,
+        PROJECT_ID="hushh-pda-uat",
+        BACKEND_URL="https://api.uat.hushh.ai",
+        GMAIL_MONITOR_CONFIGURED="false",
+        **{defect: "0" if defect == "MOCK_PAUSE_TAKES" else "1"},
+    )
+    assert result.returncode == code
+    assert state["job"] == {"state": "ENABLED"}
+    assert not any(call[:2] == ["iam", "service-accounts"] for call in calls)
+
+
+def test_reconfigured_uat_gmail_resumes_the_paused_monitor(tmp_path):
+    result, calls, state = _run_setup(
+        tmp_path,
+        existing_job=True,
+        paused=True,
+        PROJECT_ID="hushh-pda-uat",
+        BACKEND_URL="https://api.uat.hushh.ai",
+        GMAIL_MONITOR_CONFIGURED="true",
+    )
+    assert result.returncode == 0, result.stderr
+    assert state["job"]["state"] == "ENABLED"
+    assert any(call[:3] == ["scheduler", "jobs", "resume"] for call in calls)
+
+
+def test_operator_uat_invocation_does_not_implicitly_resume_a_paused_monitor(tmp_path):
+    result, calls, state = _run_setup(
+        tmp_path,
+        existing_job=True,
+        paused=True,
+        PROJECT_ID="hushh-pda-uat",
+        BACKEND_URL="https://api.uat.hushh.ai",
+    )
+    assert result.returncode != 0
+    assert state["job"]["state"] == "PAUSED"
+    assert not any(call[:3] == ["scheduler", "jobs", "resume"] for call in calls)
 
 
 def test_scheduler_recovers_when_account_exists_but_job_does_not(tmp_path: Path) -> None:

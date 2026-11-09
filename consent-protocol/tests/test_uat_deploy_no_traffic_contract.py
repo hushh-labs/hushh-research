@@ -22,24 +22,6 @@ from tests.test_pwm_runtime_probe import pwm_proof_fixture
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-_BACKEND_RELEASE_TOOL_FIXTURES = (
-    "deploy/backend.cloudbuild.yaml",
-    "scripts/ci/managed_provider_readiness.py",
-    "scripts/ci/managed_capability_proof.py",
-    "scripts/deploy/backend-deploy.sh",
-    "scripts/deploy/backend-capacity-settings.sh",
-    "scripts/deploy/backend-app-surface-settings.sh",
-    "scripts/deploy/verify-managed-vertex-runtime.sh",
-    "scripts/deploy/commerce-preview-bindings.sh",
-    "scripts/deploy/backend-model-settings.sh",
-    "scripts/deploy/backend-drive-search-settings.sh",
-    "scripts/deploy/backend-drive-secret-settings.sh",
-    "scripts/deploy/scope-commerce-secrets.sh",
-    "deploy/email-auth/bind_secrets.sh",
-    "deploy/plg/bind_secrets.sh",
-    "deploy/sso/bind_workos.sh",
-)
-
 
 def test_backend_cloud_build_uses_valid_secret_flag_combinations():
     document = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
@@ -51,7 +33,7 @@ def test_backend_cloud_build_uses_valid_secret_flag_combinations():
 
 @pytest.mark.parametrize(
     ("repeat", "fail_at", "expected_calls", "completed"),
-    [(False, 0, 1, 1), (True, 0, 2, 2), (True, 1, 1, 0), (True, 2, 2, 1)],
+    [(False, 0, 0, 0), (True, 0, 2, 2), (True, 1, 1, 0), (True, 2, 2, 1)],
 )
 def test_selected_reviewer_repetition_requires_each_independent_pass(
     tmp_path: Path, repeat: bool, fail_at: int, expected_calls: int, completed: int
@@ -64,7 +46,12 @@ def test_selected_reviewer_repetition_requires_each_independent_pass(
         for step in workflow["jobs"]["deploy"]["steps"]
         if step.get("id") == "verify-reviewer-byok"
     )
-    command = step["run"].replace("${{ inputs.repeat_reviewer_byok }}", str(repeat).lower())
+    assert step["if"].startswith("inputs.repeat_reviewer_byok &&")
+    if not repeat:
+        # GitHub skips the entire step; there is no admitted one-pass mode.
+        assert expected_calls == completed == 0
+        return
+    command = step["run"]
     command = command.replace("/tmp/uat-reviewer-byok.log", str(tmp_path / "reviewer.log"))  # noqa: S108 - redirect the authored log path into the isolated fixture
     binary = tmp_path / "bin"
     binary.mkdir()
@@ -988,12 +975,13 @@ def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
         'frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"'
         in rollback_block
     )
-    assert 'if [ -z "${backend_revision}" ]; then' in rollback_block
-    assert 'if [ -z "${frontend_revision}" ]; then' in rollback_block
+    assert "--rollback-revision-json" in rollback_block
+    assert 'if [ "$rollback_tag_fetched" != true ]; then' in rollback_block
     assert "git fetch --force origin" in rollback_block
     assert "refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest" in rollback_block
-    assert "scripts/ci/resolve-rollback-target.sh uat backend" in rollback_block
-    assert "scripts/ci/resolve-rollback-target.sh uat frontend" in rollback_block
+    assert 'resolve-rollback-target.sh uat "$lane"' in rollback_block
+    assert "resolve_rollback backend" in rollback_block
+    assert "resolve_rollback frontend" in rollback_block
     assert "steps.rollback-targets.outputs.backend_revision" in rollback_block
     assert "steps.rollback-targets.outputs.frontend_revision" in rollback_block
 
@@ -1003,10 +991,22 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
     workflow = yaml.safe_load(workflow_source)
 
     assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
-    assert (
-        workflow_source.count('--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"')
-        == 2
-    )
+    parity_steps = [
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if re.search(
+            r"(?m)^[^\n]* scripts/ops/verify-env-secrets-parity\.py(?:\s|$)", step.get("run", "")
+        )
+    ]
+    assert any(step.get("id") == "verify-parity-1" for step in parity_steps)
+    for step in parity_steps:
+        assert any(
+            argument in step["run"]
+            for argument in (
+                '--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"',
+                '--expected-firebase-project "$UAT_FIREBASE_PROJECT_ID"',
+            )
+        ), step["name"]
 
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
@@ -1239,81 +1239,15 @@ def _assert_vertex_candidate_probe(probe: str) -> None:
         assert probe.index(required) < advisory
 
 
-def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Path) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
-    dispatch = workflow.get("on", workflow.get(True))["workflow_call"]
-    assert dispatch["inputs"]["skip_managed_vertex_probe_once"]["default"] is False
-    steps = workflow["jobs"]["select-target"]["steps"]
-    validation = next(
-        step for step in steps if step["name"] == "Validate one-time Vertex probe exception"
-    )
-    assert validation["if"] == "inputs.skip_managed_vertex_probe_once"
-    assert "historical one-time Vertex exception has expired" in validation["run"]
-    allowed_dispatch = {
-        "REQUESTED_SHA": "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
-        "REQUESTED_SCOPE": "all",
-        "LIVE_CHECKS": "false",
-        "GITHUB_ACTOR": "ankitkumarsingh1702",
-    }
-
-    def validate_dispatch(date: str = "2026-10-16", **overrides: str) -> int:
-        script = f"date() {{ printf '%s\\n' '{date}'; }}\n" + validation["run"]
-        result = subprocess.run(  # noqa: S603 - production workflow guard with synthetic inputs only.
-            ["/bin/bash", "-c", script],
-            env={**os.environ, **allowed_dispatch, **overrides},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.returncode
-
-    assert validate_dispatch() != 0
-    assert validate_dispatch(REQUESTED_SHA="b" * 40) != 0
-    assert validate_dispatch(REQUESTED_SCOPE="backend") != 0
-    assert validate_dispatch(LIVE_CHECKS="true") != 0
-    assert validate_dispatch(GITHUB_ACTOR="another-admin") != 0
-    assert validate_dispatch(date="2026-10-18") != 0
+def test_uat_retires_vertex_exception_but_retains_shared_recipe_legacy_guard() -> None:
+    workflow_text = _read(".github/workflows/deploy-uat-implementation.yml")
+    caller_text = _read(".github/workflows/deploy-uat.yml")
+    assert "skip_managed_vertex_probe_once" not in workflow_text + caller_text
+    assert "vertex-exception-tools" not in workflow_text
+    workflow = yaml.safe_load(workflow_text)
     deploy = workflow["jobs"]["deploy"]["steps"]
-    preserve = next(step for step in deploy if step["name"] == "Preserve current release tooling")
-    checkout = next(step for step in deploy if step["name"] == "Checkout deployment SHA")
-    assert "release-tools/backend.cloudbuild.yaml" in preserve["run"]
-    assert "release-tools/backend.cloudbuild.yaml" in checkout["run"]
-    for step in (preserve, checkout):
-        assert '"${{ inputs.skip_managed_vertex_probe_once }}" == "true"' in step["run"]
-    tools = _BACKEND_RELEASE_TOOL_FIXTURES
-    (tmp_path / "runner/release-tools").mkdir(parents=True)
-    for tool in tools:
-        path = tmp_path / tool
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("current:" + tool)
-    for index, step in enumerate((preserve, checkout)):
-        script = step["run"]
-        start = script.index('if [[ "${{ inputs.skip_managed_vertex_probe_once }}"')
-        section = script[start : script.index("\nfi", start) + 3].replace(
-            "${{ inputs.skip_managed_vertex_probe_once }}", "true"
-        )
-        result = subprocess.run(  # noqa: S603 - authored workflow, synthetic paths only.
-            ["bash", "-euc", section],
-            cwd=tmp_path,
-            env={**os.environ, "RUNNER_TEMP": str(tmp_path / "runner")},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
-        if index == 0:
-            for tool in tools:
-                (tmp_path / tool).unlink()
-            (tmp_path / "deploy/sso/bind_workos.sh").write_text("old incompatible helper")
-    assert all((tmp_path / tool).read_text() == "current:" + tool for tool in tools)
-    assert (
-        "!scripts/deploy/backend-capacity-settings.sh" in (tmp_path / ".gcloudignore").read_text()
-    )
     backend = next(step for step in deploy if step.get("id") == "deploy-backend")
-    assert (
-        "##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${{ inputs.skip_managed_vertex_probe_once }}"
-        in backend["run"]
-    )
+    assert "##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=false" in backend["run"]
 
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     assert build["substitutions"]["_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE"] == "false"
@@ -2668,12 +2602,9 @@ def test_provider_receipt_workflow_pins_collector_and_exact_build_identity():
     assert "capture_managed_provider_receipt.py" in capture["run"]
     for name in ("Preserve current release tooling", "Checkout deployment SHA"):
         command = next(s["run"] for s in steps if s.get("name") == name)
-        assert command.index("capture_managed_provider_receipt.py") < command.index(
-            'if [[ "${{ inputs.skip_managed_vertex_probe_once }}"'
-        )
-        assert command.index("run_uat_text_recovery_job.py") < command.index(
-            'if [[ "${{ inputs.skip_managed_vertex_probe_once }}"'
-        )
+        assert "capture_managed_provider_receipt.py" in command
+        assert "run_uat_text_recovery_job.py" in command
+        assert "skip_managed_vertex_probe_once" not in command
 
 
 def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeypatch):
@@ -2782,3 +2713,343 @@ def test_complete_vertex_bundle_qualifies_only_a_bound_azure_outage(failure, def
     assert result["ready"] is allowed
     assert result["selected_provider"] == ("vertex" if allowed else None)
     assert result["status"] == ("degraded_fallback" if allowed else "blocked")
+
+
+@pytest.mark.parametrize(
+    "requested,outcome,promotions",
+    [
+        (False, "skipped", 2),
+        (True, "success", 2),
+        (True, "failure", 0),
+    ],
+)
+def test_ordinary_promotion_is_independent_of_unrequested_analytics(
+    tmp_path, requested, outcome, promotions
+):
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    step = next(
+        item
+        for item in workflow["jobs"]["deploy"]["steps"]
+        if item.get("id") == "promote-uat-traffic"
+    )
+    values = {
+        "steps.scope.outputs.deploy_frontend": "true",
+        "steps.scope.outputs.deploy_backend": "true",
+        "steps.verify-analytics-uat.outcome": outcome,
+        "inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true'": str(
+            requested
+        ).lower(),
+    }
+    script = re.sub(
+        r"\$\{\{\s*(.*?)\s*\}\}", lambda match: values.get(match[1], "fixture"), step["run"]
+    )
+    calls = tmp_path / "calls"
+    script = 'gcloud() { echo "$*" >> "$CALLS"; };\n' + script
+    result = subprocess.run(  # noqa: S603 - trusted repository helper/workflow executed with isolated local command fixtures.
+        [shutil.which("bash"), "-c", script],
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "CALLS": str(calls),
+            "GITHUB_OUTPUT": str(tmp_path / "outputs"),
+            "PREPROMOTION_UAT_GATES": "false",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(calls.read_text().splitlines() if calls.exists() else []) == promotions
+
+
+def test_uat_parity_opt_in_survives_an_older_application_checkout(tmp_path):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    preserve = next(
+        step["run"] for step in steps if step["name"] == "Preserve current release tooling"
+    )
+    restore = next(step["run"] for step in steps if step["name"] == "Checkout deployment SHA")
+    preserve_command = next(
+        line
+        for line in preserve.splitlines()
+        if line.startswith("cp scripts/ops/{verify-env-secrets-parity,")
+    )
+    restore_command = next(
+        line
+        for line in restore.splitlines()
+        if line.startswith('cp "${RUNNER_TEMP}/release-tools/"{verify-env-secrets-parity,')
+    )
+    tools = tmp_path / "runner/release-tools"
+    tools.mkdir(parents=True)
+    candidate = tmp_path / "candidate"
+    ops = candidate / "scripts/ops"
+    ops.mkdir(parents=True)
+    (ops / "verify-env-secrets-parity.py").write_text(
+        "raise SystemExit('Old helper without scoped integration support')\n"
+    )
+    env = {**os.environ, "RUNNER_TEMP": str(tools.parent)}
+    subprocess.run(  # noqa: S603 - trusted repository helper/workflow executed with isolated local command fixtures.
+        [shutil.which("bash"), "-euc", preserve_command], cwd=REPO_ROOT, env=env, check=True
+    )
+    subprocess.run(  # noqa: S603 - trusted repository helper/workflow executed with isolated local command fixtures.
+        [shutil.which("bash"), "-euc", restore_command], cwd=candidate, env=env, check=True
+    )
+    for name in ("verify-env-secrets-parity.py", "passkey_domain_policy.py"):
+        assert (ops / name).read_bytes() == (REPO_ROOT / "scripts/ops" / name).read_bytes()
+    result = subprocess.run(  # noqa: S603 - trusted repository helper/workflow executed with isolated local command fixtures.
+        [sys.executable, str(ops / "verify-env-secrets-parity.py"), "--help"],
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--configured-integrations-only" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "sender,accepted", [(None, True), ("one@hushh.ai", True), ("other@example.test", False)]
+)
+def test_candidate_sender_validation_blocks_wrong_config_before_traffic(
+    monkeypatch, tmp_path, sender, accepted
+):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    step = next(
+        s
+        for s in steps
+        if s.get("name") == "Verify backend candidate readiness and exact-SHA provenance"
+    )
+    source = step["run"].split("python3 - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    source = source.replace("/tmp/", str(tmp_path) + "/")  # noqa: S108 - redirect authored artifact paths into pytest isolation
+    values = {
+        "HUSHH_DEPLOY_SHA": "a" * 40,
+        "HUSHH_DEPLOY_ENV": "uat",
+        "HUSHH_DEPLOY_SOURCE": "deploy-uat",
+        "HUSHH_DEPLOY_RUN_ID": "123",
+    }
+    if sender is not None:
+        values["SUPPORT_EMAIL_FROM"] = sender
+    revision = {
+        "metadata": {
+            "name": "backend-candidate",
+            "labels": {
+                "deploy-sha": "a" * 40,
+                "deploy-env": "uat",
+                "deploy-source": "deploy-uat",
+                "account-deletion-contract": "v201",
+            },
+        },
+        "spec": {
+            "containers": [
+                {
+                    "image": "image@sha256:fixture",
+                    "env": [{"name": key, "value": value} for key, value in values.items()],
+                }
+            ]
+        },
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }
+    (tmp_path / "uat-backend-candidate.json").write_text(json.dumps(revision))
+    for key, value in {
+        "BACKEND_REVISION": "backend-candidate",
+        "EXPECTED_SHA": "a" * 40,
+        "EXPECTED_IMAGE_REFERENCE": "image@sha256:fixture",
+        "GITHUB_RUN_ID": "123",
+        "GCP_PROJECT_ID": "fixture",
+        "PREPROMOTION_UAT_GATES": "false",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.chdir(REPO_ROOT)
+    if accepted:
+        exec(compile(source, "candidate-readiness", "exec"), {})  # noqa: S102 - execute the actual authored readiness gate
+    else:
+        with pytest.raises(SystemExit, match="readiness/provenance gate failed"):
+            exec(compile(source, "candidate-readiness", "exec"), {})  # noqa: S102 - execute the actual authored readiness gate
+    report = json.loads((tmp_path / "uat-backend-candidate-readiness.json").read_text())
+    assert report["checks"]["support_sender"] is accepted
+    assert "other@example.test" not in json.dumps(report)
+    assert steps.index(step) < next(
+        i for i, s in enumerate(steps) if s.get("id") == "promote-uat-traffic"
+    )
+
+
+def test_older_application_keeps_current_mail_scheduler_helpers(tmp_path):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    preserve = next(s["run"] for s in steps if s.get("name") == "Preserve current release tooling")
+    command = next(
+        line for line in preserve.splitlines() if line.startswith("cp deploy/gmail/setup_")
+    )
+    command += "\n" + '"${RUNNER_TEMP}/release-tools/gmail/"'
+    tools = tmp_path / "runner/release-tools/gmail"
+    tools.mkdir(parents=True)
+    subprocess.run(  # noqa: S603 - fixed authored copy command, no external services
+        [shutil.which("bash"), "-euc", command],
+        cwd=REPO_ROOT,
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path / "runner")},
+        check=True,
+    )
+    for name in (
+        "setup_scheduled_mail_scheduler.sh",
+        "setup_personal_information_request_monitor_scheduler.sh",
+    ):
+        assert (tools / name).read_bytes() == (REPO_ROOT / "deploy/gmail" / name).read_bytes()
+    guard = next(s for s in steps if s.get("name") == "Verify One mail sender configuration")
+    assert (
+        guard["if"]
+        == "steps.scope.outputs.deploy_backend == 'true' && env.PREPROMOTION_UAT_GATES == 'true'"
+    )
+
+
+@pytest.mark.parametrize(
+    "codes,expected,calls",
+    [
+        ([200], 0, 1),
+        ([503, 200], 0, 2),
+        ([404], 1, 1),
+        ([403], 1, 1),
+        ([500], 1, 1),
+        ([503] * 5, 1, 5),
+    ],
+)
+def test_actual_candidate_health_loop_retries_only_transient_observations(
+    monkeypatch, tmp_path, codes, expected, calls
+):
+    import runpy
+    import time
+
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    step = next(
+        item
+        for item in steps
+        if item["name"] == "Verify backend candidate readiness and exact-SHA provenance"
+    )
+    source = step["run"].split("\"$PROTOCOL_PYTHON\" - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    source = source.replace("/tmp/uat-backend-candidate-health.json", str(tmp_path / "health.json"))  # noqa: S108 - match the authored workflow path and redirect into pytest isolation.
+    observed, sleeps = [], []
+
+    def probe(url, **kwargs):
+        assert url == "https://candidate.invalid/health" and kwargs == {"timeout": 15}
+        code = codes[len(observed)]
+        observed.append(code)
+        return {"status_code": code, "ok": code == 200, "retryable": code == 503}
+
+    monkeypatch.setattr(runpy, "run_path", lambda *_: {"_http_probe": probe})
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    monkeypatch.setenv("BACKEND_CANDIDATE_URL", "https://candidate.invalid")
+    if expected:
+        with pytest.raises(SystemExit):
+            exec(compile(source, "candidate-health", "exec"), {})  # noqa: S102 - execute the trusted workflow block against controlled observations.
+    else:
+        exec(compile(source, "candidate-health", "exec"), {})  # noqa: S102 - execute the trusted workflow block against controlled observations.
+    assert len(observed) == calls
+    assert sleeps == [3] * (calls - 1)
+
+
+@pytest.mark.parametrize(
+    "scenario,expected,fetches",
+    [
+        ("live", 0, 0),
+        ("both_fallback", 0, 1),
+        ("missing_tag", 1, 1),
+        ("invalid_tag", 1, 1),
+    ],
+)
+def test_actual_rollback_selection_uses_verified_live_proof_before_any_tag_access(
+    tmp_path, scenario, expected, fetches
+):
+    from tests.test_cloudrun_revision_provenance import _revision_payload, _service_payload
+
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    script = next(item["run"] for item in steps if item.get("id") == "rollback-targets")
+    scratch, binaries = tmp_path / "checkout", tmp_path / "bin"
+    (scratch / "scripts/ci").mkdir(parents=True)
+    binaries.mkdir()
+    for name in (
+        "verify-cloudrun-revision-provenance.py",
+        "resolve-cloud-run-serving-state.py",
+        "resolve-rollback-target.sh",
+    ):
+        shutil.copyfile(REPO_ROOT / "scripts/ci" / name, scratch / "scripts/ci" / name)
+    replacements, fallbacks = {}, {}
+    for lane, service in (("backend", "consent-protocol"), ("frontend", "hushh-webapp")):
+        name, sha = service + "-live", "a" * 40
+
+        def revision(target, sha=sha, service=service):
+            result = _revision_payload(target, deploy_sha=sha)
+            result["metadata"]["labels"]["serving.knative.dev/service"] = service
+            result["status"] = {
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "imageDigest": "gcr.io/fixture/image@sha256:" + "b" * 64,
+            }
+            return result
+
+        live = revision(name)
+        if scenario == "both_fallback" or (scenario != "live" and lane == "backend"):
+            live["status"]["conditions"][0]["status"] = "False"
+        (tmp_path / f"uat-{lane}-predeploy-service.json").write_text(
+            json.dumps(_service_payload(name))
+        )
+        (tmp_path / f"uat-{lane}-predeploy-revision.json").write_text(json.dumps(live))
+        fallback = revision(service + "-fallback")
+        if scenario == "invalid_tag":
+            fallback["status"]["conditions"][0]["status"] = "False"
+        fallbacks[service + "-fallback"] = fallback
+        replacements[f"steps.predeploy-state.outputs.{lane}_revision"] = name
+        replacements[f"steps.predeploy-state.outputs.{lane}_sha"] = sha
+        replacements[f"steps.scope.outputs.deploy_{lane}"] = "true"
+    fallback_file, git_calls = tmp_path / "fallbacks.json", tmp_path / "git-calls.jsonl"
+    fallback_file.write_text(json.dumps(fallbacks))
+    git = binaries / "git"
+    tag_body = (
+        "backend_revision: consent-protocol-fallback\nfrontend_revision: hushh-webapp-fallback\n"
+    )
+    git.write_text(
+        f'#!{sys.executable}\nimport sys,json\nwith open({str(git_calls)!r},"a") as out: out.write(json.dumps(sys.argv[1:])+"\\n")\n'
+        + f'if sys.argv[1]=="fetch" and {scenario!r}=="missing_tag": sys.exit(1)\n'
+        + f'if sys.argv[1]=="for-each-ref": print({tag_body!r})\n'
+    )
+    cloud = binaries / "gcloud"
+    cloud.write_text(
+        f"#!{sys.executable}\nimport sys,json\nrows=json.load(open({str(fallback_file)!r}))\n"
+        + 'if sys.argv[1:4]==["run","revisions","describe"]: print(json.dumps(rows[sys.argv[4]]))\n'
+        + 'elif sys.argv[1:4]==["run","revisions","list"]: print("\\n".join(rows))\n'
+        + "else: sys.exit(2)\n"
+    )
+    git.chmod(0o755)
+    cloud.chmod(0o755)
+    script = re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda match: replacements[match[1]], script)
+    script = script.replace("/tmp/uat-", str(tmp_path / "uat-"))  # noqa: S108 - match the authored workflow path and redirect into pytest isolation.
+    output = tmp_path / "output"
+    result = subprocess.run(  # noqa: S603 - trusted repository helper/workflow executed with isolated local command fixtures.
+        [shutil.which("bash"), "-c", script],
+        cwd=scratch,
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+            "GITHUB_OUTPUT": str(output),
+            "GCP_PROJECT_ID": "hushh-pda-uat",
+            "GCP_REGION": "us-central1",
+            "BACKEND_SERVICE": "consent-protocol",
+            "FRONTEND_SERVICE": "hushh-webapp",
+        },
+    )
+    assert (result.returncode == 0) is (expected == 0), result.stdout + result.stderr
+    commands = (
+        [json.loads(line) for line in git_calls.read_text().splitlines()]
+        if git_calls.exists()
+        else []
+    )
+    assert sum(command[0] == "fetch" for command in commands) == fetches
+    if scenario == "live":
+        assert commands == []
+        assert "backend_revision=consent-protocol-live" in output.read_text()
+    if scenario == "both_fallback":
+        assert "backend_revision=consent-protocol-fallback" in output.read_text()
+        assert "frontend_revision=hushh-webapp-fallback" in output.read_text()

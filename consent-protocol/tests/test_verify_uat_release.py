@@ -36,7 +36,8 @@ def test_http_probe_returns_structured_failure_on_transport_error(monkeypatch) -
         "url": "https://uat.one.hushh.ai/login",
         "status_code": None,
         "ok": False,
-        "error": "TLS handshake failed",
+        "error": "SSLError",
+        "retryable": False,
     }
 
 
@@ -399,3 +400,192 @@ def test_candidate_invalid_readiness_is_refused_without_retry(monkeypatch, respo
     with pytest.raises(module.ReleaseError, match=f"^{stage}$"):
         module.verify_candidate("https://candidate---consent-protocol-example-uc.a.run.app")
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "scope,configured,code,auth_ok,command_code,expected,required",
+    [
+        ("all", False, 200, True, 200, 0, False),
+        ("all", True, 200, True, 200, 0, False),
+        ("all", None, 200, True, 200, 1, False),
+        ("backend", False, 200, True, 200, 0, False),
+        ("frontend", None, 200, True, 200, 0, False),
+        ("all", False, 401, True, 200, 1, False),
+        ("all", False, 403, True, 200, 1, False),
+        ("all", False, 404, True, 200, 1, False),
+        ("all", False, 503, True, 200, 1, False),
+        ("all", False, 200, False, 200, 1, False),
+        ("frontend", False, 200, False, 200, 1, False),
+        ("all", False, 200, True, 403, 1, False),
+        ("all", False, 200, True, 200, 1, True),
+        ("all", True, 200, True, 200, 0, True),
+    ],
+)
+def test_scoped_uat_verification_keeps_health_auth_and_owner_boundary_blocking(
+    monkeypatch, tmp_path, scope, configured, code, auth_ok, command_code, expected, required
+):
+    verifier = _load_verifier()
+    requests_made = []
+    probes = []
+
+    class Smoke:
+        user_id = "fixture-owner"
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def authenticate(self):
+            if not auth_ok:
+                raise RuntimeError("fixture authentication refused")
+
+        def _firebase_auth_headers(self):
+            return {}
+
+        def _vault_headers(self):
+            return {}
+
+        def _request(self, method, path, **_kwargs):
+            assert auth_ok, "Dependent checks must stop after authentication fails"
+            requests_made.append(path)
+            response = requests.Response()
+            response.status_code = command_code if path.endswith("action-proposals") else 200
+            response._content = json.dumps(
+                {"configured": configured} if "/gmail/" in path else {"commands": []}
+            ).encode()
+            return response
+
+    def probe(url, **_kwargs):
+        probes.append(url)
+        response = requests.Response()
+        response.status_code = code
+        return response
+
+    monkeypatch.setattr(verifier, "UatKaiSmoke", Smoke)
+    monkeypatch.setattr(verifier.requests, "get", probe)
+    report_path = tmp_path / "semantic.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify",
+            "--backend-url",
+            "https://backend.invalid",
+            "--frontend-url",
+            "https://frontend.invalid",
+            "--deployment-scope",
+            scope,
+            "--require-gmail-configured",
+            str(required).lower(),
+            "--report-path",
+            str(report_path),
+        ],
+    )
+    assert verifier.main() == expected
+    report = json.loads(report_path.read_text())
+    if scope == "frontend":
+        assert probes == ["https://frontend.invalid/login"]
+        assert not any("/gmail/" in path for path in requests_made)
+    elif scope == "backend":
+        assert probes == ["https://backend.invalid/health"]
+    if not auth_ok:
+        assert requests_made == []
+        assert report["failures"] == ["smoke_auth"]
+    elif scope != "frontend" and configured is False and not required:
+        gmail = next(check for check in report["checks"] if check["name"] == "gmail_status")
+        assert gmail["skipped"] is True and gmail["ok"] is None
+
+
+@pytest.mark.parametrize(
+    "status,ok,retryable",
+    [
+        (200, True, False),
+        (204, True, False),
+        (301, False, False),
+        (401, False, False),
+        (403, False, False),
+        (404, False, False),
+        (408, False, True),
+        (429, False, True),
+        (500, False, False),
+        (502, False, True),
+        (503, False, True),
+        (504, False, True),
+    ],
+)
+def test_http_health_accepts_only_success_and_classifies_transients(
+    monkeypatch, status, ok, retryable
+):
+    verifier = _load_verifier()
+    response = requests.Response()
+    response.status_code = status
+    monkeypatch.setattr(verifier.requests, "get", lambda *_a, **_k: response)
+    result = verifier._http_probe("https://candidate.invalid/health")
+    assert result["ok"] is ok
+    assert result["retryable"] is retryable
+
+
+@pytest.mark.parametrize(
+    "failure,retryable",
+    [
+        (requests.Timeout("timeout"), True),
+        (requests.ConnectionError("connection refused"), True),
+        (requests.exceptions.SSLError("invalid certificate"), False),
+        (RuntimeError("fixture-sensitive"), False),
+        (RuntimeError("POST /api/consent/vault-owner-token returned 503: fixture-sensitive"), True),
+        (
+            RuntimeError("POST /api/consent/vault-owner-token returned 403: fixture-sensitive"),
+            False,
+        ),
+    ],
+)
+def test_auth_failure_stops_browser_and_paid_dependents_and_classifies_retry(
+    monkeypatch, tmp_path, failure, retryable
+):
+    verifier = _load_verifier()
+
+    class Smoke:
+        def __init__(self, **_kwargs):
+            pass
+
+        def authenticate(self):
+            raise failure
+
+        def _request(self, *_a, **_k):
+            pytest.fail("Dependent smoke request after failed authentication")
+
+    monkeypatch.setattr(verifier, "UatKaiSmoke", Smoke)
+    monkeypatch.setattr(
+        verifier, "_http_probe", lambda url: {"url": url, "ok": True, "status_code": 200}
+    )
+    monkeypatch.setattr(
+        verifier,
+        "_run_signed_in_routes",
+        lambda *_a: pytest.fail("Browser after failed authentication"),
+    )
+    report, output = tmp_path / "report.json", tmp_path / "output"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify",
+            "--backend-url",
+            "https://backend.invalid",
+            "--frontend-url",
+            "https://frontend.invalid",
+            "--report-path",
+            str(report),
+            "--github-output",
+            str(output),
+            "--run-live-model-checks",
+            "true",
+            "--include-signed-in-routes",
+        ],
+    )
+    assert verifier.main() == 1
+    result = json.loads(report.read_text())
+    assert result["failures"] == ["smoke_auth"]
+    assert result["retryable"] is retryable
+    assert output.read_text() == f"retryable={str(retryable).lower()}\n"
+    assert "fixture-sensitive" not in report.read_text()
+    browser = next(check for check in result["checks"] if check["name"] == "signed_in_routes")
+    assert browser["skipped"] is True and browser["reason"] == "authentication_failed"

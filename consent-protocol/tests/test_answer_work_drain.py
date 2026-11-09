@@ -597,3 +597,40 @@ class TestStageDispatch:
         worker = PkmAnswerWorkWorker(db=object())
         for stage in sorted(ANSWER_DRAIN_STAGES):
             assert await worker.run_stage(stage) == {"disabled": 1}
+
+
+@pytest.mark.parametrize(
+    "case,expected",
+    [("missing", "pending"), ("503", "pending"), ("403", "terminal"), ("paused", "terminal")],
+)
+def test_uat_paid_polling_retries_only_classified_evidence_lag(
+    qualified_settlement, monkeypatch, case, expected
+):
+    module, state, tools = qualified_settlement
+    cloud = module._cloud
+
+    def observe(*args):
+        result = cloud(*args)
+        if args[:2] == ("logging", "read"):
+            if case == "missing":
+                return []
+            if case in {"503", "403"}:
+                result[0]["httpRequest"]["status"] = int(case)
+        return result
+
+    monkeypatch.setattr(module, "_cloud", observe)
+    if case == "paused":
+        state["paused"] = True
+    with pytest.raises(ValueError) as failure:
+        module.verify_paid_admission("uat", state["revision"], tools, retry_pending=True)
+    assert isinstance(failure.value, module.PendingSettlement) is (expected == "pending")
+    assert all(
+        call[:3]
+        not in {
+            ("scheduler", "jobs", "run"),
+            ("scheduler", "jobs", "update"),
+            ("scheduler", "jobs", "create"),
+            ("run", "services", "update-traffic"),
+        }
+        for call in state["calls"]
+    )

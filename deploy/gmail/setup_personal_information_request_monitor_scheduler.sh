@@ -14,6 +14,21 @@ TIMEZONE="${TIMEZONE:-America/Los_Angeles}"
 MAX_USERS="${MAX_USERS:-20}"
 SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-gmail-personal-monitor-sched}"
 SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_EMAIL:-}"
+# Only UAT CD supplies this observation from exact-candidate runtime parity.
+# Existing operator/production callers keep their configure-and-verify mode.
+if [[ "${GMAIL_MONITOR_CONFIGURED-true}" != "true" && "${GMAIL_MONITOR_CONFIGURED-true}" != "false" ]]; then
+  echo "GMAIL_MONITOR_CONFIGURED must be true or false" >&2
+  exit 1
+fi
+if [[ "${GMAIL_MONITOR_CONFIGURED+x}" == "x" ]] && {
+  [[ "${PROJECT_ID}" != "hushh-pda-uat" ]] ||
+    [[ "${SCHEDULER_LOCATION}" != "us-central1" ]] ||
+    [[ "${BACKEND_URL%/}" != "https://api.uat.hushh.ai" ]] ||
+    [[ "${JOB_NAME}" != "gmail-personal-information-request-monitor-uat" ]];
+}; then
+  echo "Candidate Gmail reconciliation is limited to the canonical UAT monitor" >&2
+  exit 1
+fi
 
 if [[ -z "${BACKEND_URL}" ]]; then
   echo "BACKEND_URL is required" >&2
@@ -62,6 +77,26 @@ if ! command -v gcloud >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ "${GMAIL_MONITOR_CONFIGURED-true}" == "false" ]]; then
+  monitor_state() {
+    gcloud scheduler jobs list --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
+      --filter="name=projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${JOB_NAME}" \
+      --format='value(state)'
+  }
+  STATE="$(monitor_state)"
+  if [[ -n "${STATE}" && "${STATE}" != "PAUSED" ]]; then
+    gcloud scheduler jobs pause "${JOB_NAME}" \
+      --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" >/dev/null
+    STATE="$(monitor_state)"
+    if [[ "${STATE}" != "PAUSED" ]]; then
+      echo "Unconfigured Gmail monitor was not verified PAUSED" >&2
+      exit 1
+    fi
+  fi
+  echo "Personal Gmail is not configured; monitor is absent or verified PAUSED"
+  exit 0
+fi
+
 if ! gcloud iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
   --project="${PROJECT_ID}" >/dev/null 2>&1; then
   if [[ "${PROJECT_ID}" == "hushh-pda" ]]; then
@@ -100,7 +135,7 @@ if gcloud scheduler jobs describe "${JOB_NAME}" \
   --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
   gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
     --update-headers="Content-Type=application/json" >/dev/null
-  if [[ "${PROJECT_ID}" == "hushh-pda" ]]; then
+  if [[ "${PROJECT_ID}" == "hushh-pda" || "${GMAIL_MONITOR_CONFIGURED-}" == "true" ]]; then
     JOB_STATE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
       --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
       --format='value(state)')"
@@ -108,7 +143,7 @@ if gcloud scheduler jobs describe "${JOB_NAME}" \
       gcloud scheduler jobs resume "${JOB_NAME}" \
         --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" >/dev/null
     elif [[ "${JOB_STATE}" != "ENABLED" ]]; then
-      echo "Production personal Gmail monitor job has an unknown state" >&2
+      echo "Personal Gmail monitor job has an unknown state" >&2
       exit 1
     fi
   fi

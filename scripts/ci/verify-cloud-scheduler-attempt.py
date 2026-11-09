@@ -26,16 +26,11 @@ def parse_instant(value: object) -> datetime:
     return parsed
 
 
-def successful_completion(
-    entries: object,
-    *,
-    triggered_at: datetime,
-    expected_job: str,
-    expected_uri: str,
-) -> dict[str, Any] | None:
+def _latest_completion(
+    entries: object, *, triggered_at: datetime, expected_job: str, expected_uri: str
+):
     if not isinstance(entries, list):
         raise ValueError("Cloud Scheduler completion log response is not a list")
-
     matching: list[tuple[datetime, dict[str, Any], dict[str, Any], dict[str, Any]]] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -64,7 +59,25 @@ def successful_completion(
     # Never skip past a newer failed or incomplete finish record to accept an
     # older success. The latest exact-job/URI completion is the scheduler's
     # current bounded-drain evidence.
-    _, entry, payload, http_request = max(matching, key=lambda item: item[0])
+    return max(matching, key=lambda item: item[0])
+
+
+def successful_completion(
+    entries: object,
+    *,
+    triggered_at: datetime,
+    expected_job: str,
+    expected_uri: str,
+) -> dict[str, Any] | None:
+    latest = _latest_completion(
+        entries,
+        triggered_at=triggered_at,
+        expected_job=expected_job,
+        expected_uri=expected_uri,
+    )
+    if latest is None:
+        return None
+    _, entry, payload, http_request = latest
     # Do not default a missing HTTP status to success. Job.lastAttemptTime is
     # attempt-start evidence only; this concrete 2xx is the acknowledgement
     # from the HTTP target.
@@ -92,6 +105,32 @@ def successful_completion(
     }
 
 
+def completion_state(entries: object, **identity) -> str:
+    """Classify polling; permission/configuration/invalid evidence never waits."""
+    latest = _latest_completion(entries, **identity)
+    if latest is None:
+        return "pending"
+    _, _entry, payload, request = latest
+    code = request.get("status")
+    if (
+        type(code) is int
+        and code in {408, 429, 502, 503, 504}
+        and str(payload.get("status") or "OK").upper()
+        in {
+            "OK",
+            "UNAVAILABLE",
+            "DEADLINE_EXCEEDED",
+            "RESOURCE_EXHAUSTED",
+            "UNKNOWN",
+            "INTERNAL",
+        }
+    ):
+        return "transient_failure"
+    return (
+        "complete" if successful_completion(entries, **identity) else "terminal_failure"
+    )
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logs-json", required=True, type=Path)
@@ -99,6 +138,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-job", required=True)
     parser.add_argument("--expected-uri", required=True)
     parser.add_argument("--evidence-path", required=True, type=Path)
+    parser.add_argument("--pending-exit-code", type=int, choices=(1, 75), default=1)
     return parser.parse_args()
 
 
@@ -117,6 +157,16 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    state = (
+        completion_state(
+            entries,
+            triggered_at=triggered_at,
+            expected_job=args.expected_job,
+            expected_uri=args.expected_uri,
+        )
+        if args.pending_exit_code == 75
+        else None
+    )
     checks = {
         "fresh_attempt_finished": selected is not None,
         "http_2xx": bool(selected and 200 <= selected["http_status"] < 300),
@@ -124,7 +174,14 @@ def main() -> int:
     args.evidence_path.write_text(
         json.dumps(
             {
-                "status": "healthy" if all(checks.values()) else "waiting",
+                "status": (
+                    "healthy"
+                    if all(checks.values())
+                    else "blocked"
+                    if state == "terminal_failure"
+                    else "waiting"
+                ),
+                **({"classification": state} if state is not None else {}),
                 "triggered_at": args.triggered_at,
                 "checks": checks,
                 "completion": selected,
@@ -134,7 +191,11 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
-    return 0 if all(checks.values()) else 1
+    if all(checks.values()):
+        return 0
+    if state in {"pending", "transient_failure"}:
+        return 75
+    return 1
 
 
 if __name__ == "__main__":

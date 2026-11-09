@@ -26,7 +26,7 @@ from uat_exact_ci_fixture import (
 
 
 class ExactUatCiTest(unittest.TestCase):
-    def test_ordinary_uat_keeps_app_independent_but_pins_privileged_execution(self):
+    def test_ordinary_uat_trusts_reviewed_tooling_and_keeps_other_policies(self):
         with tempfile.TemporaryDirectory(prefix="hussh-uat-authority-") as root:
             env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
 
@@ -85,12 +85,18 @@ class ExactUatCiTest(unittest.TestCase):
                     write(path, "changed\n")
                     changed = commit()
                     with self.subTest(path=path):
+                        self.assertEqual(
+                            subject.verify_git_authority(
+                                changed, authority, authority, current=False
+                            ),
+                            git("rev-parse", f"{changed}^{{tree}}").decode().strip(),
+                        )
                         if path.startswith(("deploy/", "consent-protocol/db/")):
+                            # Dev's explicit privileged-input policy is unchanged.
                             with self.assertRaisesRegex(subject.Refused, "Privileged build or migration"):
-                                subject.verify_git_authority(changed, authority, authority, current=False)
-                        else:
-                            self.assertEqual(subject.verify_git_authority(changed, authority, authority, current=False),
-                                             git("rev-parse", f"{changed}^{{tree}}").decode().strip())
+                                subject.verify_privileged_release_inputs(
+                                    changed, authority
+                                )
                     write(path, "original\n")
                     commit()
                 # Each invocation projection and branch-owned manifest may
@@ -374,9 +380,12 @@ class ExactUatCiTest(unittest.TestCase):
             ci_run_id=42, ci_attempt=1, predecessor=None)
         serving = {"backend": {"sha": base, "revision": "consent-protocol-old"},
                    "frontend": {"sha": "e" * 40, "revision": "hushh-webapp-old"}}
-        with tempfile.TemporaryDirectory() as directory, patch.object(subject, "live_serving_bases", return_value=serving), \
-             patch.object(subject, "verify_git_authority", return_value="d" * 40), \
-             patch.object(subject, "verify_predecessor"):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(subject, "live_serving_bases", return_value=serving),
+            patch.object(subject, "verify_git_authority", return_value="d" * 40),
+            patch.object(subject, "_verify_predecessor_attempt"),
+        ):
             record = subject.issue_predecessor(args)
             # Even before the first receipt exists, a same-SHA replacement must
             # not silently change the rollback baseline captured by the caller.
@@ -822,6 +831,48 @@ class ExactUatAttemptTest(unittest.TestCase):
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
         runs.pop()
+
+    def test_source_reuse_rechecks_live_authority_attempt_and_inventory(self):
+        candidate, base = "a" * 40, "b" * 40
+        run = _attempt_run(candidate)
+        api = _AttemptAPI(
+            run, _attempt_jobs(candidate, base), [run], _attempt_check(candidate)
+        )
+        reads = {}
+        read = api.read
+
+        def observe(path):
+            reads[path] = reads.get(path, 0) + 1
+            return read(path)
+
+        with patch.object(api, "read", side_effect=observe):
+            subject.verify_attempt(api, candidate, base, 123, 1)
+        prefix = f"repos/{subject.REPOSITORY}"
+        self.assertEqual(reads[prefix], 2)
+        self.assertEqual(reads[prefix + "/actions/workflows/ci.yml"], 2)
+        self.assertEqual(reads[prefix + "/actions/runs/123"], 2)
+        self.assertEqual(
+            reads[
+                prefix
+                + "/actions/workflows/ci.yml/runs?branch=uat&event=workflow_dispatch&head_sha="
+                + candidate
+                + "&per_page=100"
+            ],
+            2,
+        )
+        reads.clear()
+
+        def rerun_after_inspection(path):
+            document = observe(path)
+            if path.endswith("/actions/runs/123") and reads[path] == 2:
+                run["run_attempt"] = 2
+            return document
+
+        with (
+            patch.object(api, "read", side_effect=rerun_after_inspection),
+            self.assertRaises(subject.Refused),
+        ):
+            subject.verify_attempt(api, candidate, base, 123, 1)
 
     def test_historical_predecessor_keeps_pinned_integrity_without_electing_other_runs(self):
         candidate, base, tree = "a" * 40, "b" * 40, "e" * 40

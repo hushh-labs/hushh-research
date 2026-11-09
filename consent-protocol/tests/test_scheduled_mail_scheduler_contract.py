@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -65,7 +66,10 @@ if args[:2] == ["iam", "service-accounts"]:
     sys.exit(0)
 verb = args[2]
 state = state_file.read_text() if state_file.exists() else ""
-if verb == "describe":
+if verb == "list":
+    if state:
+        print(state)
+elif verb == "describe":
     if not state:
         sys.exit(1)
     if "--format=value(state)" in args:
@@ -134,7 +138,7 @@ def test_kill_switch_never_creates_a_missing_job(tmp_path: Path):
     result, verbs, final = _run_scheduler_against(tmp_path, job_state=None, enabled="false")
 
     assert result.returncode == 0, result.stderr
-    assert verbs == ["describe"] and final is None
+    assert verbs == ["list"] and final is None
 
 
 def test_kill_switch_fails_the_deploy_when_the_job_does_not_pause(tmp_path: Path):
@@ -246,11 +250,13 @@ def test_uat_activates_the_job_only_after_release_classification():
 
     assert ids.index("classify-uat-release") < ids.index("activate-scheduled-mail-drain")
     assert ids.index("activate-account-deletion") < ids.index("activate-scheduled-mail-drain")
-    # Every healthy release applies the kill switch, a frontend-only one too:
-    # setting the variable to false must pause the job on the next deploy of
-    # any kind, not only the next backend deploy.
-    assert step["if"] == "steps.classify-uat-release.outputs.release_failed == 'false'"
-    assert "deploy_backend" not in step["if"]
+    # Backend releases provision enabled mail. Frontend-only releases only
+    # reconcile a disabled kill switch; they must never provision enabled mail.
+    assert step["if"] == (
+        "steps.classify-uat-release.outputs.release_failed == 'false' && "
+        "(steps.scope.outputs.deploy_backend == 'true' || "
+        "(vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true') != 'true')"
+    )
     assert step["env"]["SCHEDULER_SERVICE_ACCOUNT_NAME"] == "mail-scheduled-send"
     assert step["env"]["JOB_NAME"] == "mail-scheduled-send-uat"
     assert step["env"]["BATCH_LIMIT"] == "50"
@@ -259,9 +265,78 @@ def test_uat_activates_the_job_only_after_release_classification():
     assert step["env"]["MAIL_SCHEDULED_DRAIN_ENABLED"] == switch
     assert f'--mail-scheduled-drain-enabled "{switch}"' in UAT_WORKFLOW.read_text(encoding="utf-8")
     assert step["env"]["OIDC_AUDIENCE"] == "${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
-    assert "bash deploy/gmail/setup_scheduled_mail_scheduler.sh" in step["run"]
+    assert (
+        'bash "${RUNNER_TEMP}/release-tools/gmail/setup_scheduled_mail_scheduler.sh"' in step["run"]
+    )
     assert f"'{URI}'" in step["run"]
     assert "Scheduled mail drain scheduler configuration drifted" in step["run"]
+
+
+def test_disabled_mail_does_not_confuse_cloud_read_failure_with_absent_job(tmp_path):
+    result = _run_scheduler_with(tmp_path, MAIL_SCHEDULED_DRAIN_ENABLED="false")
+    assert result.returncode == 97
+    assert "scheduler jobs list" in result.gcloud_calls
+    assert "does not exist" not in result.stdout
+    assert "iam service-accounts" not in result.gcloud_calls
+
+
+@pytest.mark.parametrize("scope", ["frontend", "backend", "all"])
+@pytest.mark.parametrize("enabled", ["true", "false"])
+def test_scheduled_mail_scope_provisions_only_backend_and_keeps_kill_switch(scope, enabled):
+    step = next(s for s in _steps(UAT_WORKFLOW) if s.get("id") == "activate-scheduled-mail-drain")
+    expression = step["if"].replace(
+        "(vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true')", repr(enabled)
+    )
+    expression = expression.replace(
+        "steps.classify-uat-release.outputs.release_failed", repr("false")
+    )
+    expression = expression.replace(
+        "steps.scope.outputs.deploy_backend", repr(str(scope != "frontend").lower())
+    )
+    assert not re.search(r"steps\.|vars\.", expression)
+    expression = expression.replace("&&", " and ").replace("||", " or ")
+    selected = eval(expression, {"__builtins__": {}}, {})  # noqa: S307 - fixed authored condition, only literal substitutions
+    assert selected is (scope != "frontend" or enabled == "false")
+
+
+@pytest.mark.parametrize(
+    "scope,enabled,mail,calendar,expected",
+    [
+        ("frontend", "true", "skipped", "skipped", "healthy"),
+        ("frontend", "false", "success", "skipped", "healthy"),
+        ("frontend", "false", "failure", "skipped", "blocked"),
+        ("frontend", "false", "skipped", "skipped", "blocked"),
+        ("backend", "true", "success", "success", "healthy"),
+        ("all", "true", "failure", "success", "blocked"),
+        ("backend", "false", "skipped", "success", "blocked"),
+        ("backend", "true", "success", "failure", "blocked"),
+    ],
+)
+def test_failed_required_scheduler_reconciliation_never_publishes_healthy_status(
+    scope, enabled, mail, calendar, expected
+):
+    step = next(
+        s for s in _steps(UAT_WORKFLOW) if s.get("name") == "Write UAT release status artifact"
+    )
+    script = step["run"].split("export STATUS DRIVE_WORKER_ROLLBACK_COMPLETE", 1)[0]
+    values = {
+        "inputs.preserve_paused_drive_worker": "false",
+        "steps.scope.outputs.deploy_backend": str(scope != "frontend").lower(),
+        "steps.scope.outputs.deploy_frontend": str(scope != "backend").lower(),
+        "steps.classify-uat-release.outputs.release_failed": "false",
+        "vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false'": "false",
+        "vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true'": enabled,
+        "steps.activate-scheduled-mail-drain.outcome": mail,
+        "steps.activate-calendar-followups.outcome": calendar,
+    }
+    script = re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: values.get(m[1], "success"), script)
+    result = subprocess.run(  # noqa: S603 - actual authored status logic, local literals only
+        ["bash", "-c", script + '\nprintf "%s" "$STATUS"'],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout == expected
 
 
 def test_production_has_no_scheduled_mail_job():

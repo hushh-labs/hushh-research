@@ -394,26 +394,26 @@ def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
     )
 
 
-def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
+def test_uat_explicit_diagnostic_retains_real_analytics_smoke() -> None:
     require(
         ".github/workflows/deploy-uat-implementation.yml",
         "id: frontend-analytics-candidate",
         '--update-tags="analytics-candidate=${smoke_revision}"',
         "--remove-secrets=BACKEND_URL,DEVELOPER_API_URL",
-        'BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}',
-        'steps.scope.outputs.deploy_backend == \'true\'',
+        "BACKEND_URL=${{ steps.backend-candidate-state.outputs.backend_candidate_url }}",
+        "steps.scope.outputs.deploy_backend == 'true'",
         "id: verify-analytics-uat",
         "UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}",
         "npm run smoke:analytics:uat",
         "Remove zero-traffic frontend analytics candidate tag",
-        "if: always() && steps.scope.outputs.deploy_frontend == 'true'",
+        "if: always() && (inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true')",
         'entry.get("tag") == "analytics-candidate"',
         "--remove-tags=analytics-candidate",
         "Analytics smoke failed; both zero-traffic candidates stay unpromoted.",
         "ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}",
         'append_unique(blocking, ["analytics_transport_failed"])',
         'if os.environ.get("DEPLOY_BACKEND") == "true":',
-        'analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"',
+        'analytics_smoke_required = os.environ.get("ANALYTICS_SMOKE_REQUIRED") == "true"',
         '"analytics_smoke": {',
     )
     content = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text(encoding="utf-8")
@@ -438,8 +438,8 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     )[0]
     assert 'backend_revision="${{ steps.predeploy-state.outputs.backend_revision }}"' in rollback_step
     assert 'frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"' in rollback_step
-    assert 'if [ -z "${backend_revision}" ]; then' in rollback_step
-    assert 'if [ -z "${frontend_revision}" ]; then' in rollback_step
+    assert "--rollback-revision-json" in rollback_step
+    assert 'if [ "$rollback_tag_fetched" != true ]; then' in rollback_step
     assert '--set-tags="analytics-candidate=' not in content
     assert "id: promote-paired-backend" not in content
     assert (
@@ -593,7 +593,7 @@ def main() -> int:
         test_smoke_receives_selector_decision_without_reclassification,
         test_uat_capacity_admission_follows_resolved_scope_on_old_targets,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
-        test_uat_frontend_release_blocks_on_real_analytics_smoke,
+        test_uat_explicit_diagnostic_retains_real_analytics_smoke,
         test_uat_analytics_smoke_requires_successful_collect_responses,
         test_uat_analytics_transient_asset_retry_is_bounded_and_fail_closed,
         test_web_targeted_voice_check_uses_locked_protocol_runtime,

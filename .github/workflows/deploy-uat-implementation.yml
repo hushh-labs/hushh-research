@@ -58,7 +58,7 @@ on:
         default: false
         type: boolean
       repeat_reviewer_byok:
-        description: "Explicitly run read-only app-browser diagnostics; no automatic browser rehearsal"
+        description: "Explicit analytics delivery and repeated BYOK browser diagnostics (off by default)"
         required: false
         default: false
         type: boolean
@@ -81,11 +81,6 @@ on:
         type: string
       preserve_paused_drive_worker:
         description: "Preserve all three operator-paused UAT Drive jobs and the current private worker"
-        required: false
-        default: false
-        type: boolean
-      skip_managed_vertex_probe_once:
-        description: "One-time UAT Vertex probe exception for a8e36651; verify runtime after release"
         required: false
         default: false
         type: boolean
@@ -284,18 +279,6 @@ jobs:
           python3 scripts/ci/uat_release_prerequisites.py validate-deployment \
             --sha "$APPLICATION_SHA" --ci-run-id "$CI_RUN_ID" \
             --ci-attempt "$CI_ATTEMPT" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH" --authority-sha "$AUTHORITY_SHA"
-
-      - name: Validate one-time Vertex probe exception
-        if: inputs.skip_managed_vertex_probe_once
-        shell: bash
-        env:
-          REQUESTED_SHA: ${{ inputs.sha }}
-          REQUESTED_SCOPE: ${{ inputs.scope }}
-          LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
-        run: |
-          set -euo pipefail
-          echo "The historical one-time Vertex exception has expired; use normal qualification." >&2
-          exit 1
 
       - name: Summarize unchanged UAT target
         if: steps.resolve-sha.outputs.decision == 'NO_OP'
@@ -515,6 +498,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools/calendar"
           cp deploy/calendar/setup_followup_scheduler.sh deploy/calendar/verify_followup_release.py \
             "${RUNNER_TEMP}/release-tools/calendar/"
+          mkdir -p "${RUNNER_TEMP}/release-tools/gmail"
+          cp deploy/gmail/setup_{scheduled_mail,personal_information_request_monitor}_scheduler.sh \
+            "${RUNNER_TEMP}/release-tools/gmail/"
           mkdir -p "${RUNNER_TEMP}/release-tools/answers"
           cp deploy/answers/setup_answer_work_drain_scheduler.sh deploy/answers/verify_settlement_release.py \
             "${RUNNER_TEMP}/release-tools/answers/"
@@ -539,6 +525,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
+          cp scripts/ops/{verify-env-secrets-parity,passkey_domain_policy}.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/capture_managed_provider_receipt.py \
             "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
           cp scripts/ci/uat_backend_build_config.py "${RUNNER_TEMP}/release-tools/"
@@ -546,31 +533,6 @@ jobs:
           cp scripts/ci/resolve-cloud-run-image.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ops/run_uat_text_recovery_job.py \
             "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py"
-          if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
-            cp scripts/ci/managed_provider_readiness.py \
-              "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
-            cp scripts/ci/managed_capability_proof.py \
-              "${RUNNER_TEMP}/release-tools/managed_capability_proof.py"
-            cp deploy/backend.cloudbuild.yaml \
-              "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
-            printf '%s\n' \
-              scripts/deploy/backend-deploy.sh \
-              scripts/deploy/backend-capacity-settings.sh \
-              scripts/deploy/backend-app-surface-settings.sh \
-              scripts/deploy/verify-managed-vertex-runtime.sh \
-              scripts/deploy/commerce-preview-bindings.sh \
-              scripts/deploy/backend-model-settings.sh \
-              scripts/deploy/backend-drive-search-settings.sh \
-              scripts/deploy/backend-drive-secret-settings.sh \
-              scripts/deploy/scope-commerce-secrets.sh \
-              deploy/email-auth/bind_secrets.sh \
-              deploy/plg/bind_secrets.sh \
-              deploy/sso/bind_workos.sh > "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
-            while IFS= read -r tool; do
-              mkdir -p "${RUNNER_TEMP}/release-tools/$(dirname "$tool")"
-              cp "$tool" "${RUNNER_TEMP}/release-tools/$tool"
-            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
-          fi
 
       - name: Checkout deployment SHA
         shell: bash
@@ -586,6 +548,7 @@ jobs:
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
+          cp "${RUNNER_TEMP}/release-tools/"{verify-env-secrets-parity,passkey_domain_policy}.py scripts/ops/
           cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
             scripts/ci/capture_managed_provider_receipt.py
           cp "${RUNNER_TEMP}/release-tools/uat_backend_build_config.py" scripts/ci/
@@ -614,20 +577,6 @@ jobs:
             config/runtime-capacity.json
           cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
             scripts/ops/verify_passkey_domain_associations.py
-          if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
-            cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
-              scripts/ci/managed_provider_readiness.py
-            cp "${RUNNER_TEMP}/release-tools/managed_capability_proof.py" \
-              scripts/ci/managed_capability_proof.py
-            cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
-              deploy/backend.cloudbuild.yaml
-            while IFS= read -r tool; do
-              mkdir -p "$(dirname "$tool")"
-              cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
-            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
-            printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
-            printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n!scripts/deploy/backend-app-surface-settings.sh\n' >> .gcloudignore
-          fi
 
       - name: Decide account generation admission before the deletion fence
         id: generation-admission
@@ -737,17 +686,19 @@ jobs:
           frontend_revision="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' <<<"${frontend_state}")"
           backend_sha=""
           if [ -n "${backend_revision}" ]; then
-            backend_sha="$(gcloud run revisions describe "${backend_revision}" \
-              --project="${{ env.GCP_PROJECT_ID }}" \
-              --region="${{ env.GCP_REGION }}" \
-              --format='value(metadata.labels.deploy-sha)' 2>/dev/null || true)"
+            umask 077
+            gcloud run revisions describe "${backend_revision}" \
+              --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/uat-backend-predeploy-revision.json
+            backend_sha="$(jq -er '.metadata.labels["deploy-sha"]' /tmp/uat-backend-predeploy-revision.json)"
           fi
           frontend_sha=""
           if [ -n "${frontend_revision}" ]; then
-            frontend_sha="$(gcloud run revisions describe "${frontend_revision}" \
-              --project="${{ env.GCP_PROJECT_ID }}" \
-              --region="${{ env.GCP_REGION }}" \
-              --format='value(metadata.labels.deploy-sha)' 2>/dev/null || true)"
+            umask 077
+            gcloud run revisions describe "${frontend_revision}" \
+              --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/uat-frontend-predeploy-revision.json
+            frontend_sha="$(jq -er '.metadata.labels["deploy-sha"]' /tmp/uat-frontend-predeploy-revision.json)"
           fi
 
           echo "backend_sha=${backend_sha}" >> "$GITHUB_OUTPUT"
@@ -935,38 +886,48 @@ jobs:
         run: |
           set -euo pipefail
 
-          # This tag intentionally moves after every healthy UAT release. Force
-          # refresh it so a reused checkout cannot resolve a stale local tag.
-          git fetch --force origin \
-            refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest
-
-          # An audited traffic restore can serve a verified revision without
-          # moving the last-known-good tag. On failure, return to the revision
-          # actually serving before this run rather than an older tag target.
+          # Captured, independently verified live revisions win. A missing or
+          # stale tag is irrelevant unless a selected lane needs the fallback.
           backend_revision="${{ steps.predeploy-state.outputs.backend_revision }}"
-          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
-            if [ -z "${backend_revision}" ]; then
-              backend_revision="$(
-                ROLLBACK_VERIFY_SERVICE="${{ env.BACKEND_SERVICE }}" \
-                ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
-                ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
-                bash scripts/ci/resolve-rollback-target.sh uat backend
-              )"
+          frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"
+          rollback_tag_fetched=false
+          resolve_rollback() {
+            local lane="$1" service="$2" revision="$3" sha="$4"
+            if [ -n "$revision" ] && python3 scripts/ci/verify-cloudrun-revision-provenance.py \
+              --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --service "$service" \
+              --expected-env uat --expected-source deploy-uat --expected-sha "$sha" \
+              --candidate-revision "$revision" \
+              --service-json "/tmp/uat-${lane}-predeploy-service.json" \
+              --rollback-revision-json "/tmp/uat-${lane}-predeploy-revision.json" \
+              --report-path "/tmp/uat-${lane}-rollback-provenance.json"; then
+              printf -v "${lane}_revision" '%s' "$revision"
+              return
             fi
+            echo "Live ${lane} rollback proof unavailable; verifying the last-known-good fallback."
+            if [ "$rollback_tag_fetched" != true ]; then
+              git fetch --force origin refs/tags/deployed/uat-latest:refs/tags/deployed/uat-latest
+              rollback_tag_fetched=true
+            fi
+            revision="$(ROLLBACK_VERIFY_SERVICE="$service" ROLLBACK_VERIFY_REGION="$GCP_REGION" \
+              ROLLBACK_VERIFY_PROJECT="$GCP_PROJECT_ID" bash scripts/ci/resolve-rollback-target.sh uat "$lane")"
+            gcloud run revisions describe "$revision" --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" --format=json > "/tmp/uat-${lane}-rollback-revision.json"
+            sha="$(jq -er '.metadata.labels["deploy-sha"]' "/tmp/uat-${lane}-rollback-revision.json")"
+            python3 scripts/ci/verify-cloudrun-revision-provenance.py \
+              --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --service "$service" \
+              --expected-env uat --expected-source deploy-uat --expected-sha "$sha" \
+              --candidate-revision "$revision" \
+              --rollback-revision-json "/tmp/uat-${lane}-rollback-revision.json" \
+              --report-path "/tmp/uat-${lane}-rollback-provenance.json"
+            printf -v "${lane}_revision" '%s' "$revision"
+          }
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = true ]; then
+            resolve_rollback backend "$BACKEND_SERVICE" "$backend_revision" "${{ steps.predeploy-state.outputs.backend_sha }}"
           else
             backend_revision=""
           fi
-
-          frontend_revision="${{ steps.predeploy-state.outputs.frontend_revision }}"
-          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
-            if [ -z "${frontend_revision}" ]; then
-              frontend_revision="$(
-                ROLLBACK_VERIFY_SERVICE="${{ env.FRONTEND_SERVICE }}" \
-                ROLLBACK_VERIFY_REGION="${{ env.GCP_REGION }}" \
-                ROLLBACK_VERIFY_PROJECT="${{ env.GCP_PROJECT_ID }}" \
-                bash scripts/ci/resolve-rollback-target.sh uat frontend
-              )"
-            fi
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = true ]; then
+            resolve_rollback frontend "$FRONTEND_SERVICE" "$frontend_revision" "${{ steps.predeploy-state.outputs.frontend_sha }}"
           else
             frontend_revision=""
           fi
@@ -1082,7 +1043,7 @@ jobs:
           if-no-files-found: error
 
       - name: Set up Node runtime for UAT browser verification
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
+        if: inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok || (env.PREPROMOTION_UAT_GATES == 'true' && steps.scope.outputs.deploy_frontend == 'true')
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -1090,7 +1051,7 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Cache UAT Chromium binaries
-        if: steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
+        if: inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance || (env.PREPROMOTION_UAT_GATES == 'true' && steps.scope.outputs.deploy_frontend == 'true')
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
@@ -1099,35 +1060,20 @@ jobs:
 
       - name: Install UAT browser verification dependencies
         id: install-browser-dependencies
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
+        if: inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok || (env.PREPROMOTION_UAT_GATES == 'true' && steps.scope.outputs.deploy_frontend == 'true')
         timeout-minutes: 8
         shell: bash
-        env:
-          RUN_CHROMIUM_VERIFICATION: ${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
-          if [ "${RUN_CHROMIUM_VERIFICATION:-false}" != true ]; then
-            echo "Runtime dependencies installed; selected verification does not require Chromium."
-            exit 0
-          fi
           # Keep the runner's signed archive/security fallbacks. PR CI uses this
           # same removal after the preferred Azure mirror stalled for 23 minutes.
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
           fi
-          # Always verify installation, including restored binaries and system
-          # libraries. Playwright reuses its completed browser downloads.
-          for attempt in 1 2; do
-            if (cd hushh-webapp && npx --no-install playwright install --with-deps chromium); then
-              break
-            fi
-            if [ "$attempt" -eq 2 ]; then
-              echo "::error::UAT Chromium installation failed twice."
-              exit 1
-            fi
-            sleep 15
-          done
+          # Unknown installer failures are terminal; do not repeat privileged
+          # apt/package mutations without an explicit transient classification.
+          (cd hushh-webapp && npx --no-install playwright install --with-deps chromium)
 
       - name: Verify One Location read-only rollout prerequisites
         id: one_location_read_only_rollout
@@ -1891,10 +1837,10 @@ jobs:
         id: verify-pkm-preservation
         if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
-        run: bash scripts/ci/run-release-pkm-gate.sh uat
+        run: bash scripts/ci/run-release-pkm-gate.sh uat --sql-only
 
       - name: Verify One mail sender configuration
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && env.PREPROMOTION_UAT_GATES == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -2090,11 +2036,8 @@ jobs:
           fi
           echo "qualification_mode=${qualification_mode}" >> "$GITHUB_OUTPUT"
           verify_managed_vertex_runtime=true
-          if [ "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}" != "0" ]; then
-            verify_managed_vertex_runtime=true
-          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}"
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${{ inputs.skip_managed_vertex_probe_once }}"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=false"
           # RIA claim-by-phone: identity resolver + the UAT demo passcode
           # allowlist (fixed code, no SMS to real firm lines). UAT-only.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RIA_IDENTITY_BASE_URL_SECRET=RIA_IDENTITY_BASE_URL##_RIA_IDENTITY_API_KEY_SECRET=RIA_IDENTITY_API_KEY##_RIA_CLAIM_TEST_NUMBERS_SECRET=RIA_CLAIM_TEST_NUMBERS##_RIA_CLAIM_TEST_CODE_SECRET=RIA_CLAIM_TEST_CODE##_RIA_CLAIM_TEST_EMAILS_SECRET=RIA_CLAIM_TEST_EMAILS##_INTELLIGENCE_API_BASE_URL_SECRET=INTELLIGENCE_API_BASE_URL##_INTELLIGENCE_API_KEY_SECRET=INTELLIGENCE_API_KEY##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM##_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=GOOGLE_SERVICE_ACCOUNT_EMAIL##_GOOGLE_PRIVATE_KEY_SECRET=GOOGLE_PRIVATE_KEY"
@@ -2138,7 +2081,7 @@ jobs:
           READINESS_GITHUB_RUN: ${{ github.run_id }}
           READINESS_ENVIRONMENT: uat
           READINESS_QUALIFICATION_MODE: ${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}
-          READINESS_LEGACY_EXCEPTION: ${{ inputs.skip_managed_vertex_probe_once || false }}
+          READINESS_LEGACY_EXCEPTION: 'false'
         run: |
           python3 scripts/ci/capture_managed_provider_receipt.py \
             --output /tmp/uat-managed-provider-readiness.json
@@ -2247,10 +2190,22 @@ jobs:
               "env_source": env.get("HUSHH_DEPLOY_SOURCE") == "deploy-uat",
               "env_run": env.get("HUSHH_DEPLOY_RUN_ID") == os.environ["GITHUB_RUN_ID"],
           }
+          # Ordinary UAT validates only this candidate's configured overrides;
+          # absent optional SUPPORT_EMAIL secrets use the runtime's One defaults.
+          # Do this before promotion, after source/provenance is established.
+          sender_contract = {"status": "not_checked"}
+          if all(checks.values()) and os.environ["PREPROMOTION_UAT_GATES"] != "true":
+              import runpy
+              parity = runpy.run_path("scripts/ops/verify-env-secrets-parity.py")
+              sender_contract = parity["_support_sender_contract"](
+                  os.environ["GCP_PROJECT_ID"], parity["_container_env_map"](revision)
+              )
+              checks["support_sender"] = sender_contract["status"] in {"valid", "default"}
           report = {
               "status": "ready" if all(checks.values()) else "blocked",
               "revision": expected_revision,
               "checks": checks,
+              "support_sender": sender_contract,
           }
           Path("/tmp/uat-backend-candidate-readiness.json").write_text(
               json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
@@ -2258,20 +2213,23 @@ jobs:
           if not all(checks.values()):
               raise SystemExit("Backend candidate readiness/provenance gate failed")
           PY
-          candidate_health_ok=false
-          for _attempt in 1 2 3 4 5; do
-            if curl --fail --silent --show-error --max-time 15 \
-              "${BACKEND_CANDIDATE_URL%/}/health" \
-              > /tmp/uat-backend-candidate-health.json; then
-              candidate_health_ok=true
-              break
-            fi
-            sleep 3
-          done
-          if [ "${candidate_health_ok}" != "true" ]; then
-            echo "Backend candidate tagged health probe failed." >&2
-            exit 1
-          fi
+          "$PROTOCOL_PYTHON" - <<'PY'
+          import json
+          import os
+          import runpy
+          import time
+          from pathlib import Path
+
+          probe = runpy.run_path("scripts/ops/verify_uat_release.py")["_http_probe"]
+          for attempt in range(5):
+              result = probe(os.environ["BACKEND_CANDIDATE_URL"].rstrip("/") + "/health", timeout=15)
+              Path("/tmp/uat-backend-candidate-health.json").write_text(json.dumps(result))
+              if result["ok"]:
+                  break
+              if not result.get("retryable") or attempt == 4:
+                  raise SystemExit("Backend candidate health refused: non-transient response or retry budget exhausted")
+              time.sleep(3)
+          PY
           if [[ "$UAT_EMAIL_AUTH_ENABLED" == "true" ]]; then
             "${{ env.PROTOCOL_PYTHON }}" scripts/ops/email_auth_uat_release.py verify-candidate \
               --backend-url "$BACKEND_CANDIDATE_URL"
@@ -2328,7 +2286,7 @@ jobs:
               --github-run "${{ github.run_id }}" \
               --github-attempt "${{ github.run_attempt }}" \
               --backend-image "${{ steps.build-backend-image.outputs.image_reference }}" \
-              --legacy-exception "${{ inputs.skip_managed_vertex_probe_once || false }}" \
+              --legacy-exception "false" \
               --manifest-output /tmp/uat-frontend-image-manifest.json \
               --output /tmp/uat-frontend-image.json \
               --proof-output /tmp/uat-frontend-image-handoff.json)"
@@ -2476,7 +2434,7 @@ jobs:
 
       - name: Resolve zero-traffic frontend analytics candidate
         id: frontend-analytics-candidate
-        if: steps.scope.outputs.deploy_frontend == 'true'
+        if: steps.scope.outputs.deploy_frontend == 'true' && (inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -2543,7 +2501,7 @@ jobs:
 
       - name: Verify governed analytics transport on zero-traffic UAT candidate
         id: verify-analytics-uat
-        if: steps.scope.outputs.deploy_frontend == 'true'
+        if: steps.scope.outputs.deploy_frontend == 'true' && (inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true')
         continue-on-error: true
         shell: bash
         working-directory: hushh-webapp
@@ -2684,7 +2642,7 @@ jobs:
           fi
 
       - name: Remove zero-traffic frontend analytics candidate tag
-        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
+        if: always() && (inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true') && steps.scope.outputs.deploy_frontend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -2718,7 +2676,7 @@ jobs:
           fi
 
       - name: Restore canonical frontend backend bindings
-        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
+        if: always() && (inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true') && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -2833,6 +2791,7 @@ jobs:
           echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+            && [ "${{ inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true' }}" = "true" ] \
             && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
             echo "Analytics smoke failed; both zero-traffic candidates stay unpromoted."
             exit 0
@@ -2926,6 +2885,7 @@ jobs:
               "${{ steps.scope.outputs.deploy_backend }}" == "true"
               and (
                   "${{ steps.scope.outputs.deploy_frontend }}" != "true"
+                  or "${{ inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true' }}" != "true"
                   or "${{ steps.verify-analytics-uat.outcome }}" == "success"
               ),
           )
@@ -2933,7 +2893,8 @@ jobs:
               "/tmp/uat-frontend-promoted-service.json",
               "${{ steps.candidate-state.outputs.frontend_revision }}",
               "${{ steps.scope.outputs.deploy_frontend }}" == "true"
-              and "${{ steps.verify-analytics-uat.outcome }}" == "success",
+              and ("${{ inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true' }}" != "true"
+                   or "${{ steps.verify-analytics-uat.outcome }}" == "success"),
           )
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               output.write(f"backend_revision={backend_revision}\n")
@@ -2999,37 +2960,14 @@ jobs:
             --region "${{ env.GCP_REGION }}" \
             --backend-service "${{ env.BACKEND_SERVICE }}" \
             --frontend-service "${{ env.FRONTEND_SERVICE }}" \
-            --require-plaid \
-            --require-market-data \
-            --require-gmail \
-            --require-calendar \
-            --require-one-email \
-            --require-reviewer-smoke \
+            --backend-revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}" \
+            ${{ env.PREPROMOTION_UAT_GATES == 'true' && '--require-plaid --require-market-data --require-gmail --require-calendar --require-one-email --require-reviewer-smoke' || '--configured-integrations-only' }} \
+            ${{ inputs.repeat_reviewer_byok && '--require-reviewer-smoke' || '' }} \
             --assert-runtime-env-contract \
             --report-path /tmp/uat-runtime-parity-attempt-1.json
-
-      - name: Verify UAT runtime env parity retry
-        id: verify-parity-2
-        if: steps.verify-parity-1.outcome == 'failure'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          sleep 20
-          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}" \
-            --region "${{ env.GCP_REGION }}" \
-            --backend-service "${{ env.BACKEND_SERVICE }}" \
-            --frontend-service "${{ env.FRONTEND_SERVICE }}" \
-            --require-plaid \
-            --require-market-data \
-            --require-gmail \
-            --require-calendar \
-            --require-one-email \
-            --require-reviewer-smoke \
-            --assert-runtime-env-contract \
-            --report-path /tmp/uat-runtime-parity-attempt-2.json
+          gmail_required="$(jq -er '.required.gmail | if type == "array" then (length > 0 | tostring) else error("Missing Gmail configuration selection") end' /tmp/uat-runtime-parity-attempt-1.json)"
+          echo "gmail_required=$gmail_required" >> "$GITHUB_OUTPUT"
 
       - name: Verify UAT native passkey domain associations
         id: verify-passkey-associations
@@ -3120,13 +3058,16 @@ jobs:
             --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --deployment-scope "${{ steps.scope.outputs.scope }}" \
+            --require-gmail-configured "${{ steps.verify-parity-1.outputs.gmail_required || 'true' }}" \
             --protocol-env consent-protocol/.env \
             --web-env hushh-webapp/.env.local \
+            --github-output "$GITHUB_OUTPUT" \
             --report-path /tmp/uat-release-verify-attempt-1.json
 
       - name: Semantic UAT verification retry
         id: verify-uat-2
-        if: steps.postdeploy-db-gate.outcome != 'failure' && steps.verify-uat-1.outcome == 'failure'
+        if: steps.postdeploy-db-gate.outcome != 'failure' && steps.verify-uat-1.outcome == 'failure' && steps.verify-uat-1.outputs.retryable == 'true'
         continue-on-error: true
         shell: bash
         run: |
@@ -3136,8 +3077,11 @@ jobs:
             --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --deployment-scope "${{ steps.scope.outputs.scope }}" \
+            --require-gmail-configured "${{ steps.verify-parity-1.outputs.gmail_required || 'true' }}" \
             --protocol-env consent-protocol/.env \
             --web-env hushh-webapp/.env.local \
+            --github-output "$GITHUB_OUTPUT" \
             --report-path /tmp/uat-release-verify-attempt-2.json
 
       - name: Verify reviewer BYOK navigation and cold re-unlock
@@ -3151,8 +3095,7 @@ jobs:
           REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          passes=1
-          if [ "${{ inputs.repeat_reviewer_byok }}" = "true" ]; then passes=2; fi
+          passes=2
           {
             for ((pass = 1; pass <= passes; pass++)); do
               printf 'Reviewer BYOK acceptance pass %s/%s\n' "$pass" "$passes"
@@ -3195,7 +3138,6 @@ jobs:
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
           PARITY_ATTEMPT_1: ${{ steps.verify-parity-1.outcome }}
-          PARITY_ATTEMPT_2: ${{ steps.verify-parity-2.outcome }}
           BACKEND_PROVENANCE_OUTCOME: ${{ steps.verify-backend-provenance.outcome }}
           FRONTEND_PROVENANCE_OUTCOME: ${{ steps.verify-frontend-provenance.outcome }}
           DB_OUTCOME: ${{ steps.postdeploy-db-gate.outcome }}
@@ -3206,6 +3148,7 @@ jobs:
           PWM_ACCEPTANCE_REQUIRED: ${{ inputs.run_pwm_acceptance }}
           PWM_ACCEPTANCE_OUTCOME: ${{ steps.verify-pwm-acceptance.outcome }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
+          ANALYTICS_SMOKE_REQUIRED: ${{ steps.scope.outputs.deploy_frontend == 'true' && (inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true') }}
           ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
           PKM_EVALUATOR_OUTCOME: ${{ steps.verify-candidate-pkm-evaluator.outputs.outcome }}
@@ -3218,7 +3161,7 @@ jobs:
           from pathlib import Path
 
           verification_outcomes = [os.environ.get(name, "") for name in (
-              "PARITY_ATTEMPT_1", "PARITY_ATTEMPT_2", "SEMANTIC_ATTEMPT_1", "SEMANTIC_ATTEMPT_2",
+              "PARITY_ATTEMPT_1", "SEMANTIC_ATTEMPT_1", "SEMANTIC_ATTEMPT_2",
               "BACKEND_PROVENANCE_OUTCOME", "FRONTEND_PROVENANCE_OUTCOME", "DB_OUTCOME")]
           if all(value in {"", "skipped"} for value in verification_outcomes):
               reason = ("frontend_image_build_failed" if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure"
@@ -3253,9 +3196,7 @@ jobs:
                   if value and value not in target:
                       target.append(value)
 
-          parity_report = load_json("/tmp/uat-runtime-parity-attempt-2.json") or load_json(
-              "/tmp/uat-runtime-parity-attempt-1.json"
-          )
+          parity_report = load_json("/tmp/uat-runtime-parity-attempt-1.json")
           backend_provenance_report = load_json("/tmp/uat-backend-provenance.json")
           frontend_provenance_report = load_json("/tmp/uat-frontend-provenance.json")
           semantic_report = load_json("/tmp/uat-release-verify-attempt-2.json") or load_json(
@@ -3263,7 +3204,7 @@ jobs:
           )
           semantic_report_present = bool(semantic_report)
 
-          parity_success = os.environ.get("PARITY_ATTEMPT_1") == "success" or os.environ.get("PARITY_ATTEMPT_2") == "success"
+          parity_success = os.environ.get("PARITY_ATTEMPT_1") == "success"
           backend_provenance_success = (
               os.environ.get("DEPLOY_BACKEND") != "true"
               or os.environ.get("BACKEND_PROVENANCE_OUTCOME") == "success"
@@ -3291,7 +3232,7 @@ jobs:
               not passkey_associations_required
               or os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME") == "success"
           )
-          analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"
+          analytics_smoke_required = os.environ.get("ANALYTICS_SMOKE_REQUIRED") == "true"
           analytics_smoke_success = (
               not analytics_smoke_required
               or os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
@@ -3420,7 +3361,6 @@ jobs:
               "frontend_failure": frontend_failure,
               "parity": {
                   "attempt_1": os.environ.get("PARITY_ATTEMPT_1", ""),
-                  "attempt_2": os.environ.get("PARITY_ATTEMPT_2", ""),
                   "success": parity_success,
               },
               "provenance": {
@@ -3473,7 +3413,7 @@ jobs:
               "analytics_smoke": {
                   "required": analytics_smoke_required,
                   "outcome": os.environ.get("ANALYTICS_SMOKE_OUTCOME", ""),
-                  "success": analytics_smoke_success,
+                  "success": analytics_smoke_success if analytics_smoke_required else None,
               },
               "candidate_pkm_evaluator": {
                   "required": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0") != 0,
@@ -3630,7 +3570,7 @@ jobs:
 
       - name: Activate scheduled mail drain
         id: activate-scheduled-mail-drain
-        if: steps.classify-uat-release.outputs.release_failed == 'false'
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && (steps.scope.outputs.deploy_backend == 'true' || (vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true') != 'true')
         shell: bash
         env:
           BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
@@ -3643,18 +3583,12 @@ jobs:
           MAIL_SCHEDULED_DRAIN_ENABLED: ${{ vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true' }}
         run: |
           set -euo pipefail
-          bash deploy/gmail/setup_scheduled_mail_scheduler.sh \
+          bash "${RUNNER_TEMP}/release-tools/gmail/setup_scheduled_mail_scheduler.sh" \
             | tee /tmp/uat-scheduled-mail-scheduler-setup.log
 
           if [[ "${MAIL_SCHEDULED_DRAIN_ENABLED}" != "true" ]]; then
-            if gcloud scheduler jobs describe "${JOB_NAME}" \
-              --project="${PROJECT_ID}" \
-              --location="${SCHEDULER_LOCATION}" \
-              --format='value(state)' > /tmp/uat-scheduled-mail-scheduler-state.txt 2>/dev/null \
-              && [[ "$(cat /tmp/uat-scheduled-mail-scheduler-state.txt)" != "PAUSED" ]]; then
-              echo "Scheduled mail drain kill switch did not pause ${JOB_NAME}" >&2
-              exit 1
-            fi
+            # The preserved helper already proved absence/PAUSED without
+            # creating an identity or provisioning an enabled job.
             echo "Scheduled mail drain disabled by vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT"
             exit 0
           fi
@@ -3721,16 +3655,20 @@ jobs:
             # Paid admission can use only previously qualified settlement.
             # Do not create, update or resume financial jobs in this phase.
             for attempt in $(seq 1 84); do
-              if python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+              attempt_status=0
+              python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
                 --environment uat --paid-admission \
                 --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
                 --tools-dir "${RUNNER_TEMP}/release-tools" \
                 --not-before "${{ steps.promote-uat-traffic.outputs.started_at }}" \
-                --output /tmp/uat-answer-settlement-serving.json; then
+                --pending-exit-code 75 \
+                --output /tmp/uat-answer-settlement-serving.json || attempt_status=$?
+              if [ "$attempt_status" -eq 0 ]; then
                 echo "mode=verified-existing" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
-              sleep 5
+              [ "$attempt_status" -eq 75 ] || exit "$attempt_status"
+              [ "$attempt" -eq 84 ] || sleep 5
             done
             echo "answer_candidate_settlement_not_observed" >&2
             exit 1
@@ -3755,14 +3693,18 @@ jobs:
               gcloud logging read \
                 "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${job}\" AND timestamp>=\"${triggered_at}\"" \
                 --project="$PROJECT_ID" --freshness=10m --order=desc --limit=20 --format=json > "$logs"
-              if python3 "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" \
+              attempt_status=0
+              python3 "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" \
                 --logs-json "$logs" --triggered-at "$triggered_at" \
                 --expected-job "projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${job}" \
-                --expected-uri "$uri" --evidence-path "/tmp/uat-answer-work-${stage}.json"; then
+                --expected-uri "$uri" --pending-exit-code 75 \
+                --evidence-path "/tmp/uat-answer-work-${stage}.json" || attempt_status=$?
+              if [ "$attempt_status" -eq 0 ]; then
                 verified=true
                 break
               fi
-              sleep 5
+              [ "$attempt_status" -eq 75 ] || exit "$attempt_status"
+              [ "$attempt" -eq 48 ] || sleep 5
             done
             if [ "$verified" != true ]; then
               echo "answer_scheduler_no_fresh_http_completion stage=${stage}" >&2
@@ -3831,10 +3773,16 @@ jobs:
           PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
           SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
           SCHEDULER_SERVICE_ACCOUNT_NAME: ${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}
+          GMAIL_MONITOR_CONFIGURED: ${{ steps.verify-parity-1.outputs.gmail_required || 'true' }}
         run: |
           set -euo pipefail
-          bash deploy/gmail/setup_personal_information_request_monitor_scheduler.sh \
+          bash "${RUNNER_TEMP}/release-tools/gmail/setup_personal_information_request_monitor_scheduler.sh" \
             | tee /tmp/uat-personal-gmail-monitor-scheduler-setup.log
+          if [[ "${GMAIL_MONITOR_CONFIGURED}" == "true" ]]; then
+            echo "mode=configured" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=reconciled-disabled" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Capture Drive scheduler before worker rollout
         id: capture-drive-worker-scheduler
@@ -4228,6 +4176,7 @@ jobs:
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
+                 || [ "${{ steps.activate-calendar-followups.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-answer-work-drain.outcome }}" != "success" ] \
                  || [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; }; then
@@ -4254,6 +4203,16 @@ jobs:
             else
               STATUS="blocked"
             fi
+          fi
+
+          # A selected scheduler reconciliation is part of release acceptance,
+          # including a frontend-only kill switch. Skipped enabled-mail setup
+          # on a frontend-only release is intentionally not a prerequisite.
+          if [ "${{ steps.classify-uat-release.outputs.release_failed }}" = "false" ] \
+             && { [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+                  || [ "${{ vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true' }}" != "true" ]; } \
+             && [ "${{ steps.activate-scheduled-mail-drain.outcome }}" != "success" ]; then
+            STATUS="blocked"
           fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
@@ -4306,7 +4265,6 @@ jobs:
                   "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
                   "reviewer_byok_required": "${{ inputs.repeat_reviewer_byok }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
-                  "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
                   "parity_success": "${{ steps.classify-uat-release.outputs.parity_success }}",
                   "backend_provenance": "${{ steps.verify-backend-provenance.outcome }}",
                   "frontend_provenance": "${{ steps.verify-frontend-provenance.outcome }}",
@@ -4319,6 +4277,9 @@ jobs:
                   "reviewer_byok_passes_requested": "${{ inputs.repeat_reviewer_byok && '2' || '0' }}",
                   "reviewer_byok_passes_completed": "${{ steps.verify-reviewer-byok.outputs.passes_completed || '0' }}",
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
+                  "personal_gmail_monitor_mode": "${{ steps.activate-personal-gmail-monitor.outputs.mode }}",
+                  "scheduled_mail_scheduler": "${{ steps.activate-scheduled-mail-drain.outcome }}",
+                  "calendar_followups_scheduler": "${{ steps.activate-calendar-followups.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "answer_work_drain_activation": "${{ steps.activate-answer-work-drain.outcome }}",
@@ -4421,7 +4382,6 @@ jobs:
             /tmp/uat-runtime-secret-sync.json
             /tmp/uat-frontend-runtime-secret-sync.json
             /tmp/uat-runtime-parity-attempt-1.json
-            /tmp/uat-runtime-parity-attempt-2.json
             /tmp/uat-backend-provenance.json
             /tmp/uat-frontend-provenance.json
             /tmp/uat-db-migration-guard-predeploy.json
@@ -4537,7 +4497,6 @@ jobs:
             echo "- Backend revision: \`${{ steps.final-state.outputs.backend_revision }}\`"
             echo "- Frontend revision: \`${{ steps.final-state.outputs.frontend_revision }}\`"
             echo "- Parity attempt 1: \`${{ steps.verify-parity-1.outcome }}\`"
-            echo "- Parity attempt 2: \`${{ steps.verify-parity-2.outcome }}\`"
             echo "- Backend provenance: \`${{ steps.verify-backend-provenance.outcome }}\`"
             echo "- Frontend provenance: \`${{ steps.verify-frontend-provenance.outcome }}\`"
             echo "- Post-deploy DB contract: \`${{ steps.postdeploy-db-gate.outcome }}\`"
@@ -4607,51 +4566,8 @@ jobs:
           fi
           bash scripts/ci/tag-last-known-good.sh
 
-      - name: Retire old UAT revision tags after a healthy release
-        if: always() && steps.begin-uat-mutation.outcome != 'skipped'
-        shell: bash
-        env:
-          BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_revision }}
-          FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_revision }}
-          BACKEND_ROLLBACK: ${{ steps.predeploy-state.outputs.backend_revision }}
-          FRONTEND_ROLLBACK: ${{ steps.predeploy-state.outputs.frontend_revision }}
-          DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
-          ACTIVATION_RESULT: ${{ steps.activate-account-deletion.outcome }}
-        run: |
-          set -euo pipefail
-          status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
-          if [ "$status" != healthy ]; then
-            echo "Skipping revision tag retirement for release status $status"
-            exit 0
-          fi
-          BACKEND_ROLLBACK="$(python3 - <<'PY'
-          import json
-          import os
-          import runpy
-          from pathlib import Path
-
-          path = Path('/tmp/uat-account-deletion-activation.json')
-          evidence = json.loads(path.read_text()) if path.exists() else None
-          owner = runpy.run_path('deploy/account-deletion/activation_retirement.py')
-          print(owner['uat_tags_rollback'](
-              evidence, activation_succeeded=os.environ['ACTIVATION_RESULT'] == 'success',
-              project=os.environ['GCP_PROJECT_ID'], region=os.environ['GCP_REGION'],
-              service=os.environ['BACKEND_SERVICE'], candidate=os.environ['BACKEND_CURRENT'],
-              source=os.environ['DEPLOY_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
-              rollback=os.environ['BACKEND_ROLLBACK'],
-          ))
-          PY
-          )"
-          bash scripts/ci/cloudrun-retention.sh "$BACKEND_SERVICE" "$GCP_REGION" "$BACKEND_REVISION_RETENTION" \
-            "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
-            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy --tags-only
-          bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
-            "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
-            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
-          if [ "${{ inputs.preserve_paused_drive_worker }}" != true ]; then
-            bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
-              --apply --healthy --tags-only
-          fi
+      # Revision/tag retirement belongs to capacity-maintenance.yml, which
+      # preserves rollback anchors and journals uncertain provider mutations.
 
       - name: Fail workflow when UAT release did not end healthy
         if: always()
