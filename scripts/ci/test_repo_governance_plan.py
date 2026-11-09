@@ -52,6 +52,13 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
+        "scripts/ci/capture_managed_provider_receipt.py",
+        "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
+        "consent-protocol/scripts/generate_capability_graph.py",
+        "consent-protocol/tests/helpers/capability_graph_fixture.py",
+        "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
+        "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
+        "consent-protocol/tests/test_location_workflow_compatibility.py",
         "scripts/ci/assert-governed-actor.py",
         "scripts/ci/promotion_approval.py",
         "scripts/ci/github_team_authority.py",

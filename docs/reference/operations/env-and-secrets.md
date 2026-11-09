@@ -397,12 +397,14 @@ back to `azure_openai` to restore Azure. One chat, its specialists and Search,
 voice and the existing managed capability ports use the selected provider.
 New Drive activity-date requests use the same selected managed planner and preserve
 their existing single interpretation stage, native retrieval and deterministic date
-checks. Both providers must pass the authored v2 planner qualification. Saved
+checks. Provider changes require the affected authored v2 planner qualification. Saved
 requests retain their processor binding and its current-authority validation.
 Chat stays on that one provider for the invocation: an outage does not replay
 its tools or output through another model. The existing eligible Drive transport
 fallback retains its separate contract. A new fleet provider needs an adapter
-and complete capability qualification before selection.
+and complete capability qualification before selection. Ordinary UAT release
+readiness uses the configured provider's core proof; broader capabilities remain
+separate diagnostics under the [CI policy](./ci.md#managed-provider-readiness-policy).
 
 Validate the complete file without model calls or credentials:
 
@@ -617,7 +619,7 @@ Used by:
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
-| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both text scopes and the complete capability bundle. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
+| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both core text scopes and trust/schema proof for ordinary UAT release. Broader capability qualification is separate; see the CI readiness policy. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |
@@ -1373,5 +1375,5 @@ admits only explicitly approved, bounded owner summaries to the existing One
 single-turn gene in Shared placement; it does not authorize background reads,
 new task writes or provider actions. Recheck occurs before output release.
 Disable it to withdraw processing while preserving existing encrypted tasks.
-Live-model evaluation and provider rehearsal are required before promotion;
+Live-model evaluation and provider rehearsal are required before enabling this capability;
 private placement remains unavailable until its owner-direct transport qualifies.

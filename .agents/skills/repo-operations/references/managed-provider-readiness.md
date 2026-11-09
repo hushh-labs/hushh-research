@@ -13,8 +13,10 @@ fixtures, add a second semantic stage, weaken a gate or retry until a desired an
 appears. Preserve the producer's existing deadlines and bounded recovery.
 
 Use fixed case/stage/reason/timing diagnostics without prompts, model output or
-credentials. A semantic failure must remain fail-closed in its terminal verdict
-even if earlier log lines arrive later. Verify producer and collector regressions,
+credentials. A semantic failure must remain failed in its terminal verdict
+even if earlier log lines arrive later. Core trust, ownership, schema and active-model
+failures block deployment. Secondary feature failures remain diagnostic outcomes;
+not-run features are not reported as passing. Follow the [canonical CI policy](../../../../docs/reference/operations/ci.md#managed-provider-readiness-policy). Verify producer and collector regressions,
 then qualify the fixed image through the existing runtime-identity release path.
 A source patch or healthy newer workflow cannot repair an older pinned image.
 
@@ -102,16 +104,19 @@ Each rule names the check that enforces it today, or its gap.
    - Gap: variance is not classified automatically, and PWM gateway calls are not
      yet observed.
 7. **Fail fast, stay cheap.** Run a check as soon as its artifact exists, run
-   independent checks concurrently, fail the aggregate on the first required
-   failure, keep sleeps and log polling off the critical path, and report
+   independent checks concurrently, collect their outcomes before the final
+   required verdict, keep sleeps and log polling bounded, and report
    time-to-verdict.
    - Enforced: the step that collects a finished exam's verdict waits for its rows
      with bounded, capped backoff instead of a fixed 30-second window
      (`tests/test_uat_readiness_verdict_collector.py`), so slow log indexing no
      longer fails a passing exam.
-   - Gap: the verdict still travels through log search; the exam starts about
-     11 minutes into UAT, runs sequentially, and the aggregate waits for the
-     Vertex step. Ending the build from a provider step cancels sibling steps
+   - Current implementation: Azure starts after the candidate image and runtime
+     IAM are available, independently of backend deployment. Ordinary UAT core mode
+     runs the configured provider; full diagnostics retain concurrent Azure/Vertex
+     qualification. Missing required evidence and PWM trust failures remain blocking.
+   - Gap: the verdict still travels through log search, and individual stages
+     inside each provider exam remain sequential. Ending the build from a provider step cancels sibling steps
      before their own job cleanup runs (UAT build a7482d0a left a job that
      blocked the next release), so fail-fast needs cleanup outside the build.
 8. **Prove the check catches what it claims.** A new or changed check ships with a
