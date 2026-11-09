@@ -37,6 +37,11 @@ concurrency:
 
 jobs:
   hardware-capture:
+    permissions:
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: iPhone One Voice capture p95
     runs-on: [self-hosted, macOS, ios-voice-device]
     environment: uat

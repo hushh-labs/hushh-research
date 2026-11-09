@@ -201,8 +201,12 @@ def test_hosted_recovery_proof_refuses_incomplete_or_misattributed_authority(fai
         "conclusion": "failure" if failure == "attempt" else "success",
         "head_sha": "a" * 40,
         "run_attempt": 2,
-        "actor": {"login": "owner"},
-        "triggering_actor": {"login": "other" if failure == "actor" else "owner"},
+        "actor": {"login": "owner", "id": 1, "type": "User"},
+        "triggering_actor": {
+            "login": "owner",
+            "id": 0 if failure == "actor" else 1,
+            "type": "User",
+        },
     }
     job = {
         "run_id": 12,

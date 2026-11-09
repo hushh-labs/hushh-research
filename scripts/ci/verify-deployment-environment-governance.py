@@ -13,23 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 MANAGED_AI_CONFIG_PATH = REPO_ROOT / "consent-protocol" / "config" / "managed-ai-runtime.json"
 DEFAULT_REPO = "hushh-labs/hushh-research"
-# Deliberate SECOND KEY on production deploy authority. This list is duplicated
-# from config/ci-governance.json -> production.manual_dispatch_users on purpose:
-# widening the production cohort must be an explicit two-file edit, so a grant
-# cannot ride in as a one-line JSON diff nobody reads closely.
-#
-# THEREFORE: any PR that edits production.manual_dispatch_users MUST mirror the
-# change here in the same PR, or this check fails.
-#
-# It drifted twice because that rule was implicit (845a456bd added RGlodAkshat +
-# DamriaNeelesh on 2026-08-07 and left this stale for three weeks; the imsharukhan
-# grant on 2026-08-28 widened the gap to 5-vs-2). Stated explicitly now.
-PRODUCTION_MANUAL_DISPATCH_USERS = [
-    "kushaltrivedi5",
-    "ankitkumarsingh1702",
-    "RGlodAkshat",
-    "imsharukhan",
-]
+# Membership is owned by the live deploy-* teams, never by a saved roster.
 
 
 def _gh_json(*args: str) -> dict:
@@ -118,17 +102,11 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
             f"{env_name} is missing required environment variables: {missing_variable_names}"
         )
 
-    allowed_users = surface_policy.get("manual_dispatch_users") or []
-    if surface == "production" and allowed_users != PRODUCTION_MANUAL_DISPATCH_USERS:
-        errors.append(
-            "production manual dispatch policy drifted: "
-            f"expected {PRODUCTION_MANUAL_DISPATCH_USERS}, got {allowed_users}"
-        )
-
-    # Deployment and merge authority are deliberately separate. UAT retains
-    # its authored cohort even when Main merger/review permissions narrow.
-    if not allowed_users or len(allowed_users) != len(set(allowed_users)):
-        errors.append(f"{surface} manual dispatch cohort is missing or duplicated")
+    from github_team_authority import TEAM_IDS
+    team_slug = f"deploy-{surface}"
+    team = _gh_json(f"orgs/hushh-labs/teams/{team_slug}")
+    if team.get("id") != TEAM_IDS[team_slug] or team.get("slug") != team_slug:
+        errors.append(f"{surface} deployment team identity changed")
 
     summary = (
         f"{surface} environment summary: env={env_name}, "
@@ -136,7 +114,7 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
         f"protected_branches={branch_policy.get('protected_branches')}, "
         f"custom_branch_policies={branch_policy.get('custom_branch_policies')}, "
         f"required_variables_configured={not missing_variable_names}, "
-        f"manual_dispatch_users={allowed_users}"
+        f"deployment_team={team_slug}"
     )
     print(summary)
     return errors

@@ -104,7 +104,7 @@ class ProductionCutoverTest(unittest.TestCase):
 
     def test_adapter_uses_exact_attempt_upload_not_artifact_order(self):
         source = run(42)
-        source.update(run_attempt=2, triggering_actor={"login": "maintainer"}, repository={"full_name": REPOSITORY, "id": 1},
+        source.update(run_attempt=2, triggering_actor={"login": "maintainer", "type": "User", "id": 1}, repository={"full_name": REPOSITORY, "id": 1},
                       head_repository={"full_name": REPOSITORY, "id": 1})
         stream = io.BytesIO()
         with zipfile.ZipFile(stream, "w") as bundle:

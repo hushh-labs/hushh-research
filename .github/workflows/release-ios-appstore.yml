@@ -78,6 +78,7 @@ on:
           - production
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
   checks: read
@@ -113,12 +114,19 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   preflight:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     needs: deployment-security
     name: Authorize release and admit an editable Apple version
     runs-on: ubuntu-latest
@@ -162,6 +170,12 @@ jobs:
           bash scripts/ci/require-deploy-sha-on-main.sh "$RELEASE_SHA"
 
   release:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Build, upload & prepare iOS App Store release
     needs: [preflight, deployment-security]
     if: needs.preflight.outputs.ready == 'true'
@@ -845,6 +859,12 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
   prepare:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Process and prepare uploaded App Store build
     needs: [release, deployment-security]
     if: ${{ needs.release.result == 'success' && inputs.dry_run != true }}

@@ -633,11 +633,7 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
     ):
         refresh = importlib.import_module("production_auth_domain_refresh")
         repository = "hushh-labs/hushh-research"
-        policy_path = (
-            Path(control.__file__).resolve().parents[2] / "config/ci-governance.json"
-        )
-        policy = json.loads(policy_path.read_text())
-        actor = policy["production"]["manual_dispatch_users"][0]
+        actor = "fixture-production-operator"
         inputs = {
             "sha": refresh.CANDIDATE,
             "scope": "frontend",
@@ -682,6 +678,8 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
                     **(environment_changes or {}),
                 }
                 with (
+                    mock.patch("github_team_authority.request_operation_authority",
+                               side_effect=lambda env, *a, **kw: {} if env.get("GITHUB_ACTOR") == actor else (_ for _ in ()).throw(ValueError("unauthorized fixture operator"))),
                     mock.patch.object(proof, "read_original", return_value={}),
                     mock.patch.object(control, "record_anchor", return_value=anchor),
                     mock.patch.object(

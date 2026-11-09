@@ -30,8 +30,8 @@ def run():
         "workflow_id": 7,
         "run_attempt": 1,
         "head_sha": "a" * 40,
-        "actor": {"login": "owner"},
-        "triggering_actor": {"login": "owner"},
+        "actor": {"login": "owner", "id": 1, "type": "User"},
+        "triggering_actor": {"login": "owner", "id": 1, "type": "User"},
         "status": "completed",
         "conclusion": "success",
         "updated_at": "2026-10-28T00:00:00Z",
@@ -252,7 +252,6 @@ def test_consumer_checks_real_artifact_integrity_and_latest_run(monkeypatch):
                 return inventory
             return {21: ab, 22: tb, 23: fb}[int(path.split("/")[1])]
 
-    monkeypatch.setattr(v, "_allowed_actors", lambda: {"owner"})
     monkeypatch.setattr(v, "admission", lambda *a, **kw: admitted)
     monkeypatch.setattr(v, "qualify_definition", lambda *a: None)
     client = Client()

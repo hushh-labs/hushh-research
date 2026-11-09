@@ -28,7 +28,8 @@ def run(run_id, workflow="deploy-uat.yml", actor="maintainer", sha="a" * 40):
     return {"id": run_id, "path": f".github/workflows/{workflow}", "head_branch": "main",
             "repository": {"full_name": REPOSITORY}, "head_repository": {"full_name": REPOSITORY},
             "event": "workflow_dispatch", "status": "completed", "conclusion": "success",
-            "actor": {"login": actor}, "created_at": "2026-10-22T01:00:00Z",
+            "actor": {"login": actor, "type": "User", "id": 1},
+            "triggering_actor": {"login": actor, "type": "User", "id": 1}, "created_at": "2026-10-22T01:00:00Z",
             "updated_at": "2026-10-22T02:00:00Z", "head_sha": sha, "run_attempt": 1}
 
 

@@ -1856,7 +1856,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                     if permissions is None:
                         permissions = block(document, "permissions:")
                     self.assertIsNotNone(permissions)
-                    self.assertRegex(permissions, r"(?m)^\s+actions: read\s*$")
+                    self.assertRegex(permissions, r"(?m)^\s+actions: (?:read|write)\s*$")
                     guards = [step for step in re.split(r"(?m)(?=^      - )", job)
                               if "--check-mutations" in step]
                     self.assertEqual(len(guards), 1)
