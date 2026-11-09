@@ -1,31 +1,14 @@
 #!/usr/bin/env python3
-"""Pass a merge-queue entry only when PR Validation already proved its exact tree.
+"""Read exact PR validation attempts for combined-result queue admission.
 
-Queue Validation used to re-run the whole CI surface on every merge group. It
-has not run since 2026-09-01 (maintainers bypass the queue), and its web-full
-step was red in each of its last six runs. It still cannot simply be deleted:
-`main` requires the `CI Status Gate` check and has an active merge-queue
-ruleset, so a PR that enters the queue needs *something* to report that check
-on the merge group, or the entry waits out the queue's check timeout and is
-dropped.
+The current queue owner is queue_combined_result.py. It validates every queued
+member and reruns affected checks when retained evidence cannot prove the new
+combined inputs. This module supplies its bounded attempt/gate readers and
+preserves the legacy identical-tree CLI for historical callers. Branch age alone
+is not a merge refusal; this legacy reuse path only accepts identical trees.
 
-This script is that something, and it never passes content CI has not seen.
-A merge group is accepted only when:
-
-1. its head ref names exactly one PR (`gh-readonly-queue/<base>/pr-<N>-<sha>`);
-2. the merge group's git TREE is byte-identical to the PR head's tree, which
-   holds exactly when the PR already contained the queue base and no other
-   queued entry is stacked underneath it (PR Validation's Base Freshness Gate
-   no longer forces that on PRs into main; a PR behind its base fails here
-   instead); and
-3. the latest `PR Validation` run for that PR head has a successful
-   `CI Status Gate` job.
-
-Anything else fails closed with the reason and the fix (update the branch,
-wait for PR Validation, re-queue). Identical trees mean identical content, so
-the PR result is a result for the merge group, not an approximation of it.
-
-Run with --self-test to exercise the decision logic without the network.
+Missing, cancelled, failed or replaced required evidence never grants clearance.
+Run --self-test for the import-free decision checks.
 """
 
 from __future__ import annotations
@@ -133,9 +116,16 @@ def require_unchanged_authority(run: WorkflowRun, current: list[WorkflowRun], sh
 
 
 def require_gate_success(run: WorkflowRun, jobs: list[dict]) -> None:
-    if run.status != "completed" or run.conclusion != "success":
+    if run.status != "completed":
         raise QueueEntryRejected(
             f"PR Validation run {run.run_id} is still {run.status}; wait for it before queueing"
+        )
+    if run.conclusion != "success":
+        gate_present = any(job.get("name") == GATE_JOB_NAME for job in jobs)
+        suffix = ("inspect the failed jobs before retrying" if gate_present else
+                  "its final status gate is missing; execution is incomplete, not successful")
+        raise QueueEntryRejected(
+            f"PR Validation run {run.run_id} concluded {run.conclusion or 'unknown'}; {suffix}"
         )
     gates = [job for job in jobs if job.get("name") == GATE_JOB_NAME]
     if len(gates) != 1:
@@ -307,6 +297,14 @@ def self_test() -> int:
             pass
         else:
             raise AssertionError(f"accepted gate jobs {jobs!r} on run status {candidate.status}")
+
+    try:
+        require_gate_success(run(3, newer.created_at, conclusion="failure"), [])
+    except QueueEntryRejected as error:
+        _expect("concluded failure" in str(error) and "final status gate is missing" in str(error),
+                "a completed incomplete run is not reported as still running")
+    else:
+        raise AssertionError("accepted incomplete failed execution")
 
     print("verify-queue-entry-reuses-pr-validation self-test passed.")
     return 0
