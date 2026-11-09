@@ -7,6 +7,8 @@ export const DIRECT_MESSAGE_MAX_LENGTH = 2000;
 export class DirectMessagesServiceRequestError extends Error { status = 503; }
 const rows = new Map<string, DirectMessage[]>();
 const overflowingInbox = new URLSearchParams(location.search).has("overflowInbox");
+const paginatedInbox = new URLSearchParams(location.search).has("paginatedInbox");
+const inboxPages: (string | null)[] = [];
 const attachments = new Map<string, Blob>();
 const pendingPhotos = new Map<string, { wait: Promise<void>; release: () => void; started: boolean }>();
 const deliveries: { conversationId: string; messageIds: string[] }[] = [];
@@ -15,6 +17,7 @@ let settleOlder: (() => void) | null = null;
 let olderPending = false;
 let delayReaction = false;
 let settleReaction: (() => void) | null = null;
+let rejectHeldReaction: ((error: Error) => void) | null = null;
 for (const conversationId of ["maya", "arjun"]) rows.set(conversationId, Array.from({ length: 80 }, (_, index) => ({
   id: `${conversationId}-${index}`, conversationId, senderIsViewer: index % 3 === 1,
   content: index === 79 ? "Let’s meet tomorrow. I’ll share the details here 😊" : index === 78 ? "https://example.com/" + "long-path".repeat(50) : `Message ${index + 1} — a friendly conversation.`,
@@ -60,13 +63,19 @@ let delayRouteMint = false;
 let settleRouteMint: (() => void) | null = null;
 let routeResolutions = 0;
 const fixture = {
-  sends, reads, deliveries,
+  sends, reads, deliveries, inboxPages,
   routeRequests,
   routeResolutions: () => routeResolutions,
   holdRouteMint: () => { delayRouteMint = true; },
   releaseRouteMint: () => { delayRouteMint = false; settleRouteMint?.(); settleRouteMint = null; },
   failNextRouteMint: () => { failRouteMint = true; },
   holdReaction: () => { delayReaction = true; },
+  rejectReaction: () => { delayReaction = false; rejectHeldReaction?.(new DirectMessagesServiceRequestError("Synthetic failed reaction response")); rejectHeldReaction = null; settleReaction = null; },
+  remoteTombstone: (id: string) => {
+    const row = rows.get("maya")!.find(item => item.id === id)!;
+    Object.assign(row, { content: "This message was deleted.", attachment: null, deletedForEveryoneAt: new Date().toISOString() });
+    dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: "maya", messageId: `direct-message-action:${id}:audit`, source: "sse" });
+  },
   releaseReaction: () => { delayReaction = false; settleReaction?.(); settleReaction = null; },
   holdOlder: () => { delayOlder = true; }, olderPending: () => olderPending,
   releaseOlder: () => { delayOlder = false; settleOlder?.(); settleOlder = null; },
@@ -148,13 +157,21 @@ export class DirectMessagesService {
     return `/one/messages?token=${selection.token}`;
   }
 
-  static async listConversations() {
+  static async listConversations(input?: { cursor?: string }) {
+    inboxPages.push(input?.cursor ?? null);
     if (delayInbox) await new Promise<void>((resolve) => { settleInbox = resolve; });
+    if (paginatedInbox) {
+      const entries = Array.from({ length: 101 }, (_, index) => ({ ...conversation("arjun"),
+        id: `paginated-${index}`, peerDisplayName: index === 100 ? "Oldest unread connection" : `Paged connection ${index + 1}`,
+        unreadCount: index === 100 ? 1 : 0 }));
+      return { items: input?.cursor ? entries.slice(100) : entries.slice(0, 100), unreadCount: 1,
+        nextCursor: input?.cursor ? null : "fixture-page-2" };
+    }
     const items = [conversation("maya"), conversation("arjun")].filter(item => item.latestMessage);
     if (overflowingInbox) {
       items.push(...Array.from({ length: 30 }, (_, index) => ({ ...conversation("arjun"), id: `extra-${index}`, peerDisplayName: `Connection ${index + 1}` })));
     }
-    return { items, unreadCount: conversation("maya").unreadCount + conversation("arjun").unreadCount };
+    return { items, unreadCount: conversation("maya").unreadCount + conversation("arjun").unreadCount, nextCursor: null };
   }
   static async getConversationMessages(input: { conversationId: string; before?: string; limit?: number }) {
     const items = rows.get(input.conversationId)!;
@@ -229,12 +246,14 @@ export class DirectMessagesService {
   }
   static async reactToMessage(input: { conversationId: string; messageId: string; emoji: string }) {
     const message = rows.get(input.conversationId)!.find((item) => item.id === input.messageId)!;
+    if (message.deletedForEveryoneAt) throw new DirectMessagesServiceRequestError("This message was deleted.");
     message.reactions = [{ emoji: input.emoji, count: 1, reactedByViewer: true }];
-    if (delayReaction) await new Promise<void>(resolve => { settleReaction = resolve; });
+    if (delayReaction) await new Promise<void>((resolve, reject) => { settleReaction = resolve; rejectHeldReaction = reject; });
     return { ...message };
   }
   static async removeReaction(input: { conversationId: string; messageId: string; emoji: string }) {
     const message = rows.get(input.conversationId)!.find((item) => item.id === input.messageId)!;
+    if (message.deletedForEveryoneAt) throw new DirectMessagesServiceRequestError("This message was deleted.");
     message.reactions = (message.reactions ?? []).flatMap(reaction => {
       if (reaction.emoji !== input.emoji || !reaction.reactedByViewer) return [reaction];
       return reaction.count > 1 ? [{ ...reaction, count: reaction.count - 1, reactedByViewer: false }] : [];

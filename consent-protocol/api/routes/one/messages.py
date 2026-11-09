@@ -143,6 +143,7 @@ async def get_unread_count(
 async def list_conversations(
     response: Response,
     limit: int = Query(default=100, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     response.headers["Cache-Control"] = "private, no-store"
@@ -151,6 +152,7 @@ async def list_conversations(
             _service().list_conversations,
             firebase_uid,
             limit=limit,
+            cursor=cursor,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

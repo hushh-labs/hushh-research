@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import struct
 import wave
 from datetime import datetime, timezone
@@ -12,6 +13,9 @@ from hushh_mcp.services.direct_messages_service import (
     DirectMessageCipher,
     DirectMessagesError,
     DirectMessagesService,
+    _decode_inbox_cursor,
+    _encode_inbox_cursor,
+    _inbox_cursor_mac,
     _opened_message_content,
     _stored_message_content,
     normalize_direct_attachment,
@@ -19,6 +23,36 @@ from hushh_mcp.services.direct_messages_service import (
 
 _CONVERSATION_ID = "11111111-1111-4111-8111-111111111111"
 _MESSAGE_ID = "22222222-2222-4222-8222-222222222222"
+
+
+def test_inbox_cursor_is_owner_bound_and_rejects_invalid_positions_before_database_reads(
+    monkeypatch,
+):
+    row = {"id": _CONVERSATION_ID, "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc)}
+    token = _encode_inbox_cursor("alice", row)
+    assert _decode_inbox_cursor("alice", token) == (row["created_at"], _CONVERSATION_ID)
+    invalid = ["", "x" * 513, "malformed", token[:-1], _encode_inbox_cursor("bob", row)]
+    for payload in (
+        {"v": 1, "t": "2026-01-01T00:00:00", "i": _CONVERSATION_ID},
+        {"v": 1, "t": "2026-01-01T00:00:00Z", "i": "invalid"},
+        {"v": True, "t": "2026-01-01T00:00:00Z", "i": _CONVERSATION_ID},
+        {"v": 1, "t": [], "i": _CONVERSATION_ID},
+    ):
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        invalid.append(encoded + "." + _inbox_cursor_mac("alice", encoded))
+    service = _service()
+    monkeypatch.setattr(service, "_execute_many", lambda *_a: pytest.fail("Invalid cursor read DB"))
+    for cursor in invalid:
+        with pytest.raises(DirectMessagesError) as caught:
+            service.list_conversations("alice", cursor=cursor)
+        assert caught.value.code == "DIRECT_MESSAGE_CURSOR_INVALID"
+        assert caught.value.status_code == 400
+
+
+def test_legacy_tombstone_projection_hides_retained_reactions():
+    row = _action_message(deleted_for_everyone_at=datetime(2026, 1, 2, tzinfo=timezone.utc))
+    row["reactions"] = [{"emoji": "heart", "count": 2, "reactedByViewer": True}]
+    assert _service()._message_projection(row, "alice")["reactions"] == []
 
 
 def _voice_wav(duration_ms=1000):
