@@ -1780,7 +1780,7 @@ jobs:
           test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Resolve final Cloud Run state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         id: final-state
         shell: bash
         run: |
@@ -2114,7 +2114,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove this run's candidate tags
-        if: always() && steps.verify-candidates.outcome != 'skipped'
+        if: always() && steps.gcp-auth.outcome == 'success' && steps.verify-candidates.outcome != 'skipped'
         continue-on-error: true
         shell: bash
         run: |
