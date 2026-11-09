@@ -413,15 +413,16 @@ class ExactUatCiTest(unittest.TestCase):
 
     def test_frozen_ordinary_source_survives_descendant_tip_but_not_foreign_history(self):
         import sys
-        import yaml
+        import textwrap
 
         repo_root = Path(subject.__file__).resolve().parents[2]
-        workflow = yaml.safe_load((repo_root / ".github/workflows/deploy-uat-implementation.yml").read_text())
-        promotion = next(step for step in workflow["jobs"]["deploy"]["steps"]
-                         if step.get("name") == "Promote deployed revisions to UAT traffic")
+        workflow = (repo_root / ".github/workflows/deploy-uat-implementation.yml").read_text()
+        promotion = workflow.split("        id: promote-uat-traffic\n", 1)[1]
+        promotion = promotion.split("\n      - name:", 1)[0]
+        promotion = textwrap.dedent(promotion.split("        run: |\n", 1)[1])
         # Execute the authored source guard, ending before the unchanged cloud
         # serving-revision guards. Git is real; only the GitHub read is synthetic.
-        guard = promotion["run"].split('if [[ "$PREPROMOTION_UAT_GATES" == true ]]; then\n', 1)[1]
+        guard = promotion.split('if [[ "$PREPROMOTION_UAT_GATES" == true ]]; then\n', 1)[1]
         guard = guard.split("check_serving() {", 1)[0]
         with tempfile.TemporaryDirectory() as root:
             def git(*args):
