@@ -45,6 +45,11 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
             git_blob(workflows / "capacity-maintenance-clock.yml"),
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
         )
+        self.assertEqual(
+            git_blob(workflows / "capacity-maintenance-clock.yml",
+                     "ccba621758f0395d26c4f187452478b37321c23f"),
+            clock_evidence.HISTORICAL_INVENTORY_CLOCK_WORKFLOW_BLOB,
+        )
         # Historical qualifications must keep their original source, even as
         # current job labels and evidence readers evolve. Missing history fails.
         for profile, revision in (
@@ -638,6 +643,16 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                         title,
                         r"Capacity clock · repository_dispatch · run [1-9][0-9]*",
                     )
+                if expected_family == records.CLOCK_FAMILY_CURRENT_STATIC:
+                    historical_case = self._case(source_profile=source_profile)
+                    old_blob = clock_evidence.HISTORICAL_INVENTORY_CLOCK_WORKFLOW_BLOB
+                    historical_case[6]["workflow_blob"] = {"sha": old_blob[0], "size": old_blob[1]}
+                    historical_record, historical_proof = profile_evidence.discover_record(
+                        historical_case[0], base.REPOSITORY,
+                        historical_case[2], historical_case[3],
+                    )
+                    self.assertEqual(historical_record.source_profile, source_profile)
+                    self.assertEqual(historical_proof["workflow_blob"], historical_case[6]["workflow_blob"])
 
     def test_dynamic_profile_refuses_unknown_title_or_unpinned_clock_blob(self):
         unknown_title = self._case()
