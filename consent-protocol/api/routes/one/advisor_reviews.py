@@ -99,8 +99,8 @@ async def portfolio_analysis(
 
 
 @router.get("")
-async def history(viewer: str = Depends(identity)):
-    return await asyncio.to_thread(AdvisorReviewService().history, viewer)
+async def history(viewer: str = Depends(identity), ui: Literal["2"] | None = None):
+    return await asyncio.to_thread(AdvisorReviewService().history, viewer, ui == "2")
 
 
 @router.post("")

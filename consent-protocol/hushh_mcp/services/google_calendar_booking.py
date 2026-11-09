@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -496,6 +497,7 @@ async def execute_create(
     proposal_id: str,
     plan: dict[str, Any],
     binding: tuple[str, ...] | None,
+    before_write: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     if not str(plan.get("conference_request_id") or "").strip():
         plan["conference_request_id"] = f"meet_legacy_{proposal_id.removeprefix('gcal_')}"
@@ -524,6 +526,7 @@ async def execute_create(
             ),
         },
         payload=calendar._event_payload(plan),
+        **({"before_write": before_write} if before_write is not None else {}),
     )
 
 

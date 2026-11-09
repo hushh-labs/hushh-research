@@ -30,6 +30,7 @@ class MeetingTime(StrictObject):
     startAt: datetime
     endAt: datetime
     timeZone: str = Field(max_length=80)
+    expectedMeetingId: UUID | None = None
 
     @model_validator(mode="after")
     def valid_time(self):
@@ -71,5 +72,24 @@ class PlanCheckout(StrictObject):
 
 
 class MeetingAction(StrictObject):
-    action: Literal["agree", "prepare", "confirm", "cancel", "complete", "check"]
+    action: Literal[
+        "agree",
+        "prepare",
+        "confirm",
+        "cancel",
+        "complete",
+        "check",
+        "propose_booking",
+        "accept_booking",
+    ]
+    meetingId: UUID | None = None
+    time: MeetingTime | None = None
     proposalId: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def exact_booking_offer(self):
+        if (self.action == "propose_booking") != (self.time is not None):
+            raise ValueError("An exact time is required to authorize automatic booking")
+        if self.action == "accept_booking" and self.meetingId is None:
+            raise ValueError("The accepted offer is required")
+        return self
