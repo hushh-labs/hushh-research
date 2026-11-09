@@ -19,9 +19,10 @@ SUMMARY_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "summarize_uat_managed_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["full", "core"])
 @pytest.mark.parametrize("ready", [True, False])
 async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_probes(
-    monkeypatch, ready
+    monkeypatch, ready, mode
 ):
     from unittest.mock import AsyncMock
 
@@ -35,6 +36,7 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("MANAGED_READINESS_MODE", mode)
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
     profile = load_profile("uat")
     # Collection can import the fleet constant under a different environment.
@@ -83,6 +85,16 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
     )
     report = await module.main()
     text_probe.assert_awaited_once_with("vertex")
+    if mode == "core":
+        complete.assert_not_awaited()
+        assert report["ok"] is True
+        assert report["one_voice_probe_ok"] is None
+        assert report["managed_runtime_capabilities_ready"] is None
+        assert report["candidate_models_exercised"] is False
+        assert report["core_models_exercised"] is True
+        assert report["config_hash"]
+        assert len(report["probes"]) == 2
+        return
     complete.assert_awaited_once()
     assert (
         complete.call_args.kwargs["deadline"] <= module.monotonic() + module.PROBE_SEQUENCE_SECONDS

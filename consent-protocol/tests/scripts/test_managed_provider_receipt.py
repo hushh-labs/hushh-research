@@ -15,7 +15,9 @@ from tests.test_uat_deploy_no_traffic_contract import (
 )
 
 
-def _provider_capture_fixture(monkeypatch, azure=True, vertex=False, configured="azure_openai"):
+def _provider_capture_fixture(
+    monkeypatch, azure=True, vertex=False, configured="azure_openai", mode="full"
+):
     monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
     collector = importlib.import_module("capture_managed_provider_receipt")
     gate = _managed_provider_gate()
@@ -23,6 +25,11 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False, configured=
     document["managed_provider_selection"]["uat"] = configured
     expected, a = _provider_fixture(gate, "azure_openai", document=document)
     _, v = _provider_fixture(gate, "vertex", document=document)
+    if mode == "core":
+        expected["qualification_mode"] = mode
+        a["context"] = v["context"] = expected
+        a.pop("capability_proof")
+        v.pop("capability_proof")
     aggregate = gate.evaluate(
         {"azure_openai": a if azure else None, "vertex": v if vertex else None},
         expected,
@@ -79,6 +86,7 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False, configured=
             _BACKEND_SERVICE="consent-protocol",
             _CLOUD_RUN_TAG="account-deletion-" + expected["github_run"],
             _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE="false",
+            _MANAGED_READINESS_MODE=mode,
         ),
         "steps": [{}] * aggregate_index + [{**aggregate_step, "status": "SUCCESS"}],
     }
@@ -90,11 +98,12 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False, configured=
     [(True, False), (False, True), (True, True), (False, False)],
 )
 @pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
+@pytest.mark.parametrize("mode", ["full", "core"])
 def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
-    monkeypatch, azure, vertex, configured
+    monkeypatch, azure, vertex, configured, mode
 ):
     collector, expected, document, label, entries, build = _provider_capture_fixture(
-        monkeypatch, azure, vertex, configured
+        monkeypatch, azure, vertex, configured, mode
     )
     preferred = configured if (azure if configured == "azure_openai" else vertex) else None
     calls = []
@@ -396,14 +405,8 @@ def azure_capability_failure_logs(failure_reason=None):
     return rows
 
 
-@pytest.mark.parametrize("binding", [None, "image", "account", "job"])
-@pytest.mark.parametrize("failure_reason", [None, "unlisted", "root.clock_selection"])
-def test_collector_keeps_closed_capability_failures_only_after_execution_binding(
-    monkeypatch, binding, failure_reason
-):
-    gate = _managed_provider_gate()
-    expected, value = _provider_fixture(gate, "azure_openai")
-    spec = {
+def _azure_execution_spec(expected):
+    return {
         "serviceAccountName": expected["runtime_account"],
         "containers": [
             {
@@ -418,6 +421,16 @@ def test_collector_keeps_closed_capability_failures_only_after_execution_binding
             }
         ],
     }
+
+
+@pytest.mark.parametrize("binding", [None, "image", "account", "job"])
+@pytest.mark.parametrize("failure_reason", [None, "unlisted", "root.clock_selection"])
+def test_collector_keeps_closed_capability_failures_only_after_execution_binding(
+    monkeypatch, binding, failure_reason
+):
+    gate = _managed_provider_gate()
+    expected, value = _provider_fixture(gate, "azure_openai")
+    spec = _azure_execution_spec(expected)
     owner = value["job"]
     if binding == "image":
         spec["containers"][0]["image"] = "foreign-image"
@@ -493,3 +506,68 @@ def test_azure_capability_diagnostics_refuse_unproven_failure_rows(defect):
         logs[-1]["azure_pwm_runtime_probe_result"] = "ok"
     with pytest.raises(ValueError):
         _managed_provider_gate()._capability_proof().execution_diagnostics("azure_openai", logs)
+
+
+@pytest.mark.parametrize(
+    "job_mode,producer_mode,completed",
+    [
+        ("core", "core", True),
+        ("full", "core", True),
+        ("core", None, True),
+        ("core", "full", True),
+        ("core", None, False),
+    ],
+)
+def test_core_receipt_requires_actual_image_mode_acknowledgement(
+    monkeypatch, job_mode, producer_mode, completed
+):
+    gate = _managed_provider_gate()
+    expected, value = _provider_fixture(gate, "azure_openai")
+    expected["qualification_mode"] = "core"
+    spec = _azure_execution_spec(expected)
+    spec["containers"][0]["env"].append({"name": "MANAGED_READINESS_MODE", "value": job_mode})
+    terminal = {"azure_pwm_runtime_probe_result": "ok" if completed else "failed"}
+    if not completed:
+        terminal.update(
+            classification="provider_unavailable",
+            error_type="TimeoutError",
+            pwm_trust_failure=False,
+        )
+    if producer_mode is not None:
+        terminal["qualification_mode"] = producer_mode
+
+    def cloud(arguments):
+        if arguments[:4] == ["run", "jobs", "executions", "list"]:
+            return [{"metadata": {"name": value["execution"]}}]
+        if arguments[:4] == ["run", "jobs", "executions", "describe"]:
+            return {
+                "metadata": {"ownerReferences": [{"name": value["job"]}]},
+                "spec": {"template": {"spec": spec}},
+                "status": {
+                    "conditions": [
+                        {"type": "Completed", "status": "True" if completed else "False"}
+                    ]
+                },
+            }
+        return [
+            {"jsonPayload": row}
+            for row in (
+                terminal,
+                {"managed_text_provider_probe": value["core"]},
+                value["pwm_proof"],
+            )
+        ]
+
+    monkeypatch.setattr(gate, "run_json", cloud)
+    observed = gate.collect("azure_openai", expected, 0 if completed else 1, value["job"])
+    assert observed["verified"] is (job_mode == producer_mode == "core" or not completed)
+    if not completed:
+        assert observed["failure_classification"] == "provider_unavailable"
+        assert gate.evaluate({"azure_openai": observed}, expected)["ready"] is False
+    if observed["verified"]:
+        assert observed["core_ready"] is completed
+    else:
+        assert observed["reason"] in {
+            "execution_identity_or_terminal_mismatch",
+            "producer_qualification_mode_mismatch",
+        }

@@ -489,6 +489,11 @@ def test_engineering_judge_contract_keeps_full_coverage_without_backend_selectio
     assert not backend.match_file(path)
     assert backend.match_file("consent-protocol/scripts/ops/memory_judge.py")
     assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
+    assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
+    assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
+    assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
+    assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
     plan = _governance_plan((path,))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["agent"]
@@ -851,6 +856,9 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
+        "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
+        "consent-protocol/tests/test_location_workflow_compatibility.py",
         "consent-protocol/tests/test_runtime_config_retention.py",
         "consent-protocol/tests/test_plg_deploy_bindings.py",
         "consent-protocol/tests/test_azure_runtime_config_wiring.py",
@@ -914,6 +922,11 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
     assert backend.match_file("consent-protocol/hushh_mcp/services/account_deletion_service.py")
     assert backend.match_file("consent-protocol/db/migrations/098_pkm_v7_recovery_foundation.sql")
     assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
+    assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
+    assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
+    assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
+    assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
     plan = _governance_plan((*paths, dedicated))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["controller"]
