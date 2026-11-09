@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -16,23 +16,19 @@ import { AdvisorReviewService } from "@/lib/advisor-review/service";
 import { AdvisorWorkspace } from "./advisor-workspace";
 import { AdvisorRequestFlow } from "./advisor-request-flow";
 import { PortfolioAgentReview } from "./portfolio-agent-review";
-import { PortfolioPersona } from "./portfolio-persona";
 import styles from "./advisor-review.module.css";
 
 export function AdvisorReviewHub({
   source,
   advisor = false,
   model,
-  renderAnalysis,
 }: {
   source?: FinanceSource;
   advisor?: boolean;
   model?: DashboardViewModel;
-  renderAnalysis?: (advisorCard: ReactNode) => ReactNode;
 }) {
   const { capture, ready, session } = useFinanceShareContext();
   const [generation, setGeneration] = useState(0);
-  const [personaRevision, setPersonaRevision] = useState(0);
   const [creating, setCreating] = useState(false);
   const { context, workspaceKey } = useMemo(
     () => ({
@@ -98,7 +94,33 @@ export function AdvisorReviewHub({
           advisor ? row.direction === "received" : row.direction === "outgoing",
         )
       : [];
-  const cardTitle = advisor ? "Review requests" : "Ask an advisor";
+  const cardTitle = advisor ? "Review requests" : "Talk to an advisor";
+  const requestRows = (
+    <SettingsGroup
+      embedded
+      separatorInset
+      shellClassName="bg-[color:var(--app-card-surface-compact)] shadow-none"
+    >
+      {items.map((row) => {
+        const name = advisor ? row.ownerName : row.advisorName;
+        return (
+          <SettingsRow
+            key={row.id}
+            title={name}
+            leading={<ConnectionPersonAvatar label={name} size="compact" />}
+            description={row.status === "accepted"
+              ? "Connected · introduction and plan"
+              : <span className="capitalize">{row.status}</span>}
+            chevron
+            textOverflow="truncate"
+            ariaLabel={`Open request with ${name}`}
+            describeContent
+            onClick={() => select(row.id)}
+          />
+        );
+      })}
+    </SettingsGroup>
+  );
   const advisorCard = (
     <SurfaceCard role="region" aria-label={cardTitle} className="[&>div]:h-full">
       <SurfaceCardContent className="flex h-full flex-col gap-3 p-4">
@@ -122,30 +144,12 @@ export function AdvisorReviewHub({
           </p>
         ) : null}
         {items.length ? (
-          <SettingsGroup
-            embedded
-            separatorInset
-            shellClassName="bg-[color:var(--app-card-surface-compact)] shadow-none"
-          >
-            {items.map((row) => {
-              const name = advisor ? row.ownerName : row.advisorName;
-              return (
-                <SettingsRow
-                  key={row.id}
-                  title={name}
-                  leading={<ConnectionPersonAvatar label={name} size="compact" />}
-                  description={row.status === "accepted"
-                    ? "Connected · introduction and plan"
-                    : <span className="capitalize">{row.status}</span>}
-                  chevron
-                  textOverflow="truncate"
-                  ariaLabel={`Open request with ${name}`}
-                  describeContent
-                  onClick={() => select(row.id)}
-                />
-              );
-            })}
-          </SettingsGroup>
+          advisor ? requestRows : (
+            <details>
+              <summary className="ui-text-compact-button-label cursor-pointer">Advisor requests · {items.length}</summary>
+              {requestRows}
+            </details>
+          )
         ) : null}
         {source ? (
           <div className="mt-auto flex justify-end">
@@ -174,14 +178,17 @@ export function AdvisorReviewHub({
           key={workspaceKey}
           context={context}
           source={source}
-          model={model}
           scope={session}
-          personaRevision={personaRevision}
-          persona={<PortfolioPersona context={context} onSaved={() => setPersonaRevision((revision) => revision + 1)} />}
-          onFindAdvisor={() => setCreating(true)}
         />
+      ) : !advisor && source && model ? (
+        <SurfaceCard>
+          <SurfaceCardContent className="p-4">
+            <h2 className="ui-text-section-label">Portfolio review</h2>
+            <p className="ui-text-helper-text">Unlock One to view your portfolio review.</p>
+          </SurfaceCardContent>
+        </SurfaceCard>
       ) : null}
-      {renderAnalysis ? renderAnalysis(advisorCard) : advisorCard}
+      {advisorCard}
       {context && creating && source ? (
         <AdvisorRequestFlow
           key={workspaceKey}

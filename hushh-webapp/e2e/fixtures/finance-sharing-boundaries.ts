@@ -51,3 +51,7 @@ export const FinanceSharingService = {
   stop: async () => { document.body.dataset.financeEnded = "true"; return { stopped: true }; },
   review: async () => { document.body.dataset.financeReviews = "1"; return "Synthetic review: the shared allocation is concentrated in equities."; },
 };
+
+export const KaiProfileService = {
+  getProfile: async () => (await readSavedFinance()).profile,
+};
