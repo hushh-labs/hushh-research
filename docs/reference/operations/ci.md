@@ -2172,12 +2172,14 @@ for the canonical commands and live-policy activation. Do not ask a self-approvi
 owner for another person just to satisfy GitHub's native self-review restriction.
 Do not grant ordinary contributors broader bypass to solve an owner-only problem.
 
-Automatic review requests are reserved for protected paths and route to
-`pipeline-editors`. An ordinary product PR can have no requested reviewer team;
-only the authorized maintainer cohort retains governed self-service. Outside
+CODEOWNERS automatically routes protected paths to `pipeline-editors`. Coding
+agents explicitly request the routed Team after PR creation: protected or mixed
+changes use only `pipeline-editors`; ordinary product work uses
+`allowed-maintainers-to-approve` for visible routing. This is a notification, not
+a new mandatory independent review or automatic PR observer. Only the authorized
+maintainer cohort retains governed self-service. Outside
 contributors cannot self-approve: they need an independent authorized review.
-Organization membership alone is not self-approval authority. When an ordinary
-independent review is requested, use `allowed-maintainers-to-approve`.
+Organization membership alone is not self-approval authority.
 A blank reviewer list does not waive
 required checks, queue admission or protected approval on a mixed PR.
 
