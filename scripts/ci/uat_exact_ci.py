@@ -113,6 +113,13 @@ UAT_PRIVILEGED_PATHS = (
     "consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py",
     "scripts/ops/db_migration_release_guard.py", "scripts/ops/email_auth_uat_release.py",
     "consent-protocol/db/private_agent_adoption.py",
+    "consent-protocol/db/hosted_custody_adoption.py",
+    "consent-protocol/db/attempt_email_adoption.py",
+    "consent-protocol/db/hosted_custody_qualification.py",
+    "consent-protocol/db/hosted_custody_acl.py",
+    "consent-protocol/db/private_agent_adoption_successors.py",
+    "consent-protocol/db/firebase_erasure_adoption.py",
+    "consent-protocol/db/legacy_cloud_removal_adoption.py",
     "consent-protocol/db/referral_prize_activation.py",
     "scripts/ops/validate_receipt_logo_template.py",
 )
