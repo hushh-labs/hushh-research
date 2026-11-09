@@ -365,9 +365,16 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
-              # Governance owns the real compiler and its pure Git-fixture contracts.
+              # Governance owns these probe/compiler controllers and their exact contracts.
               - '!consent-protocol/scripts/generate_capability_graph.py'
               - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
+              - '!consent-protocol/scripts/verify_azure_pwm_runtime.py'
+              - '!consent-protocol/scripts/managed_vertex_readiness.py'
+              - '!consent-protocol/tests/test_pwm_runtime_probe.py'
+              - '!consent-protocol/tests/scripts/test_trust_failure_verdict.py'
+              - '!consent-protocol/tests/scripts/test_probe_drive_activity_planner.py'
+              - '!consent-protocol/tests/scripts/test_readiness_exam_runner.py'
+              - '!consent-protocol/tests/test_vertex_capability_probe.py'
               - '!consent-protocol/tests/scripts/test_managed_provider_receipt.py'
               - '!consent-protocol/tests/test_capability_graph_gate_compares_against_base.py'
               - '!consent-protocol/tests/test_capability_graph_dev_phone_history.py'

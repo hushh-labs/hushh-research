@@ -52,6 +52,13 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
+        "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/scripts/managed_vertex_readiness.py",
+        "consent-protocol/tests/test_pwm_runtime_probe.py",
+        "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
+        "consent-protocol/tests/scripts/test_probe_drive_activity_planner.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_runner.py",
+        "consent-protocol/tests/test_vertex_capability_probe.py",
         "scripts/ci/capture_managed_provider_receipt.py",
         "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
         "consent-protocol/scripts/generate_capability_graph.py",

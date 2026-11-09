@@ -492,6 +492,8 @@ def test_engineering_judge_contract_keeps_full_coverage_without_backend_selectio
     assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
     assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
     assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
+    assert not backend.match_file("consent-protocol/scripts/verify_azure_pwm_runtime.py")
+    assert not backend.match_file("consent-protocol/scripts/managed_vertex_readiness.py")
     assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
     assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
     plan = _governance_plan((path,))
@@ -856,6 +858,11 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_pwm_runtime_probe.py",
+        "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
+        "consent-protocol/tests/scripts/test_probe_drive_activity_planner.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_runner.py",
+        "consent-protocol/tests/test_vertex_capability_probe.py",
         "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
         "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
         "consent-protocol/tests/test_capability_graph_dev_phone_history.py",

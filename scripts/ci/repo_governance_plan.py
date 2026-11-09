@@ -20,6 +20,11 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_pwm_runtime_probe.py",
+    "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
+    "consent-protocol/tests/scripts/test_probe_drive_activity_planner.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_runner.py",
+    "consent-protocol/tests/test_vertex_capability_probe.py",
     "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
     "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
     "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
@@ -348,6 +353,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
         "scripts/ci/capture_managed_provider_receipt.py",
+        "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/scripts/managed_vertex_readiness.py",
         "consent-protocol/scripts/generate_capability_graph.py",
         "consent-protocol/tests/helpers/capability_graph_fixture.py",
         "consent-protocol/tests/helpers/plg_qualification.py",
