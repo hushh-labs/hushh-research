@@ -525,7 +525,7 @@ Current operating note:
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - Author/admin status alone is not approval. An authorized owner must explicitly
   approve their captured head through Admin SOP; other PRs require ordinary review.
-- Verify every actual Main queue requester against `main.merge_users`; no shared
+- Verify every actual Main queue requester against live `deploy-production` membership; no shared
   maintainer-team bypass may widen it. With `restrict_writes_to_merge_users=false`,
   remove the classic human-only writer filter only after the reviewed Main policy
   lands and native PR, review, CI, protected-change and owner guards pass readback.
@@ -556,7 +556,7 @@ The UAT workflow uses one active GitHub environment name:
 Operational rules:
 
 1. Only current members of `deploy-production` may dispatch the production workflow.
-2. Main merging uses `main.merge_users`; production dispatch uses its separate explicit operator list. Neither grants the other operation.
+2. Main merging and production dispatch both require live `deploy-production` membership. They remain separately requested operations; merging never deploys.
 3. `production` should not require reviewers and should not allow admin bypass.
 4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
 5. Verify both deploy lanes together with `../../../scripts/ci/verify-deployment-environment-governance.py`.

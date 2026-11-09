@@ -1141,7 +1141,7 @@ batch operations deltas to avoid repeatedly invalidating their tested base.
 Queue admission reads its authority helpers from the protected destination. Git
 parents and the complete queue inventory establish every included PR and actual
 queue requester. Each PR needs its applicable review or qualified maintainer
-self-service authority and its latest successful validation attempt. Protected changes additionally need current Kushal/Ankit
+self-service authority and its latest successful validation attempt. Protected changes additionally need current `pipeline-editors`
 approval; the author alone is not the queue requester.
 
 A single PR may reuse its immutable CI receipt only when source, base, tested
@@ -1187,7 +1187,7 @@ Protected branches are expected to enforce the same CI contract documented here:
 - repository setting
   - auto-merge enabled so `gh pr merge` can hand green PRs to merge queue instead of failing before queue placement
 - `main`
-  - `1` independent approving review of the latest push, or the explicit owner self-approval path; protected edits need Kushal/Ankit
+  - `1` independent approving review of the latest push, or the explicit owner self-approval path; protected edits need current `pipeline-editors` approval
   - required status checks: `CI Status Gate`
   - current combined-result verification through the queue; no age-only strict check
   - conversation resolution required
@@ -1205,7 +1205,7 @@ Current live nuance:
 
 - the repo uses branch protection for review and conversation resolution, with queue validation of the combined result
 - the sanctioned bypass cohort should be limited to the approved owner set, without overlapping push-restriction lists
-- that sanctioned cohort is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
+- native exceptions bind only the live `pipeline-editors` Team; no individual member or saved roster grants authority
 
 ## Deployment environments
 
@@ -1214,12 +1214,12 @@ GitHub deployment environments are part of the release authority surface and sho
 - `uat`
   - no reviewers
   - no admin bypass
-  - protected branches only
+  - custom deployment branch policy: exact `main` only
   - used by [`.github/workflows/deploy-uat.yml`](../../../.github/workflows/deploy-uat.yml)
 - `production`
   - no reviewers
   - no admin bypass
-  - protected branches only
+  - custom deployment branch policy: exact `main` only
   - used by [`.github/workflows/deploy-production.yml`](../../../.github/workflows/deploy-production.yml)
 
 There should not be parallel legacy production environments carrying approval logic that the current workflows no longer use.
@@ -1302,9 +1302,9 @@ step, before candidate code and credentials; never accept it as a dispatch input
 or candidate file. The reusable Voice job receives it only from its trusted
 TestFlight parent. Historical human releases use verified canonical execution and complete outcome
 proof, without replaying current membership against past work; bot releases retain
-recorded controller authority. This historical rule grants no new operation. Separate
-read-only inspection, manual maintenance, emergency and queue consumers still need migration;
-these release-job changes do not establish group-only admission on those paths.
+recorded controller authority. This historical rule grants no new operation. Current read-only inspection, manual
+maintenance, emergency and queue consumers also use live-team admission through
+the trusted producer; historical records cannot authorize a new operation.
 
 ### Matching-branch release control
 
@@ -2109,8 +2109,8 @@ actual native changes.
 | --- | --- | --- |
 | Ordinary contributor to Dev/UAT | PR, independent review, combined-result queue | Relevant CI, conflicts, unresolved conversations |
 | Eligible Dev/UAT maintainer | Governed self-service after destination activation and readback | Required CI, protected-owner approval, objections and combined-result evidence |
-| Governed Main operators (`main.merge_users`) | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
-| Kushal/Ankit approving their own Main PR | `./bin/hushh agents admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
+| Current `deploy-production` members | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
+| Current `pipeline-editors` approving their own protected PR | `./bin/hushh agents admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
 | Dev/UAT deployment operator | Explicit Main-owned deployment | Environment/source authority, CI, protected release security and rollback |
 | Production operator | Explicit Main production deployment | Corresponding UAT acceptance or separately approved incident route |
 
