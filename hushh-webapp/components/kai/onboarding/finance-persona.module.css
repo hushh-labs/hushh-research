@@ -163,3 +163,21 @@
   width: min(40%, 9rem);
   accent-color: var(--app-accent);
 }
+
+.assessmentProgress {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.assessmentProgress span {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.assessmentProgress [data-tone="careful"] { background: light-dark(#538168, #82b798); }
+.assessmentProgress [data-tone="balanced"] { background: var(--app-accent); }
+.assessmentProgress [data-tone="growth"] { background: light-dark(#a45f73, #d38da3); }
+.assessmentProgress [data-tone="planning"] { background: #70869e; }
+.assessmentProgress [data-tone="unsure"] { background: var(--muted-foreground); }

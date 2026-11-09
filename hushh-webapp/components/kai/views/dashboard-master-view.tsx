@@ -32,7 +32,7 @@ import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sh
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
-import { PortfolioBriefing, PortfolioAnalysis, PortfolioNetWorthCard, type NetWorthRecovery } from "@/components/kai/views/portfolio-briefing";
+import { PortfolioBriefing, PortfolioNetWorthCard, type NetWorthRecovery } from "@/components/kai/views/portfolio-briefing";
 import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
 import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
 import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
@@ -2126,7 +2126,6 @@ export function DashboardMasterView({
             <AdvisorReviewHub
               model={model}
               source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
-              renderAnalysis={(advisorCard) => <PortfolioAnalysis model={model} advisorCard={advisorCard} />}
             />
           </>
         ) : null}
