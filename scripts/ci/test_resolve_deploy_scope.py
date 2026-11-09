@@ -239,6 +239,46 @@ def test_auto_mixed_change_deploys_all() -> None:
     assert decision.deploy_frontend is True
 
 
+def test_auto_mixed_serving_sources_do_not_repeat_the_current_service() -> None:
+    resolver = load_module()
+    tempdir, repo = with_git_repo()
+    with tempdir:
+        base = commit_file(repo, "README.md", "base\n")
+        backend = commit_file(repo, "consent-protocol/api/runtime.py", "backend\n")
+        frontend = commit_file(repo, "hushh-webapp/app/page.tsx", "frontend\n")
+        shared = commit_file(repo, "deploy/shared-runtime.sh", "shared\n")
+        lifecycle = commit_file(
+            repo, "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
+            "atomic lifecycle\n",
+        )
+        cases = [
+            # Backend is already installed; only the pending frontend is new.
+            (frontend, backend, base, "frontend", ()),
+            # Frontend is already installed; the backend still needs its change.
+            (frontend, base, frontend, "backend", ("consent-protocol/api/runtime.py",)),
+            # An uninstalled shared change still requires both services.
+            (shared, shared, base, "all", ()),
+            # Even an installed single-service lifecycle change must not split
+            # the existing atomic contract against the older other service.
+            (lifecycle, lifecycle, base, "all", ()),
+        ]
+        previous_cwd = Path.cwd()
+        try:
+            import os
+
+            os.chdir(repo)
+            for target, backend_base, frontend_base, scope, backend_files in cases:
+                decision = resolver.auto_decision(
+                    target_sha=target, backend_base_sha=backend_base,
+                    frontend_base_sha=frontend_base,
+                )
+                assert decision.scope == scope, decision
+                assert decision.backend_changed_files == backend_files, decision
+            assert decision.reason == "auto:account_lifecycle_atomic"
+        finally:
+            os.chdir(previous_cwd)
+
+
 def test_auto_shared_path_deploys_all() -> None:
     resolver = load_module()
     tempdir, repo = with_git_repo()
@@ -333,6 +373,40 @@ def test_frontend_image_build_config_is_frontend_scoped() -> None:
     assert resolver.classify_path("deploy/frontend.cloudbuild.yaml") == "frontend"
 
 
+def test_source_only_inspection_preserves_runtime_and_exclusion_boundaries() -> None:
+    resolver = load_module()
+    tempdir, repo = with_git_repo()
+    with tempdir:
+        base = commit_file(repo, "consent-protocol/.dockerignore", "tests/\n")
+        ops = commit_file(repo, "consent-protocol/tests/test_release.py", "# controller regression\n")
+        docs = commit_file(repo, "docs/operations.md", "Reviewed source sync\n")
+        workflow = commit_file(repo, ".github/workflows/deploy-uat-implementation.yml", "new runtime configuration\n")
+        exclusions = commit_file(repo, "consent-protocol/.dockerignore", "tests/\n!tests/**\n")
+        tests = commit_file(repo, "consent-protocol/tests/test_release.py", "# changed regression\n")
+        runtime = commit_file(repo, "consent-protocol/api/runtime.py", "print('runtime')\n")
+        run_git(repo, "mv", "consent-protocol/api/runtime.py", "docs/retired-runtime.py")
+        run_git(repo, "commit", "-m", "move runtime into documentation")
+        renamed = run_git(repo, "rev-parse", "HEAD")
+        previous_cwd = Path.cwd()
+        try:
+            import os
+
+            os.chdir(repo)
+            assert resolver.source_only_update(base, docs, "uat")
+            assert not resolver.source_only_update(docs, workflow, "uat")
+            assert not resolver.source_only_update(workflow, tests, "uat")
+            assert not resolver.source_only_update(exclusions, tests, "uat")
+            assert not resolver.source_only_update(base, "f" * 40, "uat")
+            assert not resolver.source_only_update(base, ops, "unrecognized")
+            assert not resolver.source_only_update(runtime, renamed, "uat")
+            decision = resolver.auto_decision(
+                target_sha=renamed, backend_base_sha=runtime, frontend_base_sha=runtime
+            )
+            assert decision.deploy_backend, "A removed runtime file cannot become documentation-only."
+        finally:
+            os.chdir(previous_cwd)
+
+
 def main() -> int:
     tests = [
         test_automatic_production_source_is_forward_only_under_serving_lock,
@@ -344,11 +418,13 @@ def main() -> int:
         test_auto_backend_only_change,
         test_pod_offer_changes_do_not_redeploy_the_frontend,
         test_auto_mixed_change_deploys_all,
+        test_auto_mixed_serving_sources_do_not_repeat_the_current_service,
         test_auto_shared_path_deploys_all,
         test_auto_neutral_workflow_plus_frontend_stays_frontend,
         test_auto_missing_deployed_sha_falls_back_to_all,
         test_auto_single_surface_lifecycle_change_deploys_both,
         test_frontend_image_build_config_is_frontend_scoped,
+        test_source_only_inspection_preserves_runtime_and_exclusion_boundaries,
     ]
     for test in tests:
         test()

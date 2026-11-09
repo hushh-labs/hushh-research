@@ -11,6 +11,7 @@ source, security, current-attempt and live-base gate under its existing lock.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import math
 import os
@@ -378,7 +379,27 @@ def inspect(api, authority: str, *, read_live=None, branch="uat") -> dict:
               "reason_code": "qualification_unverified"}
     exact.verify_git_authority(candidate, base, authority, branch=branch)
     require_fresh_email_risk(candidate)
-    qualify_inspection(api, result)
+    source_only = False
+    if branch == "uat":
+        scope = importlib.import_module("resolve-deploy-scope")
+        # Avoid receipt collection for any changed runtime/build/unknown input.
+        if all(scope.source_only_update(value["sha"], candidate, "uat") for value in serving.values()):
+            selection = importlib.import_module("uat_application_selection")
+            acceptance = importlib.import_module("verify-predecessor-acceptance").GitHub()
+            current = selection.current_application(
+                selection.ObservedRepository(api), acceptance, candidate, "auto"
+            )
+            source_only = (
+                not current["waiting"]
+                and current.get("sources") == {name: value["sha"] for name, value in serving.items()}
+                and current.get("revisions") == {name: value["revision"] for name, value in serving.items()}
+                and set(current.get("tooling", {})) == set(serving)
+                and all(scope.source_only_update(old, authority, "uat") for old in current["tooling"].values())
+            )
+    if source_only:
+        result.update(reason_code="source_only_update", accepted_sources=current["sources"])
+    else:
+        qualify_inspection(api, result)
     exact.require_protected_tip(api, candidate, branch)
     if read_live("all") != serving:
         raise Refused("UAT serving state changed during inspection; inspect again")
@@ -387,10 +408,22 @@ def inspect(api, authority: str, *, read_live=None, branch="uat") -> dict:
 
 def render(result: dict) -> str:
     lines = ["## UAT prerequisites (read-only; no deployment)",
-             f"- Protected UAT application: `{result['candidate_sha']}`",
+             f"- Protected UAT source: `{result['candidate_sha']}`",
              f"- Observed serving base: `{result['base_sha']}`",
              f"- Main workflow authority: `{result['authority_sha']}`"]
-    if result["ready"]:
+    if not result["ready"] and result["reason_code"] == "source_only_update":
+        lines += [
+            "- Source-only update: current accepted application sources require no rollout for this change.",
+            "- Accepted application sources: " + ", ".join(
+                f"{name} `{sha}`" for name, sha in sorted(result["accepted_sources"].items())
+            ),
+            "- Do not dispatch full release CI merely because a reviewed operations/docs sync advanced UAT.",
+            "- Required PR and combined-result CI still applies to the source merge.",
+            "- This is not new application acceptance or a live cloud-health certification.",
+            "- Environment/secret changes or deliberate controller testing still require an explicitly qualified release.",
+            "- An explicitly requested redeployment still requires normal exact-source qualification.",
+        ]
+    elif result["ready"]:
         lines += ["- Current exact-source CI passed. Explicit deployment selects this protected SHA; compatibility and rollback remain required. Use the protected UAT caller with:",
                   f"  - `sha={result['candidate_sha']}`",
                   f"  - `ci_run_id={result['ci_run_id']}`",

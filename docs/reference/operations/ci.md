@@ -59,48 +59,26 @@ selects a browser automatically. Unknown bases retain PKM preservation checks.
 
 ## Visual Map
 
-```mermaid
-flowchart TB
-  subgraph dev["Developer lanes"]
-    feat["Feature / developer branches"]
-    ops["Governed operations / hotfix"]
-    prdev["Pull request to dev"]
-    prmain["Pull request to main"]
-    prci["PR Validation<br/>core + affected contracts"]
-  end
+UAT inspection distinguishes a source-only operations/docs sync from an
+application release. When the current immutable acceptance, live service
+sources/revisions and unchanged Main execution source agree, it reports
+`source_only_update`: do not dispatch full release CI solely because the branch
+advanced. Required PR and combined-result CI still applies. This advisory result
+does not publish acceptance, certify cloud health or authorize deployment.
+Runtime, build, configuration, unknown impact or changed serving evidence retains
+normal qualification. Explicit redeployment requests retain every release gate.
+Out-of-band environment/secret changes are not assessed by this source hint;
+request their release explicitly even when application source is unchanged.
 
-  subgraph integration["Integration lane"]
-    freshness["Destination sync guidance"]
-    status["CI Status Gate"]
-    queueci["Queue Validation<br/>verify combined result<br/>reuse only proven inputs"]
-    queue["GitHub merge queue"]
-    devbranch["Protected dev"]
-    main["main"]
-  end
+Source-only backend image builds overlap preparation, then join and pin their
+immutable executable digest before the account-deletion fence or migrations.
+Failed preparation cancels this run's known unused image builds. This moves
+build waiting off the critical path; it removes no candidate or rollback check.
 
-  subgraph release["Environment deployment lanes"]
-    devdeploy["Deploy to Dev<br/>explicit Dev dispatch + trusted release tooling"]
-    green["Green main SHA"]
-    smoke["Main Post-Merge Smoke<br/>deploy-authority on main"]
-    uat["Deploy to UAT<br/>manual exact-SHA dispatch"]
-    prod["Deploy to Production<br/>manual SHA dispatch"]
-  end
-
-  feat --> prdev --> prci
-  ops --> prmain --> prci
-  prci --> freshness
-  prci --> status
-  freshness -.-> queue
-  status --> queue
-  queue --> queueci
-  queueci --> devbranch -->|"explicit request; qualified SHA"| devdeploy
-  queueci --> main --> smoke --> green
-  devdeploy -.->|"legacy accepted-image path"| uat
-  feat -->|"UAT-focused reviewed changes"| uatbranch["Protected uat"]
-  uatbranch --> exactuat["Exact UAT commit CI"] --> uat
-  green -->|"functional CI + Main smoke; explicit production request"| prod
-  uat -.->|"optional accepted image source"| prod
-```
+The [branch and live-team map](./branch-governance.md#visual-map) joins review,
+combined-result merging, isolated application sources and Main-owned explicit
+deployment. It also shows agent-owned downstream source syncs. No merge or sync
+starts a deployment.
 
 This document describes CI and deployment authority. For an ordinary change,
 run the nearest owner checks and let CI select affected regression owners from
@@ -1465,7 +1443,7 @@ transcript contracts; arbitrary output still refuses reconciliation.
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only current `deploy-production` members may trigger it.
 6. Ordinary production requires qualified protected Main and Main smoke, preserving distinct application and approval SHAs and identical content when applicable. A prior UAT deployment is not mandatory; accepted-image promotion still verifies the actual UAT image. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
-7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. Direct UAT source admission omits a preceding Dev deployment only for the protected UAT candidate with exact CI and the recorded serving base. Treat the route as unqualified until the exact branch-CI and Main-owned admission proof pass against the reconciled history and real serving baseline. This source change does not dispatch or authorize an application deployment.
+7. Feature and hotfix changes must first land in protected Dev history before its Main-owned deployment can select them. Direct UAT source admission omits a preceding Dev deployment only for the protected UAT candidate with exact CI and the recorded serving base. Treat the route as unqualified until the exact branch-CI and Main-owned admission proof pass against the reconciled history and real serving baseline. This source change does not dispatch or authorize an application deployment.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
@@ -1996,6 +1974,12 @@ The daily scheduled workflow `.github/workflows/prod-cloudsql-backup-posture.yml
 Every deploy lane (`deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml`)
 builds each image once, pins it to an immutable `sha256` digest, and deploys that
 digest. Nothing downstream re-resolves a mutable tag.
+
+Automatic scope compares backend-owned files with the serving backend source,
+and frontend-owned files with the serving frontend source. Mixed serving versions
+from a scoped release do not select an already-current service again merely
+because the other service is older. Shared inputs, unknown paths and the atomic
+account-lifecycle boundary still consider both baselines and select both services.
 
 **Parallel web build.** A backend + frontend release used to run the web Cloud
 Build (p50 263s, p90 333s over the last 30 UAT deploys) serially after the backend

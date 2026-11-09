@@ -821,10 +821,22 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$PATHS"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
+          # Missing/abandoned prerequisites are infrastructure interruption,
+          # never permission to launch the expensive dependent lanes.
+          for check in "secret-scan=$SECRET_SCAN" "dco-check=$DCO" "paths=$PATHS"; do
+            if [ "${check#*=}" != success ]; then
+              echo "Required prerequisite ${check%%=*}: ${check#*=}."
               fail=1
             fi
+          done
+          if [ "${{ github.event_name }}" = pull_request ] && [ "$PR_BASE_POLICY" != success ]; then
+            fail=1
+          fi
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$PATHS" "${{ needs['ui-contracts'].result }}"; do
+            case "$result" in
+              abandoned|"") echo "GitHub infrastructure interruption: a prerequisite job is ${result:-missing}; no dependent checks can be certified."; fail=1 ;;
+              failure|cancelled|timed_out) fail=1 ;;
+            esac
           done
 
 
@@ -1869,9 +1881,9 @@ jobs:
           fi
           if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
-              fail=1
-            fi
+            case "$result" in
+              failure|cancelled|timed_out|abandoned|"") fail=1 ;;
+            esac
           done
 
           first_failure=""
@@ -1881,6 +1893,9 @@ jobs:
               return
             fi
             case "$result" in
+              abandoned|"")
+                first_failure="$label (GitHub infrastructure interruption: ${result:-missing})"
+                ;;
               failure|cancelled|timed_out)
                 first_failure="$label ($result)"
                 ;;

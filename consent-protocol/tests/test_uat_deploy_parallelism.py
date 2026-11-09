@@ -599,3 +599,166 @@ def test_backend_build_failure_keeps_exact_id_and_elapsed_time(tmp_path, build_s
     assert values["build_id"] == build_id
     assert int(values["finished_at_epoch"]) >= int(values["started_at_epoch"])
     assert int(values["duration_seconds"]) >= 0
+
+
+@pytest.mark.parametrize(
+    "source,accepted_dev,status,allowed",
+    [
+        ("auto", False, "SUCCESS", True),
+        ("auto", True, "SUCCESS", True),
+        ("build-from-source", True, "FAILURE", False),
+        ("promote-from-dev", False, "SUCCESS", False),
+    ],
+)
+def test_backend_preparation_overlaps_but_join_refuses_failed_build(
+    tmp_path, source, accepted_dev, status, allowed
+):
+    import json
+
+    from tests.helpers.deployment_cli import manifest_index
+
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    start = next(step for step in steps if step.get("id") == "start-backend-image-build")
+    join = next(step for step in steps if step.get("id") == "build-backend-image")
+    fence = next(step for step in steps if step.get("id") == "install-account-deletion-fence")
+    prepare = next(step for step in steps if step.get("id") == "document-mode")
+    assert steps.index(start) < steps.index(prepare) < steps.index(join) < steps.index(fence)
+    tools = tmp_path / "runner/release-tools"
+    tools.mkdir(parents=True)
+    shutil.copyfile(
+        REPO_ROOT / "scripts/ci/await-prebuilt-image.sh", tools / "await-prebuilt-image.sh"
+    )
+    helpers = tmp_path / "scripts/ci"
+    helpers.mkdir(parents=True)
+    shutil.copyfile(
+        REPO_ROOT / "scripts/ci/resolve-cloud-run-image.py", helpers / "resolve-cloud-run-image.py"
+    )
+    manifest, parent, child = manifest_index()
+    dev = "gcr.io/hushh-pda-dev/consent-protocol@" + child
+    pin = tmp_path / "pin.json"
+    pin.write_text(json.dumps({"image_reference": dev} if accepted_dev else {}))
+    calls, output = tmp_path / "calls", tmp_path / "output"
+    values = {
+        "env.GCP_PROJECT_ID": "hushh-pda-uat",
+        "steps.resolve-sha.outputs.sha": "c" * 40,
+        "github.run_id": "42",
+        "github.run_attempt": "2",
+    }
+
+    original_pin = "/tmp/uat-dev-backend-image.json"  # noqa: S108 - rewrite authored constant into isolated fixture.
+    original_image = "/tmp/uat-backend-image"  # noqa: S108 - no file is created here.
+
+    def render(body):
+        return (
+            re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: values[m[1]], body)
+            .replace(original_pin, str(pin))
+            .replace(original_image, str(tmp_path / "backend-image"))
+        )
+
+    guard = r"""
+    gcloud() {
+      printf '%s\n' "$*" >> "$CALLS"
+      case "$1 $2 ${3:-}" in
+        "builds submit --async") echo 11111111-1111-4111-8111-111111111111 ;;
+        "builds describe "*) echo "$BUILD_STATUS" ;;
+        "container images describe") echo "$PARENT_DIGEST" ;;
+        "container images add-tag"|"auth configure-docker gcr.io") ;;
+        *) echo "Unexpected cloud command" >&2; return 71 ;;
+      esac
+    }
+    docker() { printf '%s\n' "$MANIFEST"; }
+    export -f gcloud docker
+    """
+    env = {
+        **os.environ,
+        "CALLS": str(calls),
+        "GITHUB_OUTPUT": str(output),
+        "RUNNER_TEMP": str(tools.parent),
+        "BACKEND_IMAGE_SOURCE": source,
+        "BUILD_STATUS": status,
+        "MANIFEST": manifest,
+        "PARENT_DIGEST": parent,
+    }
+    started = subprocess.run(  # noqa: S603 - authored release step; synthetic cloud commands only.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + render(start["run"])],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    if source == "promote-from-dev" and not accepted_dev:
+        assert started.returncode != 0 and not calls.exists()
+        return
+    assert started.returncode == 0, started.stderr
+    pins = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert pins["image_tag"] == "uat-" + "c" * 40 + "-42-2"
+    env.update(
+        IMAGE_SOURCE=pins["image_source"],
+        IMAGE_TAG=pins["image_tag"],
+        IMAGE_REPOSITORY=pins["image_repository"],
+        DEV_IMAGE=pins.get("dev_image", ""),
+        BACKEND_IMAGE_BUILD_ID=pins.get("build_id", ""),
+    )
+    joined = subprocess.run(  # noqa: S603 - authored join; real bounded waiter with synthetic providers.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + render(join["run"])],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert (joined.returncode == 0) is allowed, joined.stdout + joined.stderr
+    observed = calls.read_text().splitlines()
+    assert sum(line.startswith("builds submit") for line in observed) == (
+        pins["image_source"] == "build-from-source"
+    )
+    if allowed:
+        assert (
+            "image_reference=gcr.io/hushh-pda-uat/consent-protocol@" + child in output.read_text()
+        )
+    else:
+        assert not any(line.startswith("container images describe") for line in observed)
+
+
+@pytest.mark.parametrize("first_cancel_fails", [False, True])
+def test_cleanup_stops_both_owned_builds_even_before_mutation(tmp_path, first_cancel_fails):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    cleanup = next(
+        step for step in steps if step.get("name") == "Cancel unused parallel image builds"
+    )
+    assert "begin-uat-mutation" not in cleanup["if"]
+    body = cleanup["run"].replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-uat")
+    first, second = (f"{d * 8}-{d * 4}-4{d * 3}-8{d * 3}-{d * 12}" for d in "12")
+    calls = tmp_path / "calls"
+    guard = r"""
+    gcloud() {
+      printf '%s\n' "$*" >> "$CALLS"
+      if [ "$2" = describe ]; then echo WORKING; return 0; fi
+      if [ "$2" = cancel ]; then
+        [ "$3" != "$BACKEND_IMAGE_BUILD_ID" ] || [ "$FIRST_CANCEL_FAILS" != true ]
+      else return 72; fi
+    }
+    """
+    result = subprocess.run(  # noqa: S603 - authored cleanup against fixed synthetic build identities.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + body],
+        env={
+            **os.environ,
+            "CALLS": str(calls),
+            "BACKEND_IMAGE_BUILD_ID": first,
+            "FRONTEND_IMAGE_BUILD_ID": second,
+            "FIRST_CANCEL_FAILS": str(first_cancel_fails).lower(),
+        },
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert (result.returncode != 0) is first_cancel_fails
+    cancelled = [
+        line for line in calls.read_text().splitlines() if line.startswith("builds cancel")
+    ]
+    assert len(cancelled) == 2 and first in cancelled[0] and second in cancelled[1]
