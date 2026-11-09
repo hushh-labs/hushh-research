@@ -147,6 +147,7 @@ jobs:
           persist-credentials: false
       - name: Verify governed operator before obtaining cloud credentials
         env:
+          GH_TOKEN: ${{ github.token }}
           OPERATOR: ${{ github.actor }}
           HEALTH_OPERATION: ${{ inputs.health_build_operation }}
           HEALTH_ACTION: ${{ inputs.health_action }}
