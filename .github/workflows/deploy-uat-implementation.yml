@@ -156,6 +156,7 @@ jobs:
           fetch-depth: 0
       - name: Assert manual UAT dispatch actor policy
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
           RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
@@ -437,6 +438,7 @@ jobs:
       - name: Assert manual UAT dispatch actor policy
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
           RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |

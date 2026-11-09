@@ -219,6 +219,29 @@ class DeploymentSecurityTest(unittest.TestCase):
             with self.subTest(rows=rows, links=links), self.assertRaises(gate.Refused):
                 gate.produce(env, read, lambda _, rows=rows, links=links: (rows, links))
 
+    def test_live_team_actor_steps_receive_their_existing_job_token(self):
+        import yaml
+
+        root = Path(__file__).resolve().parents[2]
+        for path in (root / ".github/workflows").glob("*.yml"):
+            workflow = yaml.safe_load(path.read_text())
+            for job in workflow.get("jobs", {}).values():
+                for step in job.get("steps", []):
+                    if "assert-governed-actor.py" not in step.get("run", ""):
+                        continue
+                    with self.subTest(workflow=path.name, step=step.get("name")):
+                        env = {
+                            **workflow.get("env", {}),
+                            **job.get("env", {}),
+                            **step.get("env", {}),
+                        }
+                        self.assertIn(
+                            env.get("GH_TOKEN") or env.get("GITHUB_TOKEN"),
+                            ("${{ github.token }}", "${{ secrets.GITHUB_TOKEN }}"),
+                        )
+                        permissions = job.get("permissions", workflow.get("permissions", {}))
+                        self.assertEqual(permissions.get("actions"), "write")
+
     def test_read_only_inspection_exception_rejects_mutation_or_release_credentials(self):
         import yaml
 

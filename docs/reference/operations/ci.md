@@ -22,6 +22,10 @@ observer or recurring security-alert workflow runs. Explicit Main-origin deploym
 the protected security job directly in the same run, without a second branch broker run. Current mutation boundaries also request a bounded Main-owned
 permission recheck, so revoked actors cannot keep using an earlier clearance. These
 explicit operation checks do not scan alerts or observe ordinary PR events.
+Every step calling `assert-governed-actor.py` supplies its existing job token
+and requires `actions: write` for the bounded Main permission request. Forwarded
+clearance does not replace that current-operation recheck. Keep the App key and
+security-alert credential inside the protected Main job.
 
 App-browser automation is an explicit diagnostic, not a required PR, merge-queue
 or release lane. Required web validation covers build/type correctness and affected
