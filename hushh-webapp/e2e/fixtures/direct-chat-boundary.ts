@@ -3,7 +3,7 @@ import { dispatchDirectMessagesUpdated } from "../../lib/direct-messages/direct-
 import { appInteractionCoordinator } from "../../lib/interaction/interaction-intent-coordinator";
 import { changeOwner } from "./direct-chat-auth";
 import type { DirectMessage, DirectMessageConversation } from "../../lib/services/direct-messages-service";
-export const DIRECT_MESSAGE_MAX_LENGTH = 2000;
+export { DIRECT_MESSAGE_MAX_LENGTH } from "../../lib/direct-messages/limits";
 export class DirectMessagesServiceRequestError extends Error { status = 503; }
 const rows = new Map<string, DirectMessage[]>();
 const overflowingInbox = new URLSearchParams(location.search).has("overflowInbox");
@@ -120,7 +120,7 @@ const fixture = {
   },
   loseNextResponse: () => { loseResponse = true; },
   holdSend: () => { delaySend = true; }, releaseSend: () => { delaySend = false; settleSend?.(); settleSend = null; },
-  changeOwner: () => { delayInbox = true; changeOwner("second-owner"); }, releaseInbox: () => { delayInbox = false; settleInbox?.(); settleInbox = null; },
+  changeOwner: (owner = "second-owner") => { delayInbox = owner === "second-owner"; changeOwner(owner); }, releaseInbox: () => { delayInbox = false; settleInbox?.(); settleInbox = null; },
   holdRead: () => { delayRead = true; }, releaseRead: () => { delayRead = false; settleRead?.(); settleRead = null; },
   lifecycle: (state: "active" | "background") => appInteractionCoordinator.handleLifecycle(state),
   incoming: (id = "maya") => {

@@ -7,6 +7,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpFeedInvalidationEpoch, bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
@@ -970,6 +971,8 @@ export class CacheSyncService {
   }
 
   static onAuthSignedOut(userId?: string | null): void {
+    if (userId) void MessagesDraftService.clearForUser(userId).catch(() => undefined);
+    else MessagesDraftService.clearAll();
     bumpFeedInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     if (userId) {

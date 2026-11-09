@@ -672,6 +672,8 @@ def test_full_emoji_migration_preserves_rows_and_refuses_lossy_rollback(chat_db)
 def test_membership_history_images_retries_read_and_erasure(chat_db):
     service = CircleChatService(chat_db)
     circle = _seed(chat_db)
+    original_membership = service.state("bob", circle)["membershipJoinedAt"]
+    alice_membership = service.state("alice", circle)["membershipJoinedAt"]
     payload = _payload(service, circle)
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: service.send("alice", circle, payload), range(4)))
@@ -730,6 +732,8 @@ def test_membership_history_images_retries_read_and_erasure(chat_db):
         )
     with pytest.raises(CircleChatError):
         service.messages("bob", circle)
+    with pytest.raises(CircleChatError):
+        service.state("bob", circle)
     with chat_db.engine.begin() as conn:
         conn.execute(
             text(
@@ -737,6 +741,8 @@ def test_membership_history_images_retries_read_and_erasure(chat_db):
             )
         )
     assert service.messages("bob", circle)["items"] == []
+    assert service.state("bob", circle)["membershipJoinedAt"] != original_membership
+    assert service.state("alice", circle)["membershipJoinedAt"] == alice_membership
     # Negative control: breaking generation matching would expose this old wrap.
     with chat_db.engine.begin() as conn:
         assert (
