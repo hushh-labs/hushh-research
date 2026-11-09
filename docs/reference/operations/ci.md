@@ -1,5 +1,28 @@
 # CI Configuration Reference
 
+## Main-owned release control
+
+Dispatch Dev, UAT and Production deployments from `main`. Application sources remain
+isolated: qualified protected `dev`, protected `uat`, and approved Main content respectively.
+Run names identify the application branch and SHA; the Actions Main badge identifies
+execution authority. Merges never deploy. UAT needs no prior Dev deployment; production
+retains UAT acceptance, compatibility and rollback requirements. This operations delta
+does not publish an application, run migrations or change production traffic.
+
+Current access comes only from the live GitHub teams: ordinary review/self-service uses
+`allowed-maintainers-to-approve`; environments use their `deploy-*` team; protected CI,
+fundamental guidance and emergency authorization use `pipeline-editors`. Saved usernames
+are historical evidence, never current grants. A membership lookup failure refuses the
+operation. An organization-owner role does not replace deployment-team membership.
+
+Protected PR jobs classify affected authority without receiving membership credentials.
+Native Team review and the trusted Main merge decision enforce approval. The queue requests
+current permission at admission and completion through the existing Main broker; no PR
+observer or recurring security-alert workflow runs. Explicit Main-origin deployments use
+the protected security job directly in the same run, without a second branch broker run. Current mutation boundaries also request a bounded Main-owned
+permission recheck, so revoked actors cannot keep using an earlier clearance. These
+explicit operation checks do not scan alerts or observe ordinary PR events.
+
 App-browser automation is an explicit diagnostic, not a required PR, merge-queue
 or release lane. Required web validation covers build/type correctness and affected
 unit/runtime contracts. Browser-engine-specific document/phone behavior is not
@@ -245,7 +268,7 @@ qualification, selecting native lanes only from their existing ownership filters
 against that candidate and serving base. Explicit diagnostic scopes are unchanged.
 
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
-`uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
+`uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `main`
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. The explicit
 release selects that protected application SHA after full exact-candidate CI;
 ordinary Dev/UAT needs no manual PR-history chain or serving-commit ancestry.
@@ -265,15 +288,12 @@ still require valid chronology, including an older-ID run retried later; a newer
 failed or pending attempt blocks. Incomplete inventories, stale attempts and
 unverified source, jobs or producers always refuse admission. Never correct
 provider timestamps, sort by run ID or choose only successful runs.
-Ordinary protected UAT trusts its reviewed application, tests and tooling. The
-shared verifier validates the selected backend manifest's format but does not
-compare its test identities, the selected CI/release files, npm script maps or
-pytest settings with Main. Build recipes and migration controllers may evolve
-through protected UAT review without a corresponding Main merge. Main still owns
-release orchestration and credential clearance. Exact/current CI, compatibility,
-health, rollback and serving-revision checks remain mandatory. Legacy isolated
-UAT retains its stricter Main tooling comparisons; production promotion retains
-its existing approval and acceptance checks.
+Ordinary UAT application code, dependencies and branch-owned tests may differ from
+Main. Its exact current CI and manifest-format checks remain required. Privileged
+build/deployment recipes and migration controllers must match the frozen trusted
+Main revision; required-test execution changes require pipeline-editor authority.
+This is a narrow execution boundary, not whole-directory parity. Compatibility,
+health, rollback, serving-revision and production acceptance checks remain.
 
 Current support requires the selected services to share that tested serving base;
 a mixed or unknown baseline refuses before mutation. Historical UAT receipt
@@ -1244,9 +1264,8 @@ Manual `PR Validation` with scope `auto` or `all` provides full branch diagnosti
 repository-wide alerts within an explicit release run, in a separate job using
 the Main-only `ci-security` environment. Its fine-grained token has only Secret
 scanning alerts: read and Dependabot alerts: read. Candidate code never executes
-in that job. Main-owned releases retain their inline job. The approved matching-branch
-Dev/UAT route uses one explicit Main broker request per deployment attempt; it is
-not a recurring scan or PR worker. Its receipt grants secret clearance only, never
+in that job. All environment releases use this inline Main-owned job in their
+explicit deployment run; no branch-to-Main clearance run is dispatched. Its receipt grants secret clearance only, never
 deployment acceptance by itself.
 Mutation jobs verify the current security attempt; a failed-only rerun cannot
 reuse an earlier clearance. Rerun the complete release workflow through its
@@ -1256,21 +1275,13 @@ the release run/attempt, Main workflow, environment, requested scope and resolve
 application reference. Existing release admission still verifies selected services,
 source CI, schema and rollback compatibility.
 
-The broker foundation verifies the active Dev/UAT caller, governed operator and
-rerun actor, protected application history and referenced Main implementation.
-Caller SHA, application SHA, implementation SHA and broker SHA remain separate.
-The consumer checks artifact digest, complete inventory and both current
-attempts. Published step rows must show the inventory step succeeded. If GitHub
-returns an empty step list, only the exact successful Main producer's typed
-authorization, bound to the current operator, source and attempt, can establish
-execution. Historical receipts without that authorization still require step
-proof; an explicit failed/skipped step or green aggregate alone cannot clear a release.
-A dispatch intent is recorded before the request; a lost response stops
-without automatically dispatching again. Keep that intent with the release
-artifacts for read-only reconciliation. Caller activation remains dependent on
-trusted reusable release wiring and matching-branch cloud identity qualification;
-the broker's presence alone does not enable the route. Keep `ci-security`
-Main-only and never pass its token into Dev/UAT caller jobs.
+Historical branch-origin receipts retain their exact caller, reusable Main implementation,
+source, attempt and immutable artifact checks. They do not authorize a new branch-origin
+dispatch. Current Main execution uses the protected job inline; the isolated Main broker
+also serves explicit queue/manual-operation permission requests without exporting its App
+credential or roster. No workflow-run observer or automatic PR authority worker runs.
+A dispatch intent is recorded before a broker request; an uncertain response stops rather
+than automatically dispatching again. `ci-security` stays Main-only.
 
 The same protected job reads release-team membership through the first-party
 Members-read App, verifies the actual operator and rerunner, and rechecks access
@@ -1297,135 +1308,20 @@ these release-job changes do not establish group-only admission on those paths.
 
 ### Matching-branch release control
 
-For ordinary use, choose **Deploy** for the intended environment, keep
-`operation=deploy` and `scope=auto`, and supply its qualified application SHA and
-release evidence. The remaining jobs are internal safety stages, not alternative
-pipelines a developer must choose.
+This historical heading remains a link target. Current execution is
+[Main-owned release control](#main-owned-release-control): choose the intended
+workflow, select `main`, and supply the qualified protected application SHA.
+`deploy` changes the selected environment only after admission; `inspect` and
+`inspect-routing` are explicitly read-only. Recovery inputs belong to their recorded
+operation. A blank UAT SHA never silently deploys a branch tip.
 
-| Operation | Purpose | Application changes |
-| --- | --- | --- |
-| `deploy` | Validate the exact selection, obtain protected security clearance, wait for capacity, then build/deploy and verify | Only after admission |
-| `inspect` (UAT) | Read prerequisites and show missing release inputs before requesting a deployment | None |
-| `inspect-routing` | Operator diagnostic of caller, security broker and environment identity | None |
-
-A failed prerequisite skips deployment. Skipped branches in the Actions graph
-are expected; they do not represent repeated builds. A blank UAT SHA verifies
-an already-serving no-op only and never silently deploys the latest branch tip.
-Browser reviewer diagnostics are off by default; requesting
-`repeat_reviewer_byok=true` runs two read-only passes. Recovery-only inputs are
-for their recorded operation, not routine releases. The
-[UAT procedure](../../../.agents/skills/uat-scoped-deploy/references/deploy-proof.md)
-shows the required evidence and exact commands.
-
-
-Dev/UAT entrypoints are thin callers of the reviewed Main implementations.
-Normal application runs originate from `dev` and `uat` respectively. Activate the
-same caller revisions on each environment branch before dispatching; a Main merge
-alone does not update those branches. Hosted read-only qualification remains
-required before claiming that a newly activated route works. No push or merge dispatches a deployment. Pod artifact
-publication retains its separate Main-only operation; it does not install an
-owner release.
-
-The unprivileged request job lives in each Dev/UAT implementation and uses only
-its ordinary Actions token. The protected Main broker alone reads repository
-alerts. Production, rollback, native and package callers retain their existing
-read-only Actions permissions and inline protected check. Do not add a write-token
-requester to their shared reusable workflow.
-
-Receipts distinguish caller SHA, application SHA, implementation SHA and broker
-SHA. Historical Main-origin receipts remain readable, but their provenance cannot
-be relabelled as an environment-branch execution. Downstream consumers verify
-GitHub's recorded reusable path/revision and the current attempt before accepting
-the new job-name prefix or artifact.
-
-Activation checkpoint: Main already contains the reviewed thin callers. They
-are not a fallback for normal Dev/UAT dispatch while destination activation is
-pending. Synchronize helper/dependency foundations and thin callers onto each
-destination, reconcile environment branch rules and the
-[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission),
-then verify hosted read-only admission before releasing applications. Historical
-Main-origin receipts remain recovery evidence; they do not enable a new dispatch.
-Existing UAT `operation=inspect` checks
-prerequisites without release mutation. The reusable implementations also expose
-`operation=inspect-routing`: the ordinary Main broker issues current-attempt
-clearance, then the environment job verifies its caller and authenticates only to
-read project identity. It cannot enter deployment, migration, image-publication or
-traffic jobs. Expose this operation in the thin callers during their coordinated
-activation; both hosted readbacks are required. Check Dev's exact environment
-branch inventory with `verify-deployment-environment-governance.py --surface dev`;
-keep `ci-security` Main-only.
-
-Routing was qualified on 4 November: [Dev inspection](https://github.com/hushh-labs/hushh-research/actions/runs/41789084043)
-ran from `dev`, and [UAT inspection](https://github.com/hushh-labs/hushh-research/actions/runs/41790379084)
-ran from `uat`. Both passed the Main broker and authenticated project readback;
-all application deployment jobs were skipped. These receipts establish routing,
-not application-release acceptance. New caller or cloud-authority changes require
-fresh routing qualification. A failure in setup, authority or deployment still
-stops dependent work; independent validation assertions are collected before the
-final failed result.
-
-The standalone CI Security Alerts workflow and its PR receipt polling are retired.
-Rerunning PR validation does not create another workflow. Historical receipt readers
-remain for retained evidence; they do not establish new deployment clearance.
-Synchronize an old feature branch with its destination before retrying legacy CI.
-Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
-`pull_request_target` event to avoid visible workflow entries. Automatic AI review, including the Readiness Exam, is removed. Product/provider
-qualification remains an explicitly selected release operation, not a PR reviewer.
-Retained probe identities remain constrained until their credentials are retired.
-
-
-## Advisory Checks (Non-Blocking By Default)
-
-1. `scripts/ci/docs-parity-check.sh`
-2. `scripts/ci/subtree-sync-check.sh`
-3. `npm run verify:investor-language`
-4. Native build/smoke checks (`./bin/hushh native ios --mode uat`, `./bin/hushh native android --mode uat`) for native release lanes
-5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness; it fails closed when the Firebase Admin credential and public Firebase client configuration name different projects, without rendering either value
-6. Broad full-suite pytest runs and Kai accuracy/compliance suites
-
-Do not add new CI/parity scripts without replacing or consolidating an existing check.
-
-## Lean Required Gate Model
-
-The required pre-merge lane stays focused:
-
-1. Always-blocking security, source-authority, DCO, PR-base policy, and status
-   checks.
-2. Baseline governance, including the Apache/license surface and database
-   release-contract checks, plus regression owners selected by changed paths.
-3. Changed-surface web/backend checks and cross-surface Integration; selected
-   database and native checks remain required when their surfaces change.
-
-The local `focused` profile keeps those authority checks and affected owners.
-`release` adds release-authority owners. Full `docs verify`, skill lint,
-architecture-size and broad agent-hygiene checks remain available in the
-`diagnostic` profile; they are not required for every focused pre-PR run.
-Unknown or incomplete path selection widens regression coverage or fails closed.
-
-Post-merge smoke remains the deployment eligibility gate for `main`.
-
-Practical maintainer rule:
-
-1. Use `git commit -s` for new branch commits that are headed to GitHub.
-2. Run `./bin/hushh agents pre-pr` before opening or updating a PR. Its default
-   focused profile checks the exact destination diff, PR impact description,
-   DCO, protected edits, security and affected local owners; the report keeps
-   hosted checks visible as outstanding.
-3. If unsigned commits exist, preserve shared history and repair only the owned unpublished commits against the actual PR destination. Do not rewrite another developer's shared branch.
-4. After any history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/<actual-destination> HEAD` immediately before pushing; verify that destination first.
-5. If a local edit occurs after pre-PR checks, rerun `./bin/hushh agents pre-pr`
-   for the current tree. For `.agents/`, `docs/`, `config/` or `scripts/` edits,
-   run the nearest owner checks. For the full governance sweep, use
-   `CI_VALIDATION_LEVEL=diagnostic bash scripts/ci/orchestrate.sh governance`.
-
-For pull requests into protected `dev` or `uat`, the DCO job also reads the
-canonical GitHub `main` branch response and requires `protected: true` plus its
-full commit SHA. It fetches that exact commit before excluding only non-merge
-commits reachable from that protected Main baseline; every other non-merge
-commit in the event's base-to-head range still needs a signoff. Missing branch
-context, provider confirmation, or the exact commit fails closed. Main-target
-pull requests, dispatches, and explicit local ranges keep the ordinary strict
-check.
+Dev/UAT source branches remain isolated and receive reviewed source-only operations
+syncs. Their local workflow copies do not authorize environment-branch dispatch.
+Main-origin runs use the protected security job inline. Historical branch-origin
+receipts retain their recorded caller, application and tooling identities and remain
+readable; they do not grant a new operation. Activation verifies exact Main-only
+GitHub environment rules and the existing nonproduction cloud identity providers.
+No merge, inspection or source sync deploys an application.
 
 ### Local core mirror
 
@@ -1509,12 +1405,12 @@ transcript contracts; arbitrary output still refuses reconciliation.
 ## Branch Lanes
 
 1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
-2. Dev/UAT application dispatches originate from their matching environment branches and call reviewed Main implementations; production and pod publication originate from Main. Dev accepts an exact CI-green protected Dev SHA through the [Dev Fast Lane](./dev-fast-lane.md).
+2. Dev/UAT/production workflows execute from Main and independently select their qualified application sources. Dev accepts an exact CI-green protected Dev SHA through the [Dev Fast Lane](./dev-fast-lane.md).
 3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. New application selections must belong to protected UAT history. A direct UAT candidate also needs exact full-scope CI with its current attempt, observed serving base, and protected security checks. Historical Main-backed receipts remain readable and retain Dev-backed acceptance, but Main-only application SHAs are not normal UAT dispatch sources.
 4. Manual UAT dispatch is limited to the current
-   `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
+   live `deploy-uat` team; do not
    transcribe actor names into this document.
-5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
+5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only current `deploy-production` members may trigger it.
 6. Ordinary production requires UAT acceptance and Main approval, preserving distinct application and approval SHAs and identical content. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
 7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. Direct UAT source admission omits a preceding Dev deployment only for the protected UAT candidate with exact CI and the recorded serving base. Treat the route as unqualified until the exact branch-CI and Main-owned admission proof pass against the reconciled history and real serving baseline. This source change does not dispatch or authorize an application deployment.
 
@@ -2215,7 +2111,7 @@ actual native changes.
 | Eligible Dev/UAT maintainer | Governed self-service after destination activation and readback | Required CI, protected-owner approval, objections and combined-result evidence |
 | Governed Main operators (`main.merge_users`) | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
 | Kushal/Ankit approving their own Main PR | `./bin/hushh agents admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
-| Dev/UAT deployment operator | Explicit matching-branch deployment | Environment/source authority, CI, protected release security and rollback |
+| Dev/UAT deployment operator | Explicit Main-owned deployment | Environment/source authority, CI, protected release security and rollback |
 | Production operator | Explicit Main production deployment | Corresponding UAT acceptance or separately approved incident route |
 
 A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md)

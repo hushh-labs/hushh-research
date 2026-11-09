@@ -1271,6 +1271,12 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
             if not (created and started and finished and started - timedelta(seconds=5) <= created <= finished + timedelta(seconds=30)):
                 continue
         return True
+    # A completed immutable upload can independently prove missing step metadata.
+    publication = importlib.import_module("retention_publication")
+    for job in matched:
+        if publication.uploaded_checkpoint_proof(sys.modules[__name__], repository, run, attempt,
+                                                job, environment, artifact) is not None:
+            return True
     return False
 
 

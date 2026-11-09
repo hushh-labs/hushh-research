@@ -8,6 +8,7 @@ import importlib.util
 import json
 import re
 from pathlib import Path
+import sys
 
 
 def _load(name: str, path: Path):
@@ -19,6 +20,7 @@ def _load(name: str, path: Path):
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
 authority = _load(
     "plg_validation_source", Path(__file__).with_name("release_source.py")
 )
@@ -64,7 +66,8 @@ STEPS = {
 }
 
 
-def qualify_run(run: dict, *, run_id: int, allowed: set[str]) -> None:
+def qualify_run(run: dict, *, run_id: int, allowed: set[str] | None = None) -> None:
+    from release_acceptance_provenance import historical_human_dispatch
     require(
         type(run.get("id")) is int
         and run["id"] == run_id
@@ -77,8 +80,7 @@ def qualify_run(run: dict, *, run_id: int, allowed: set[str]) -> None:
         and type(run.get("run_attempt")) is int
         and run["run_attempt"] > 0
         and re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha", "")) is not None
-        and run.get("actor", {}).get("login") in allowed
-        and run.get("triggering_actor", {}).get("login") in allowed,
+        and historical_human_dispatch(run),
         "PLG source validation is not an authorized successful main dispatch",
     )
 
@@ -207,12 +209,10 @@ def verify(run_id: int, sha: str, github=None) -> dict:
     )
     record = authority.qualify_source(sha)
     digest = hashlib.sha256(authority.RECORD.read_bytes()).hexdigest()
-    policy = json.loads((ROOT / "config/ci-governance.json").read_text())
-    allowed = set(policy["production"]["manual_dispatch_users"])
     client = github or transport.GitHub()
     path = f"runs/{run_id}"
     run = client.read(path)
-    qualify_run(run, run_id=run_id, allowed=allowed)
+    qualify_run(run, run_id=run_id)
     _qualify_definition(run, digest)
     qualify_jobs(
         client.read(f"{path}/attempts/{run['run_attempt']}/jobs?per_page=100"), run
@@ -224,7 +224,7 @@ def verify(run_id: int, sha: str, github=None) -> dict:
     qualify_receipt(receipt, record, run, digest)
     client.cache.pop(path, None)
     current = client.read(path)
-    qualify_run(current, run_id=run_id, allowed=allowed)
+    qualify_run(current, run_id=run_id)
     require(
         all(
             current.get(key) == run.get(key)

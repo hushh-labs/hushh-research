@@ -36,6 +36,7 @@ name: Ship Android to Google Play Store
         type: string
 
 permissions:
+  pull-requests: read
   actions: read
   contents: read
   checks: read
@@ -67,6 +68,12 @@ jobs:
       scope: ${{ 'native' }}
 
   ship:
+    permissions:
+      pull-requests: read
+      actions: write
+      contents: read
+      checks: read
+      id-token: write
     needs: deployment-security
     name: Build & upload Android AAB (UAT backend, selected Play track)
     runs-on: ubuntu-latest

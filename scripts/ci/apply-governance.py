@@ -79,10 +79,16 @@ def gh_json(args: list[str]):
 
 
 def load_policy() -> dict:
-    return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        return local_policy(policy)
+    return policy
 
 
 def desired_review_bypass(policy: dict, policy_key: str) -> list[str]:
+    if policy.get("authorization", {}).get("native_teams"):
+        return []
     return sorted(set(policy[policy_key]["review_bypass_users"]))
 
 
@@ -229,15 +235,16 @@ def protected_pipeline_review_rulesets(policy: dict, *, read=gh_json) -> list[di
     if team.get("slug") != "pipeline-editors" or type(team.get("id")) is not int or team["id"] <= 0:
         raise SystemExit("Protected reviewer team identity is unavailable")
     actors = [{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}]
-    # The installed original pair keeps its exact 30-path assignment. Append
-    # supplemental entrypoints; never shift an installed partition while adding one.
-    if len(paths) < 30 or len(paths) != len(set(paths)):
+    # Keep the installed original pair and its eight-path supplement unchanged.
+    # New entrypoints get new partitions; never reshuffle installed coverage.
+    if len(paths) < 38 or len(paths) != len(set(paths)):
         raise SystemExit("Protected review requires the original 30 distinct paths")
     def pattern(path):
         return "/" + path + ("**" if path.endswith("/") else "")
     original = sorted(pattern(path) for path in paths[:30])
-    supplemental = sorted(pattern(path) for path in paths[30:])
-    chunks = [original[:15], original[15:]] + [supplemental[i:i + 15] for i in range(0, len(supplemental), 15)]
+    installed_supplement = sorted(pattern(path) for path in paths[30:38])
+    supplemental = sorted(pattern(path) for path in paths[38:])
+    chunks = [original[:15], original[15:], installed_supplement] + [supplemental[i:i + 15] for i in range(0, len(supplemental), 15)]
     return [{
         "name": f"{name}{suffix} {index + 1}", "target": "branch", "enforcement": "active",
         "conditions": {"ref_name": {"include": refs, "exclude": []}},
@@ -1117,6 +1124,11 @@ def main() -> int:
     if not POLICY_PATH.exists():
         raise SystemExit(f"Policy file not found: {POLICY_PATH}")
     policy = load_policy()
+    if args.apply:
+        operator = gh_json(["api", "user"]).get("login")
+        permissions = gh_json(["api", f"repos/{REPO}"]).get("permissions", {})
+        if operator not in policy["main"]["protected_pipeline_edit_users"] or permissions.get("admin") is not True:
+            raise SystemExit("Governance changes require current pipeline-editor membership and repository administration")
     if args.native_team_transition:
         prior = args.native_team_transition
         if not re.fullmatch(r"[a-f0-9]{40}", prior):
@@ -1126,7 +1138,8 @@ def main() -> int:
         if args.apply and subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() != current:
             raise SystemExit("Native transition must execute from the landed Main revision")
         if args.apply:
-            if policy != json.loads(subprocess.check_output(["git", "show", f"{current}:config/ci-governance.json"], text=True)):
+            from github_team_authority import local_policy
+            if policy != local_policy(json.loads(subprocess.check_output(["git", "show", f"{current}:config/ci-governance.json"], text=True))):
                 raise SystemExit("Native transition policy differs from landed Main")
             subprocess.run(["git", "diff", "--exit-code", current, "--", "scripts/ci/apply-governance.py",
                             "scripts/ci/prepared_branch_governance.py", "config/ci-governance.json"], check=True)

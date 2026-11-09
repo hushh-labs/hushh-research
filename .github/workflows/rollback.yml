@@ -58,6 +58,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   actions: read
   contents: read
   id-token: write
@@ -74,6 +75,11 @@ jobs:
       scope: ${{ 'all' }}
 
   rollback-uat:
+    permissions:
+      pull-requests: read
+      actions: write
+      contents: read
+      id-token: write
     needs: deployment-security
     name: "Rollback — UAT"
     if: github.event.inputs.environment == 'uat'
@@ -293,7 +299,7 @@ jobs:
     name: "Rollback — Production"
     permissions:
       contents: read
-      actions: read
+      actions: write
       id-token: write
     if: github.event.inputs.environment == 'production'
     runs-on: ubuntu-latest

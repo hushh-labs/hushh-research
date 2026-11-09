@@ -26,7 +26,7 @@ other authority transition:
    The `ref` input locates the SHA; it does not authorize that branch. Re-read the SHA
    immediately before dispatching, not from a note taken earlier.
 3. **Confirm the governed actor** (`scripts/ci/assert-governed-actor.py --surface dev`).
-4. **Dispatch the application workflow from `dev`.** Its thin caller invokes the
+4. **Dispatch the application workflow from `main`.** Its thin caller invokes the
    reviewed Main implementation. `ref` locates the exact application SHA, which
    must belong to protected Dev history. Pod publication remains Main-only.
    Use `operation=inspect-routing` to verify branch and cloud authority without
@@ -327,7 +327,7 @@ The writer candidate selects recorded pod commands for BYOC and refuses new
 hub Live sessions for non-Shared or unverified placement. Live private-command
 acceptance remains unverified until the exact revision and pod are exercised.
 
-The caller runs from `dev` with a Main-owned implementation; application content comes from its
+The caller runs from `main` with a Main-owned implementation; application content comes from its
 selected `ref` and exact SHA. Read back serving revisions and traffic after each
 run. A historical amber result, green build, or workflow label is not proof of
 current voice behavior or successful rollback.
@@ -346,7 +346,7 @@ rollout decision.
 The dev registry and existing owner pod services are now live. The 2026-08-06
 observation that the registry had not yet been created is historical. A dev
 deploy still runs `db/migrate.py` from the selected application SHA, while the
-reusable implementation runs from `main`: dispatch from `dev` with `ref` and the
+reusable implementation runs from `main`: dispatch from `main` with `ref` and the
 exact verified branch SHA. Check the dev migration ledger and registry state
 separately from workflow health; a green deploy alone does not establish the
 schema or owner-pod state.

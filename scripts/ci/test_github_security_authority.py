@@ -4,6 +4,7 @@
 """Exercise the production security authority's origin and inventory boundary."""
 
 import importlib.util
+import copy
 import json
 from pathlib import Path
 import tempfile
@@ -351,6 +352,83 @@ class SecurityRerunTest(unittest.TestCase):
         self.assertEqual(len(writes), 1)
 
 
+class ExplicitOperationTeamTest(unittest.TestCase):
+    def test_current_main_operation_uses_live_team_and_rechecks_rerunner(self):
+        import github_team_authority as team
+        import deployment_security
+        repository, sha = team.REPOSITORY, "a" * 40
+        request = {"kind": "operation", "surface": "production", "id": 42, "run_attempt": 2, "head_sha": sha}
+        actor = {"login": "synthetic-operator", "type": "User", "id": 100}
+        run = {"id": 42, "run_attempt": 2, "head_sha": sha, "head_branch": "main", "status": "in_progress",
+               "event": "workflow_dispatch", "path": ".github/workflows/deploy-production.yml", "workflow_id": 5,
+               "repository": {"full_name": repository}, "head_repository": {"full_name": repository},
+               "actor": actor, "triggering_actor": actor}
+        def read(path):
+            if path.endswith("/actions/runs/42"): return copy.deepcopy(run)
+            if "/actions/workflows/" in path: return {"id": 5, "path": run["path"]}
+            return {"status": "identical", "merge_base_commit": {"sha": sha}}
+        teams = {slug: ["synthetic-operator"] for slug in team.TEAM_IDS}
+        producer = {"repository": repository, "workflow_path": team.WORKFLOW, "workflow_sha": sha, "run_id": 7, "attempt": 1}
+        with patch.object(deployment_security, "verify_run", return_value=producer), \
+             patch.object(team, "team_reader", return_value=object()), \
+             patch.object(team, "read_teams", return_value=teams):
+            result = team.produce_operation_request({}, read, request)
+            self.assertEqual(result["request"], request)
+            self.assertNotIn("teams", result)
+            protected = {**request, "protected": True}
+            self.assertEqual(team.produce_operation_request({}, read, protected)["request"], protected)
+            teams["pipeline-editors"] = []
+            with self.assertRaises(team.Refused): team.produce_operation_request({}, read, protected)
+            teams["pipeline-editors"] = ["synthetic-operator"]
+            teams["deploy-production"] = ["replacement-operator"]
+            with self.assertRaises(team.Refused): team.produce_operation_request({}, read, request)
+            teams["deploy-production"] = ["synthetic-operator"]
+            run["triggering_actor"] = {"login": "outsider", "type": "User", "id": 101}
+            with self.assertRaises(team.Refused): team.produce_operation_request({}, read, request)
+            run["head_branch"] = "dev"
+            with self.assertRaises(team.Refused): team.produce_operation_request({}, read, request)
+
+
+    def test_explicit_broker_binds_attempt_and_never_replays_uncertain_dispatch(self):
+        import subprocess
+        import github_team_authority as team
+        import github_security_receipt as transport
+        repository, sha = team.REPOSITORY, "a" * 40
+        request = {"kind": "operation", "surface": "production", "id": 42, "run_attempt": 1, "head_sha": sha}
+        run = {"id": 7, "run_attempt": 1, "path": team.WORKFLOW, "head_branch": "main",
+               "event": "workflow_dispatch", "repository": {"full_name": repository}, "head_sha": sha,
+               "status": "completed", "conclusion": "success", "run_started_at": "2026-11-08T01:00:00Z",
+               "updated_at": "2026-11-08T01:01:00Z"}
+        artifact = {"id": 8, "name": "deployment-security-7-1", "expired": False,
+                    "workflow_run": {"id": 7}, "size_in_bytes": 3, "digest": "sha256:" + "b" * 64}
+        receipt = {"schema_version": 1, "request": request, "producer": {"repository": repository,
+                   "run_id": 7, "attempt": 1, "workflow_path": team.WORKFLOW, "workflow_sha": sha},
+                   "recorded_at": "2026-11-08T01:00:30Z", "decision": {"surface": "production"}}
+        def read(path):
+            if path.endswith("/artifacts?per_page=100"): return {"total_count": 1, "artifacts": [artifact]}
+            if "/compare/" in path: return {"status": "identical", "merge_base_commit": {"sha": sha}}
+            return copy.deepcopy(run)
+        response = subprocess.CompletedProcess([], 0, json.dumps({"workflow_run_id": 7,
+                   "html_url": f"https://github.com/{repository}/actions/runs/7"}), "")
+        with tempfile.TemporaryDirectory() as folder, patch.object(team, "operation_source", return_value={}), \
+             patch.object(team.subprocess, "run", return_value=response) as dispatch, \
+             patch.object(transport, "archive_read", return_value=b"zip"), patch.object(transport, "unpack", return_value=receipt):
+            env = {"GITHUB_REPOSITORY": repository, "RUNNER_TEMP": folder}
+            self.assertEqual(team._request_authority(env, request, read=read), receipt["decision"])
+            self.assertEqual(team._request_authority(env, request, read=read), receipt["decision"])
+            self.assertEqual(dispatch.call_count, 1)
+            run["run_attempt"] = 2
+            run["conclusion"] = "failure"
+            with self.assertRaises(team.Refused): team._request_authority(env, request, read=read)
+            self.assertEqual(dispatch.call_count, 1)
+        with tempfile.TemporaryDirectory() as folder, patch.object(team, "operation_source", return_value={}), \
+             patch.object(team.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "lost response")) as dispatch:
+            env = {"GITHUB_REPOSITORY": repository, "RUNNER_TEMP": folder}
+            for _ in range(2):
+                with self.assertRaises(team.Refused): team._request_authority(env, request, read=read)
+            self.assertEqual(dispatch.call_count, 1)
+
+
 class LiveTeamPolicyTest(unittest.TestCase):
 
     def test_dev_uat_protected_edits_use_pinned_main_policy_without_candidate_grants(self):
@@ -378,7 +456,8 @@ class LiveTeamPolicyTest(unittest.TestCase):
                 "head": {"repo": {"full_name": repository}}}}
             env = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": repository,
                    "GITHUB_EVENT_PATH": str(event_path)}
-            with patch.dict(os.environ, env), patch.object(guard, "POLICY_PATH", candidate_policy), \
+            with patch("github_team_authority.local_policy", side_effect=lambda policy, **kw: policy), \
+                 patch.dict(os.environ, env), patch.object(guard, "POLICY_PATH", candidate_policy), \
                  patch.object(guard.subprocess, "check_output", return_value=json.dumps(stale)), \
                  patch.object(queue, "api", side_effect=responses.__getitem__) as read_main:
                 for branch in ("dev", "uat", "main", "uat-isolated"):

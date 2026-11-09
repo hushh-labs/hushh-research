@@ -47,3 +47,11 @@
 /consent-protocol/scripts/sync_runtime_requirements.sh @hushh-labs/pipeline-editors
 /hushh-webapp/playwright.config.ts @hushh-labs/pipeline-editors
 /hushh-webapp/vitest.config.ts @hushh-labs/pipeline-editors
+/consent-protocol/db/migrate.py @hushh-labs/pipeline-editors
+/consent-protocol/db/migration_authority.py @hushh-labs/pipeline-editors
+/consent-protocol/db/dev_migration_manifest.py @hushh-labs/pipeline-editors
+/consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py @hushh-labs/pipeline-editors
+/consent-protocol/pyproject.toml @hushh-labs/pipeline-editors
+/consent-protocol/db/private_agent_adoption.py @hushh-labs/pipeline-editors
+/consent-protocol/db/referral_prize_activation.py @hushh-labs/pipeline-editors
+/scripts/ops/validate_receipt_logo_template.py @hushh-labs/pipeline-editors

@@ -209,6 +209,12 @@ def _tmp_root(tmp_path: Path, documents: str | None = None) -> Path:
     ):
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / path, tmp_path / path)
+    policy_path = tmp_path / "config/ci-governance.json"
+    policy = json.loads(policy_path.read_text())
+    # The retired diagnostic is exercised against a captured historical cohort,
+    # independent of today's live team-authority configuration.
+    policy["main"]["merge_users"] = ["ankitkumarsingh1702"]
+    policy_path.write_text(json.dumps(policy))
     return tmp_path
 
 
@@ -306,6 +312,7 @@ def test_faults_conclude_typed_and_advisory_pr_runs_never_block(exam, monkeypatc
     monkeypatch.setenv("GITHUB_SHA", MAIN)
     monkeypatch.setenv("GITHUB_TRIGGERING_ACTOR", "ankitkumarsingh1702")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    monkeypatch.setattr(exam, "_policy", lambda root: ("advisory", ["ankitkumarsingh1702"]))
     with pytest.raises(exam.ExamRefused, match="fresh dispatch"):
         exam._target({"inputs": {}}, "workflow_dispatch", REPO, None, ROOT)
 
