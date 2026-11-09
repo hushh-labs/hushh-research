@@ -901,7 +901,10 @@ def _uat_pr_payload(
     ) and base_ref in _load_workflow_predecessor_refs()
     if (
         os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
-        or (not isolated and ref not in {"refs/heads/uat", "refs/heads/uat-isolated"})
+        or (
+            not isolated
+            and ref not in {"refs/heads/dev", "refs/heads/uat", "refs/heads/uat-isolated"}
+        )
         or os.environ.get("CI_VALIDATION_LEVEL") != "release"
         or not re.fullmatch(r"[0-9a-f]{40}", base_ref)
         or (_resolve_base_commit(base_ref) != base_ref and not declared_serving)

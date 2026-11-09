@@ -160,6 +160,7 @@ jobs:
       - name: Assert manual dev dispatch actor policy
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
           RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
