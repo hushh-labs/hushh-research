@@ -4,6 +4,7 @@ import { PersonSelectionSurface } from "@/components/connections/person-selectio
 import type { ComponentProps, ReactNode } from "react";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ConnectionStatusBadges } from "@/components/connections/connection-status-badges";
 import { connectPersonName, type ConnectPersonIdentity } from "@/lib/connections/person-label";
 import type { DirectoryPerson, MutualConnectionMetadata } from "@/lib/services/connections-service";
 import { cn } from "@/lib/utils";
@@ -120,9 +121,10 @@ export function ConnectPersonRow({
 /** Discovery shows a name, never contact identifiers or masked contact captions. */
 export function ConnectDirectoryPersonRow({
   person,
+  supplement,
   ...props
 }: Omit<ComponentProps<typeof ConnectPersonRow>, "title" | "description"> & {
-  person: ConnectPersonIdentity & Partial<Pick<DirectoryPerson, "relationship">>;
+  person: ConnectPersonIdentity & Partial<Pick<DirectoryPerson, "relationship" | "isRia">>;
 }) {
   return (
     <ConnectPersonRow
@@ -131,6 +133,12 @@ export function ConnectDirectoryPersonRow({
       description={person.relationship === "pending_outgoing"
         ? "Request sent"
         : person.relationship === "pending_incoming" ? "Wants to connect" : undefined}
+      supplement={person.isRia === true ? (
+        <div className="space-y-1">
+          <ConnectionStatusBadges riaVerified />
+          {supplement}
+        </div>
+      ) : supplement}
     />
   );
 }

@@ -134,7 +134,8 @@ The action opens the existing picker; its final confirmation retains its primary
 
 | Control or state | Result and product boundary |
 | --- | --- |
-| **My connections N / Find people** | Tabs appear in that order; discovery remains selected by default. My connections shows accepted relationships, grouped From contacts / Other connections, with its own paged search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **My connections N / Find people** | Tabs appear in that order with discovery selected by default. My connections shows one paged list of accepted relationships in server order with its own search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **RIA verified / From Contacts** | Labelled badges open an explanation. RIA verification describes the person. Contacts describes a match from the viewer's synced contacts. A connection can show both. Find people and person profiles use the same RIA explanation. Close, Escape, or overlay Back dismisses the explanation in place. |
 | **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |
@@ -567,7 +568,7 @@ selection and relationship projection. Backend owners are
 | Row/control | Wire and response fields feeding the UI | Commit, failure and negative branch |
 | --- | --- | --- |
 | People/RIAs search/list | F GET `/api/one/connections/directory?page=1&limit=20`, optional `query` trimmed and `audience=ria`; `items[]:{userId,publicPersonRef,displayName,photoUrl,relationship,isRia,mutualConnectionCount,mutualConnectionPreview}`, `page,hasMore,totalCount` |300ms search; query-scoped session restoration. Identity/photo/relationship/mutual preview project these exact fields. Next page dedupes `userId`; sentinel root margin240px plus manual fallback. Opening mode menu alone no call; selecting a mode changes its reader. |
-| My connections/My RIAs | F GET `/api/one/connections?page=1&limit=50&audience=all\|ria`, optional `query`; items `connectionId,userId,publicPersonRef,displayName,photoUrl,createdAt,isRia,connectedFromContacts`; `page,hasMore,totalCount,audience` | Separate search snapshot; browse cache retained (search rows are not written into it); dedupe `connectionId`. `connectedFromContacts` groups From contacts / Other connections; `createdAt` supplies local connected date. Refresh retries this resource, not contact sync. |
+| My connections/My RIAs | F GET `/api/one/connections?page=1&limit=50&audience=all\|ria` accepts an optional `query`. Each item has `connectionId,userId,publicPersonRef,displayName,photoUrl,createdAt,isRia,connectedFromContacts`. The response includes `page,hasMore,totalCount,audience`. | Search uses a separate snapshot and the browse cache retains the browse results. Rows are deduplicated by `connectionId`. `connectedFromContacts` supplies the From Contacts badge and `createdAt` supplies the local connected date. Refresh retries the connection list. |
 | Outgoing cancel map | F GET `/api/one/connections/requests?direction=outgoing` | `items[].counterpartUserId,id` resolve the exact pending request; failure does not block directory/roster. |
 | Identity/avatar/mutual person | No API on click; authored public-person route | Requires `publicPersonRef`; absent reference is inert. Person page starts its own documented reads. |
 | Message | F POST `/api/one/messages/route-token`, `{personRef}`→`token` | Navigate `/one/messages?token=<opaque>` through route builder. Failure `This conversation could not be opened. Try again.` Never put a real token in documentation. |
@@ -583,7 +584,7 @@ selection and relationship projection. Backend owners are
 
 | People surface | Exact authored copy |
 | --- | --- |
-| Search/modes | `Name, email or phone`; `People`; `RIAs`; `Around you`; `Find people`; `My connections {N}`; `My RIAs {N}`; `{N} connections`; `{N} RIAs`; `From contacts`; `Other connections`; `Connected {D Mon}` |
+| Search/modes | `Name, email or phone`, `People`, `RIAs`, `Around you`, `Find people`, `My connections {N}`, `My RIAs {N}`, `{N} connections`, `{N} RIAs`, `From Contacts`, `RIA verified`, `Connected {D Mon}` |
 | Discovery loading/rate delay | `Finding people…`; `People are taking a moment` / `Advisors are taking a moment`; `We'll keep trying and show everyone here as soon as they're ready.` No Retry in that delay state. |
 | Unavailable | `People are unavailable` / `Advisors are unavailable`; fallback `Failed to load people`; `Try again` |
 | Empty/query | `No one matches "{query}"`; `Try their full name.` / `Try People, or their full name.`; `No people yet` / `No advisors yet`; `Find by name, email or phone.`; `Invite them to One`; `Share an invite link with them.` |
