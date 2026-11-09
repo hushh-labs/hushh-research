@@ -309,9 +309,10 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         baseline.clear()
         baseline.update(await _seed(pool, files=scenario in {"recover", "occupied"}))
         recorded.active = "previous" if scenario == "devices" else "receiving-a"
-        # The sign-in handoff remains the path whenever in-place deletion is off.
+        # The sign-in handoff remains the path whenever in-place deletion is off;
+        # the recover journey proves that fallback, so it runs with deletion off.
         monkeypatch.setenv(
-            "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "delete" else "true"
+            "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "recover" else "true"
         )
         recorded.phone = PHONE
         recorded.claims.clear()

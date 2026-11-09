@@ -9910,7 +9910,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
+          "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires a different number, an explicitly confirmed deletion of that account followed by fresh verification after the number is released, or that existing account sign-in.",
           "next_route": "/one/setup",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -9939,6 +9939,9 @@
       "voice_action_contract_ids": [
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
+        "phone_mandate.delete_previous_cancel",
+        "phone_mandate.delete_previous_confirm",
+        "phone_mandate.delete_previous_verify_again",
         "phone_mandate.review_previous_deletion",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",
@@ -11064,5 +11067,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "cc4fe316824683ea612bcd7476f73727deb2a1eea7324b2a33c6fe8e7ec09432"
+  "content_sha256": "0e62429d3800526f9304aac96e28fd1617586ee52bee19dce35ae311497c7a1d"
 }

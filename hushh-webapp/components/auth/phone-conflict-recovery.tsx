@@ -1,10 +1,11 @@
 "use client";
 
-import { type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import type { LinkedDeletionPreparation } from "@/lib/services/phone-recovery-service";
 import { cn } from "@/lib/utils";
 import styles from "./phone-conflict-recovery.module.css";
 
@@ -16,12 +17,21 @@ type Props = {
   reviewPreviousDeletion: () => Promise<void>;
   canReviewPreviousDeletion: boolean;
   returnToPhoneNumber: () => boolean;
+  deletionReview?: LinkedDeletionPreparation | null;
+  confirmDeletion?: (testCode?: string) => Promise<void>;
+  deletionNeedsFreshProof?: boolean;
+  deletionUnconfirmed?: boolean;
+  deletionSettled?: "requested" | "not_found" | null;
+  restartVerification?: () => void;
 };
+
+const SETTLED_TITLES = { requested: "Deletion requested", not_found: "No account to delete" } as const;
 
 /** A phone number remains linked to its existing email account. */
 export function PhoneConflictRecovery(props: Props) {
   const pathname = usePathname();
   const Heading = pathname === ROUTES.PHONE_MANDATE ? "h1" : "h2";
+  if (props.deletionReview) return <LinkedDeletionReview key={props.deletionReview.operation_id} {...props} Heading={Heading} />;
   const error = props.operationError !== PHONE_CONFLICT_COPY.inApp ? props.operationError : null;
 
   return <div data-phone-conflict="true" className={cn(styles.content, props.className)} style={props.style}>
@@ -29,5 +39,42 @@ export function PhoneConflictRecovery(props: Props) {
     {error ? <p className={styles.description} role="alert">{error}</p> : null}
     <Button type="button" variant="blue" size="prominent" fullWidth className={styles.primary} disabled={props.busy} data-voice-control-id="phone-flow-change-number" onClick={props.returnToPhoneNumber}>Use a different number</Button>
     <Button type="button" variant="none" effect="fade" fullWidth disabled={props.busy || !props.canReviewPreviousDeletion} className={styles.deleteReview} data-voice-control-id="phone-flow-delete-review" onClick={() => void props.reviewPreviousDeletion()}>Delete my previous account</Button>
+  </div>;
+}
+
+/** One irreversible decision: the retained phone proof plus an explicit acknowledgement. */
+function LinkedDeletionReview(props: Props & { Heading: "h1" | "h2" }) {
+  const { Heading, busy, deletionReview: review } = props;
+  const [code, setCode] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const needsCode = review?.transport === "configured_test";
+  const ready = !busy && (props.deletionUnconfirmed || (acknowledged && (!needsCode || /^\d{6}$/.test(code))));
+  const hint = review?.phone_hint ?? "this number";
+  const settled = props.deletionSettled ? SETTLED_TITLES[props.deletionSettled] : null;
+  return <div data-phone-conflict="true" data-phone-linked-deletion="true" className={cn(styles.content, props.className)} style={props.style}>
+    <Heading data-phone-conflict-title="true" className={styles.title}>
+      {settled ?? `Delete the account linked to ${hint}?`}
+    </Heading>
+    {settled ? null : <p className={styles.description}>
+      This permanently deletes that account and its vault. You can’t undo this. Your current account isn’t changed.
+    </p>}
+    {props.operationError ? <p className={styles.description} role={settled ? "status" : "alert"}>{props.operationError}</p> : null}
+    {/* A spent or expired proof deletes nothing more; only a new verification continues. */}
+    {props.deletionNeedsFreshProof ? <Button type="button" variant="blue" size="prominent" fullWidth className={styles.primary} disabled={busy} data-voice-control-id="phone-flow-delete-verify-again" onClick={props.restartVerification}>Verify this number again</Button> : <>
+      {needsCode && !props.deletionUnconfirmed ? <label className={styles.description}>
+        <span>Verification code</span>
+        <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} disabled={busy}
+          onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+      </label> : null}
+      {props.deletionUnconfirmed ? null : <label className={styles.description}>
+        <input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} />{" "}
+        I understand this can’t be undone.
+      </label>}
+      <Button type="button" variant="destructive" size="prominent" fullWidth className={styles.primary} disabled={!ready} data-voice-control-id="phone-flow-delete-confirm"
+        onClick={() => void props.confirmDeletion?.(needsCode ? code : undefined)}>
+        {busy ? "Requesting deletion…" : props.deletionUnconfirmed ? "Check again" : "Delete that account"}
+      </Button>
+      <Button type="button" variant="none" effect="fade" fullWidth disabled={busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>
+    </>}
   </div>;
 }
