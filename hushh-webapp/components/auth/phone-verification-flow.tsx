@@ -273,7 +273,12 @@ export function usePhoneVerificationFlow({
     if (phoneFlowInFlightRef.current) return true;
     visit.smsTransport = false;
     if (conflict === "review" && !transferPending) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
-    if (conflict === "delete") { if (deletion.leave()) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); } return true; }
+    // An unspent review returns to the choices. Once its proof is spent or expired
+    // the choices can no longer delete anything, so Back returns to number entry.
+    if (conflict === "delete") {
+      if (!deletion.leave()) return true;
+      if (!deletion.freshProof) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
+    }
     if (transferPending) return true;
     advanceEntryRevision();
     setVerificationCode("");
@@ -950,7 +955,7 @@ export function usePhoneVerificationFlow({
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
     conflict, transferPending, transferEligible, transferUnavailable, handleTransfer, recoverPrevious,
     deletionReview: deletion.prepared, deletionNeedsFreshProof: deletion.freshProof, deletionUnconfirmed: deletion.unconfirmed,
-    deletePrevious: deletion.review, confirmDeletion: deletion.submit,
+    deletionSettled: deletion.settled, deletePrevious: deletion.review, confirmDeletion: deletion.submit,
     restartVerification: () => { if (current() && !phoneFlowInFlightRef.current && deletion.leave()) { advanceEntryRevision(); setVerificationCode(""); setOperationError(null); setConflict(null); changeStep("phone"); } },
     startFreshSms: () => handleStartVerification(false, submittedPhoneNumber, "sms"),
     reviewTransfer: () => { if (current() && visit.entryRevision === entryRevision && conflict === "choices" && transferEligible && !busy && !phoneFlowInFlightRef.current) { advanceEntryRevision(); setConflict("review"); setOperationError(null); } },

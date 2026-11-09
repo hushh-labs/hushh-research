@@ -13,6 +13,22 @@ from typing import Any, Literal
 
 from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused
 
+# Native registry rows contain datetimes. Canonicalize only a complete, owner-bound
+# observation that still equals the live typed record (ignoring the columns the SQL
+# contract itself treats as volatile). Anything else, including a retained
+# reservation snapshot, is passed unchanged and keeps its exact JSON authority.
+_VOLATILE = "ARRAY['updated_at','last_heartbeat_at','health_state','liveness_failures']"
+_NEVER_DEPLOYED_SQL = (
+    "WITH observed AS (SELECT CAST(:snapshot AS jsonb) AS body) "
+    "SELECT public.azure_setup_never_deployed(:owner,coalesce(("
+    "SELECT to_jsonb(p) FROM public.personal_agent_registry p WHERE p.user_id=:owner "
+    "AND ARRAY(SELECT jsonb_object_keys(observed.body) ORDER BY 1)="
+    "ARRAY(SELECT jsonb_object_keys(to_jsonb(p)) ORDER BY 1) "
+    f"AND to_jsonb(p)-{_VOLATILE}=to_jsonb(jsonb_populate_record("
+    f"NULL::public.personal_agent_registry,observed.body))-{_VOLATILE}"
+    "),observed.body)) AS value FROM observed"
+)
+
 
 class AzureTeardownStore:
     def __init__(self, registry: Any) -> None:
@@ -124,8 +140,8 @@ class AzureTeardownStore:
     async def never_deployed(self, owner: str, snapshot: dict) -> bool:
         return (
             await self._value(
-                "SELECT public.azure_setup_never_deployed(:owner,CAST(:snapshot AS jsonb)) AS value",
-                {"owner": owner, "snapshot": json.dumps(snapshot)},
+                _NEVER_DEPLOYED_SQL,
+                {"owner": owner, "snapshot": json.dumps(snapshot, default=str)},
             )
             is True
         )

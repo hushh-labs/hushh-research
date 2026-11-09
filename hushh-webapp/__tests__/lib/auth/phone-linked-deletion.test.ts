@@ -1,6 +1,6 @@
 import type { User } from "firebase/auth";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { confirmLinkedDeletion, type LinkedDeletionPorts } from "@/lib/auth/phone-linked-deletion";
+import { confirmLinkedDeletion, linkedDeletionMessage, linkedDeletionNeedsFreshProof, type LinkedDeletionPorts } from "@/lib/auth/phone-linked-deletion";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
@@ -71,12 +71,27 @@ describe("confirmLinkedDeletion", () => {
     expect(claim).not.toHaveBeenCalled();
   });
 
-  it("requires fresh same-owner verification when no holder was found", async () => {
+  it("requires fresh same-owner verification when no holder was found, without calling the code expired", async () => {
     vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "refused", code: "PHONE_LINKED_ACCOUNT_NOT_FOUND" });
-    vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockRejectedValue(new ApiError("taken", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }));
-    const failure = await confirmLinkedDeletion(input, ports()).catch(error => error);
-    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED");
-    expect(failure.message).not.toMatch(/deleted/i);
+    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
+    const owner = ports();
+    const failure = await confirmLinkedDeletion(input, owner).catch(error => error);
+    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_ACCOUNT_NOT_FOUND");
+    expect(failure.message).not.toMatch(/deleted|expired/i);
+    expect(claim).not.toHaveBeenCalled();
+    expect(owner.releaseProof).toHaveBeenCalledOnce();
+  });
+
+  it("keeps requested, not-found and expired outcomes distinct and never reports erasure", () => {
+    const requested = linkedDeletionMessage("PHONE_LINKED_CLAIM_REQUIRED");
+    const notFound = linkedDeletionMessage("PHONE_LINKED_ACCOUNT_NOT_FOUND");
+    const expired = linkedDeletionMessage("PHONE_LINKED_DELETION_PROOF_REQUIRED");
+    expect(new Set([requested, notFound, expired]).size).toBe(3);
+    for (const message of [requested, notFound, expired]) expect(message).not.toMatch(/was deleted|erased|freed/i);
+    expect(expired).toMatch(/expired/i);
+    // Decoding the proof fails before any write, so the same review may retry.
+    expect(linkedDeletionNeedsFreshProof("PHONE_PROOF_SERVICE_UNAVAILABLE")).toBe(false);
+    expect(linkedDeletionNeedsFreshProof("PHONE_LINKED_ACCOUNT_NOT_FOUND")).toBe(true);
   });
 
   it.each(["PHONE_LINKED_ACCOUNT_PROTECTED", "PHONE_LINKED_DELETION_STALE"])("never claims after a %s refusal", async code => {

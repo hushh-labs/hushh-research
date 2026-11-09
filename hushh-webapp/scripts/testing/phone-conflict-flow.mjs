@@ -262,16 +262,18 @@ try {
         await page.getByRole("button", { name: "Delete and continue", exact: true }).click();
         const receipt = await confirmed;
         assert.equal(receipt.status, 200); assert.equal(receipt.body.state, "admitted");
-        await page.getByRole("alert").filter({ hasText: "Deletion requested. This number is not linked to your current account. Verify again, or use a different number." }).waitFor();
+        // Requested is a settled state of its own: not erased and not linked here.
+        await page.getByRole("heading", { name: "Deletion requested", exact: true }).waitFor();
+        await page.getByRole("status").filter({ hasText: "Deletion requested. This number is not linked to your current account. Verify again, or use a different number." }).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Cancel", exact: true }).count(), 0);
         assert.equal(await page.getByTestId("phone-fixture-destination").count(), 0);
         assert.equal(linkedConfirms, 1); assert.equal(erasures, 0); assert.equal(transfers, 0);
         stage = "delete_linked_worker";
         await fixtureRequest("drain", scenario);
         // Shared Auth deliberately retains the native holder. Local erasure
         // cannot make a foreign-UID phone proof verify the receiving account.
-        await page.getByRole("button", { name: "Cancel", exact: true }).click();
-        await page.getByRole("heading", { name: "This number is linked to another account", exact: true }).waitFor();
-        await page.getByRole("button", { name: "Use a different number", exact: true }).click();
+        // The spent proof deletes nothing more: the exit is a new number entry.
+        await page.getByRole("button", { name: "Verify this number again", exact: true }).click();
         await page.getByRole("textbox", { name: "Phone number", exact: true }).waitFor();
         assert.equal(linkedConfirms, 1);
         record("delete_linked_worker_erasure_retains_native_binding_and_allows_exit");
