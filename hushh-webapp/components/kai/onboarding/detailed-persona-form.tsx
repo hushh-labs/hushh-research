@@ -18,7 +18,7 @@ export function DetailedPersonaForm({
   onSavingChange,
 }: {
   initial: PersonaPreferences;
-  onSave: (answers: DetailedPersonaAnswers) => Promise<void>;
+  onSave: (answers: DetailedPersonaAnswers) => Promise<PersonaPreferences>;
   onDone: () => void;
   onSavingChange: (saving: boolean) => void;
 }) {
@@ -28,7 +28,7 @@ export function DetailedPersonaForm({
       detailedPersonaQuestions.map(() => undefined),
   );
   const [step, setStep] = useState(0);
-  const [saved, setSaved] = useState<DetailedPersonaAnswers | null>(null);
+  const [saved, setSaved] = useState<PersonaPreferences | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const saving = useRef(false);
@@ -55,8 +55,7 @@ export function DetailedPersonaForm({
     onSavingChange(true);
     setError(false);
     try {
-      await onSave(completed);
-      setSaved(completed);
+      setSaved(await onSave(completed));
     } catch {
       setError(true);
     } finally {
@@ -68,7 +67,7 @@ export function DetailedPersonaForm({
   if (saved)
     return (
       <FinancePersonaReveal
-        preferences={{ ...initial, detailed_assessment_v1: saved }}
+        preferences={saved}
         actionLabel="Back to analysis"
         onDone={onDone}
       />
@@ -80,16 +79,7 @@ export function DetailedPersonaForm({
       onSubmit={(event) => void proceed(event)}
       aria-busy={busy}
     >
-      <div className="flex items-center justify-between gap-3">
-        <p className="ui-text-helper-text">
-          Question {step + 1} of {total}
-        </p>
-        <progress
-          value={step + 1}
-          max={total}
-          aria-label="Assessment progress"
-        />
-      </div>
+      <p className="ui-text-helper-text">Question {step + 1} of {total}</p>
       <div className={styles.detailedQuestion}>
         <fieldset key={step} disabled={busy}>
           <legend tabIndex={-1} ref={focusQuestion}>
@@ -116,6 +106,21 @@ export function DetailedPersonaForm({
             );
           })}
         </fieldset>
+      </div>
+      <div
+        className={styles.assessmentProgress}
+        role="progressbar"
+        aria-label="Assessment answers"
+        aria-valuenow={answers.filter((answer) => answer !== undefined).length}
+        aria-valuemin={0}
+        aria-valuemax={total}
+      >
+        {detailedPersonaQuestions.map(({ prompt }, index) => {
+          const answer = answers[index];
+          const tone = answer === undefined ? "future" : answer === null ? "unsure"
+            : index >= 8 ? "planning" : (["careful", "balanced", "growth"] as const)[answer];
+          return <span key={prompt} data-tone={tone} aria-hidden="true" />;
+        })}
       </div>
       {error ? (
         <p role="alert" className={styles.error}>

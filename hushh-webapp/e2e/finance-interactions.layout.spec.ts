@@ -55,7 +55,7 @@ test.beforeAll(async () => {
       alias: [
         { find: /^\.\/portfolio-persona$/, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") },
         ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
-        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
+        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service", "@/lib/services/kai-profile-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^next\/navigation$/, replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts") },

@@ -4,9 +4,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { allocationColor } from "@/lib/kai/allocation-colors";
 import { formatCurrency } from "@/lib/kai/market-value-format";
 import type { LinkedNetWorthScore } from "@/lib/kai/plaid-vault/types";
-import { topPortfolioWeights } from "./portfolio-analysis-facts";
+import { useState } from "react";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import type { DashboardViewModel } from "./dashboard-data-mapper";
@@ -133,38 +134,73 @@ export function PortfolioNetWorthCard({
   );
 }
 
-/** Observed portfolio figures only. Balance history is never shown as returns. */
-export function PortfolioAnalysis({ model, advisorCard }: {
-  model: DashboardViewModel;
-  advisorCard?: ReactNode;
-}) {
-  const weights = topPortfolioWeights(model);
+/** Charts use saved holdings and balance history, never model estimates. */
+export function PortfolioAnalysis({ model }: { model: DashboardViewModel }) {
+  const [drop, setDrop] = useState(20);
+  const total = model.hero.totalValue;
+  const mix = model.allocation.filter(({ value }) => Number.isFinite(value) && value > 0);
+  const mappedTotal = mix.reduce((sum, { value }) => sum + value, 0);
+  const coverage = mappedTotal / total;
+  const showMix = mix.length > 0 && coverage >= 0.99 && coverage <= 1.01;
+  let sliceEnd = 0;
+  const slices = showMix ? mix.map(({ name, value }) => {
+    const start = sliceEnd;
+    sliceEnd += value / mappedTotal * 100;
+    return `${allocationColor(name)} ${start}% ${sliceEnd}%`;
+  }) : [];
+  const stocks = new Map<string, { name: string; value: number }>();
+  for (const position of model.canonicalModel.positions) {
+    if (!position.tickerSymbol || !Number.isFinite(position.marketValue) || position.marketValue <= 0 ||
+        !/^(common stock|preferred stock|stock)$/i.test(position.assetType?.trim() ?? "")) continue;
+    const key = position.tickerSymbol;
+    stocks.set(key, { name: position.name || key, value: (stocks.get(key)?.value ?? 0) + position.marketValue });
+  }
+  const largest = [...stocks.values()].sort((a, b) => b.value - a.value)[0];
+  const weight = largest ? largest.value / total : 0;
+  const showScenario = largest && weight >= 0.15 && weight <= 1;
+  if (!showMix && !showScenario && !model.quality.historyReady) return null;
+
   return (
-    <section className="space-y-3" aria-label="Portfolio analysis" data-testid="portfolio-analysis">
-      <div className={advisorCard ? "grid gap-3 md:grid-cols-2" : undefined}>
-        {advisorCard}
-        <SurfaceCard><SurfaceCardContent className="space-y-2.5 p-4">
-          <h2 className="ui-text-section-label">Largest holdings</h2>
-          {weights.length ? (
-            <dl className="space-y-3">
-              {weights.map(({ name, percent }, index) => (
-                <div key={index} className="space-y-1">
-                  <div className="flex justify-between gap-3 ui-text-row-label">
-                    <dt className="min-w-0 truncate" title={name}>{name}</dt>
-                    <dd className="shrink-0 tabular-nums">{percent.toFixed(1)}%</dd>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                    <div className="h-full rounded-full bg-[var(--app-accent)]" style={{ width: `${percent}%` }} />
-                  </div>
+    <section className="grid gap-3 md:grid-cols-2" aria-label="Portfolio analysis" data-testid="portfolio-analysis">
+      {showMix ? (
+        <SurfaceCard><SurfaceCardContent className="space-y-3 p-4">
+          <h3 className="ui-text-section-label">Portfolio mix</h3>
+          <div className="flex flex-wrap items-center gap-4">
+            <div aria-hidden className="grid size-20 shrink-0 place-items-center rounded-full"
+              style={{ background: `conic-gradient(${slices.join(", ")})` }}>
+              <span className="size-12 rounded-full bg-card" />
+            </div>
+            <dl className="min-w-32 flex-1 space-y-1">
+              {mix.map(({ name, value }) => (
+                <div key={name} className="flex items-center justify-between gap-2 ui-text-row-label">
+                  <dt className="flex min-w-0 items-center gap-1.5">
+                    <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: allocationColor(name) }} />
+                    <span className="truncate" title={name}>{name}</span>
+                  </dt>
+                  <dd className="shrink-0 tabular-nums">{(value / mappedTotal * 100).toFixed(1)}%</dd>
                 </div>
               ))}
             </dl>
-          ) : <p className={styles.description}>Position weights are unavailable for this source.</p>}
+          </div>
         </SurfaceCardContent></SurfaceCard>
-      </div>
-      {model.quality.historyReady ? (
+      ) : null}
+      {showScenario ? (
+        <SurfaceCard><SurfaceCardContent className="space-y-3 p-4">
+          <h3 className="ui-text-section-label">What if your largest stock falls?</h3>
+          <p className="ui-text-row-description truncate" title={largest.name}>
+            {largest.name} · {(weight * 100).toFixed(1)}% of portfolio
+          </p>
+          <div role="group" aria-label="Hypothetical stock decline" className="flex flex-wrap gap-1.5">
+            {[10, 20, 30].map((value) => <ShellActionSurface key={value} variant="pill" aria-pressed={drop === value} onClick={() => setDrop(value)}>
+              −{value}%
+            </ShellActionSurface>)}
+          </div>
+          <p aria-live="polite" className="ui-text-row-label">Portfolio change <strong>−{(weight * drop).toFixed(1)}%</strong></p>
+          <p className={styles.description}>Assumes all other holdings stay flat.</p>
+        </SurfaceCardContent></SurfaceCard>
+      ) : model.quality.historyReady ? (
         <SurfaceCard><SurfaceCardContent className="space-y-2.5 p-4">
-          <h2 className="ui-text-section-label">Balance history</h2>
+          <h3 className="ui-text-section-label">Balance history</h3>
           <PortfolioHistoryChart data={model.history} height={180} />
           <p className={styles.description}>Balances include deposits and withdrawals.</p>
         </SurfaceCardContent></SurfaceCard>
