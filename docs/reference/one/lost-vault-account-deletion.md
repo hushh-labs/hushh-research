@@ -60,8 +60,11 @@ Automated phone-entry and OTP coverage uses synthetic provider and SMS ports. It
 Where phone-linked deletion is enabled (outside production by default; see
 [account-deletion rollout, 436](../operations/account-deletion-rollout.md)), the
 phone-conflict **Delete my previous account** choice opens an in-place review
-instead: the requester's proof of the number deletes the account holding it, and
-the requester then verifies the number on their own account. Otherwise the
+instead when the requester's web verification retained a fresh real SMS proof:
+that proof plus explicit confirmation requests deletion of the account holding
+the number. The UI says **Deletion requested**, not erased; once the holder is
+erased and the number released, the requester verifies it again on their own
+account. Test codes and native verification keep the sign-in path. Otherwise the
 choice resumes this same panel after independent sign-in to that account. A
 server-bound opaque continuation
 preserves the chosen action through sign-out, account switching and refresh.
