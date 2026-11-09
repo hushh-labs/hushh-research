@@ -77,6 +77,6 @@ export function useCalendarConnectionStatus({
     loading: current && snapshot.loading,
     error: current ? snapshot.error : null,
     loaded: current && snapshot.loaded,
-    refresh: () => void load(),
+    refresh: load,
   };
 }
