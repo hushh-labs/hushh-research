@@ -225,7 +225,14 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    traffic, applicable schema/semantic result, and live request or log evidence.
    UAT and production both require exact revision provenance and a consolidated
    release-status artifact; environment-specific semantic gates remain explicit
-   in their owning workflow/report. Use [provider diagnosis](managed-provider-readiness.md) for readiness failures.
+   in their owning workflow/report. Core login, vault, information integrity,
+   active-model chat, authority, compatibility and rollback stay blocking. Report
+   secondary feature diagnostics separately, including not-run outcomes; use the
+   [CI policy](../../../../docs/reference/operations/ci.md#managed-provider-readiness-policy)
+   and [provider diagnosis](managed-provider-readiness.md). Qualify the completed
+   policy-changing candidate once with retained functional/core checks plus affected
+   boundaries; reuse unchanged evidence. Measure routine 15–20-minute targets without
+   turning them into permission to skip required proof.
 4. Prefer workflow artifacts as authoritative proof. Local admin work as
    `kushal@hushh.ai` uses Application Default Credentials (ADC), independently of
    the selected gcloud CLI account. Refresh ADC, verify the expected

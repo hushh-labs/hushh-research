@@ -436,6 +436,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "PROJECT_ID": "hushh-pda-uat",
         "BUILD_ID": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "_DEPLOY_ENV": "uat",
+        "_MANAGED_READINESS_MODE": "full",
         "_REGION": "us-central1",
         "_CLOUD_RUN_NO_TRAFFIC": "true",
         "_RUNTIME_SERVICE_ACCOUNT": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
@@ -1379,13 +1380,22 @@ def _healthy_vertex_verdict(project):
     }
 
 
-def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
+@pytest.mark.parametrize("mode", ["full", "core"])
+def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict(mode) -> None:
     probe = managed_vertex_probe_script()
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
     project = load_profile("uat")["project"]
     healthy = _healthy_vertex_verdict(project)
+    if mode == "core":
+        healthy.update(
+            qualification_mode="core",
+            core_models_exercised=True,
+            candidate_models_exercised=False,
+            one_chat_probe_ok=True,
+            one_voice_probe_ok=None,
+        )
 
     def run_verdict(
         report: dict | str,
@@ -1413,6 +1423,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
                 "_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER": drive_provider,
                 "_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED": drive_enabled,
                 "_CLOUD_RUN_NO_TRAFFIC": "true",
+                "_MANAGED_READINESS_MODE": mode,
                 "_MANAGED_AI_CONFIG_HASH": "checked-profile-hash",
                 "_GENAI_PROJECT_ID": project,
                 "_VERTEX_LIVE_MODEL_ID": "reviewed-live-model",
@@ -1433,10 +1444,21 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         {**healthy, "config_hash": "different-profile"},
         {**healthy, "one_chat_project": "different-project"},
         {**healthy, "drive_document_requests_probe_ok": False},
-        {**healthy, "one_voice_probe_ok": False},
+        {
+            **healthy,
+            **({"one_chat_probe_ok": False} if mode == "core" else {"one_voice_probe_ok": False}),
+        },
         {**healthy, "ok": False},
         {**healthy, "check": "different-check"},
-        {**healthy, "candidate_models_exercised": False},
+        {
+            **healthy,
+            **(
+                {"core_models_exercised": False}
+                if mode == "core"
+                else {"candidate_models_exercised": False}
+            ),
+        },
+        {**healthy, "qualification_mode": "full" if mode == "core" else "core"},
         {**healthy, "classification": "provider_unavailable"},
         {**healthy, "probes": []},
         {k: v for k, v in healthy.items() if k != "probes"},
@@ -1445,6 +1467,32 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     ):
         rejected = run_verdict(invalid)
         assert rejected.returncode != 0, invalid
+
+    if mode == "full":
+        # Shared helper changes must preserve both non-UAT release paths.
+        ordinary = {**healthy, "one_chat_probe_ok": True}
+        ordinary["probes"] = [
+            *healthy["probes"][:-1],
+            {
+                "probe": "one_voice_live:reviewed-live-model@reviewed-live-location",
+                "ok": True,
+                "classification": "dependency_ok",
+            },
+        ]
+        for environment in ("dev", "production"):
+            assert run_verdict(ordinary, deploy_env=environment).returncode == 0
+            assert (
+                run_verdict(
+                    {**ordinary, "one_chat_probe_ok": False}, deploy_env=environment
+                ).returncode
+                != 0
+            )
+            assert (
+                run_verdict(
+                    {**ordinary, "one_voice_probe_ok": False}, deploy_env=environment
+                ).returncode
+                != 0
+            )
 
     # Regression: chat success alone used to let a failed full runtime job
     # enter the provider-outage advisory and green the candidate build.
@@ -1481,7 +1529,9 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
             )
         ],
     }
-    assert run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0
+    assert (run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0) is (
+        mode == "full"
+    )
     assert (
         run_verdict(exhausted, 1, drive_provider="azure_openai", drive_enabled="false").returncode
         != 0
@@ -2145,8 +2195,9 @@ def _provider_fixture(module, provider, *, document=None):
 )
 @pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
 @pytest.mark.parametrize("account", ["packaged", "switched"])
+@pytest.mark.parametrize("mode", ["full", "core"])
 def test_provider_release_admission_qualifies_the_configured_provider(
-    azure, vertex, configured, account
+    azure, vertex, configured, account, mode
 ):
     module = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
@@ -2164,6 +2215,11 @@ def test_provider_release_admission_qualifies_the_configured_provider(
         accounts["selection"]["uat"] = "spare"
     expected, a = _provider_fixture(module, "azure_openai", document=document)
     _, v = _provider_fixture(module, "vertex", document=document)
+    if mode == "core":
+        expected["qualification_mode"] = mode
+        a["context"] = v["context"] = expected
+        a.pop("capability_proof")
+        v.pop("capability_proof")
     result = module.evaluate(
         {"azure_openai": a if azure else None, "vertex": v if vertex else None},
         expected,
@@ -2260,9 +2316,13 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
     "defect",
     ["image", "context", "scope", "model", "generation", "duplicate_trust", "failed_trust"],
 )
-def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect):
+@pytest.mark.parametrize("mode", ["full", "core"])
+def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect, mode):
     module = _managed_provider_gate()
     expected, value = _provider_fixture(module, "azure_openai")
+    if mode == "core":
+        expected["qualification_mode"] = mode
+        value.pop("capability_proof")
     if defect == "image":
         value["execution_image"] = "wrong-image"
     elif defect == "context":
@@ -2280,6 +2340,7 @@ def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect):
     assert module.evaluate({"azure_openai": value}, expected)["ready"] is False
     if defect == "failed_trust":
         _, alternate = _provider_fixture(module, "vertex")
+        alternate["context"] = expected
         assert (
             module.evaluate({"azure_openai": value, "vertex": alternate}, expected)["ready"]
             is False

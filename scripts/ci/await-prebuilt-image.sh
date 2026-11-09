@@ -24,6 +24,7 @@
 #     --image-tag T --sha S --manifest-json FILE --json-output FILE \
 #     [--timeout-seconds N] [--poll-seconds N]
 #   await-prebuilt-image.sh --project P --build-id ID --status-only
+# --wait-only joins the exact terminal build without image lookup/pinning.
 # The status-only form performs one read, with no log stream, wait or image lookup.
 # Pending work may continue; the deploy lane must still perform its final join.
 set -euo pipefail
@@ -42,10 +43,12 @@ json_output=""
 timeout_seconds="2400"
 poll_seconds="10"
 status_only=false
+wait_only=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --status-only) status_only=true; shift ;;
+    --wait-only) wait_only=true; shift ;;
     --project) project="${2:-}"; shift 2 ;;
     --build-id) build_id="${2:-}"; shift 2 ;;
     --image-repository) image_repository="${2:-}"; shift 2 ;;
@@ -60,8 +63,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "${status_only}" = true ] && [ "${wait_only}" = true ]; then
+  echo "Choose --status-only or --wait-only." >&2
+  exit 2
+fi
 required_fields="project build_id"
-if [ "${status_only}" != true ]; then
+if [ "${status_only}" != true ] && [ "${wait_only}" != true ]; then
   required_fields="${required_fields} image_repository image_tag sha manifest_json json_output"
 fi
 for required in ${required_fields}; do
@@ -87,7 +94,7 @@ if [ "${status_only}" = true ]; then
   esac
 fi
 
-if [[ ! "${image_repository}" =~ ^gcr\.io/[a-z][a-z0-9-]{4,28}[a-z0-9]/[a-z0-9._/-]+$ ]]; then
+if [[ "${wait_only}" != true && ! "${image_repository}" =~ ^gcr\.io/[a-z][a-z0-9-]{4,28}[a-z0-9]/[a-z0-9._/-]+$ ]]; then
   echo "Refusing image repository '${image_repository}': expected gcr.io/<project>/<image>." >&2
   exit 2
 fi
@@ -96,12 +103,18 @@ if [[ ! "${timeout_seconds}" =~ ^[0-9]+$ || ! "${poll_seconds}" =~ ^[0-9]+$ ]]; 
   exit 2
 fi
 
-echo "Waiting for image build ${build_id} (${image_repository}:${image_tag})." >&2
+if [ "${wait_only}" = true ]; then
+  echo "Waiting for backend build ${build_id}." >&2
+else
+  echo "Waiting for image build ${build_id} (${image_repository}:${image_tag})." >&2
+fi
 
 # The log is for humans reading this step; the build status below is the
 # authority. A stream that ends early must never be read as success.
-if ! gcloud builds log --stream "${build_id}" --project="${project}" >&2; then
-  echo "Build log stream ended early; polling the build status instead." >&2
+if [ "${wait_only}" != true ]; then
+  if ! gcloud builds log --stream "${build_id}" --project="${project}" >&2; then
+    echo "Build log stream ended early; polling the build status instead." >&2
+  fi
 fi
 
 deadline=$((SECONDS + timeout_seconds))
@@ -125,6 +138,11 @@ while :; do
   fi
   sleep "${poll_seconds}"
 done
+
+if [ "${wait_only}" = true ]; then
+  printf '%s\n' SUCCESS
+  exit 0
+fi
 
 image_digest="$(gcloud container images describe \
   "${image_repository}:${image_tag}" \

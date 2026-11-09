@@ -392,6 +392,7 @@ steps:
       - "_RUNTIME_SERVICE_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
       - "_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
       - "_VERIFY_MANAGED_VERTEX_RUNTIME=${_VERIFY_MANAGED_VERTEX_RUNTIME}"
+      - "_MANAGED_READINESS_MODE=${_MANAGED_READINESS_MODE}"
       - "_VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}"
       - "_VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}"
       - "_CLOUD_RUN_NO_TRAFFIC=${_CLOUD_RUN_NO_TRAFFIC}"
@@ -407,6 +408,7 @@ steps:
       - "READINESS_REGION=${_REGION}"
       - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
       - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_QUALIFICATION_MODE=${_MANAGED_READINESS_MODE}"
       - "READINESS_SERVICE=${_BACKEND_SERVICE}"
       - "READINESS_TAG=${_CLOUD_RUN_TAG}"
       - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
@@ -546,6 +548,9 @@ steps:
         if [[ "${_DEPLOY_ENV}" != "uat" ]]; then
           exit 0
         fi
+        if [[ "${_MANAGED_READINESS_MODE}" == core && "$(python3 scripts/ci/managed_provider_readiness.py configured-provider)" != azure_openai ]]; then
+          exit 0
+        fi
         pwm_provider="$(python3 - <<'PY'
         import json
         from pathlib import Path
@@ -571,7 +576,7 @@ steps:
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
           --set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest" \
           --command=python3 --args=scripts/verify_azure_pwm_runtime.py \
-          --set-env-vars=ENVIRONMENT=uat,HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai,HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai,ONE_VOICE_LIVE_ENABLED=true \
+          --set-env-vars=ENVIRONMENT=uat,HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai,HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai,ONE_VOICE_LIVE_ENABLED=true,MANAGED_READINESS_MODE=${_MANAGED_READINESS_MODE} \
           --cpu=2 --memory=2Gi --max-retries=0 --task-timeout=420s --quiet
         if ! gcloud run jobs execute "${job_name}" \
           --project="$PROJECT_ID" --region="${_REGION}" --wait --quiet; then
@@ -676,6 +681,7 @@ steps:
       - "READINESS_REGION=${_REGION}"
       - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
       - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_QUALIFICATION_MODE=${_MANAGED_READINESS_MODE}"
       - "READINESS_SERVICE=${_BACKEND_SERVICE}"
       - "READINESS_TAG=${_CLOUD_RUN_TAG}"
       - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
@@ -704,6 +710,7 @@ steps:
       - "READINESS_REGION=${_REGION}"
       - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
       - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_QUALIFICATION_MODE=${_MANAGED_READINESS_MODE}"
       - "READINESS_SERVICE=${_BACKEND_SERVICE}"
       - "READINESS_TAG=${_CLOUD_RUN_TAG}"
       - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
@@ -927,6 +934,7 @@ substitutions:
   _RUNTIME_ENVIRONMENT: ""
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.
+  _MANAGED_READINESS_MODE: "full"
   _VERIFY_MANAGED_VERTEX_RUNTIME: "false"
   _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE: "false"
   _IMAGE_TAG: v2.1.0

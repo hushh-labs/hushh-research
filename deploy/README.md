@@ -560,17 +560,19 @@ searching. A candidate still serving after its acceptance failed is no base, so
 the next release that deploys that service runs both the PKM upgrade rehearsal
 and reviewer BYOK. Dev still compares from its serving SHAs. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
 `run_live_model_checks=true` dispatch input. UAT backend releases always run
-synthetic Azure and Vertex provider checks from the exact candidate image and
-runtime identity, in parallel. A provider passes only when its full application
-capability bundle passes: structured and streamed text, image and PDF inputs,
-public search citations, exact public source retrieval, Location transcription
-and semantics, isolated narration, Live audio with function results and input
-transcription, and compatible embeddings. The required aggregate qualifies the
-provider selected in `config/managed-ai-runtime.json` (`managed_provider_selection.uat`),
-with Azure as the checked-in default. A healthy alternate does not override that
-choice; an incomplete selected provider blocks promotion.
-The API and both Drive workers must bind the same selected provider. UAT remains
-held until the selected provider has verified every declared capability.
+core provider checks from the exact candidate image and runtime identity. Ordinary
+UAT deployment explicitly selects `core` readiness for the configured provider:
+One chat and Drive text scopes, structured output and research attribution/schema
+proof remain mandatory. The execution-bound receipt records the qualification
+mode; an HTTP success alone cannot pass it. Search, images, PDFs, voice, Live audio
+and the broader capability exam are separate full diagnostics. A missing diagnostic
+is recorded as not run, never as a successful feature qualification.
+
+The provider selection in `config/managed-ai-runtime.json` remains authoritative.
+Core mode does not probe an unused alternate or grant fallback. Existing full-mode
+fallback requires its complete bound evidence; trust failures still veto release.
+The API and both Drive workers must bind the same verified provider. Enabling a new
+capability still requires its own qualification. See the [CI readiness policy](../docs/reference/operations/ci.md#managed-provider-readiness-policy).
 
 Azure's canonical PWM schema and six-case attribution evaluation remain
 independent safety checks. An explicit identity, attribution or schema violation
@@ -580,8 +582,8 @@ The execution-bound aggregate is uploaded as `uat-managed-provider-readiness.jso
 After the migration gate passes, UAT derives its Cloud Build scheduling from the
 shared backend template with `scripts/ci/uat_backend_build_config.py`. Only the
 pinned, zero-traffic UAT candidate may warm alongside the provider jobs. The
-unchanged required aggregate joins that candidate and both provider results
-before selection or promotion. The generated config refuses an unexpected DAG;
+required aggregate joins that candidate and the configured provider's core proof
+before selection or promotion. Full diagnostics retain both provider results. The generated config refuses an unexpected DAG;
 Dev and production retain the shared template's predeployment Vertex gate.
 
 Backend images compile dependency bytecode while installing the locked graph,
@@ -632,7 +634,8 @@ their existing contracts. Local E5 Drive/action embeddings are unchanged. The
 processor; this migration does not activate it or backfill a production index.
 
 The older SHA-bound one-time exception remains separately guarded. Its legacy
-text-only receipts do not satisfy this release's complete-capability gate.
+text-only receipts do not satisfy the current execution-bound core gate or
+full capability qualification.
 Provenance, IAM, authorization, schemas, preservation and candidate health remain
 mandatory. A diagnostic source-overlay job is useful during development, but
 only the immutable candidate image qualifies a release.
