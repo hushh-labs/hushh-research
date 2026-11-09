@@ -15,10 +15,10 @@ describe("portfolio briefing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import portfolio" }));
     expect(open).toHaveBeenCalledOnce();
   });
-  it("shows when the score is unavailable and opens detailed holdings and history", () => {
+  it("shows when the score is unavailable and computes a stock-decline scenario", () => {
     const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
       { symbol: "SMALL", name: "Smaller", quantity: 1, price: 100, market_value: 100 },
-      { symbol: "LARGE", name: "Larger", quantity: 1, price: 900, market_value: 900 },
+      { symbol: "LARGE", name: "Larger", quantity: 1, price: 900, market_value: 900, asset_type: "Common Stock" },
     ] });
     const open = vi.fn();
     const { unmount } = render(<PortfolioBriefing model={model} onOpen={open} />);
@@ -30,7 +30,11 @@ describe("portfolio briefing", () => {
     unmount();
     render(<PortfolioAnalysis model={model} />);
     expect(screen.queryByRole("heading", { name: "Balance history" })).toBeNull();
-    expect(screen.getByText("Larger", { selector: "dt" }).nextElementSibling?.textContent).toBe("90.0%");
+    expect(screen.getByText("Larger · 90.0% of portfolio")).toBeTruthy();
+    expect(screen.getByText("−18.0%")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "−30%" }));
+    expect(screen.getByText("−27.0%")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Largest holdings" })).toBeNull();
   });
   it("shows saved positions and allocation without inventing performance contributions", () => {
     const portfolio = { total_value: 1000, holdings: [
