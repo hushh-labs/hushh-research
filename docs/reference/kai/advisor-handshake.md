@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-  Analysis[Portfolio Analysis] --> Agent[Owner-requested Agent One review]
+  Analysis[Portfolio Analysis] --> Agent[Inline private agent review]
   Analysis --> Choose[Choose a verified advisor]
   Choose --> Approve[Approve connection and sealed Finance snapshot]
   Approve --> Pending[RIA Clients request inbox]
@@ -19,12 +19,14 @@ flowchart LR
 
 ## Product boundaries
 
-Portfolio Analysis retains the factual analysis and adds an explicit Agent One
-review. The existing owner chat runtime receives up to six sequential batches of
-forty positions, largest first, followed by a cross-batch synthesis request. The
-UI reports supplied input coverage and missing positions; this is not an accuracy
-score or a promise that the model analyzed every position. An advisor introduction
-is available independently of model success.
+Portfolio Analysis shows charts from the saved portfolio and the active
+investing persona below Net Worth Score. Enabling automatic review approves a
+bounded portfolio summary for model processing in the current visible vault
+session. The review refreshes on saved changes to the approved source and reuses
+results for matching inputs. Owners can turn it off from Analysis. The four
+onboarding answers can support a Snapshot score when the portfolio and planning
+inputs are sufficient. The optional 13-question refinement updates the active
+persona and planning inputs.
 
 An introduction uses one explicit approval for a connection and a full saved
 Finance snapshot. It contains holdings, values, quantities and cost basis when
