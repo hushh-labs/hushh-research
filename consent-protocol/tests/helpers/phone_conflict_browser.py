@@ -164,8 +164,21 @@ async def _assert_linked_deleted(conn, recorded, baseline):
     )
     assert owner is None
     assert recorded.phone == PHONE
-    # The holder's final erasure removed its deletion receipt with it.
-    assert await conn.fetchval("SELECT count(*) FROM account_phone_linked_deletions") == 0
+    # Final erasure detaches the holder but keeps the consumed SMS event and
+    # the requester's receipt, so the proof can never authorize another deletion.
+    receipts = await conn.fetch(
+        "SELECT requester_user_id,target_user_id,proof_event_digest,state"
+        " FROM account_phone_linked_deletions"
+    )
+    assert [
+        (
+            row["requester_user_id"],
+            row["target_user_id"],
+            bool(row["proof_event_digest"]),
+            row["state"],
+        )
+        for row in receipts
+    ] == [(OWNERS["receiving-a"], None, True, "admitted")]
     assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0
     assert recorded.unlink_count == 0
 

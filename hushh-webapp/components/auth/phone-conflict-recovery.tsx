@@ -22,6 +22,7 @@ type Props = {
   deletionReview: LinkedDeletionPreparation | null;
   deletionNeedsFreshProof: boolean;
   deletionUnconfirmed: boolean;
+  deletionSettled?: "requested" | "not_found" | null;
   confirmDeletion: (testCode?: string) => Promise<void>;
   restartVerification: () => void;
   returnToPhoneNumber: () => boolean;
@@ -57,29 +58,33 @@ export function PhoneConflictRecovery(props: Props) {
   </div>;
 }
 
-/** One permanent decision: the number's proof plus an explicit acknowledgement. */
+/** One permanent decision: the number's real-SMS proof plus an explicit acknowledgement. */
 function LinkedDeletionReview(props: Props) {
-  const [code, setCode] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const review = props.deletionReview;
-  const needsCode = review?.transport === "configured_test";
-  const ready = acknowledged && (!needsCode || /^\d{6}$/.test(code)) && !props.busy && !props.submissionBlocked;
+  const ready = acknowledged && !props.busy && !props.submissionBlocked;
+  // Requested is not erased, and no number is linked here; each stays a separate, later state.
+  const settled = props.deletionSettled ? SETTLED_TITLES[props.deletionSettled] : null;
+  const verifyAgain = (primary: boolean) => <Button type="button" variant={primary ? undefined : "none"} className={primary ? "w-full" : undefined}
+    disabled={props.busy} data-voice-control-id="phone-flow-delete-verify-again" onClick={props.restartVerification}>Verify this number again</Button>;
   return <div className={cn("space-y-4", props.className)} style={props.style}>
-    <h2 className={kaiAppCardTitleClassName}>Delete the account linked to {review?.phone_hint ?? "this number"}?</h2>
-    <p className="text-sm text-muted-foreground">That account and its vault are deleted permanently. You can’t undo this.</p>
-    {props.operationError ? <p role="alert" className="text-sm text-destructive">{props.operationError}</p> : null}
-    {props.deletionNeedsFreshProof ? <Button type="button" className="w-full" disabled={props.busy} data-voice-control-id="phone-flow-delete-verify-again" onClick={props.restartVerification}>Verify this number again</Button> : <>
-      {needsCode ? <label className="block space-y-2 text-sm">
-        <span>Verification code</span>
-        <input className="h-11 w-full rounded-xl border px-3" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
-          value={code} disabled={props.busy} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
-      </label> : null}
+    <h2 className={kaiAppCardTitleClassName}>{settled ?? `Delete the account linked to ${review?.phone_hint ?? "this number"}?`}</h2>
+    {settled ? null : <p className="text-sm text-muted-foreground">This permanently deletes that account and its vault. You can’t undo this.</p>}
+    {props.operationError ? <p role={settled ? "status" : "alert"} className={settled ? "text-sm text-muted-foreground" : "text-sm text-destructive"}>{props.operationError}</p> : null}
+    {/* A spent or expired proof deletes nothing more; only a new verification continues. */}
+    {props.deletionNeedsFreshProof ? verifyAgain(true) : props.deletionUnconfirmed ? <>
+      {/* Once a confirmation was sent, Cancel is withdrawn and nothing is sent again: Check again only reads it back. */}
+      <Button type="button" className="w-full" disabled={props.busy || props.submissionBlocked} data-voice-control-id="phone-flow-delete-check" onClick={() => void props.confirmDeletion()}>{props.busy ? "Checking…" : "Check again"}</Button>
+      {verifyAgain(false)}
+    </> : <>
       <label className="flex items-start gap-3 text-sm">
         <input type="checkbox" className="mt-1" checked={acknowledged} disabled={props.busy} onChange={event => setAcknowledged(event.target.checked)} />
         <span>I understand this can’t be undone.</span>
       </label>
-      <Button type="button" variant="destructive" className="w-full" disabled={!ready} data-voice-control-id="phone-flow-delete-confirm" onClick={() => void props.confirmDeletion(needsCode ? code : undefined)}>{props.busy ? "Deleting…" : props.deletionUnconfirmed ? "Check again" : "Delete and continue"}</Button>
+      <Button type="button" variant="destructive" className="w-full" disabled={!ready} data-voice-control-id="phone-flow-delete-confirm" onClick={() => void props.confirmDeletion()}>{props.busy ? "Requesting deletion…" : "Delete and continue"}</Button>
+      <Button type="button" variant="none" disabled={props.busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>
     </>}
-    <Button type="button" variant="none" disabled={props.busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>
   </div>;
 }
+
+const SETTLED_TITLES = { requested: "Deletion requested", not_found: "Nothing left to delete" } as const;

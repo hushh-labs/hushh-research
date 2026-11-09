@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { renderPhoneVerificationFlow, reachCodeStep } from "@/__tests__/fixtures/phone-verification-flow";
 import { ApiError } from "@/lib/services/api-client";
@@ -103,23 +103,15 @@ describe("in-place deletion of the account linked to the number", () => {
   const prepared = (transport: "sms" | "configured_test") => vi.fn().mockResolvedValue({
     operation_id: "op-1", state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport });
 
-  it("deletes with the fixture code only after explicit acknowledgement, then continues", async () => {
-    const verified = { uid: "user_1" };
-    const prepare = prepared("configured_test");
-    const confirmLinkedDeletion = vi.fn().mockResolvedValue(verified);
+  it("keeps the sign-in handoff when the conflict retained no real-SMS proof (test number)", async () => {
+    // The server refuses shared test codes for another owner's account, so an in-place review could never succeed.
+    const prepare = prepared("sms"); const confirmLinkedDeletion = vi.fn(); const handoff = vi.fn().mockResolvedValue(undefined);
     const flow = renderPhoneVerificationFlow({ startVerification: vi.fn().mockRejectedValue(conflict("PHONE_TEST_NUMBER_IN_USE")),
-      prepareLinkedDeletion: prepare, confirmLinkedDeletion, cancelLinkedDeletion: vi.fn() });
+      prepareLinkedDeletion: prepare, confirmLinkedDeletion, cancelLinkedDeletion: vi.fn(), deletePreviousAccount: handoff });
     await beginOccupiedPhone();
     fireEvent.click(screen.getByRole("button", { name: "Delete my previous account" }));
-    await screen.findByRole("heading", { name: "Delete the account linked to ••01?" });
-    expect(prepare).toHaveBeenCalledWith("+16505550101");
-    fireEvent.change(screen.getByRole("textbox", { name: "Verification code" }), { target: { value: "123456" } });
-    const remove = screen.getByRole("button", { name: "Delete and continue" });
-    expect(remove).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
-    fireEvent.click(remove);
-    await waitFor(() => expect(flow.onCompleted).toHaveBeenCalledWith(verified));
-    expect(confirmLinkedDeletion).toHaveBeenCalledExactlyOnceWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: "123456" });
+    await waitFor(() => expect(handoff).toHaveBeenCalledExactlyOnceWith("+16505550101"));
+    expect(prepare).not.toHaveBeenCalled(); expect(confirmLinkedDeletion).not.toHaveBeenCalled(); expect(flow.onCompleted).not.toHaveBeenCalled();
   });
 
   it("cancels from the review, and an unconfirmed deletion offers Check again without trapping Back", async () => {
@@ -140,13 +132,44 @@ describe("in-place deletion of the account linked to the number", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(screen.getByRole("button", { name: "Delete and continue" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("We couldn’t confirm the deletion. Check again, or contact one@hushh.ai."));
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    const check = screen.getByRole("button", { name: "Check again" });
+    // A sent confirmation is only read back: its own read-only control, no second destructive action.
+    expect(check).toHaveAttribute("data-voice-control-id", "phone-flow-delete-check");
+    expect(screen.queryByRole("button", { name: "Delete and continue" })).toBeNull();
+    fireEvent.click(check);
     await waitFor(() => expect(confirmLinkedDeletion).toHaveBeenCalledTimes(2));
-    // Re-reading the same operation is safe: the server never dispatches it twice.
-    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined });
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
-    await screen.findByRole("heading", { name: "This number is linked to another account" });
+    expect(confirmLinkedDeletion).toHaveBeenNthCalledWith(1, { operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined, recheck: false });
+    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined, recheck: true });
+    // A sent confirmation cannot be cancelled: the exit is a new verification, never the spent choices.
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Verify this number again" }));
+    expect(await screen.findByRole("textbox", { name: "Phone number" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete my previous account" })).toBeNull();
     expect(flow.onCompleted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["requested", new ApiError("Deletion requested.", 409, { code: "PHONE_LINKED_CLAIM_REQUIRED" }), "Deletion requested"],
+    ["unconfirmed", new ApiError("unknown outcome", 409, { code: "PHONE_LINKED_DELETION_SUPPORT_REQUIRED" }), null],
+  ])("route Back after a %s confirmation leads to number entry instead of the choices", async (_label, outcome, heading) => {
+    const back: { current: (() => boolean) | null } = { current: null };
+    const confirmLinkedDeletion = vi.fn().mockRejectedValue(outcome);
+    const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED", true)),
+      prepareLinkedDeletion: prepared("sms"), confirmLinkedDeletion, cancelLinkedDeletion: vi.fn().mockResolvedValue({}),
+      onBackStepChange: handler => { back.current = handler; } });
+    const code = await reachCodeStep(flow.startVerification);
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.submit(code.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "I understand this can’t be undone." }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete and continue" }));
+    if (heading) await screen.findByRole("heading", { name: heading });
+    else await screen.findByRole("button", { name: "Check again" });
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    act(() => { expect(back.current?.()).toBe(true); });
+    expect(await screen.findByRole("textbox", { name: "Phone number" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete my previous account" })).toBeNull();
+    expect(confirmLinkedDeletion).toHaveBeenCalledOnce(); expect(flow.onCompleted).not.toHaveBeenCalled();
   });
 
   it.each(["PHONE_LINKED_PROOF_REQUIRED", "ACCOUNT_DELETION_PAUSED", "PHONE_LINKED_CLAIM_REQUIRED"])("sends a spent operation (%s) back to number verification instead of retrying it", async refusal => {
