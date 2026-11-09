@@ -5702,11 +5702,14 @@ account. `POST /api/account/phone/linked-account/deletions` takes
 `transport`. Whether the number has a holder, or a protected one, is never
 revealed before proof. `POST /api/account/phone/linked-account/deletions/confirm`
 requires `operation_id`, the same `phone_number`, literal `confirmed: true` and
-exactly one proof: a fresh real-SMS `phone_id_token` (transfer-grade: Firebase
-phone provider, authentication within 300 seconds, not a provider fictional
-number, single-use authentication event) or, only for configured UAT fixture
-numbers outside any production runtime, the fixture `test_code`. Five wrong
-fixture codes cancel the operation. After proof the server rechecks the
+a fresh real-SMS `phone_id_token` (transfer-grade: Firebase phone provider,
+authentication within 300 seconds, not a provider fictional number, single-use
+authentication event). A configured or shared `test_code` never authorizes
+deleting another account (`PHONE_LINKED_DELETION_REAL_SMS_REQUIRED`), and a
+historical `configured_test` operation cannot be upgraded to real SMS. The SMS
+deadline is rechecked after the binding-lock wait and again inside the final
+full-account admission locks (`PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED`). After
+proof the server rechecks the
 holder's exact binding (digest, binding revision, generation) under its locks,
 refuses reviewer fixtures (`PHONE_LINKED_ACCOUNT_PROTECTED`) and phone-only
 identities that could never be claimed afterwards
@@ -5718,9 +5721,18 @@ commits nothing. Receipts are `admitted`, `refused` (with the existing deletion
 refusal codes) or `action_required`. A lost response is read back through
 `GET /api/account/phone/linked-account/deletions/{operation_id}`, which settles
 only from the committed full-account tombstone and never dispatches again;
-`POST …/{operation_id}/cancel` fences a prepared operation. The person then
-claims the number through the existing `/phone/claim` or `/phone/uat-test/*`
-writers. An explicit OTP claim is never blocked by a holder whose full-account
+`POST …/{operation_id}/cancel` fences a prepared operation. The client's
+**Check again** uses only that read: a confirmation whose outcome is unknown is
+never sent again and no longer offers Cancel. Leaving returns to number entry and
+asks the server to cancel the operation, which only takes effect before admission. Final erasure of
+either account detaches only that owner's raw reference on consumed receipts
+after its tombstone exists; the hashed requester-scoped receipt and the consumed
+proof-event digest survive for the existing 90-day retention, so the same SMS
+event can never authorize deleting a later holder. Unconsumed operations still
+cascade. Admission is not completed erasure. The consumed proof belongs to the
+previous identity and is never submitted to the receiving account's claim
+writer; the person verifies the number again with their own fresh proof
+through the existing writers. An explicit OTP claim is never blocked by a holder whose full-account
 deletion is committed: the canonical per-number writer detaches that dead
 binding atomically. Provisional phone-orphan intents and background provider
 hydration never release a binding. Production stays off until
