@@ -370,7 +370,7 @@
         "auth_signed_in",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
