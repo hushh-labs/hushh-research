@@ -97,9 +97,13 @@ for (const width of [320, 393, 768, 1440]) {
         preview.getByRole("button", { name: "Open Second Degree Person's profile" }).boundingBox(),
       ]);
       return connectBounds && profileBounds
-        ? connectBounds.x + connectBounds.width - profileBounds.x
+        ? profileBounds.x + profileBounds.width - connectBounds.x
         : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(0);
+    expect(await connect.evaluate(button => {
+      const row = button.closest("li")!;
+      return row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight) - button.getBoundingClientRect().right;
+    })).toBeCloseTo(0, 0);
     await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(1);
     await page.screenshot({ path: testInfo.outputPath(`network-connect-action-${width}.png`) });
     await connect.click();
@@ -139,6 +143,8 @@ for (const width of [320, 393, 768, 1440]) {
     await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
     await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(4);
     await expect(preview).toHaveCSS("opacity", "1");
+    const filters = preview.getByRole("group", { name: "Connection degree filters" });
+    expect(await filters.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`network-discovery-${width}.png`) });
     await preview.getByRole("button", { name: "Extended network", exact: true }).click();
