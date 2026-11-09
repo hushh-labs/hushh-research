@@ -84,10 +84,10 @@ Primary Kai streams:
 
 Native release note:
 
-1. There are currently no separate iOS or Android UAT app-store builds.
-2. UAT native streams exist in GA4 for topology readiness, but current App Store / Play Store iOS and Android builds are production analytics surfaces.
-3. Native UAT validation requires a future TestFlight/internal-track build or a documented dev-device debug build using the UAT Firebase app IDs.
-4. Until then, UAT KPI validation is web-first and production native analytics must be monitored separately.
+1. Public App Store and Play Store builds are production analytics surfaces.
+2. UAT TestFlight 2.0.0 (173) was packaged with the shared Firebase project. The 5 November export showed earlier UAT iOS `one_location_journey_action` events in the production iOS stream even though their event environment was `uat`.
+3. The UAT iOS build stages the dedicated Analytics app as the default plist before the SDK starts. Native Auth and Google OAuth use the separate shared-project Firebase app and notification registration explicitly requests the shared FCM sender. Archive verification checks both bundled identities. On a local Mac, the UAT Analytics plist goes under `hushh-webapp/.env.local.d/ios/uat-analytics/`; the existing shared native plist remains at its normal location. The TestFlight build retrieves the dedicated client config through its existing UAT workload identity.
+4. iOS acceptance requires the exact TestFlight build on a real iPhone, an existing tester signed in through shared Firebase Auth and admitted by the UAT backend, and a delivered UAT push via the shared sender. Open the Location Circle tab and verify `one_location_journey_action` on UAT iOS stream `14383415557` for that build and test window. Use Firebase DebugView when available on the test device, or a stream-filtered GA report after processing. Keep scheduled reporting paused.
 
 ### BigQuery target datasets
 
