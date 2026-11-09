@@ -500,7 +500,7 @@ def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None
     assert "| UAT | unknown | failure | unknown | not armed |" in failed
 
 
-def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None, inconsistent_reads: int = 0) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real `next-check` step with a fake gh that records dispatches."""
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
@@ -521,6 +521,7 @@ def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None) 
         fake_gh.write_text(
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{calls}'\n"
+            f"case \"$*\" in *status=pending*) n=$(cat '{bin_dir / 'reads'}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{bin_dir / 'reads'}'; if [ $n -le {inconsistent_reads} ]; then echo '{{\"total_count\":1,\"workflow_runs\":[]}}'; exit 0; fi ;; esac\n"
             f"case \"$*\" in *--method\\ POST*) exit 0 ;; *--jq*) echo '{started}' ;; *status=waiting*) echo '{waiting}' ;; *'/runs?'*) echo '{{\"total_count\":0,\"workflow_runs\":[]}}' ;; *) echo '{{\"id\":42}}' ;; esac\n"
         )
         fake_gh.chmod(0o755)
@@ -553,6 +554,12 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
     foreign = {**successor, "head_repository": {"full_name": "foreign/repo"}}
     refused, refused_posts = _run_clock_step(3700, successor=foreign)
     assert refused.returncode != 0 and refused_posts == []
+    recovered, recovered_posts = _run_clock_step(3700, inconsistent_reads=1)
+    assert recovered.returncode == 0 and len(recovered_posts) == 1, recovered.stderr
+    assert "state=pending total=1 rows=0" in recovered.stderr
+    incomplete, incomplete_posts = _run_clock_step(3700, inconsistent_reads=3)
+    assert incomplete.returncode != 0 and incomplete_posts == []
+    assert "read=3/3" in incomplete.stderr
 
 
 

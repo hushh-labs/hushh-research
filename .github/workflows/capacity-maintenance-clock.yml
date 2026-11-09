@@ -211,7 +211,7 @@ jobs:
             exit 1
           fi
           successor="$(python3 - <<'PY_CLOCK'
-          import json, os, subprocess
+          import json, os, subprocess, sys, time
           repository = os.environ["GITHUB_REPOSITORY"]
           current = int(os.environ["GITHUB_RUN_ID"])
           path = ".github/workflows/capacity-maintenance-clock.yml"
@@ -219,10 +219,17 @@ jobs:
           workflow = json.loads(subprocess.check_output(["gh", "api", prefix + "/workflows/capacity-maintenance-clock.yml"]))
           found = False
           for state in ("pending", "queued", "waiting"):
-              data = json.loads(subprocess.check_output(["gh", "api", prefix + f"/workflows/capacity-maintenance-clock.yml/runs?branch=main&status={state}&per_page=100"]))
-              rows = data.get("workflow_runs")
-              if not isinstance(rows, list) or data.get("total_count") != len(rows) or len(rows) >= 100:
-                  raise SystemExit("Clock successor inventory is incomplete; no rearm admitted")
+              for read_attempt in range(3):
+                  data = json.loads(subprocess.check_output(["gh", "api", "-H", "Cache-Control: no-cache", prefix + f"/workflows/capacity-maintenance-clock.yml/runs?branch=main&status={state}&per_page=100"]))
+                  rows, total = data.get("workflow_runs"), data.get("total_count")
+                  if not isinstance(rows, list) or type(total) is not int or total < 0 or len(rows) >= 100:
+                      raise SystemExit(f"Clock successor inventory malformed or exceeds bound: state={state}; no rearm admitted")
+                  if total == len(rows):
+                      break
+                  print(f"Clock inventory inconsistent: state={state} total={total} rows={len(rows)} current_present={any(row.get('id') == current for row in rows)} read={read_attempt + 1}/3", file=sys.stderr)
+                  if read_attempt == 2:
+                      raise SystemExit("Clock successor inventory is incomplete; no rearm admitted")
+                  time.sleep(2)
               for run in rows:
                   if run.get("id") == current:
                       continue

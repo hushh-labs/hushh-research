@@ -70,6 +70,7 @@ jobs:
         id: source
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           REQUESTED_SHA: ${{ inputs.sha || github.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           RESTORATION: ${{ inputs.production_restoration && 'true' || 'false' }}
