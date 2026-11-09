@@ -15,10 +15,12 @@ const mocks = vi.hoisted(() => ({
   meeting: vi.fn(),
   time: vi.fn(),
   billing: vi.fn(),
+  calendarStatus: vi.fn(),
 }));
 vi.mock("@/lib/advisor-review/service", () => ({
   AdvisorReviewService: mocks,
 }));
+vi.mock("@/lib/services/google-calendar-service", () => ({ GoogleCalendarService: { status: mocks.calendarStatus } }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/ria/clients" }));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({
   KaiControlSurface: ({
@@ -67,6 +69,7 @@ const value: AdvisorReview = {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.view.mockResolvedValue({ ...value });
+  mocks.calendarStatus.mockResolvedValue({ status: "disconnected", connected: false });
   Object.defineProperty(document, "hidden", {
     configurable: true,
     value: false,
@@ -155,7 +158,7 @@ it("offers a Calendar recovery path without marking a failed booking as confirme
   );
   await screen.findByRole("alert");
   expect(
-    screen.getByRole("link", { name: "Connect or manage Calendar" }),
+    await screen.findByRole("link", { name: "Connect Calendar" }),
   ).toHaveAttribute("href", "/one/calendar");
   expect(screen.queryByRole("button", { name: "Confirm meeting" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Join Google Meet" })).toBeNull();
@@ -189,4 +192,20 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
     expect(screen.getByRole("status")).toHaveTextContent("past due"),
   );
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
+});
+
+
+it.each(["owner", "advisor"])("reads and refreshes the %s’s own connected Calendar", async (userId) => {
+  mocks.view.mockResolvedValue({ ...value, status: "accepted", direction: userId === "advisor" ? "received" : "outgoing" });
+  mocks.calendarStatus.mockResolvedValueOnce({
+    status: "connected", connected: true,
+    accounts: [{ account_id: "default", google_email: `${userId}@example.test`, status: "connected", connected: true, access_level: "manage" }],
+  });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId }} onClose={vi.fn()} />);
+  expect(await screen.findByText(`${userId}@example.test`)).toBeVisible();
+  expect(mocks.calendarStatus).toHaveBeenCalledWith("synthetic", userId);
+  expect(screen.getByRole("link", { name: "Manage Calendar" })).toBeVisible();
+  fireEvent.focus(window);
+  expect(await screen.findByRole("link", { name: "Connect Calendar" })).toBeVisible();
+  expect(screen.queryByText(`${userId}@example.test`)).toBeNull();
 });
