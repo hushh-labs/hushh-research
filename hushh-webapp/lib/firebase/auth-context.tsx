@@ -2189,12 +2189,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return currentUser;
   }, [requirePhoneVerificationOwner]);
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
-    const principal = principalRef.current, attemptPhone = String(phoneVerificationPhoneNumber ?? "").trim(); // one attempt verified one number
+    const attemptPhone = String(phoneVerificationPhoneNumber ?? "").trim(); // one attempt verified one number; deletion links nothing here
     const releaseProof = () => { phoneRecovery.cancelNativeStart(); phoneTransferProofRef.current = null; setConfirmationResult(null); setNativeVerificationId(null);
       setPhoneVerificationPhoneNumber(null); if (!Capacitor.isNativePlatform()) resetRecaptcha(); phoneVerificationOwnerRef.current = null; };
     return confirmLinkedDeletion(input, { user: () => userRef.current, retained: () => attemptPhone && attemptPhone === input.phoneNumber ? phoneTransferProofRef.current : null,
-      requireOwner: requirePhoneVerificationOwner, releaseProof, finalize: (verified) => { releaseProof(); applyAuthUser(verified, principal); } });
-  }, [applyAuthUser, phoneRecovery, phoneVerificationPhoneNumber, requirePhoneVerificationOwner]);
+      requireOwner: requirePhoneVerificationOwner, releaseProof });
+  }, [phoneRecovery, phoneVerificationPhoneNumber, requirePhoneVerificationOwner]);
 
   // Replacement and first verification share the same isolated possession proof.
   const confirmPhoneReplacement = confirmPhoneVerification;

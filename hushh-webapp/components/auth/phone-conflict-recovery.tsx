@@ -25,7 +25,7 @@ type Props = {
   restartVerification?: () => void;
 };
 
-const SETTLED_TITLES = { requested: "Deletion requested", not_found: "No account to delete" } as const;
+const SETTLED_TITLES = { requested: "Deletion requested", not_found: "Nothing left to delete" } as const;
 
 /** A phone number remains linked to its existing email account. */
 export function PhoneConflictRecovery(props: Props) {
@@ -42,15 +42,16 @@ export function PhoneConflictRecovery(props: Props) {
   </div>;
 }
 
-/** One irreversible decision: the retained phone proof plus an explicit acknowledgement. */
+/** One irreversible decision: the retained real-SMS proof plus an explicit acknowledgement. */
 function LinkedDeletionReview(props: Props & { Heading: "h1" | "h2" }) {
   const { Heading, busy, deletionReview: review } = props;
-  const [code, setCode] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
-  const needsCode = review?.transport === "configured_test";
-  const ready = !busy && (props.deletionUnconfirmed || (acknowledged && (!needsCode || /^\d{6}$/.test(code))));
+  const ready = !busy && (props.deletionUnconfirmed || acknowledged);
   const hint = review?.phone_hint ?? "this number";
   const settled = props.deletionSettled ? SETTLED_TITLES[props.deletionSettled] : null;
+  const verifyAgain = (primary: boolean) => <Button type="button" variant={primary ? "blue" : "none"} size={primary ? "prominent" : undefined}
+    effect={primary ? undefined : "fade"} fullWidth className={primary ? styles.primary : undefined} disabled={busy}
+    data-voice-control-id="phone-flow-delete-verify-again" onClick={props.restartVerification}>Verify this number again</Button>;
   return <div data-phone-conflict="true" data-phone-linked-deletion="true" className={cn(styles.content, props.className)} style={props.style}>
     <Heading data-phone-conflict-title="true" className={styles.title}>
       {settled ?? `Delete the account linked to ${hint}?`}
@@ -60,21 +61,17 @@ function LinkedDeletionReview(props: Props & { Heading: "h1" | "h2" }) {
     </p>}
     {props.operationError ? <p className={styles.description} role={settled ? "status" : "alert"}>{props.operationError}</p> : null}
     {/* A spent or expired proof deletes nothing more; only a new verification continues. */}
-    {props.deletionNeedsFreshProof ? <Button type="button" variant="blue" size="prominent" fullWidth className={styles.primary} disabled={busy} data-voice-control-id="phone-flow-delete-verify-again" onClick={props.restartVerification}>Verify this number again</Button> : <>
-      {needsCode && !props.deletionUnconfirmed ? <label className={styles.description}>
-        <span>Verification code</span>
-        <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} disabled={busy}
-          onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
-      </label> : null}
+    {props.deletionNeedsFreshProof ? verifyAgain(true) : <>
       {props.deletionUnconfirmed ? null : <label className={styles.description}>
         <input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} />{" "}
         I understand this can’t be undone.
       </label>}
       <Button type="button" variant="destructive" size="prominent" fullWidth className={styles.primary} disabled={!ready} data-voice-control-id="phone-flow-delete-confirm"
-        onClick={() => void props.confirmDeletion?.(needsCode ? code : undefined)}>
+        onClick={() => void props.confirmDeletion?.()}>
         {busy ? "Requesting deletion…" : props.deletionUnconfirmed ? "Check again" : "Delete that account"}
       </Button>
-      <Button type="button" variant="none" effect="fade" fullWidth disabled={busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>
+      {/* Once a confirmation was sent, nothing can be cancelled; leaving means verifying again. */}
+      {props.deletionUnconfirmed ? verifyAgain(false) : <Button type="button" variant="none" effect="fade" fullWidth disabled={busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>}
     </>}
   </div>;
 }

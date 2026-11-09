@@ -30596,7 +30596,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens an in-place review to delete the account currently linked to this verified number. Deletion needs the retained fresh SMS proof and a separate explicit confirmation; when in-place deletion is unavailable it opens previous-account sign-in instead. This action never deletes an account.",
+      "description": "Opens an in-place review to delete the account currently linked to this verified number when the number's fresh SMS proof was retained; otherwise, or when in-place deletion is unavailable, it opens previous-account sign-in instead. Deletion needs a separate explicit confirmation. This action never deletes an account.",
       "execution": {
         "binding_ref": "render:phone_mandate.review_previous_deletion",
         "executor": {
@@ -30910,7 +30910,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Cancels the unconfirmed deletion review and returns to the occupied-number choices; while a confirmation request is in flight it waits for the request to settle. Once the proof is spent or expired, Back returns to number entry instead.",
+      "description": "Cancels the deletion review before anything is sent and returns to the occupied-number choices; while a confirmation request is in flight it waits for the request to settle. After a confirmation was sent, or once the proof is spent or expired, Back returns to number entry instead.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_cancel",
         "executor": {
@@ -31066,7 +31066,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Returns to number entry after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
+      "description": "Returns to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_verify_again",
         "executor": {
@@ -52425,7 +52425,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "b8cb319aa82b42f6a7df016b6876c2dd8fbb328a931b49fc475fc143b92e9832",
+      "projection_digest": "fc1337083b644190f9540c85ce2570318244b39b068056ad5184a836529f46ff",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52444,7 +52444,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4395ca01a8f61cf5",
+      "source_revision": "316ef246af0826e8",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -53962,7 +53962,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4395ca01a8f61cf5",
+    "source_revision": "316ef246af0826e8",
     "web": {
       "actions": [
         {
@@ -54005,7 +54005,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "21e4984ba2d34244129920b7d70bc4138319e92172aee5fb4dab42865f0dafd7",
+      "projection_digest": "eebf19953ade83dccaba14b3eb663bc60f9147a681b8ec9696f4bc2a8aea259e",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54024,7 +54024,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4395ca01a8f61cf5",
+      "source_revision": "316ef246af0826e8",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -55581,7 +55581,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4395ca01a8f61cf5",
+  "revision": "316ef246af0826e8",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -59951,7 +59951,7 @@
     "capability_graph_evolution": "4874d673488e72bf24d1b9bca8098c34a0f5603461764f54a6e505b16b9a7b6d",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "3b2d9f0ad62081400349b3d3ee276269ccb27240eaf8cd15b2c5bfd54ca5710e",
+    "kai_action_gateway": "95a3688469aac22a30a65301d23dea2f1d64ef480b3716b78a09a05516a176f5",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -59960,9 +59960,9 @@
     "route_orchestration_index": "55f9522d59165fe89202f4b07ba68fccd6db9fea51f122d72b1ade92ee8e7378",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "4395ca01a8f61cf5",
+  "source_revision": "316ef246af0826e8",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4395ca01a8f61cf5",
+    "current_graph_revision": "316ef246af0826e8",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

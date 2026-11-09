@@ -122,10 +122,12 @@ type StartVerificationOutcome =
 
 type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 
-// Only these code-step refusals keep a fresh real-SMS proof in AuthProvider
-// (web claim path). Test codes and native links never retain one, so their
-// deletion choice stays on the previous-account sign-in handoff.
-const RETAINED_PROOF_CONFLICTS = new Set(["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_ALREADY_VERIFIED"]);
+// Code-step refusals whose fresh real-SMS proof AuthProvider retains (web claim
+// path) and that in-place deletion can act on. PHONE_SESSION_ACCOUNT_CONFLICT also
+// retains a proof, but its phone sign-in is itself an account the server only lets
+// its owner delete, so it keeps the previous-account sign-in handoff. Test codes
+// and native links never retain a proof and keep the handoff too.
+const RETAINED_PROOF_CONFLICTS = new Set(["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_ALREADY_VERIFIED"]);
 
 function phoneFailureMessage(error: unknown, fallback: string): string {
   return resolvePhoneFailureMessage(error, fallback, apiErrorCode(error));
@@ -280,15 +282,16 @@ export function usePhoneVerificationFlow({
     onStepChange?.(step);
   }, [onStepChange, step]);
 
-  const { leave: leaveDeletionReview, freshProof: deletionProofSpent } = deletion;
+  const { leave: leaveDeletionReview, freshProof: deletionProofSpent, unconfirmed: deletionUnconfirmed } = deletion;
   const returnToPhoneNumber = useCallback(() => {
     if (!current()) return true;
     if (phoneFlowInFlightRef.current) return true;
-    // An unspent review returns to the choices. Once its proof is spent or expired
-    // the choices can no longer delete anything, so Back returns to number entry.
+    // Only a review that sent nothing returns to the choices. Once a confirmation was
+    // sent and is unconfirmed, or the proof is spent or expired, the choices could
+    // offer a proof that may already be consumed, so Back returns to number entry.
     if (conflict === "delete") {
       if (!leaveDeletionReview()) return true;
-      if (!deletionProofSpent) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
+      if (!deletionProofSpent && !deletionUnconfirmed) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
     }
     advanceEntryRevision();
     setVerificationCode("");
@@ -297,8 +300,8 @@ export function usePhoneVerificationFlow({
     setConflict(null);
     changeStep("phone");
     return true;
-  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, leaveDeletionReview, deletionProofSpent]);
-  // A spent or expired proof cannot be reused; only a new verification can continue.
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, leaveDeletionReview, deletionProofSpent, deletionUnconfirmed]);
+  // A sent, spent or expired proof cannot be offered again; only a new verification continues.
   const restartVerification = useCallback(() => {
     if (!current() || phoneFlowInFlightRef.current || conflict !== "delete" || !leaveDeletionReview()) return;
     advanceEntryRevision(); setVerificationCode(""); setCodeError(null); setOperationError(null);

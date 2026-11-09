@@ -32,7 +32,7 @@ from tests.helpers.phone_conflict_browser import (
 from tests.helpers.phone_transfer_postgres import database_url as database_url
 
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
-SCENARIOS = {"recover", "occupied", "devices"}
+SCENARIOS = {"recover", "occupied", "delete_linked", "devices"}
 
 
 class RecordedFirebase:
@@ -372,7 +372,7 @@ async def test_recorded_phone_browser_journeys(database_url, monkeypatch, browse
             )
         assert result["feature"] == "phone_conflict"
         assert result["engine"] == browser_engine
-        assert outcomes == ["recover", "occupied", "devices"]
+        assert outcomes == ["recover", "occupied", "delete_linked", "devices"]
         assert "legacy_257_handoff_rejected" in result["trace_loop"]
     finally:
         engine.dispose()

@@ -24753,7 +24753,7 @@
         "previous account",
         "deletion review"
       ],
-      "meaning": "Opens an in-place review to delete the account currently linked to this verified number. Deletion needs the retained fresh SMS proof and a separate explicit confirmation; when in-place deletion is unavailable it opens previous-account sign-in instead. This action never deletes an account.",
+      "meaning": "Opens an in-place review to delete the account currently linked to this verified number when the number's fresh SMS proof was retained; otherwise, or when in-place deletion is unavailable, it opens previous-account sign-in instead. Deletion needs a separate explicit confirmation. This action never deletes an account.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -24976,7 +24976,7 @@
         "phone",
         "deletion review"
       ],
-      "meaning": "Cancels the unconfirmed deletion review and returns to the occupied-number choices; while a confirmation request is in flight it waits for the request to settle. Once the proof is spent or expired, Back returns to number entry instead.",
+      "meaning": "Cancels the deletion review before anything is sent and returns to the occupied-number choices; while a confirmation request is in flight it waits for the request to settle. After a confirmation was sent, or once the proof is spent or expired, Back returns to number entry instead.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -25087,7 +25087,7 @@
         "phone",
         "deletion review"
       ],
-      "meaning": "Returns to number entry after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
+      "meaning": "Returns to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
