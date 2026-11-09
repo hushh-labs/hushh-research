@@ -25658,7 +25658,7 @@
         "phone",
         "recovery"
       ],
-      "meaning": "Cancels the deletion review before anything is sent and returns to recovery choices; while a confirmation request is in flight it waits for the request to settle. After a confirmation was sent, or once the proof is spent or expired, Back returns to number entry instead.",
+      "meaning": "Cancels the deletion review before a confirmation takes effect and returns to recovery choices, including after a definite refusal that can be retried; while a confirmation request is in flight it waits for the request to settle. After a confirmation whose outcome is unknown, or once the proof is spent or expired, Back returns to number entry instead.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -25769,7 +25769,7 @@
         "phone",
         "recovery"
       ],
-      "meaning": "Return to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
+      "meaning": "Return to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing, links no number and asks the server to cancel an operation that was not admitted.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

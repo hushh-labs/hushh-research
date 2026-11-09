@@ -31828,7 +31828,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Cancels the deletion review before anything is sent and returns to recovery choices; while a confirmation request is in flight it waits for the request to settle. After a confirmation was sent, or once the proof is spent or expired, Back returns to number entry instead.",
+      "description": "Cancels the deletion review before a confirmation takes effect and returns to recovery choices, including after a definite refusal that can be retried; while a confirmation request is in flight it waits for the request to settle. After a confirmation whose outcome is unknown, or once the proof is spent or expired, Back returns to number entry instead.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_cancel",
         "executor": {
@@ -31984,7 +31984,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Return to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
+      "description": "Return to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing, links no number and asks the server to cancel an operation that was not admitted.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_verify_again",
         "executor": {
@@ -54133,7 +54133,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "da381c31e3e61eed96b7a5fb2a595bab01314d8ec6e3e53a5e006e83df2fedbe",
+      "projection_digest": "ffe12b8fc9dcde3404f4072e2d95ef9ab33b43f6e95fd6dfb3dae650bf3747cd",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54152,7 +54152,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "601a409a1d6817c2",
+      "source_revision": "a8d7849023ec5bcf",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -55670,7 +55670,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "601a409a1d6817c2",
+    "source_revision": "a8d7849023ec5bcf",
     "web": {
       "actions": [
         {
@@ -55713,7 +55713,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "2ad890b3d4a82c601178bfdd598a0871ee3ae69386f9e976ffb66f0eda085ad7",
+      "projection_digest": "91ffd6a669a5d9627f0c86b98a3b26930a4ff47ce568f89f17a2b808c03975dc",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -55732,7 +55732,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "601a409a1d6817c2",
+      "source_revision": "a8d7849023ec5bcf",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -57289,7 +57289,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "601a409a1d6817c2",
+  "revision": "a8d7849023ec5bcf",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -61666,7 +61666,7 @@
     "capability_graph_evolution": "24515dec0db35f205c33fb1f86f2ae25916bd1b205c65031a4c1100f16590c33",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "84ba5756c5243e9ff3e38ac552e1096167a1168ba26e26fa132ae829ac2437dd",
+    "kai_action_gateway": "950d1ed7b7bd7e1bf07d6ba32e56ea4829270544dc99b9cf82d3aaf2379650e5",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -61675,9 +61675,9 @@
     "route_orchestration_index": "6fa03e0e1eaf08e87e69a5a01920e6e8ece8de5e394c63689985dc33238736aa",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "601a409a1d6817c2",
+  "source_revision": "a8d7849023ec5bcf",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "601a409a1d6817c2",
+    "current_graph_revision": "a8d7849023ec5bcf",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

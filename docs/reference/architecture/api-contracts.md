@@ -5722,8 +5722,9 @@ refusal codes) or `action_required`. A lost response is read back through
 `GET /api/account/phone/linked-account/deletions/{operation_id}`, which settles
 only from the committed full-account tombstone and never dispatches again;
 `POST …/{operation_id}/cancel` fences a prepared operation. The client's
-**Check again** uses only that read: a sent confirmation is never sent again or
-cancelled, and leaving it means verifying the number again. Final erasure of
+**Check again** uses only that read: a confirmation whose outcome is unknown is
+never sent again and no longer offers Cancel. Leaving returns to number entry and
+asks the server to cancel the operation, which only takes effect before admission. Final erasure of
 either account detaches only that owner's raw reference on consumed receipts
 after its tombstone exists; the hashed requester-scoped receipt and the consumed
 proof-event digest survive for the existing 90-day retention, so the same SMS
