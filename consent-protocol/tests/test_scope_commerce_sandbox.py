@@ -595,3 +595,171 @@ def test_sandbox_policy_is_required_and_bound_to_test_account_and_fixed_budget(
     )
     with pytest.raises(CommerceProviderError, match="provider_sandbox"):
         config.validate(new_activity=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [None, "unknown", "hash", "actor", "account", "age", "incomplete", "lease", "pin"]
+)
+async def test_cached_connect_rejection_recovery_is_bounded_and_reconciles_before_retry(failure):
+    import importlib
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    try:
+        recover = importlib.import_module(
+            "scripts.ops.scope_commerce_seller_recovery"
+        ).recover_seller_account
+    finally:
+        sys.path.pop(0)
+    store, adapter = _OperationStore(), _OperationAdapter()
+    fetchrow = store.fetchrow
+
+    async def pinned_fetchrow(sql, *parameters):
+        if "scope_commerce_environment" in sql:
+            return {
+                "platform_account_id": "acct_wrong" if failure == "pin" else "acct_fixture",
+                "livemode": False,
+            }
+        return await fetchrow(sql, *parameters)
+
+    store.fetchrow = pinned_fetchrow
+    config = ScopeCommerceProviderConfig(
+        enabled=True,
+        platform_account_id="acct_fixture",
+        frontend_origin="https://example.test",
+        sandbox_policy_required=True,
+        sandbox_policy=SandboxPolicy("acct_fixture", ("owner", "buyer")),
+        countries={"US": CountryPayoutPolicy(1, 90, 0, 0)},
+        fee_configuration_ref="fixture",
+    )
+    service = ScopeCommerceProviderService(store, adapter=adapter, config=config)
+    operation_id = _derived_id("owner", "seller_account")
+    request = await service._seller_creation_request("owner", "US", operation_id)
+    encoded = json.dumps(request, sort_keys=True, separators=(",", ":"))
+    store.operations[operation_id] = dict(
+        operation_id=operation_id,
+        user_id="owner",
+        kind="seller_account",
+        request_hash=_opaque(encoded),
+        request_json=encoded,
+        status="reconciliation_required",
+        provider_id=None,
+        provider_response=None,
+        created_at=datetime.now(UTC),
+        lease_until=None,
+    )
+
+    async def admit(**_kwargs):
+        return None
+
+    async def binding(_user):
+        return None
+
+    async def prepare(*, user_id, country):
+        account = await service._run_operation(
+            user_id=user_id,
+            operation_id=operation_id,
+            kind="seller_account",
+            request=request,
+            validate=lambda value: service._validate_object(
+                value, object_type="account", metadata=request["metadata"]
+            ),
+        )
+        return {"account_id": account["id"], "country": country}
+
+    service._admit, service._seller_binding, service._prepare_seller_account = (
+        admit,
+        binding,
+        prepare,
+    )
+    adapter.response = {
+        "object": "account",
+        "id": "acct_seller",
+        "country": "US",
+        "livemode": False,
+    }
+    original_create = adapter.create
+    keys = []
+
+    async def dispatch(kind, parameters, *, idempotency_key):
+        keys.append(idempotency_key)
+        # Model the critical failure: Stripe commits but the response is lost.
+        adapter.fail_after_create = True
+        return await original_create(kind, parameters, idempotency_key=idempotency_key)
+
+    adapter.create = dispatch
+    evidence = dict(
+        platform_account_id="acct_fixture",
+        livemode=False,
+        operation_id=operation_id,
+        idempotency_key=f"scope-commerce-seller_account-{operation_id}",
+        http_status=400,
+        error_class="connect_not_enabled",
+        idempotent_replayed=True,
+        original_request_id="req_original",
+        replayed_request_id="req_retry",
+        verified_at=datetime.now(UTC).isoformat(),
+    )
+    if failure == "unknown":
+        evidence["http_status"] = 503
+    if failure == "hash":
+        store.operations[operation_id]["request_hash"] = "different"
+    if failure == "actor":
+        store.operations[operation_id]["user_id"] = "buyer"
+    if failure == "account":
+        evidence["platform_account_id"] = "acct_elsewhere"
+    if failure == "age":
+        store.operations[operation_id]["created_at"] -= timedelta(hours=24)
+    if failure == "incomplete":
+
+        async def incomplete(*_args, **_kwargs):
+            raise CommerceProviderError("provider_recovery_incomplete")
+
+        adapter.recover = incomplete
+    if failure == "lease":
+        calls = 0
+
+        async def expire_during_listing(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                store.operations[operation_id]["lease_until"] = datetime.now(UTC) - timedelta(
+                    seconds=1
+                )
+            return None
+
+        adapter.recover = expire_during_listing
+    state, saved = {"platform_account_id": "acct_fixture"}, []
+    with pytest.raises(CommerceProviderError):
+        await recover(
+            service,
+            user_id="owner",
+            evidence=evidence,
+            state=state,
+            persist=lambda value: saved.append(copy.deepcopy(value)),
+        )
+    if failure:
+        assert keys == [] and adapter.created == 0
+        return
+    assert len(saved) == 1 and adapter.created == 1
+    assert keys == [f"scope-commerce-seller_account-{operation_id}-connect-enabled-v1"]
+    assert store.operations[operation_id]["status"] == "reconciliation_required"
+    # A process restart restores only persisted operator intent. Canonical
+    # recovery finds the committed account; no replacement mutation is issued.
+    state = copy.deepcopy(saved[0])
+    result = await recover(
+        service,
+        user_id="owner",
+        evidence=evidence,
+        state=state,
+        persist=lambda value: saved.append(copy.deepcopy(value)),
+    )
+    assert result["account_id"] == "acct_seller" and adapter.created == 1
+    assert store.operations[operation_id]["status"] == "succeeded"
+    assert store.operations[operation_id]["request_hash"] == _opaque(encoded)
+    await recover(
+        service, user_id="owner", evidence=evidence, state=state, persist=lambda _value: None
+    )
+    assert adapter.created == 1

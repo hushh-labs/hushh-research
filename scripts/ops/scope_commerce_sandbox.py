@@ -351,6 +351,11 @@ async def _execute(args, provider, connection, evidence):
 
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
+    from hushh_mcp.runtime_settings import hydrate_runtime_environment
+
+    hydrate_runtime_environment()
+    if args.command == "recover-seller-account":
+        return await _recover_seller(args)
     from scripts.ops.scope_commerce_sandbox_policy import private_json
 
     from db.connection import dedicated_connection
@@ -369,6 +374,45 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             )
 
 
+async def _recover_seller(args: argparse.Namespace) -> dict[str, Any]:
+    from scripts.ops.scope_commerce_sandbox_policy import private_json
+    from scripts.ops.scope_commerce_seller_recovery import recover_seller_account
+
+    from db.connection import close_pool
+    from hushh_mcp.services.scope_commerce.provider_service import (
+        ScopeCommerceProviderService,
+    )
+    from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
+    from hushh_mcp.services.scope_commerce.stripe_adapter import CommerceProviderError
+
+    if not args.execute or not args.failure_evidence_file:
+        raise CommerceProviderError("sandbox_execution_confirmation_required")
+    provider, reviewers, _source, _evidence = _runtime(args)
+    await provider.identity()
+    service = ScopeCommerceProviderService(
+        ScopeCommerceService(provider_config=provider.config), config=provider.config
+    )
+    try:
+        with setup_state(args.operation_state_file, args.account_id) as (
+            state,
+            persist,
+        ):
+            saved = await recover_seller_account(
+                service,
+                user_id=reviewers[args.reviewer_role],
+                evidence=private_json(args.failure_evidence_file),
+                state=state,
+                persist=persist,
+            )
+        return {
+            "sandbox": True,
+            "status": "recovered",
+            "accountId": saved["account_id"],
+        }
+    finally:
+        await close_pool()
+
+
 def main() -> int:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "consent-protocol"))
@@ -377,7 +421,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("preflight", "bind-account", "provision-capital", "provision-webhook"),
+        choices=(
+            "preflight",
+            "bind-account",
+            "provision-capital",
+            "provision-webhook",
+            "recover-seller-account",
+        ),
     )
     parser.add_argument("--account-id", required=True)
     parser.add_argument("--reviewer-binding-file", required=True)
@@ -387,6 +437,8 @@ def main() -> int:
         default=os.getenv("SCOPE_COMMERCE_SANDBOX_OPERATION_STATE_FILE", ""),
     )
     parser.add_argument("--operation-id", default="")
+    parser.add_argument("--reviewer-role", choices=("primary", "counterpart"), default="primary")
+    parser.add_argument("--failure-evidence-file", default="")
     parser.add_argument("--amount-cents", type=int, default=2500)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--webhook-scope", choices=("platform", "connect"), default="platform")
