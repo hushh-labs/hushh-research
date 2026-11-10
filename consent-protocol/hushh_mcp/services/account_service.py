@@ -77,6 +77,25 @@ from hushh_mcp.services.hushh_tech_uat_database_attestation import (
 
 logger = logging.getLogger(__name__)
 
+# Spent occupied-number deletion proofs outlive either account's erasure; see
+# AccountService._retain_spent_phone_deletion_proofs. Static SQL only.
+_PHONE_DELETION_RECEIPTS_LOCK_SQL = """SELECT 1 FROM account_phone_linked_deletions
+    WHERE requester_user_id=:user_id OR target_user_id=:user_id FOR UPDATE"""
+# An erased requester can never read its receipts again. Configured test-code
+# proofs are scoped to one operation, and an SMS event authorizes for at most
+# 300 s, so only recently dispatched SMS receipts still guard against replay.
+_PHONE_DELETION_REQUESTER_DROP_SQL = """DELETE FROM account_phone_linked_deletions
+    WHERE requester_user_id=:user_id AND proof_event_digest IS NOT NULL
+      AND (transport='configured_test' OR dispatched_at<clock_timestamp()-INTERVAL '10 minutes')"""
+_PHONE_DELETION_REQUESTER_DETACH_SQL = """UPDATE account_phone_linked_deletions
+    SET requester_user_id=NULL
+    WHERE requester_user_id=:user_id AND proof_event_digest IS NOT NULL"""
+# The live requester still reads this receipt; the erased holder keeps no raw
+# UID and no phone pseudonym in it.
+_PHONE_DELETION_TARGET_DETACH_SQL = """UPDATE account_phone_linked_deletions
+    SET target_user_id=NULL, phone_digest='hmac-sha256:'||repeat('0',64)
+    WHERE target_user_id=:user_id AND proof_event_digest IS NOT NULL"""
+
 DeleteAccountTarget = Literal["investor", "ria", "both"]
 # Emitted when the erasure transaction raised and was rolled back. A commit that
 # fails on a dropped connection can still be ambiguous, so clients confirm the
@@ -2125,6 +2144,30 @@ class AccountService:
             provider_cleanup=claim,
         )
 
+    def _retain_spent_phone_deletion_proofs(self, conn, params: Dict[str, Any]) -> None:
+        """Keep every spent linked-deletion proof single-use through erasure.
+
+        Migration 436 cascades a linked-deletion receipt with either account, but
+        a consumed receipt holds the only record of its spent SMS event (the
+        UNIQUE proof_event_digest) and the requester's read-back of the outcome.
+        Detach it instead: clear this owner's raw reference, which the identity
+        write guard allows only after this owner's tombstone exists, and blank an
+        erased holder's phone digest. Receipts that can no longer be replayed or
+        read are deleted, unconsumed rows still cascade, and the shared bounded
+        prune ages retained receipts out without waiting for a new prepare().
+        """
+        if not self._table_exists(conn, "account_phone_linked_deletions"):
+            return
+        from hushh_mcp.services.phone_linked_deletion import RECEIPT_PRUNE_SQL
+
+        # Lock this owner's receipts first: an in-flight admission either commits
+        # its spent-proof digest before the detach reads it, or finds the row gone.
+        conn.execute(text(_PHONE_DELETION_RECEIPTS_LOCK_SQL), params)
+        conn.execute(text(RECEIPT_PRUNE_SQL))
+        conn.execute(text(_PHONE_DELETION_REQUESTER_DROP_SQL), params)
+        conn.execute(text(_PHONE_DELETION_REQUESTER_DETACH_SQL), params)
+        conn.execute(text(_PHONE_DELETION_TARGET_DETACH_SQL), params)
+
     def _delete_full_account_transaction(
         self,
         user_id: str,
@@ -2314,6 +2357,8 @@ class AccountService:
                 # Admission owns its own deadlines; restore the erasure budget
                 # before destructive statements, including bounded recovery batches.
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
+                # The tombstone above permits detaching this owner's references.
+                self._retain_spent_phone_deletion_proofs(conn, params)
                 guard_answer_erasure(conn, user_id=user_id)
                 self._delete_personal_agent_state(
                     conn,

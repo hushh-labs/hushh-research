@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -372,3 +373,130 @@ async def test_an_unclaimable_phone_identity_is_refused_before_any_deletion(db, 
     result = await _sms_confirm(prepared["operation_id"], "own", _deleting(calls))
     assert result["code"] == "PHONE_LINKED_DELETION_RECOVERY_REQUIRED" and calls == []
     sms.recovery.assert_awaited_once_with("phone-only", PHONE)
+
+
+BLANK_PHONE_DIGEST = "hmac-sha256:" + "0" * 64
+
+
+async def _finish_cleanup(owner):
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    claims = await asyncio.to_thread(journal.claim_due, limit=1)
+    assert len(claims) == 1 and claims[0].owner_id == owner
+    assert claims[0].inventory == {}  # This disposable owner has no external grants.
+    assert await asyncio.to_thread(journal.is_ready, claims[0])
+    result = await AccountService().finalize_provider_cleanup(claims[0])
+    assert result["success"] is True and result["account_deleted"] is True
+
+
+async def _receipt_row(db, operation):
+    async with db.pool.acquire() as conn:
+        return await conn.fetchrow(
+            """SELECT requester_user_id,target_user_id,phone_digest,proof_event_digest
+            FROM account_phone_linked_deletions WHERE operation_id=$1::uuid""",
+            operation,
+        )
+
+
+async def test_holder_erasure_keeps_the_spent_sms_proof_single_use(db, sms):
+    sms.proofs["own"] = (PHONE, "phone-session", int(time.time()))
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    unconsumed = await linked.prepare(REQUESTER, PHONE)
+    calls = []
+    result = await _sms_confirm(prepared["operation_id"], "own", _deleting(calls))
+    assert result["state"] == "admitted" and calls == [HOLDER]
+    await _finish_cleanup(HOLDER)
+    # Only the unconsumed operation goes with the erased holder.
+    with pytest.raises(HTTPException) as gone:
+        await linked.status(REQUESTER, unconsumed["operation_id"])
+    assert gone.value.status_code == 404
+    assert await linked.status(REQUESTER, prepared["operation_id"]) == result
+    assert await _sms_confirm(prepared["operation_id"], "own", _deleting(calls)) == result
+    row = await _receipt_row(db, prepared["operation_id"])
+    assert row["requester_user_id"] == REQUESTER and row["target_user_id"] is None
+    assert row["phone_digest"] == BLANK_PHONE_DIGEST and row["proof_event_digest"]
+    # A new holder of the number can never be deleted with the spent SMS event.
+    await identity.ActorIdentityService().claim_verified_phone(
+        user_id=OWNERS["wrong"], phone_number=PHONE
+    )
+    replay = await linked.prepare(REQUESTER, PHONE)
+    with pytest.raises(HTTPException) as refused:
+        await _sms_confirm(replay["operation_id"], "own", _deleting(calls))
+    assert refused.value.detail["code"] == "PHONE_LINKED_DELETION_PROOF_ALREADY_USED"
+    assert await _holder(db) == OWNERS["wrong"] and calls == [HOLDER]
+
+
+async def test_requester_erasure_keeps_a_spent_sms_proof_only_while_it_can_replay(db, sms):
+    sms.proofs["own"] = (PHONE, "phone-session", int(time.time()))
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    assert (await _sms_confirm(prepared["operation_id"], "own", _deleting([])))["state"] == (
+        "admitted"
+    )
+    await _finish_cleanup(HOLDER)
+    assert (await AccountService().delete_account(REQUESTER, target="both"))["success"] is True
+    await _finish_cleanup(REQUESTER)
+    # Inside the SMS window the erased requester's receipt still spends the event.
+    row = await _receipt_row(db, prepared["operation_id"])
+    assert row["requester_user_id"] is None and row["target_user_id"] is None
+    assert row["proof_event_digest"]
+    # Past the window, the next erasure prunes it without waiting for a prepare().
+    async with db.pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE account_phone_linked_deletions
+            SET dispatched_at=dispatched_at-INTERVAL '11 minutes' WHERE operation_id=$1::uuid""",
+            prepared["operation_id"],
+        )
+    assert (await AccountService().delete_account(OWNERS["wrong"], target="both"))[
+        "success"
+    ] is True
+    await _finish_cleanup(OWNERS["wrong"])
+    assert await _receipt_row(db, prepared["operation_id"]) is None
+
+
+@pytest.mark.parametrize("stage", ["binding_lock", "final_admission"])
+async def test_sms_deadline_is_rechecked_after_lock_waits(db, sms, monkeypatch, stage):
+    sms.proofs["own"] = (PHONE, "phone-session", int(time.time()))
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    calls = []
+    if stage == "binding_lock":
+        actual_verify = linked._verify_proof
+
+        async def expired_after_verification(*args):
+            proof = await actual_verify(*args)
+            return linked._Proof(proof.method, proof.digest, proof.uid, time.time() - 1)
+
+        monkeypatch.setattr(linked, "_verify_proof", expired_after_verification)
+    else:
+        actual_check = linked._admission_check
+        monkeypatch.setattr(
+            linked, "_admission_check", lambda row, _until: actual_check(row, time.time() - 1)
+        )
+    result = await _sms_confirm(prepared["operation_id"], "own", _deleting(calls))
+    assert result["state"] == "refused"
+    assert result["code"] == "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED"
+    assert calls == ([] if stage == "binding_lock" else [HOLDER])
+    assert await _holder(db) == HOLDER
+
+
+@pytest.mark.parametrize("dispatch", ["answered", "lost"])
+async def test_fixture_code_outcome_stays_readable_after_the_holder_is_erased(db, dispatch):
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    if dispatch == "answered":
+        assert (await _confirm(prepared["operation_id"], _deleting([])))["state"] == "admitted"
+    else:
+        lost = AsyncMock(side_effect=ConnectionError("lost admission response"))
+        assert (await _confirm(prepared["operation_id"], lost))["state"] == "action_required"
+        # The lost request had in fact admitted the deletion.
+        assert (await AccountService().delete_account(HOLDER, target="both"))["success"] is True
+    await _finish_cleanup(HOLDER)
+    assert not await _value(db, "SELECT count(*) FROM actor_profiles WHERE user_id=$1", HOLDER)
+    # The client's read-back after a lost response reports the true outcome.
+    admitted = {"operation_id": prepared["operation_id"], "state": "admitted"}
+    assert await linked.status(REQUESTER, prepared["operation_id"]) == admitted
+    assert await _confirm(prepared["operation_id"], _deleting([])) == admitted
+    row = await _receipt_row(db, prepared["operation_id"])
+    assert row["target_user_id"] is None and row["phone_digest"] == BLANK_PHONE_DIGEST
+    # A test-code proof is scoped to one operation, so an erased requester keeps nothing.
+    assert (await AccountService().delete_account(REQUESTER, target="both"))["success"] is True
+    await _finish_cleanup(REQUESTER)
+    assert await _receipt_row(db, prepared["operation_id"]) is None
