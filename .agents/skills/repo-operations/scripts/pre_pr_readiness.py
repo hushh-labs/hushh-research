@@ -241,6 +241,7 @@ def _focused(args: argparse.Namespace, c: dict[str, Any], temp: Path, *, stream:
     run("secret_scan", ["bash", "scripts/ci/orchestrate.sh", "secret"], event_env)
     common = {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES_FILE": str(c["files_path"]),
               "CI_CHANGED_FILES": None, "CI_IMPACT_BASE_SHA": c["base"], "CI_IMPACT_HEAD_SHA": c["head"],
+              "CAPABILITY_GRAPH_BASE_REF": c["base"],
               "GITHUB_EVENT_NAME": "local", "GITHUB_EVENT_PATH": None, "GITHUB_TOKEN": None, "GH_TOKEN": None}
     run("governance", ["bash", "scripts/ci/repo-governance-check.sh"], common)
     web = {**common, "WEB_TARGETED_CHANGED_FILES": "\n".join(c["files"]), "CI_ACCOUNT_DELETION_CLIENT_OWNED": "0", "WEB_TARGETED_PART": "node"}
