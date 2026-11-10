@@ -19,13 +19,19 @@ from hushh_mcp.services.google_connection_service import (
 
 
 def account_schedule(
-    account_id: str, connections: GoogleConnectionService | None = None
+    account_id: str,
+    connections: GoogleConnectionService | None = None,
+    *,
+    expected_email: str | None = None,
 ) -> CalendarScheduleService:
     owner = connections or get_google_connection_service()
+    account = (
+        owner.for_calendar_account(account_id, expected_email=expected_email)
+        if expected_email is not None
+        else owner.for_calendar_account(account_id)
+    )
     return CalendarScheduleService(
-        calendar=GoogleCalendarService(
-            db=owner.db, connections=owner.for_calendar_account(account_id)
-        ),
+        calendar=GoogleCalendarService(db=owner.db, connections=account),
         db=owner.db,
     )
 

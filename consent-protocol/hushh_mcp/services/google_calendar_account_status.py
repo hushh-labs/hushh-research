@@ -114,29 +114,32 @@ async def calendar_accounts_status(
     *,
     user_id: str,
     calendar_list_access: Callable[[object | None], bool],
+    include_pictures: bool = True,
 ) -> dict[str, Any]:
-    """Read photos with each grant and fence the final account projection."""
+    """Project the owner's grants; enrich them with photos only when requested."""
     default = await owner.status(user_id=user_id, service="calendar")
     result = await owner._execute_raw_async(_ACCOUNTS_SQL, {"user_id": user_id})
     primary = await owner._connection(user_id) if default["connected"] else None
-    photo_rows = ([("default", primary)] if primary else []) + [
-        (row["account_id"], row) for row in result.data
-    ]
-    photos = await asyncio.gather(
-        *(
-            owner._calendar_picture(user_id=user_id, account_id=account_id, row=row)
-            for account_id, row in photo_rows
+    pictures: dict[tuple[str, str], dict[str, str | None] | None] = {}
+    if include_pictures:
+        photo_rows = ([("default", primary)] if primary else []) + [
+            (row["account_id"], row) for row in result.data
+        ]
+        photos = await asyncio.gather(
+            *(
+                owner._calendar_picture(user_id=user_id, account_id=account_id, row=row)
+                for account_id, row in photo_rows
+            )
         )
-    )
-    pictures = {
-        (account_id, connection_generation(row)): photo
-        for (account_id, row), photo in zip(photo_rows, photos, strict=True)
-    }
-    # A lookup may refresh a bearer and discover revoked authority. Re-read
-    # status and generations so a stale photo never accompanies a new grant.
-    default = await owner.status(user_id=user_id, service="calendar")
-    result = await owner._execute_raw_async(_ACCOUNTS_SQL, {"user_id": user_id})
-    primary = await owner._connection(user_id) if default["connected"] else None
+        pictures = {
+            (account_id, connection_generation(row)): photo
+            for (account_id, row), photo in zip(photo_rows, photos, strict=True)
+        }
+        # A lookup may refresh a bearer and discover revoked authority. Re-read
+        # status and generations so a stale photo never accompanies a new grant.
+        default = await owner.status(user_id=user_id, service="calendar")
+        result = await owner._execute_raw_async(_ACCOUNTS_SQL, {"user_id": user_id})
+        primary = await owner._connection(user_id) if default["connected"] else None
     accounts = _project_accounts(default, result.data, primary, pictures, calendar_list_access)
     return {
         **default,
