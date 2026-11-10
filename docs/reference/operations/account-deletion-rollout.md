@@ -109,6 +109,16 @@ classified as inherited. Secret scanning passed with pinned Gitleaks 8.24.2.
 Protocol/web-core and later core stages were not reached. No gate was weakened;
 the candidate is not release-ready. Preserve this evidence for the coordinated
 CI follow-up before exact-candidate CI and deployment.
+The candidate was refreshed against Dev `26f4156f5796`, including its new encrypted
+message-draft integration. A reproduced failure showed local cleanup swallowing
+draft-removal errors. Confirmed Reset/delete now keeps departure retryable until
+that purge settles; ordinary sign-out remains nonblocking. The regression failed
+on the prior behavior; 188 focused client cases and typecheck passed after the
+correction. UI generation and its 522 navigation cases passed. Backend/SQL
+contracts are unchanged, so their prior evidence is retained. The known
+governance failures and deployment hold remain; no source push or deployment
+was performed for this refresh.
+
 Focused candidate evidence covers pending/completed handoffs, wrong digest and direct
 rewrites, project-admission fencing, original-journal continuation, native KMS shells,
 owner-template IAM/redirect safety, full 420/421 replay with Files preimages, rollback,

@@ -93,7 +93,7 @@ export class UserLocalStateService {
     // unrelated rejection must not be able to skip it.
     forgetLocationMemory(userId);
 
-    const tasks: Array<Promise<unknown>> = [
+    const tasks: [Promise<unknown>, ...Promise<unknown>[]] = [
       messageDraftCleanup,
       PreVaultOnboardingService.clear(userId),
       FinanceSetupDraftService.clear(userId),
@@ -110,5 +110,8 @@ export class UserLocalStateService {
       }
     }
     if (receiptPurgeError) throw new Error("Account reset completed, but encrypted device receipts couldn't be removed. Clear this device's app storage before using it again.");
+    if (options.deleteDurableReceipts && results[0].status === "rejected") {
+      throw new Error("Your message drafts couldn't be removed. Try again before starting fresh.");
+    }
   }
 }

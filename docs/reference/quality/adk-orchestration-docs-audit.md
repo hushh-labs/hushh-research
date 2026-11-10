@@ -79,6 +79,16 @@ full-account deletion. Its removal remains incomplete (70 dispatches, 70 matchin
 acknowledgements, four exits). The older full browser/revision receipt below is
 historical; no new browser or deployed-candidate acceptance is claimed.
 
+The candidate was refreshed against Dev `26f4156f5796`, including its new encrypted
+message-draft integration. A reproduced failure showed local cleanup swallowing
+draft-removal errors. Confirmed Reset/delete now keeps departure retryable until
+that purge settles; ordinary sign-out remains nonblocking. The regression failed
+on the prior behavior; 188 focused client cases and typecheck passed after the
+correction. UI generation and its 522 navigation cases passed. Backend/SQL
+contracts are unchanged, so their prior evidence is retained. The known
+governance failures and deployment hold remain; no source push or deployment
+was performed for this refresh.
+
 These are separate acceptance gates. Local candidate checks do not change the
 live measurements below. Managed pilot, UAT and production remain outside this release.
 
