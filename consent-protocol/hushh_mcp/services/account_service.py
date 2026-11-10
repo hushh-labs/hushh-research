@@ -2360,14 +2360,15 @@ class AccountService:
                 # Admission owns its own deadlines; restore the erasure budget
                 # before destructive statements, including bounded recovery batches.
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
-                # The tombstone above permits detaching this owner's references.
-                self._retain_spent_phone_deletion_proofs(conn, params)
                 guard_answer_erasure(conn, user_id=user_id)
                 self._delete_personal_agent_state(
                     conn,
                     params=params,
                     results=results,
                 )
+                # After the erasure guards, before actor_profiles cascades: the
+                # tombstone above permits detaching this owner's references.
+                self._retain_spent_phone_deletion_proofs(conn, params)
                 # Copy encrypted provider credentials before their rows go, so
                 # the grants can be released at the provider after commit.
                 if not backend_only and provider_cleanup is None:

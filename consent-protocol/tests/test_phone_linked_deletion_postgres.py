@@ -549,22 +549,20 @@ async def test_status_reports_the_current_outcome_while_an_erasure_holds_the_rec
 async def test_requester_erasure_waits_out_its_own_in_flight_admission(db, sms, monkeypatch):
     import threading
 
-    from hushh_mcp.services import account_service as service_module
-
     sms.proofs["own"] = (PHONE, "phone-session", int(time.time()))
     prepared = await linked.prepare(REQUESTER, PHONE)
     assert (await AccountService().delete_account(REQUESTER, target="both"))["success"] is True
     reached, release = threading.Event(), threading.Event()
-    original = service_module.guard_answer_erasure
+    original = AccountService._retain_spent_phone_deletion_proofs
 
-    def paused(conn, *, user_id):
+    def paused(self, conn, params):
+        original(self, conn, params)
         # Pause the requester's erasure right after it took its receipt locks.
-        if user_id == REQUESTER:
+        if params.get("user_id") == REQUESTER:
             reached.set()
             release.wait(10)
-        return original(conn, user_id=user_id)
 
-    monkeypatch.setattr(service_module, "guard_answer_erasure", paused)
+    monkeypatch.setattr(AccountService, "_retain_spent_phone_deletion_proofs", paused)
     erasure = asyncio.create_task(_finish_cleanup(REQUESTER))
     assert await asyncio.to_thread(reached.wait, 10)
     calls = []
