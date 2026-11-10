@@ -807,7 +807,7 @@ export function SaveMySoul() {
           <div className={cn(CARD_SURFACE, "space-y-3 p-4")}>
             <div className="flex items-center justify-between gap-3">
               <h2 className="ui-text-section-title">Emergency contacts</h2>
-              <Button asChild size="sm" variant="ghost">
+              <Button asChild size="sm" variant="link" disableHoverRipple className="min-h-11 rounded-full">
                 <Link href={hrefForLocationAction("sms-contacts")}>
                   <UserRoundPlus className="h-4 w-4" aria-hidden />
                   Manage

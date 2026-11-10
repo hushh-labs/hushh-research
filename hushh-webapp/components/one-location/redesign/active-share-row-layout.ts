@@ -3,10 +3,10 @@ export const ACTIVE_SHARE_ACTIONS_CLASSNAME =
   "flex w-full min-w-0 items-center gap-2 sm:w-auto sm:justify-end sm:gap-3";
 
 export const ACTIVE_SHARE_CHANGE_TIME_CLASSNAME =
-  "ui-text-compact-button-label inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent)]/10 active:bg-[color:var(--app-accent)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60";
+  "ui-text-compact-button-label inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[color:var(--app-accent)] active:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60";
 
 export const ACTIVE_SHARE_STOP_CLASSNAME =
-  "ui-text-compact-button-label ml-auto inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 active:bg-[color:var(--app-destructive)]/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 sm:ml-0";
+  "ui-text-compact-button-label ml-auto inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[color:var(--app-destructive)] active:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 sm:ml-0";
 
 export const ACTIVE_SHARE_LANE_ROW_CLASSNAME =
   "flex min-h-[54px] flex-col items-stretch gap-1 py-1.5 sm:flex-row sm:items-center sm:gap-3";
