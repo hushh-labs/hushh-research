@@ -1,5 +1,8 @@
 "use client";
 
+import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
+import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
+
 import { ContactRow } from "@/components/one-location/redesign/contact-picker/check-in-contact-row";
 
 /**
@@ -682,10 +685,11 @@ export function CheckInFlow({
                 aria-pressed={selected}
                 className={cn(
                   "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   index < selectableCircles.length - 1 &&
                     "border-b border-black/[0.06] dark:border-white/[0.08]",
-                  selected &&
-                    "bg-[color:var(--app-accent-soft)]",
+                  selected && "bg-[color:var(--app-accent)]/[0.045]",
+                  !circleLoadingId && !busy && PERSON_ROW_FEEDBACK_CLASSNAME,
                 )}
               >
                 <span
@@ -876,9 +880,11 @@ export function CheckInFlow({
       {retryLocked ? (
         <Button
           type="button"
-          variant="outline"
-          size="prominent"
-          className="mb-3 h-auto w-full min-h-[50px] whitespace-normal py-3 text-center"
+          variant="ghost"
+          size="standard"
+          data-location-action-fit=""
+          className={cn(QUIET_FLOW_ACTION_CLASSNAME, "mb-3 h-auto w-full py-3 text-center")}
+          disableHoverRipple
           disabled={busy}
           onClick={editAndReconfirm}
         >
@@ -892,12 +898,13 @@ export function CheckInFlow({
         onClick={() => void submit()}
         disabled={!canSubmit || busy}
         aria-busy={busy || undefined}
-        className="h-auto min-h-[54px] w-full whitespace-normal py-4 text-center"
+        data-location-action-fit=""
+        className="h-auto min-h-[54px] w-full py-4 text-center"
       >
         <ButtonLabel as="span">
           {point
             ? recipientKeyChanged
-              ? "Their security key changed - confirm again"
+              ? "Confirm again"
               : confirmationExpired
                 ? "Confirm your location again"
                 : !pointIsFresh

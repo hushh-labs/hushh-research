@@ -2,7 +2,7 @@
 
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { CardTitle } from "@/components/app-ui/typography";
+import { SectionTitle } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import type { LocationHubViewModel } from "./location-redesign-hub";
@@ -126,12 +126,12 @@ export function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:gap-4">
           <LocationSharePulseIcon />
           <span className="min-w-0 self-center">
-            <CardTitle
+            <SectionTitle
               as="span"
               className="block"
             >
               You&apos;re not sharing
-            </CardTitle>
+            </SectionTitle>
             <span data-location-share-description="" className="ui-text-row-description mt-0.5 block text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
@@ -143,9 +143,10 @@ export function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-control-id="one-location-action-share"
           data-voice-action-id="location.open_share"
           data-voice-label="Share location"
+          data-location-action-fit=""
           aria-label="Share location"
           onClick={onClick}
-          className="col-start-2 mr-auto w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
+          className="col-start-2 mr-auto h-auto w-full max-w-[244px] shrink-0 py-3 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
         >
           Share location
         </Button>

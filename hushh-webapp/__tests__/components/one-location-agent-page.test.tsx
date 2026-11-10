@@ -2252,7 +2252,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(primary).getByRole("button", { name: "Share location" }),
     ).toHaveClass(
-      "h-[50px]",
+      "h-auto",
       "min-h-[50px]",
       "w-full",
       "max-w-[244px]",
@@ -5624,8 +5624,8 @@ describe("OneLocationAgentPage", () => {
       name: /Create link/i,
     });
     expect(createLinkButton).toHaveClass(
-      "h-12",
-      "min-h-12",
+      "h-[50px]",
+      "min-h-[50px]",
       "w-auto",
       "self-start",
       "rounded-full",

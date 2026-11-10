@@ -3527,7 +3527,7 @@ export function NearbyCheckInSheet({
           </SheetHeader>
           <div className={sheetStyles.extension}>
             {([30, 60] as const).map((increment) => (
-              <Button data-location-type-role="utility-action"
+              <Button data-location-type-role="task-action"
                 key={increment}
                 type="button"
                 variant="secondary"

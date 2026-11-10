@@ -104,40 +104,35 @@ export function ContactRowAction({
   busy,
   ready,
   label,
-  onAdd,
-  onRemove,
+  onAction,
   addDisabled = false,
 }: {
   selected: boolean;
   busy: boolean;
   ready: boolean;
   label: string;
-  onAdd: () => void;
-  onRemove: () => void;
+  onAction: () => void;
   addDisabled?: boolean;
 }) {
-  if (selected) {
-    return (
-      <button data-location-type-role="compact-action"
-        type="button"
-        onClick={onRemove}
-        disabled={busy}
-        aria-label={`Remove ${label}`}
-        className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full bg-[color:var(--app-destructive-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:opacity-45"
-      >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
-      </button>
-    );
-  }
   return (
-    <button data-location-type-role="compact-action"
+    <button
       type="button"
-      onClick={onAdd}
-      disabled={busy || !ready || addDisabled}
-      aria-label={`Add ${label}`}
-      className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)]"
+      onClick={onAction}
+      disabled={busy || (!selected && (!ready || addDisabled))}
+      aria-label={`${selected ? "Remove" : "Add"} ${label}`}
+      className="group inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : ready ? "Add" : "Setup"}
+      <span
+        data-location-type-role="compact-action"
+        className={cn(
+          "inline-flex min-h-8 items-center justify-center whitespace-nowrap rounded-full px-3 transition-opacity group-hover:opacity-85 group-active:opacity-75 group-disabled:bg-[color:var(--app-neutral-fill)] group-disabled:text-[color:var(--app-tertiary-label)]",
+          selected
+            ? "min-w-[76px] bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive)]"
+            : "min-w-[58px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]",
+        )}
+      >
+        {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : selected ? "Remove" : ready ? "Add" : "Setup"}
+      </span>
     </button>
   );
 }
@@ -192,8 +187,7 @@ export function ContactRow({
         busy={busy}
         ready={ready}
         label={label}
-        onAdd={onAdd}
-        onRemove={onRemove}
+        onAction={selected ? onRemove : onAdd}
         addDisabled={addDisabled}
       />
     </div>
