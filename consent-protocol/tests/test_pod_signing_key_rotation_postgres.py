@@ -70,6 +70,7 @@ _UNRELATED = {
     "985_legacy_cloud_removal_recovery.sql",
     "986_legacy_cloud_removal_resume.sql",
     "987_account_firebase_erasure.sql",
+    "988_account_cloud_retirement.sql",
 }
 
 
