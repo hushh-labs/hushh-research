@@ -22,6 +22,35 @@ describe("private product observation lifecycle", () => {
   const arrived = { getCurrentRoute: () => ({ pathname: "/one/setup/calendar", screen: "one_setup_calendar", subview: null }),
     getCurrentSurfaceMetadata: () => ({ screenId: "one_setup_calendar", title: "Calendar Setup", publisherRouteKey: "/one/setup/calendar" }) };
 
+  it("settles the Location chat attempt when the destination publishes after Chat unmounts", async () => {
+    const f = await fixture();
+    const { settleChatLocationNavigation } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const { clearVoiceSurfaceMetadata, publishVoiceSurfaceMetadata } =
+      await import("@/lib/kai/actions/voice-surface-metadata");
+    const originalUrl = window.location.href;
+    const actionId = "route.one_location";
+    const destination = "/one/location";
+    try {
+      window.history.replaceState(null, "", "/");
+      const result = await f.observeDispatch(actionId, Promise.resolve({
+        status: "started" as const, actionId, label: "Open Location", routeBefore: "/",
+        routeAfter: destination, screenBefore: "chat", resultSummary: "Opening Location",
+      }));
+      const settlement = settleChatLocationNavigation(result);
+      await vi.waitFor(() => expect(posts()).toHaveLength(1));
+      expect(JSON.parse(posts()[0][1].body)).toMatchObject({ actionId, phase: "started" });
+      window.history.replaceState(null, "", destination);
+      publishVoiceSurfaceMetadata("location", { screenId: "one_location", title: "Location" },
+        { routeKey: destination });
+      expect((await settlement).status).toBe("succeeded");
+      await vi.waitFor(() => expect(posts()).toHaveLength(2));
+      expect(JSON.parse(posts()[1][1].body)).toEqual({ ...JSON.parse(posts()[0][1].body), phase: "returned" });
+    } finally {
+      clearVoiceSurfaceMetadata("location");
+      window.history.replaceState(null, "", originalUrl);
+    }
+  });
+
   it("reports a navigation terminal once only after its destination actually settles", async () => {
     const f = await fixture();
     const { settleAgentGatewayAction } = await import("@/lib/agent/agent-gateway-action-settlement");

@@ -1,27 +1,114 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectMessagesRoute } from "@/components/direct-messages/direct-messages-route";
 import { writeLastMessagesSelection } from "@/lib/direct-messages/last-selection";
 import { CacheService } from "@/lib/services/cache-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
-  query: "", replace: vi.fn(), routeSelection: vi.fn(), renders: [] as [string, string | null][],
+  query: "", replace: vi.fn(), push: vi.fn(), routeSelection: vi.fn(), renders: [] as [string, string | null][],
   user: { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("auth") },
 }));
-const router = { replace: mocks.replace };
+const router = { replace: mocks.replace, push: mocks.push };
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(mocks.query), useRouter: () => router }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null, loading: false }) }));
 vi.mock("@/lib/services/direct-messages-service", () => ({ DirectMessagesService: { routeSelection: (...args: unknown[]) => mocks.routeSelection(...args) } }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdTokenWithRetry: async () => "auth" } }));
+vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { error: vi.fn() } }));
 vi.mock("@/components/system/route-suspense-fallback", () => ({ RouteSuspenseFallback: () => <div>Loading</div> }));
-vi.mock("@/components/direct-messages/direct-messages-page", () => ({ DirectMessagesPage: ({ selection }: { selection: { ref: string } | null }) => { mocks.renders.push([mocks.user.uid, selection?.ref || null]); return <div data-testid="messages">{JSON.stringify(selection)}</div>; } }));
+vi.mock("@/components/direct-messages/direct-messages-page", () => ({ DirectMessagesPage: ({ selection, onSelect, onClearSelection }: { selection: { ref: string } | null; onSelect: (selection: { kind: "conversation"; ref: string }) => void; onClearSelection: () => void }) => {
+  mocks.renders.push([mocks.user.uid, selection?.ref || null]);
+  return <><div data-testid="messages">{JSON.stringify(selection)}</div>
+    <button onClick={() => onSelect({ kind: "conversation", ref: "thread-a" })}>Open A</button>
+    <button onClick={() => onSelect({ kind: "conversation", ref: "thread-b" })}>Open B</button>
+    <button onClick={onClearSelection}>Cancel opening</button></>;
+} }));
 
 describe("DirectMessagesRoute", () => {
   beforeEach(() => CacheService.getInstance().clear());
+  beforeEach(() => { mocks.push.mockReset(); publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("viewer"); });
   beforeEach(() => { window.history.replaceState(null, "", "/one/messages"); window.sessionStorage.clear(); mocks.query = ""; mocks.replace.mockReset(); mocks.routeSelection.mockReset(); mocks.user.uid = "viewer"; mocks.renders.length = 0; });
   it("restores the bare inbox", () => {
     render(<DirectMessagesRoute />);
     expect(screen.getByTestId("messages")).toHaveTextContent("null");
     expect(mocks.routeSelection).not.toHaveBeenCalled();
+  });
+  it("selects immediately, then opens a newly minted token without resolving it again", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.routeSelection.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const view = render(<DirectMessagesRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Open A" }));
+    expect(screen.getByTestId("messages")).toHaveTextContent("thread-a");
+    await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(1));
+    await act(async () => finish({ token: "dm1.fresh", kind: "conversation", ref: "thread-a" }));
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/one/messages?token=dm1.fresh");
+    mocks.renders.length = 0;
+    mocks.query = "token=dm1.fresh";
+    view.rerender(<DirectMessagesRoute />);
+    expect(mocks.renders.length).toBeGreaterThan(0);
+    expect(mocks.renders.every(([, ref]) => ref === "thread-a")).toBe(true);
+    expect(mocks.routeSelection).toHaveBeenCalledTimes(1);
+  });
+  it.each(["newer selection", "Back", "account switch"])("retires an unfinished opening after %s", async (event) => {
+    let finish!: (value: unknown) => void;
+    mocks.routeSelection.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }))
+      .mockResolvedValue({ token: "dm1.b", kind: "conversation", ref: "thread-b" });
+    const view = render(<DirectMessagesRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Open A" }));
+    await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(1));
+    if (event === "newer selection") fireEvent.click(screen.getByRole("button", { name: "Open B" }));
+    else if (event === "Back") fireEvent.click(screen.getByRole("button", { name: "Cancel opening" }));
+    else { mocks.user.uid = "other-owner"; publishValidatedAuthSessionOwner("other-owner"); view.rerender(<DirectMessagesRoute />); }
+    await act(async () => finish({ token: "dm1.a", kind: "conversation", ref: "thread-a" }));
+    expect(mocks.push).not.toHaveBeenCalledWith("/one/messages?token=dm1.a");
+    if (event === "newer selection") {
+      expect(screen.getByTestId("messages")).toHaveTextContent("thread-b");
+      expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/one/messages?token=dm1.b");
+    } else expect(screen.getByTestId("messages")).toHaveTextContent("null");
+  });
+  it.each(["resolved token", "rejected token", "resolved legacy", "rejected legacy"])("recovers a %s source selection when a newer opening fails", async (outcome) => {
+    let finishSource!: (value: unknown) => void;
+    let failSource!: (reason: Error) => void;
+    let failOpening!: (reason: Error) => void;
+    mocks.query = outcome.endsWith("legacy") ? "conversation=thread-a" : "token=dm1.source";
+    mocks.routeSelection.mockReturnValueOnce(new Promise((resolve, reject) => { finishSource = resolve; failSource = reject; }))
+      .mockReturnValueOnce(new Promise((_, reject) => { failOpening = reject; }));
+    const view = render(<DirectMessagesRoute />);
+    await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Open B" }));
+    await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      if (outcome.startsWith("resolved")) finishSource({ token: "dm1.source", kind: "conversation", ref: "thread-a" });
+      else failSource(new Error("Invalid source token"));
+    });
+    if (outcome === "resolved legacy") {
+      mocks.query = "";
+      view.rerender(<DirectMessagesRoute />);
+      expect(window.history.state.directMessageSelection).toEqual({ owner: "viewer", token: "dm1.source" });
+    }
+    expect(screen.getByTestId("messages")).toHaveTextContent("thread-b");
+    await act(async () => failOpening(new Error("Synthetic mint failure")));
+    if (outcome.startsWith("resolved")) expect(screen.getByTestId("messages")).toHaveTextContent("thread-a");
+    else expect(mocks.replace).toHaveBeenCalledWith("/one/messages", { scroll: false });
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+  it("preserves a newer tap when an earlier pushed destination commits late", async () => {
+    let finishB!: (value: unknown) => void;
+    mocks.routeSelection.mockResolvedValueOnce({ token: "dm1.a", kind: "conversation", ref: "thread-a" })
+      .mockReturnValueOnce(new Promise(resolve => { finishB = resolve; }));
+    const view = render(<DirectMessagesRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Open A" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/one/messages?token=dm1.a"));
+    fireEvent.click(screen.getByRole("button", { name: "Open B" }));
+    await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(2));
+    mocks.query = "token=dm1.a";
+    view.rerender(<DirectMessagesRoute />);
+    expect(screen.getByTestId("messages")).toHaveTextContent("thread-b");
+    await act(async () => finishB({ token: "dm1.b", kind: "conversation", ref: "thread-b" }));
+    expect(mocks.push).toHaveBeenLastCalledWith("/one/messages?token=dm1.b");
+    mocks.query = "token=dm1.b";
+    view.rerender(<DirectMessagesRoute />);
+    expect(screen.getByTestId("messages")).toHaveTextContent("thread-b");
   });
   it("resolves an opaque token after refresh", async () => {
     mocks.query = "token=dm1.opaque";

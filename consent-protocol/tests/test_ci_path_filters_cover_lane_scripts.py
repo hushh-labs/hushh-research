@@ -201,7 +201,7 @@ def _governance_plan(paths: tuple[str, ...]) -> dict:
         "CI_CHANGED_FILES": "\n".join(paths),
     }
     env.pop("CI_CHANGED_FILES_FILE", None)
-    # Hypothetical path plans own their checks independently of the outer CI run.
+    # These fixtures check standalone Governance ownership without the hosted Protocol lane.
     env.pop("CI_PROTOCOL_CONTROLLER_OWNER", None)
     result = subprocess.run(  # noqa: S603 - invokes the repository's fixed governance selector
         [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--plan"],

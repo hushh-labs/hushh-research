@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from api.middlewares.rate_limit import limiter
 from api.routes.document_feed_stream import StreamLease
 from api.routes.notification_stream import notification_events, open_notification_stream
 from hushh_mcp.services.chat_notification_state import unread_message_count
@@ -57,9 +58,18 @@ class PrivateMessageRoute(APIRoute):
                 return result
             except RequestValidationError:
                 # Validation errors must never echo an attachment's base64 data.
-                raise HTTPException(422, "Invalid message request.") from None
+                raise HTTPException(
+                    422, "Invalid message request.", headers={"Cache-Control": "private, no-store"}
+                ) from None
             except TimeoutError:
-                raise HTTPException(408, "Message request timed out.") from None
+                raise HTTPException(
+                    408,
+                    "Message request timed out.",
+                    headers={"Cache-Control": "private, no-store"},
+                ) from None
+            except HTTPException as exc:
+                exc.headers = {**(exc.headers or {}), "Cache-Control": "private, no-store"}
+                raise
 
         return bounded
 
@@ -139,6 +149,13 @@ def _service() -> DirectMessagesService:
     return DirectMessagesService()
 
 
+def _send_owner(request: Request, firebase_uid: str = Depends(require_firebase_auth)) -> str:
+    # Dependencies run before SlowAPI's wrapper; never bucket sends by an
+    # unverified JWT claim, proxy header or a shared network address.
+    request.state.rate_limit_user_id = f"firebase:{firebase_uid}"
+    return firebase_uid
+
+
 def _handle(exc: Exception) -> HTTPException:
     if isinstance(exc, DirectMessagesError):
         return HTTPException(
@@ -176,6 +193,7 @@ async def get_unread_count(
 async def list_conversations(
     response: Response,
     limit: int = Query(default=100, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     response.headers["Cache-Control"] = "private, no-store"
@@ -184,6 +202,7 @@ async def list_conversations(
             _service().list_conversations,
             firebase_uid,
             limit=limit,
+            cursor=cursor,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -243,9 +262,13 @@ async def open_conversation_with_user(
 
 
 @router.post("")
+@limiter.limit("30/minute")
+@limiter.limit("1000/day")
 async def send_direct_message(
+    request: Request,
+    response: Response,
     payload: SendDirectMessageBody,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_send_owner),
 ):
     """Atomically create the pair conversation on the first successful send."""
 

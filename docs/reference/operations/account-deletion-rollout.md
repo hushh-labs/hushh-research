@@ -1299,3 +1299,19 @@ A background Profile pane can mount after normal admission without waiting for
 an animation frame that a hidden tab may never receive. Visibility does not
 bypass authentication, vault admission or owner fencing. Native/provider
 acceptance and each environment release remain separate from source tests.
+
+## Previously revoked Google Drive connections
+
+A disconnected Google Drive row can retain its successful revocation receipt
+after its credential has been removed. The account cleanup worker accepts
+that receipt for the exact owner, inventory reference, and row revision.
+It records the existing revocation during its claim without contacting Google.
+A parked operation resumes automatically once this receipt qualifies its
+entire inventory. Consuming the receipt starts one bounded retry budget, and
+an expired worker claim returns to the scheduler with the same receipt.
+Failed or uncertain revocations and other unresolved items retain their
+existing safeguards.
+
+UAT overlay 455 adds the receipt check while keeping the cleanup producer at
+version 2. Keep the expanded validator during an application rollback so
+completed erasure remains valid for same-sign-in enrollment.

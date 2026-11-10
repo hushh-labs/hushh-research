@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LocationBus, type LocationBusState } from "@/lib/one-location/location-bus";
+import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import { ApiError } from "@/lib/services/api-client";
 
 const service = vi.hoisted(() => ({
@@ -1060,26 +1062,51 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
   });
 
-  it("warns after sustained movement outside the radius and clears on return", async () => {
+  it("uses existing readings for the reminder and ignores them during a local Pause", async () => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    let onMeasurement: ((state: LocationBusState) => void) | undefined;
+    const subscribe = vi.spyOn(LocationBus, "subscribe").mockImplementation((listener) => {
+      onMeasurement = listener;
+      return () => { onMeasurement = undefined; };
+    });
+    const recent = vi.spyOn(LocationBus, "getRecentMeasuredFix");
     try {
-      const sample = (latitude: number, accuracyM: number) => ({
-        ...point, latitude, accuracyM, capturedAt: new Date().toISOString(),
-      });
-      service.captureCurrentPosition.mockReset()
-        .mockImplementationOnce(async () => sample(37.434, 900))
-        .mockImplementationOnce(async () => sample(37.434, 20))
-        .mockImplementationOnce(async () => sample(37.434, 20))
-        .mockImplementationOnce(async () => sample(37.4276, 20));
-
       await checkInFrom(37.4276);
-      await act(() => vi.advanceTimersByTimeAsync(30_000));
+      expect(onMeasurement).toBeDefined();
+      const captureCalls = service.captureCurrentPosition.mock.calls.length;
+      const permissionCalls = service.getPermissionState.mock.calls.length;
+      const sample = async (latitude: number, accuracyM: number) => {
+        await act(() => vi.advanceTimersByTimeAsync(15_000));
+        const snapshot = { ...point, latitude, accuracyM, capturedAt: new Date().toISOString() };
+        recent.mockReturnValue(snapshot);
+        act(() => onMeasurement?.({
+          status: "ready", permission: "granted", snapshot, error: null, snapshotOrigin: "fresh",
+        }));
+      };
+      await sample(37.434, 900);
+      await sample(37.434, 20);
       expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
-      await act(() => vi.advanceTimersByTimeAsync(15_000));
+      await sample(37.434, 20);
       expect(screen.getByTestId("nearby-active-drift")).toHaveTextContent("You’ve moved away.");
-      await act(() => vi.advanceTimersByTimeAsync(15_000));
+      expect(recent).toHaveBeenCalledWith("user-1", 15_000);
+      act(() => updateOneLocationControlState("user-1", (current) => ({ ...current, paused: true })));
+      await sample(37.434, 20);
+      await sample(37.434, 20);
       expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+      expect(screen.getByTestId("nearby-presence-active")).toBeInTheDocument();
+      act(() => updateOneLocationControlState("user-1", (current) => ({ ...current, paused: false })));
+      await sample(37.434, 20);
+      expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+      await sample(37.434, 20);
+      expect(screen.getByTestId("nearby-active-drift")).toBeInTheDocument();
+      await sample(37.4276, 20);
+      expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+      expect(service.captureCurrentPosition).toHaveBeenCalledTimes(captureCalls);
+      expect(service.getPermissionState).toHaveBeenCalledTimes(permissionCalls);
     } finally {
+      act(() => updateOneLocationControlState("user-1", (current) => ({ ...current, paused: false })));
+      subscribe.mockRestore();
+      recent.mockRestore();
       vi.useRealTimers();
     }
   });
@@ -2022,6 +2049,7 @@ describe("NearbyCheckInSheet", () => {
             placeLng: -122.1697,
           }),
         }),
+        true,
       );
       expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -2082,6 +2110,7 @@ describe("NearbyCheckInSheet", () => {
               placeLng: -122.1697,
             }),
           }),
+          true,
         );
       });
 

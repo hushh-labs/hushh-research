@@ -4,6 +4,10 @@ import { PersonProfileLink } from "@/components/connections/person-profile-link"
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { formatMessageTime, formatMessageFeedMarker, formatConversationTime } from "@/lib/direct-messages/message-timestamps";
 import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
+import { beginReaction, settleReaction } from "@/lib/direct-messages/reaction-mutation";
+import { VaultContext } from "@/lib/vault/vault-context";
+import { useMessageDraft } from "@/lib/direct-messages/use-message-draft";
+import { MessagesDraftService, MessageDraftSessionExpiredError } from "@/lib/services/messages-draft-service";
 import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/direct-messages/last-selection";
 
 import Link from "next/link";
@@ -16,6 +20,7 @@ import {
   FormEvent,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -86,7 +91,7 @@ import {
   X,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
-import { DirectMessagesResourceService } from "@/lib/services/direct-messages-resource-service";
+import { DirectMessagesResourceService, type DirectMessageSelection } from "@/lib/services/direct-messages-resource-service";
 import {
   dispatchDirectMessagesUpdated,
   subscribeToDirectMessagesUpdated,
@@ -160,20 +165,6 @@ function PeerProfileLink({ href, label, className, children }: {
   </PersonProfileLink>;
 }
 
-
-function toggleReaction(message: DirectMessage, emoji: string): DirectMessage {
-  const reactions = [...(message.reactions ?? [])];
-  const index = reactions.findIndex((reaction) => reaction.emoji === emoji);
-  if (index < 0) {
-    reactions.push({ emoji, count: 1, reactedByViewer: true });
-  } else {
-    const current = reactions[index]!;
-    const count = current.count + (current.reactedByViewer ? -1 : 1);
-    if (count < 1) reactions.splice(index, 1);
-    else reactions[index] = { ...current, count, reactedByViewer: !current.reactedByViewer };
-  }
-  return { ...message, reactions };
-}
 
 async function decodePhoto(url: string) {
   const image = new Image();
@@ -435,12 +426,13 @@ function threadFromConversation(
   };
 }
 
-export function DirectMessagesPage({ selection, resolvingSelection = false, restoredSelection = null }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean; restoredSelection?: LastMessagesSelection | null } = {}) {
+export function DirectMessagesPage({ selection, resolvingSelection = false, restoredSelection = null, onSelect, onClearSelection }: { selection?: DirectMessageSelection | null; resolvingSelection?: boolean; restoredSelection?: LastMessagesSelection | null; onSelect?: (selection: DirectMessageSelection) => void; onClearSelection?: () => void } = {}) {
   const { user, userId, loading: authLoading } = useAuth();
   // The top shell already hydrates current-owner identity; this route-owned
   // header reads that cache and the Firebase fallback without a second fetch.
   const profileAvatarUrl = useEffectiveAvatarUrl({ fetchWhenCold: false });
   const ownerId = userId;
+  const vault = useContext(VaultContext);
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const router = useRouter();
@@ -451,11 +443,20 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [settledReadScopes, setSettledReadScopes] = useState<readonly string[]>([]);
   const [presentedScope, setPresentedScope] = useState<string | null>(null);
+  const [presentedFromCache, setPresentedFromCache] = useState(false);
   const cacheSession = useRef<object | null>(null);
   const [storedInbox, setInbox] = useState<{
     ownerId: string;
     items: DirectMessageConversation[];
+    nextCursor: string | null;
   } | null>(null);
+  const inboxSnapshot = useRef(storedInbox); inboxSnapshot.current = storedInbox;
+  const [loadingInboxPage, setLoadingInboxPage] = useState(false);
+  const [refreshingInbox, setRefreshingInbox] = useState(false);
+  const inboxHeadPending = useRef(false);
+  const [inboxPageError, setInboxPageError] = useState<string | null>(null);
+  const inboxPageLease = useRef<object | null>(null);
+  const inboxCursors = useRef(new Set<string>());
   const [inboxSearch, setInboxSearch] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newChatQuery, setNewChatQuery] = useState("");
@@ -519,7 +520,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const successfulInboxOwner = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
-  const invalidateInboxRead = useCallback(() => { ++inboxLoadGeneration.current; }, []);
+  const invalidateInboxRead = useCallback(() => {
+    ++inboxLoadGeneration.current;
+    inboxPageLease.current = null;
+    setLoadingInboxPage(false);
+    inboxHeadPending.current = false;
+    setRefreshingInbox(false);
+    setInboxPageError(null);
+  }, []);
   const invalidateOperations = useCallback(() => {
     ++operationGeneration.current;
     messageMenuOpening.current = null;
@@ -734,6 +742,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const selections = [JSON.stringify([ownerId, "conversation", conversationId]),
       ...(peer ? [JSON.stringify([ownerId, "person", peer])] : [])];
     for (const scope of selections) {
+      void MessagesDraftService.remove(MessagesDraftService.session(ownerId), scope).catch(() => undefined);
       drafts.current.delete(scope); replyDrafts.current.delete(scope);
       attachmentDrafts.current.delete(scope); sendAttempts.current.delete(scope);
     }
@@ -772,7 +781,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     cacheSession.current = ownerId ? DirectMessagesResourceService.beginRequest(ownerId) : null;
     const cached = ownerId && selectedRouteKey ? DirectMessagesResourceService.readThread(ownerId, selectedRouteKey) : null;
     const known = inboxRef.current.find((item) => requestedConversationId ? item.id === requestedConversationId : requestedPersonRef && item.peerPersonRef === requestedPersonRef);
-    setLoadingOlder(false); setPresentedScope(readScope); setThreadError(null);
+    setLoadingOlder(false); setPresentedScope(readScope); setPresentedFromCache(Boolean(cached)); setThreadError(null);
     // An accepted send admits only this owner's exact destination before
     // encrypted navigation. Preserve it until the destination history settles.
     const observed = selectionRead.current;
@@ -791,7 +800,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useLayoutEffect(() => {
     const input = composerRef.current;
     if (!input) return;
-    input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 144)}px`;
+    input.style.height = "auto"; input.style.height = `${input.scrollHeight}px`;
   }, [draft, thread.canSend]);
 
   useEffect(() => {
@@ -822,6 +831,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useChatAlertVisibility(lane === "people" && isCurrentRead && hasRouteSelection && activeConversationId && !pendingSelection && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
   const canCompose = hasRouteSelection && !pendingSelection && isCurrentRead && thread.canSend;
+  const persistedDraft = useMessageDraft({ userId, scope: draftScope, vaultKey: vault?.vaultKey ?? null,
+    enabled: Boolean(canCompose && !hasUnconfirmedSend && !sending), value: draft,
+    setValue: text => { drafts.current.set(draftScope, text); setDraft(text); } });
   useLayoutEffect(() => {
     if (!ownerId || !cacheSession.current || !selectedRouteKey || !isCurrentRead || loadingThread || threadError || reactionPending.current.size) return;
     DirectMessagesResourceService.writeThread(ownerId, cacheSession.current, selectedRouteKey, thread, messages);
@@ -832,6 +844,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     async (options?: { preserveItems?: boolean }) => {
       if (!user || !userId) return;
       const generation = ++inboxLoadGeneration.current;
+      inboxHeadPending.current = true;
+      setRefreshingInbox(true);
+      inboxPageLease.current = null;
+      setLoadingInboxPage(false);
       const preserveSnapshot = Boolean(options?.preserveItems && successfulInboxOwner.current === userId);
       if (!preserveSnapshot) setLoadingInbox(true);
       if (!options?.preserveItems) setInboxError(null);
@@ -841,21 +857,66 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         const inbox = await DirectMessagesService.listConversations({ idToken });
         if (generation !== inboxLoadGeneration.current) return;
         successfulInboxOwner.current = userId;
-        setInbox({ ownerId: userId, items: inbox.items });
+        // Focus and metadata refresh the head without restarting an already
+        // exhausted search or discarding the loaded tail's continuation.
+        if (!preserveSnapshot) inboxCursors.current = new Set();
+        setInbox(current => ({ ownerId: userId,
+          items: preserveSnapshot && current?.ownerId === userId
+            ? [...inbox.items, ...current.items.filter(item => !inbox.items.some(fresh => fresh.id === item.id))]
+            : inbox.items,
+          nextCursor: preserveSnapshot && current?.ownerId === userId ? current.nextCursor : inbox.nextCursor ?? null,
+        }));
+        if (!preserveSnapshot) setInboxPageError(null);
         setInboxError(null);
       } catch {
         if (generation !== inboxLoadGeneration.current) return;
         if (!preserveSnapshot) {
           successfulInboxOwner.current = null;
-          setInbox({ ownerId: userId, items: [] });
+          setInbox({ ownerId: userId, items: [], nextCursor: null });
           setInboxError("Conversations could not be loaded. Check your connection and try again.");
         }
       } finally {
-        if (generation === inboxLoadGeneration.current) setLoadingInbox(false);
+        if (generation === inboxLoadGeneration.current) {
+          inboxHeadPending.current = false;
+          setRefreshingInbox(false);
+          setLoadingInbox(false);
+        }
       }
     },
     [user, userId],
   );
+
+  const loadInboxPage = useCallback(async () => {
+    const snapshot = inboxSnapshot.current;
+    if (!user || !userId || snapshot?.ownerId !== userId || !snapshot.nextCursor || inboxPageLease.current || inboxHeadPending.current) return;
+    const cursor = snapshot.nextCursor;
+    const lease = {};
+    inboxPageLease.current = lease;
+    const generation = inboxLoadGeneration.current;
+    const isCurrent = () => generation === inboxLoadGeneration.current && inboxPageLease.current === lease;
+    setLoadingInboxPage(true);
+    setInboxPageError(null);
+    try {
+      const idToken = await user.getIdToken();
+      if (!isCurrent()) return;
+      const page = await DirectMessagesService.listConversations({ idToken, cursor });
+      if (!isCurrent()) return;
+      if (page.nextCursor && (page.nextCursor === cursor || inboxCursors.current.has(page.nextCursor))) {
+        throw new Error("Repeated conversation cursor");
+      }
+      inboxCursors.current.add(cursor);
+      setInbox(current => current?.ownerId === userId && current.nextCursor === cursor ? {
+        ...current,
+        // A newer head/send preview wins over an older page duplicate.
+        items: [...current.items, ...page.items.filter(item => !current.items.some(existing => existing.id === item.id))],
+        nextCursor: page.nextCursor ?? null,
+      } : current);
+    } catch {
+      if (isCurrent()) setInboxPageError("More conversations could not be loaded. Try again.");
+    } finally {
+      if (isCurrent()) { inboxPageLease.current = null; setLoadingInboxPage(false); }
+    }
+  }, [user, userId]);
 
   const loadThread = useCallback(
     async (options?: { preserveMessages?: boolean }) => {
@@ -1255,7 +1316,17 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     : null;
   const admittedMessages = isCurrentRead ? messages : [];
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
-  const displayMessages = isCurrentRead || hasPresentation ? messages : [];
+  // The inbox is already an authenticated latest-message snapshot. Show it
+  // while the full history refreshes, without making it a pagination boundary
+  // or granting message actions, receipts, attachment reads or send permission.
+  // Even an empty cached transcript can reflect a confirmed deletion. Never
+  // restore an older inbox preview over that authoritative presentation.
+  const latestPreview = !isCurrentRead && hasPresentation && !presentedFromCache
+    ? selectedInboxItem?.latestMessage : null;
+  const displayMessages = isCurrentRead || hasPresentation
+    ? latestPreview && latestPreview.conversationId === selectedInboxItem?.id
+      ? mergeMessages(messages, [latestPreview]) : messages
+    : [];
   const visibleMessages = normalizedMessageSearch
     ? displayMessages.filter((message) =>
         [walletMessagePreview(message.content), message.replyTo ? walletMessagePreview(message.replyTo.content) : null]
@@ -1280,6 +1351,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       : threadError ? "direct_messages_read" : null,
   } as const;
   const normalizedInboxSearch = inboxSearch.trim().toLocaleLowerCase();
+  const nextInboxCursor = storedInbox?.ownerId === userId ? storedInbox.nextCursor : null;
+  useEffect(() => {
+    if (lane === "people" && normalizedInboxSearch && nextInboxCursor && !loadingInbox && !refreshingInbox && !loadingInboxPage && !inboxPageError) {
+      void loadInboxPage();
+    }
+  }, [lane, normalizedInboxSearch, nextInboxCursor, loadingInbox, refreshingInbox, loadingInboxPage, inboxPageError, loadInboxPage]);
   const visibleConversations = normalizedInboxSearch
     ? inboxItems.filter((conversation) =>
         [conversationLabel(conversation), conversationPreview(conversation)]
@@ -1290,10 +1367,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     : inboxItems;
 
   const openConversation = (conversation: DirectMessageConversation) => {
-    void navigateDirectMessage(router, { conversationId: conversation.id });
+    if (activeConversationId === conversation.id && isCurrentRead) {
+      void loadThread({ preserveMessages: true });
+      return;
+    }
+    if (onSelect) onSelect({ kind: "conversation", ref: conversation.id });
+    else void navigateDirectMessage(router, { conversationId: conversation.id });
   };
 
   const backToConnections = () => {
+    onClearSelection?.();
     replaceMessageHistory(null);
     writeLastMessagesSelection(userId, { lane: "people", token: null });
     router.replace(ROUTES.ONE_MESSAGES, { scroll: false });
@@ -1301,6 +1384,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   const chooseLane = (nextLane: "people" | "circles") => {
     if (nextLane === lane) return;
+    onClearSelection?.();
     if (nextLane === "circles") replaceMessageHistory(null);
     writeLastMessagesSelection(userId, nextLane === "people"
       ? { lane: "people", token: null }
@@ -1348,7 +1432,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       setAttachment(recordedAttachment);
     }
     const generation = selectionGeneration.current;
-    const isCurrent = () => (generation === selectionGeneration.current && ownerRef.current === userId && selectionRef.current === routeSelection);
+    const isCurrent = () => (generation === selectionGeneration.current && ownerRef.current === userId && selectionRef.current === routeSelection && persistedDraft.isCurrent());
     const reply = replyingTo;
     const replyId = hasUnconfirmedSend ? sendAttempts.current.get(draftScope)?.replyId : reply?.id;
     let attempt = sendAttempts.current.get(draftScope);
@@ -1365,8 +1449,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const sendLease = {};
     sendingSelections.current.set(draftScope, sendLease);
     try {
+      const retiredDraft = await persistedDraft.retire();
       const idToken = await user.getIdToken();
-      if (!isCurrent()) return;
+      if (!isCurrent()) { persistedDraft.preserve(content, retiredDraft ?? undefined); return; }
       attempt.unconfirmed = true;
       const result = await DirectMessagesService.sendMessage({
         idToken,
@@ -1399,7 +1484,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         const withoutConversation = items.filter(
           (conversation) => conversation.id !== result.conversation.id,
         );
-        return { ownerId: userId, items: [result.conversation, ...withoutConversation] };
+        return { ownerId: userId, items: [result.conversation, ...withoutConversation],
+          nextCursor: current?.ownerId === userId ? current.nextCursor : null };
       });
       dispatchDirectMessagesUpdated({
         userId,
@@ -1419,8 +1505,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       router.replace(href, { scroll: false });
     } catch (error) {
       const definiteRefusal = error instanceof DirectMessagesServiceRequestError && [400, 401, 403, 404, 409, 413, 422, 429].includes(error.status);
+      if (error instanceof MessageDraftSessionExpiredError && generation === selectionGeneration.current
+          && ownerRef.current === userId && selectionRef.current === routeSelection) {
+        setComposerError(error.message); return;
+      }
       if (!isCurrent()) return;
       if (definiteRefusal && sendAttempts.current.get(draftScope) === attempt) sendAttempts.current.delete(draftScope);
+      if (definiteRefusal) persistedDraft.update(content);
       setUnconfirmedDraft(definiteRefusal ? null : content);
       setDraft(content);
       setComposerError(
@@ -1515,7 +1606,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const top = list.scrollTop + target.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - target.offsetHeight) / 2;
     atBottomRef.current = false;
     list.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    target.tabIndex = -1; target.focus({ preventScroll: true });
+    const bubble = target.querySelector<HTMLElement>("[data-chat-bubble]") ?? target;
+    bubble.tabIndex = -1; bubble.focus({ preventScroll: true });
     setJumpTarget(null);
   }, [jumpTarget, messages, messageSearchQuery]);
 
@@ -1592,12 +1684,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   const saveReaction = (message: DirectMessage, emoji: string) => {
     if (!user || !isCurrentRead || message.conversationId !== activeConversationId) return;
-    const reactionKey = `${message.id}:${emoji}`;
+    const latest = messagesRef.current.find(item => item.id === message.id && item.conversationId === message.conversationId);
+    if (!latest || latest.deletedForEveryoneAt) return;
+    const reactionKey = `${userId}:${operationGeneration.current}:${message.id}:${emoji}`;
     if (reactionPending.current.has(reactionKey)) return;
     reactionPending.current.add(reactionKey);
-    const removing = Boolean(message.reactions?.find((reaction) => reaction.emoji === emoji)?.reactedByViewer);
+    const removing = Boolean(latest.reactions?.find((reaction) => reaction.emoji === emoji)?.reactedByViewer);
+    const lease = {};
     const generation = operationGeneration.current;
-    setMessages((current) => current.map((item) => item.id === message.id ? toggleReaction(item, emoji) : item));
+    setMessages((current) => current.map((item) => item.id === message.id ? beginReaction(item, emoji, lease, removing) : item));
     reactionPickerTarget.current = null; setOpenReactionPicker(null);
     void (async () => {
       try {
@@ -1611,17 +1706,20 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         });
         if ((generation !== selectionGeneration.current || ownerRef.current !== userId || selectionRef.current !== routeSelection)) return;
         loadGeneration.current += 1;
-        replaceMessage(updated);
+        setMessages(current => current.map(item => item.id === message.id ? settleReaction(item, emoji, lease, updated) : item));
         setMessageActionError(null);
       } catch {
         if ((generation !== selectionGeneration.current || ownerRef.current !== userId || selectionRef.current !== routeSelection)) return;
-        replaceMessage(message);
+        setMessages(current => current.map(item => item.id === message.id ? settleReaction(item, emoji, lease) : item));
         setMessageActionError({
           messageId: message.id,
           message: "Couldn’t update that reaction. Try again.",
         });
       } finally {
         reactionPending.current.delete(reactionKey);
+        if (generation === selectionGeneration.current && ownerRef.current === userId && selectionRef.current === routeSelection) {
+          void loadThread({ preserveMessages: true });
+        }
       }
     })();
   };
@@ -1792,7 +1890,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 </Button>
               </div>
             ) : null}
-            {!loadingInbox && !inboxError && visibleConversations.length === 0 ? (
+            {!loadingInbox && !inboxError && !nextInboxCursor && visibleConversations.length === 0 ? (
               <div className={styles.emptyInbox}>
                 <MessageCircle className="h-7 w-7" aria-hidden="true" />
                 <h2>{inboxSearch ? "No matching chats" : "No chats yet"}</h2>
@@ -1854,6 +1952,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 </DirectMessageInboxRow>
               );
             })}
+            {nextInboxCursor ? <div className={styles.emptyInbox}>
+              {loadingInboxPage ? <p role="status">{normalizedInboxSearch ? "Searching remaining chats…" : "Loading more chats…"}</p> : null}
+              {inboxPageError ? <p role="status">{inboxPageError}</p> : null}
+              <Button type="button" variant="none" effect="fade" className={cn(styles.newChatAction, quietStyles.action)}
+                disabled={loadingInboxPage || refreshingInbox} onClick={() => void loadInboxPage()}>
+                {inboxPageError ? "Retry loading chats" : "Load more chats"}
+              </Button>
+            </div> : null}
           </nav>
         </aside>
         <main className={styles.thread} aria-live="polite">
@@ -2260,7 +2366,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                 </DropdownMenu>
                               </div>
                             </div>
-                            {message.reactions?.length ? (
+                            {!message.deletedForEveryoneAt && message.reactions?.length ? (
                               <div className={styles.messageReactions} aria-label="Message reactions">
                                 {message.reactions.map((reaction) => (
                                   <button
@@ -2271,8 +2377,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     aria-label={`${reaction.emoji} reaction, ${reaction.count}`}
                                     onClick={() => saveReaction(message, reaction.emoji)}
                                   >
-                                    <span>{reaction.emoji}</span>
-                                    <span>{reaction.count}</span>
+                                    <span className={styles.reactionBadge}>
+                                      <span>{reaction.emoji}</span>
+                                      <span>{reaction.count}</span>
+                                    </span>
                                   </button>
                                 ))}
                               </div>
@@ -2372,8 +2480,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       value={draft}
                       onChange={(event) => {
                         setComposerError(null);
-                        drafts.current.set(draftScope, event.target.value);
-                        setDraft(event.target.value);
+                        persistedDraft.update(event.target.value);
                       }}
                       placeholder={hasRouteSelection ? `Message ${selectedLabel}...` : "Message"}
                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
@@ -2403,6 +2510,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <DirectMessageEmojiPicker
                       messagesLane
                       key={draftScope}
+                      anchorToComposer
                       triggerIcon={<Smile className="h-5 w-5" />}
                       restoreTriggerFocusOnSelect={false}
                       disabled={sending || recordingVoice || !canCompose || hasUnconfirmedSend}
@@ -2410,7 +2518,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         const input = composerRef.current;
                         const start = input?.selectionStart ?? draft.length;
                         const end = input?.selectionEnd ?? start;
-                        setDraft((current) => {
+                        persistedDraft.update((current) => {
                           const next = `${current.slice(0, start)}${emoji}${current.slice(end)}`;
                           drafts.current.set(draftScope, next);
                           return next;
@@ -2441,6 +2549,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <span className="sr-only" aria-live="polite">
                       {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
                     </span>
+                    {draft && persistedDraft.status ? <span className="sr-only" role="status">{persistedDraft.status}</span> : null}
                     {composerError ? (
                       <p className={styles.composerError} role="status">
                         {composerError}
@@ -2542,8 +2651,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               aria-label={`Message ${person.displayName || "connection"}`}
               disabled={!person.publicPersonRef} onClick={() => {
                 if (!person.publicPersonRef) return;
+                if (userId && !DirectMessagesResourceService.readThread(userId, `person:${person.publicPersonRef}`)) {
+                  const session = DirectMessagesResourceService.beginRequest(userId);
+                  DirectMessagesResourceService.writeThread(userId, session, `person:${person.publicPersonRef}`, {
+                    ...EMPTY_THREAD, peerPersonRef: person.publicPersonRef,
+                    peerDisplayName: person.displayName ?? null, peerPhotoUrl: person.photoUrl ?? null,
+                  }, []);
+                }
                 setNewChatOpen(false);
-                void navigateDirectMessage(router, { personRef: person.publicPersonRef });
+                if (onSelect) onSelect({ kind: "person", ref: person.publicPersonRef });
+                else void navigateDirectMessage(router, { personRef: person.publicPersonRef });
               }}>
               <ConnectionPersonAvatar userId={person.userId} label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
               <span>{person.displayName || "Connection"}</span>

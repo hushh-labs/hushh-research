@@ -43,6 +43,16 @@ vi.mock("@/lib/morphy-ux/hooks/use-page-enter", () => ({
   usePageEnterAnimation: () => undefined,
 }));
 
+const activityAttempt = vi.hoisted(() => ({
+  capture: vi.fn(),
+  started: vi.fn(),
+  settled: vi.fn(),
+}));
+vi.mock("@/lib/observability/product-activity-client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/observability/product-activity-client")>(),
+  captureProductAttempt: activityAttempt.capture,
+}));
+
 function openDropdownMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
 }
@@ -2362,6 +2372,20 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Quick actions")).toBeNull();
   });
 
+  it("records a single Location Settings attempt when the person opens the in-app controls", async () => {
+    activityAttempt.capture.mockReturnValue(activityAttempt);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings", exact: true }));
+
+    expect(await screen.findByRole("heading", { name: "Settings", exact: true })).toBeTruthy();
+    expect(activityAttempt.capture).toHaveBeenCalledExactlyOnceWith("location.open_settings", "user_a");
+    expect(activityAttempt.started).toHaveBeenCalledTimes(1);
+    expect(activityAttempt.settled).toHaveBeenCalledExactlyOnceWith("returned");
+    expect(mockOpenLocationSettings).not.toHaveBeenCalled();
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -3318,6 +3342,39 @@ describe("OneLocationAgentPage", () => {
     await act(async () => {
       (releaseCheckout as unknown as () => void)();
     });
+  });
+
+  it("keeps a restored local Pause when Nearby still reports an active visit and checkout fails", async () => {
+    const { readOneLocationControlState, updateOneLocationControlState } =
+      await import("@/lib/one-location/location-control-state");
+    updateOneLocationControlState("user_a", (current) => ({ ...current, paused: true }));
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: "2026-07-31T00:00:00.000Z",
+        expiresAt: "2026-07-31T01:00:00.000Z",
+        placeLabel: "Event venue",
+      },
+      attendees: [],
+    });
+    mockCheckoutNearby.mockRejectedValueOnce(new Error("Checkout unavailable"));
+    const view = render(<OneLocationAgentPage />);
+    try {
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+        "Location is paused on this device. Nearby checkout did not complete.",
+      ));
+      expect(readOneLocationControlState("user_a").paused).toBe(true);
+      expect(screen.getByRole("switch", { name: "Turn location on" })).not.toBeChecked();
+    } finally {
+      view.unmount();
+      updateOneLocationControlState("user_a", (current) => ({ ...current, paused: false }));
+    }
   });
 
   it("separates people who can already see you from people who cannot", async () => {
@@ -4654,14 +4711,34 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it.each(["full", "partial", "unknown", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {
+  it.each(["full", "partial", "unknown", "email", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {
     mockGetSmsContacts.mockResolvedValue(outcome === "partial" ? ["user_b", "user_d"] : ["user_b"]);
     let publicationCount = 0;
     mockStoreEnvelope.mockImplementation(async () => {
       if (outcome === "none") throw new Error("publish unavailable");
       if (outcome === "unknown") return { recipientAlerted: null };
+      if (outcome === "email") return { recipientAlerted: false };
       return { recipientAlerted: outcome === "full" || publicationCount++ === 0 };
     });
+    if (outcome === "email") {
+      const baseState = locationState();
+      const smsGrant = {
+        ...baseState.ownerGrants[0]!,
+        id: "grant_email_only",
+        shareKind: "sos",
+        expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      };
+      let active = false;
+      mockCreateGrant.mockImplementation(async () => {
+        active = true;
+        return smsGrant;
+      });
+      mockGetState.mockImplementation(async () => ({
+        ...baseState,
+        ownerGrants: active ? [smsGrant] : baseState.ownerGrants,
+      }));
+      mockSendSosEmails.mockResolvedValueOnce({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] });
+    }
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
@@ -4670,6 +4747,10 @@ describe("OneLocationAgentPage", () => {
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     if (outcome === "none") {
       await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Delivery could not be confirmed. Call for help directly."), { timeout: 4000 });
+    } else if (outcome === "email") {
+      expect(await screen.findByText("Alert sent by email", {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(toast.success).not.toHaveBeenCalledWith("SMS alert sent.", expect.anything());
+      expect(screen.getByRole("button", { name: "Stop SMS alert" })).toBeEnabled();
     } else {
       await waitFor(() => expect(outcome === "partial" ? toast.warning : toast.success).toHaveBeenCalledWith(
         outcome === "full" ? "SMS alert sent." : outcome === "unknown" ? "SMS location shared." : "Some contacts may miss this alert.",
