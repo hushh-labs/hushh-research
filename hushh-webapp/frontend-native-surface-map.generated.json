@@ -1930,6 +1930,8 @@
       },
       "voice_action_contract_file": "app/login/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "auth.deletion_done",
+        "auth.deletion_start_fresh",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",
@@ -11079,5 +11081,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6e69e214707d0a1d583ee853483c08f021c1d8199d1d3a3dbab7992828bba4ba"
+  "content_sha256": "a0c37064262e55042b83a77869692e4fbff94eb3269c07c086f3af51faa3e589"
 }

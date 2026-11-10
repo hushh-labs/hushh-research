@@ -13,10 +13,10 @@ flowchart LR
   drain --> enable[Re-enable account deletion]
 ```
 
-## Current Dev application — 9 November 2026
+## Current Dev application — 10 November 2026
 
-Fresh read-only observation at 10 November 06:12:58 UTC identified Dev source
-`3482e95b3a49`, ledger through 987, the original profile/vault still present and
+Fresh read-only observation at 10 November 08:31:20 UTC identified Dev source
+`84692d554b6f`, ledger through 987, the original profile/vault still present and
 no admitted full-account deletion. Its original removal remains incomplete with
 70 dispatches, 70 acknowledgements and four worker exits. This supersedes the
 serving-source statement in the older full browser/revision receipt below; no
@@ -25,7 +25,7 @@ new candidate deployment or browser acceptance is implied.
 **Account erasure in this work is Dev-only.** UAT domain/Auth preparation is
 separate and does not gate Dev account-deletion acceptance.
 
-**Prepared deferred-cleanup candidate; release held.** The isolated Dev candidate
+**Prepared deferred-cleanup candidate; Dev deployment authorized after required checks.** The isolated Dev candidate
 on `fix/dev-account-retirement-20261109` extends the existing deletion worker,
 cloud-removal journal and generation admission. Migration 988 freezes the original
 placement, authorization history and cleanup operation under a fresh account-deletion
@@ -96,35 +96,37 @@ new identities, resource creation or deletion of the personal project.
 
 The finished candidate passed 159 focused backend/database/operator checks, 283
 frontend deletion/session checks and the 522-case navigation pack; typecheck and
-UI contract verification passed. Native cloud/browser acceptance remains held.
+UI contract verification passed. Native cloud/browser acceptance remains pending.
 The broader quality diagnostic reports 77 passing cases and two existing direct-DB
 route checks failing. Both finding vectors match Dev `dbc4e4b3cb7b` exactly
 (five direct-access lines and thirteen import lines); the candidate adds neither.
 These are retained for the CI workstream, without changing its policy or those routes.
-The required local core attempt stopped in governance: `skill-lint` and the
-architecture baseline ratchet refused. The skill inputs are unchanged from Dev.
-A comparison using the canonical analyzer also finds 38 new or worsened size
-findings on the candidate’s changed surfaces; those are candidate-owned, not
-classified as inherited. Secret scanning passed with pinned Gitleaks 8.24.2.
-Protocol/web-core and later core stages were not reached. No gate was weakened;
-the candidate is not release-ready. Preserve this evidence for the coordinated
-CI follow-up before exact-candidate CI and deployment.
+The earlier local core attempt stopped at `skill-lint` and the architecture
+baseline ratchet; later stages were not reached. Current landed CI policy makes
+those global hygiene checks diagnostic, rather than required PR gates. The 38
+candidate-owned size findings remain recorded diagnostic debt. Secret scanning
+passed with pinned Gitleaks 8.24.2. This correction changes no pipeline policy and
+does not certify the finished candidate: its affected checks, exact-source CI and
+governed Dev deployment remain required before live acceptance.
 The candidate was refreshed against Dev `26f4156f5796`, including its new encrypted
 message-draft integration. A reproduced failure showed local cleanup swallowing
 draft-removal errors. Confirmed Reset/delete now keeps departure retryable until
 that purge settles; ordinary sign-out remains nonblocking. The regression failed
 on the prior behavior; 188 focused client cases and typecheck passed after the
 correction. UI generation and its 522 navigation cases passed. Backend/SQL
-contracts are unchanged, so their prior evidence is retained. The known
-governance failures and deployment hold remain; no source push or deployment
-was performed for this refresh.
+contracts are unchanged, so their prior evidence is retained. The user lifted the
+Dev deployment hold on 10 November, conditional on all required checks passing.
+The candidate now incorporates Dev `233d1471e9f6`, preserving its landed CI
+changes and current phone-deletion flow. No candidate deployment is claimed.
 
 Focused candidate evidence covers pending/completed handoffs, wrong digest and direct
 rewrites, project-admission fencing, original-journal continuation, native KMS shells,
 owner-template IAM/redirect safety, full 420/421 replay with Files preimages, rollback,
 and client confirmation/terminal states. No CI policy or protected workflow is changed.
 The managed pilot stays paused. PR [9008](https://github.com/hushh-labs/hushh-research/pull/9008)
-remains a separate UAT branch discussion; this candidate neither deploys nor erases UAT.
+has passed exact-head source CI and is awaiting the UAT merge queue; this candidate
+neither deploys nor erases UAT. Its source port does not complete Dev account
+retirement, fresh signup or physical cloud erasure.
 
 PR [9057](https://github.com/hushh-labs/hushh-research/pull/9057) passed
 [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42317327082)
