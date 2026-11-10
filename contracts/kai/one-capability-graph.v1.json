@@ -49643,7 +49643,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "9fbfa6367de772a4b1ff4585",
+      "brain_revision": "3a04bd40a1e2408c052baba8",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -52513,7 +52513,7 @@
           "label": "Location backend inventory"
         }
       ],
-      "known_unbound_implementation_count": 77,
+      "known_unbound_implementation_count": 78,
       "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
       "package_id": "location.brain",
       "package_version": 2,
@@ -52579,7 +52579,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "f8bcd16ad18c99fa0238a344e7f9ed6d5f172e1be45ca7cd5787665c3bcc4ada",
+      "projection_digest": "54a103a79b72233707dca01190d6e94e67dcf3d473ef5800d6dc3ceef1018f76",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52598,7 +52598,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "c32cf5e00a63cfc1",
+      "source_revision": "397e42888f424c55",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -54116,7 +54116,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "c32cf5e00a63cfc1",
+    "source_revision": "397e42888f424c55",
     "web": {
       "actions": [
         {
@@ -54159,7 +54159,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "0ac2134395a43788d2ced68de149d6093b51d96308b551eb2f6d61f442112f24",
+      "projection_digest": "9131e6d12981fe423b2fa88c4e95264817f330fd434a1c05477116c8ff2d4092",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54178,7 +54178,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "c32cf5e00a63cfc1",
+      "source_revision": "397e42888f424c55",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -55735,7 +55735,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "c32cf5e00a63cfc1",
+  "revision": "397e42888f424c55",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -57731,10 +57731,16 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
-    "compatible": [],
+    "changed": [
+      "brains:location",
+      "services:service.location",
+      "workflows:workflow.setup.location"
+    ],
+    "compatible": [
+      "workflows:workflow.setup.location"
+    ],
     "deprecated": [],
-    "from_revision": null,
+    "from_revision": "c32cf5e00a63cfc1",
     "migrated": [],
     "removed": []
   },
@@ -59329,6 +59335,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_recent_received_sms_alerts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_recent_received_sms_alerts",
+          "path": "/api/one/location/sms-alerts/recent",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.get_location_sms_contacts",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -59694,7 +59710,7 @@
       "capability_id": "service.location",
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
-        "blocked_endpoint_count": 77,
+        "blocked_endpoint_count": 78,
         "declared_capability_count": 73
       },
       "completion": {
@@ -59706,7 +59722,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 77,
+          "discovered_endpoint_count": 78,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -59805,7 +59821,7 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "9fbfa6367de772a4b1ff4585",
+        "brain_revision": "3a04bd40a1e2408c052baba8",
         "catalog_status": "complete_and_compiled",
         "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "package_id": "location.brain",
@@ -60106,9 +60122,9 @@
     "route_orchestration_index": "2cf09d1f281d70589f0300ededf21ff1a0fc56ae4bbd76037b5773f3b8dbf169",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "c32cf5e00a63cfc1",
+  "source_revision": "397e42888f424c55",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "c32cf5e00a63cfc1",
+    "current_graph_revision": "397e42888f424c55",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -60433,6 +60449,7 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
@@ -60677,6 +60694,7 @@
           "bab8cfa1aa259f7c",
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c9235cd9b5598475",
@@ -60745,6 +60763,7 @@
           "975965c04f634896",
           "aba723a8b59080fc",
           "b255ff5e653c1324",
+          "c32cf5e00a63cfc1",
           "c3c7eced230a2281",
           "d5e9a310061c3485",
           "f3633843012f1860"
@@ -61380,6 +61399,7 @@
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
@@ -61577,6 +61597,7 @@
           "aba723a8b59080fc",
           "b255ff5e653c1324",
           "bab8cfa1aa259f7c",
+          "c32cf5e00a63cfc1",
           "c3c7eced230a2281",
           "d5e9a310061c3485",
           "e2628b6fcc6cea6f",
@@ -62299,6 +62320,7 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
@@ -62731,6 +62753,7 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
@@ -62837,7 +62860,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "0771acb921eb2e35924fdb845b87c93ff4919bd3dd6092ae95d9c760aeab61c9",
+        "workflow_digest": "2039f4f18867cdd3152a48a9494eb1e0d8fd11cc91d4b57ae548141ad1978f4e",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -63163,6 +63186,7 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
@@ -65220,6 +65244,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_recent_received_sms_alerts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_recent_received_sms_alerts",
+          "path": "/api/one/location/sms-alerts/recent",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.get_location_sms_contacts",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -66993,7 +67027,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 77,
+            "discovered_endpoint_count": 78,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"
