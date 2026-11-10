@@ -48,6 +48,18 @@ fast locally too. This skill does **not** merge — if the work is not on `main`
 merge and verify the selected backend's web/API deploy first, then release. It ships what is
 already on `main`.
 
+## Internal TestFlight source boundary
+
+UAT TestFlight runs from trusted Main and signs a qualified protected UAT source.
+Ordinary UAT may select an accepted commit in protected history; a later source-only
+sync does not replace it. Legacy isolated UAT retains its exact-tip requirement.
+Build/signing scripts and configuration must match the reviewed Main authority.
+The uninvoked `phone-conflict-flow.mjs` diagnostic and affected-test selectors are
+excluded from that comparison; their differing test coverage is preserved.
+Other scripts, native helpers and package inputs remain protected. The selected
+UAT source still needs accepted backend revision, digest and deployment evidence;
+passing tooling parity alone never authorizes an archive.
+
 ## Live version and concurrent-release admission
 
 Apply this to TestFlight and App Store releases, including ordinary uploads and distribution recovery.
