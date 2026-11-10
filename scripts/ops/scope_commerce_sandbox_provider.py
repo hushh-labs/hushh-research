@@ -267,6 +267,8 @@ class WebhookProvisioner:
 
     @staticmethod
     def _validate_endpoint(endpoint: dict[str, Any], request: dict[str, Any]) -> None:
+        # Stripe application is nullable even for Connect endpoints. Scope comes
+        # from the hashed create(connect=...) intent and scoped signed delivery.
         if (
             endpoint.get("object") != "webhook_endpoint"
             or endpoint.get("livemode") is not False
@@ -275,6 +277,5 @@ class WebhookProvisioner:
             or set(endpoint.get("enabled_events") or []) != set(request["enabled_events"])
             or endpoint.get("api_version") != request["api_version"]
             or endpoint.get("status") != "enabled"
-            or bool(endpoint.get("application")) != request["connect"]
         ):
             raise CommerceProviderError("sandbox_webhook_receipt_mismatch")

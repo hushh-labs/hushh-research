@@ -224,6 +224,33 @@ def test_live_configuration_requires_business_approvals_even_when_enabled():
     sandbox.validate(new_activity=True)
 
 
+def test_website_returns_are_additive_server_owned_and_fail_closed(monkeypatch):
+    from hushh_mcp.services.scope_commerce.provider_return_surfaces import resolve_return_surface
+
+    config = ScopeCommerceProviderConfig(
+        frontend_origin="https://uat.one.hussh.ai",
+        website_origin="https://uat.hussh.si",
+    )
+    assert resolve_return_surface(config) == ("https://uat.one.hussh.ai", "/one/profile/payouts")
+    assert resolve_return_surface(config, "website") == ("https://uat.hussh.si", "/profile")
+    for surface in ("https://evil.example", "other", "//evil.example"):
+        with pytest.raises(ValueError):
+            resolve_return_surface(config, surface)
+    with pytest.raises(ValueError):
+        resolve_return_surface(ScopeCommerceProviderConfig(), "website")
+    for origin in (
+        "http://uat.hussh.si",
+        "https://uat.hussh.si/evil",
+        "https://user@uat.hussh.si",
+        "https://uat.hussh.si?next=evil",
+        "https://uat.hussh.si#evil",
+    ):
+        with pytest.raises(ValueError):
+            resolve_return_surface(ScopeCommerceProviderConfig(website_origin=origin), "website")
+    monkeypatch.setenv("SCOPE_COMMERCE_WEBSITE_ORIGIN", "https://uat.hussh.si")
+    assert ScopeCommerceProviderConfig.from_env().website_origin == "https://uat.hussh.si"
+
+
 def test_country_configuration_rejects_unattributed_costs(monkeypatch):
     policy = {
         "currency": "usd",

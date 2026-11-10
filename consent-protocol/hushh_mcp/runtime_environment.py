@@ -13,6 +13,7 @@ SCOPE_COMMERCE_ENV_MAP: dict[str, str] = {
     "scope_commerce_stripe_livemode": "SCOPE_COMMERCE_STRIPE_LIVEMODE",
     "scope_commerce_stripe_account_id": "SCOPE_COMMERCE_STRIPE_ACCOUNT_ID",
     "scope_commerce_frontend_origin": "SCOPE_COMMERCE_FRONTEND_ORIGIN",
+    "scope_commerce_website_origin": "SCOPE_COMMERCE_WEBSITE_ORIGIN",
     "scope_commerce_return_path": "SCOPE_COMMERCE_RETURN_PATH",
     "scope_commerce_country_policies_json": "SCOPE_COMMERCE_COUNTRY_POLICIES_JSON",
     "scope_commerce_fee_configuration_ref": "SCOPE_COMMERCE_FEE_CONFIGURATION_REF",

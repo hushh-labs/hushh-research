@@ -1798,6 +1798,22 @@ obligation age and imbalance alerts before accepting operational readiness.
 
 ## Configuration, erasure and rollback
 
+### Website payment return surface (source implementation)
+
+Funding checkout and onboarding accept the optional closed selector
+`return_surface: "website"`; omission retains One's existing return behavior.
+The website surface requires the server-owned `scope_commerce_website_origin`
+runtime policy (`SCOPE_COMMERCE_WEBSITE_ORIGIN`) and fixes its return path to
+`/profile`. Clients cannot provide a return URL. The resolved return participates
+in the existing durable provider operation request, so a retry cannot change
+its destination. Sandbox readiness accepts only the configured One or website
+origin and binds its response to the exact requested origin. Existing account
+pins, reviewer policy, fees, activation and consent remain authoritative.
+
+This source addition does not establish a configured website sandbox, deployed
+support, successful funding, or encrypted information delivery. Website returns
+are refresh hints only; financial status must be read from the ledger.
+
 [Environment and secrets](../../../docs/reference/operations/env-and-secrets.md)
 owns configuration provenance. Nonsecret lowercase `scope_commerce_*` values travel
 in `BACKEND_RUNTIME_CONFIG_JSON`; country objects hydrate as JSON. SDK and webhook

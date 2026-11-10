@@ -15,7 +15,7 @@ SCOPE_COMMERCE_POLICY_TYPES: dict[str, type] = {
                      "scope_commerce_stripe_livemode", "scope_commerce_sandbox_policy_required",
                      "scope_commerce_monitoring_enabled"), bool),
     **dict.fromkeys(("scope_commerce_stripe_account_id", "scope_commerce_frontend_origin",
-                     "scope_commerce_return_path", "scope_commerce_fee_configuration_ref",
+                     "scope_commerce_return_path", "scope_commerce_website_origin", "scope_commerce_fee_configuration_ref",
                      "scope_commerce_stripe_acceptance_ref", "scope_commerce_account_configuration_ref",
                      "scope_commerce_country_approval_ref", "scope_commerce_retention_approval_ref",
                      "scope_commerce_tax_approval_ref", "scope_commerce_drain_audience",
