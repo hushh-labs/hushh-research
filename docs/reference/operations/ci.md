@@ -934,9 +934,10 @@ for review and actual-merger controls; a source merge never deploys.
 
 ### Protected pipeline surfaces
 
-CI and fundamental development policy require **Kushal or Ankit** approval,
-as declared in `config/ci-governance.json`. General application maintainership
-does not grant protected-edit approval.
+CI and fundamental development policy require current **`pipeline-editors`**
+authority. GitHub team membership owns access; `config/ci-governance.json`
+defines protected capabilities, not a saved membership roster. General
+application maintainership does not grant protected-edit approval.
 
 - The protected set covers workflows/actions, CI/release scripts, deployment
   configuration, CODEOWNERS, the agent kernel and fundamental skills/workflows.
@@ -948,8 +949,9 @@ does not grant protected-edit approval.
   candidate policy cannot authorize itself. CODEOWNERS supplies the matching
   review routing. CLI access and generic autonomous permission are not human
   approval of an unrelated policy change.
-- Ordinary review and owner self-approval are defined once in Admin SOP. Kushal
-  or Ankit use the explicit Admin PR command for their own captured head. It
+- Ordinary review and team-authorized owner self-approval are defined once in
+  Admin SOP. Eligible pipeline editors use its explicit Admin PR command for
+  their own captured head. It
   verifies the current successful attempt and exact merge tree. The native owner
   route has strict CI and PR-only guards; it never authorizes a deployment.
 
@@ -1121,8 +1123,7 @@ readiness or model calls caused by an explicitly exercised product journey.
 There is no scheduled editor/performance workflow. Safari layout and web
 performance checks are developer-local diagnostics.
 
-- **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
-- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or backend/shared `scripts/ci/**` files change. Dedicated web-only lane scripts are excluded; `web-common.sh` also schedules the backend contracts that exercise its build defaults.
+- **Application lanes** use the authored `ci.yml` filters and existing affected-test selectors. Known CI-controller fixtures and scripts have explicit Governance owners; they do not automatically select all application or database tests. Unknown runtime impact remains conservative.
 - **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Package resolution runs sequentially after `cap sync`, using the job-local package cache. `scripts/ci/resolve-ios-packages.sh` retries once only for exit 74 with the known cold binary-download cache collision; it retains verified cache entries and both attempt logs. Other failures and a second failure block the lane. Native compilation and tests are never retried by this helper. This is a bounded workaround for the [upstream SwiftPM race](https://github.com/swiftlang/swift-package-manager/pull/10203), not evidence that native checks passed. The simulator boots after the web export so it does not compete with `next build` for memory. Swift package clones may restore only under the verified graph key; a failed partial restore is cleared before resolution.
 - **Web Safari layout and performance diagnostics** are local-only. Run
   `cd hushh-webapp && npm run test:layout-editor-performance` when a change
@@ -1136,39 +1137,21 @@ The local History motion check exercises opening, exit and interrupted-drag
 behavior in Chromium and WebKit with a focused drawer/sidebar fixture. Linux
 Connections checks retain functional layout and interaction coverage. Local
 browser timing does not replace physical Release frame-pacing qualification.
-**How `scripts/ci/` is split (2026-09-26).** Each file schedules the lanes that
-actually run it, instead of every lane:
+### CI script and fixture ownership
 
-| `scripts/ci/` file | Schedules | Why |
-|---|---|---|
-| `orchestrate.sh` | frontend and backend | dispatches every stage |
-| `web-common.sh` | frontend and backend | shared web helper plus backend contracts for build-origin defaults |
-| `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh` | frontend | dedicated web lane execution |
-| every other file, including any added later | backend | covers the protocol, MCP and integration lanes (`protocol-check.sh`, `verify-protocol-*`, `hushh-mcp-package-check.sh`, `integration-check.sh` and what it calls) and the deploy scripts the protocol test suite exercises directly |
+The `ci.yml` filters and `scripts/ci/repo_governance_plan.py` are the existing
+selection owners. Dedicated web scripts select their actual web callers;
+backend runtime paths select Protocol and its applicable database contracts.
+Controller-only scripts and inert fixtures use explicit Governance ownership.
+Do not infer that every other `scripts/ci/` file requires the backend suite.
 
-The backend side includes `scripts/ci/**` and excludes the named web-only lane
-scripts, so a new script is backend by default rather than scheduling nothing. The filter
-step sets `predicate-quantifier: 'some-with-excludes'` for that `!` pattern;
-filters without a `!` pattern behave exactly as before. The iOS filter includes
-the onboarding setup screens now reached through the login render graph, plus
-the shared Profile owner-state, Gemini and World Model controller inputs.
-
-Guards, both in the backend CI manifest:
-`consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py` derives
-which `scripts/ci/` files each path-filtered job runs (through
-`orchestrate.sh <stage>` and everything those scripts reference, plus every
-script the lane's own code names) and fails when one of them would not
-schedule that job. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`
-traces the XCUITest render path's imports and requires the reached onboarding
-screens and selected shared Profile inputs to schedule the native lane. It does
-not schedule iOS for every unrelated frontend change.
-
-One gap is known: the guard runs in the backend lane, so a PR that changes
-only `web-*.sh` does not run it. If such a PR makes a web script call a
-non-web `scripts/ci/` file, the guard catches it on the next backend-scheduling
-change, not in that PR. Add the called file to the frontend filter in the same
-change. Safari-specific layout/performance checks are local diagnostics and do
-not have a hosted `editor` path-filtered job.
+`test_ci_path_filters_cover_lane_scripts.py` checks the script-to-lane joins
+through Governance as well as its existing Protocol owner. The iOS path guard
+checks the web/native inputs actually reached by its scenarios; unrelated web
+changes do not require a simulator. When the same hosted run requires Protocol,
+Governance transfers only exact whole-module duplicates to that required lane;
+missing, failed or cancelled Protocol evidence cannot pass the final gate.
+Local or uncertain selection retains conservative coverage.
 
 ### Duplicate-Run Policy
 
@@ -1497,7 +1480,7 @@ transcript contracts; arbitrary output still refuses reconciliation.
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only current `deploy-production` members may trigger it.
 6. Ordinary production requires qualified protected Main and Main smoke, preserving distinct application and approval SHAs and identical content when applicable. A prior UAT deployment is not mandatory; accepted-image promotion still verifies the actual UAT image. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
-7. Feature and hotfix changes must first land in protected Dev history before its Main-owned deployment can select them. Direct UAT source admission omits a preceding Dev deployment only for the protected UAT candidate with exact CI and the recorded serving base. Treat the route as unqualified until the exact branch-CI and Main-owned admission proof pass against the reconciled history and real serving baseline. This source change does not dispatch or authorize an application deployment.
+7. Start from the intended destination: Dev for integration, UAT for a selected candidate, or Main for an authorized operations/hotfix delta. Each deployment admits its own qualified protected history; UAT does not require preceding Dev deployment. Complete relevant downstream source syncs under the [freshness procedure](../../../.agents/skills/repo-operations/references/maintainer-branch-freshness.md). Neither merging nor syncing dispatches deployment.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
@@ -1838,7 +1821,7 @@ Blocking backend manifest:
 
 ### Capability-graph evolution gate
 
-`uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the pull request base, not against `HEAD`: the predecessor is the committed graph at the merge-base with `origin/<base>`, where the base is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. `protocol-check` and `web-full-suite-check` both export `CAPABILITY_GRAPH_BASE_REF=origin/<PR base>` over a full-history checkout; Queue Validation uses the merge-group base and combined head. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
+`uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the pull request base, not against `HEAD`: the predecessor is the committed graph at the merge-base with `origin/<base>`, where the base is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. Hosted workflows supply the resolved review base over a full-history checkout; focused local `agents pre-pr` passes its verified destination SHA. Raw stage wrappers do not discover a PR destination automatically: supply `CAPABILITY_GRAPH_BASE_REF` when invoking them directly. Queue Validation uses the merge-group base and combined head. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
 
 When it fires, the error names the semantic ids with unacknowledged breaking changes. Do not edit the generated graph by hand. Either land a workflow migration with the owning workflow package, or add an exact-revision deprecation entry to `consent-protocol/hushh_mcp/agents/capability_graph_evolution.v1.json` whose `from_revision` is the base graph's top-level `revision`; broad or stale acknowledgements never suppress the gate. Then regenerate in dependency order (the agent registry if it changed, the capability graph, then the runtime topology index last, because it digests the others) and rerun the check with the same base ref CI will use.
 
@@ -1890,12 +1873,12 @@ During implementation, run the nearest owner checks for the changed contract.
 exact changed-file list; `release` adds release-authority checks. Use
 `diagnostic` or the full local mirror for explicit broad diagnosis. GitHub Actions
 remains authoritative for required web compilation and affected contracts; a local pass
-does not prove hosted success. `codex pre-pr` defaults to focused local
-preparation: it checks the exact base/head, validates the PR impact description,
+does not prove hosted success. `agents pre-pr` defaults to focused local
+preparation: it checks the exact base/head, accepts optional review context,
 runs protected-edit, base-policy, DCO, security and governance checks, then runs
 the selected local owners. Its report identifies selected hosted Integration, database and native checks
 still required. App-browser diagnostics are explicitly requested separately. It does not run the full local mirror.
-Use `codex pre-pr --diagnostic` when you explicitly want that broader mirror;
+Use `agents pre-pr --diagnostic` when you explicitly want that broader mirror;
 the diagnostic mode runs DCO followed by `./bin/hushh ci` and may add advisory
 checks with `--include-advisory`. Choose one mode for an unchanged candidate.
 
@@ -1941,15 +1924,20 @@ Secret-scan note:
 
 ---
 
-## Quick Reference: Commands That Must Succeed
+## Quick reference: affected preparation
 
-| Area | Commands (from repo root) |
-|------|----------------------------|
-| Frontend | `cd hushh-webapp && npm ci && npm run typecheck && npm run lint -- --max-warnings=0 && npm run build && npm run test:ci` |
-| Backend | `cd consent-protocol && uv sync --frozen --group dev && bash scripts/sync_runtime_requirements.sh --check && uv run ruff check . && uv run mypy --config-file pyproject.toml --ignore-missing-imports && uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
-| Integration | `bash scripts/ci/docs-parity-check.sh` |
-| Pre-PR focused preparation | `./bin/hushh agents pre-pr --base-ref origin/<target> --body-file <draft>` or `--pr <number>` |
-| Full local CI mirror | `./bin/hushh ci` |
+Run the checks selected for the actual destination and changed contract;
+full historical suites are explicit diagnostics, not mandatory push commands.
+
+| Purpose | Command from repository root |
+| --- | --- |
+| Focused preparation before opening a PR | `./bin/hushh agents pre-pr --base-ref origin/<target>`; optional `--body-file <draft>` |
+| Focused preparation for the current PR | `./bin/hushh agents pre-pr --pr <number>` |
+| Broader diagnosis when needed | `./bin/hushh agents pre-pr --diagnostic` |
+
+Use the owning skill for additional affected runtime checks. Hosted exact-head
+validation and release-specific compatibility remain required; optional local
+commands cannot substitute for that evidence.
 
 ---
 
