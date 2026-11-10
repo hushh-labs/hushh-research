@@ -101,7 +101,9 @@ class UiGateTests(unittest.TestCase):
                 validate(self.workflow.replace(f'[ "${lane}" != "success" ]', '[ "other" != "success" ]'))
         core = (ROOT / "scripts/ci/web-core-check.sh").read_text()
         self.assertIn("npm run verify:ui-contracts", core)
-        self.assertIn("npm run test:ui-contract-validators", core)
+        self.assertNotIn("npm run test:ui-contract-validators", core)
+        # verify:ui-contracts already executes both mutation-test owners.
+        validate_runner((ROOT / "hushh-webapp/scripts/architecture/verify-ui-contracts.mjs").read_text())
         scripts = json.loads((ROOT / "hushh-webapp/package.json").read_text())["scripts"]
         self.assertEqual(scripts["verify:ui-back-contracts"], "node ./scripts/architecture/verify-ui-contracts.mjs --back-only")
         self.assertEqual(scripts["verify:ui-contracts"], "node ./scripts/architecture/verify-ui-contracts.mjs")
