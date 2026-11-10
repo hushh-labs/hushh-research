@@ -465,10 +465,11 @@ async def webhook(request: Request, signature: str | None = Header(None, alias="
         await _provider().process_webhook(payload=payload, signature=signature)
     except Exception as error:
         rejection = _error(error)
+        # Only the public allowlist enters this message. Render it before the
+        # privacy filter classifies standalone underscore-delimited arguments as IDs.
         logger.warning(
-            "scope_commerce.webhook_rejected status=%s code=%s",
-            rejection.status_code,
-            rejection.detail["code"],
+            f"scope_commerce.webhook_rejected.{rejection.detail['code']} "
+            f"status={rejection.status_code}"
         )
         raise rejection from None
     return {"received": True}

@@ -6,6 +6,7 @@ import copy
 import hashlib
 import hmac
 import json
+import logging
 import time
 from datetime import timedelta
 from types import SimpleNamespace
@@ -50,6 +51,7 @@ async def test_webhook_rejection_logs_only_public_code(monkeypatch, caplog, erro
     from fastapi import FastAPI
 
     from api.routes import scope_commerce as routes
+    from mcp_modules.log_redaction import SensitiveLogFilter
 
     class Provider:
         async def process_webhook(self, **kwargs):
@@ -60,18 +62,24 @@ async def test_webhook_rejection_logs_only_public_code(monkeypatch, caplog, erro
     monkeypatch.setattr(routes, "_provider", Provider)
     app = FastAPI()
     app.include_router(routes.webhook_router)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/payments/scope-commerce/webhook",
-            content=b"fixture-sensitive-payload",
-            headers={"Stripe-Signature": "fixture-sensitive-signature"},
-        )
+    route_logger = logging.getLogger(routes.__name__)
+    privacy_filter = SensitiveLogFilter()
+    route_logger.addFilter(privacy_filter)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/payments/scope-commerce/webhook",
+                content=b"fixture-sensitive-payload",
+                headers={"Stripe-Signature": "fixture-sensitive-signature"},
+            )
+    finally:
+        route_logger.removeFilter(privacy_filter)
     assert response.status_code == status
     assert response.json() == {"detail": {"code": code}}
     assert response.headers["cache-control"] == "private, no-store"
-    assert f"scope_commerce.webhook_rejected status={status} code={code}" in caplog.text
+    assert f"scope_commerce.webhook_rejected.{code} status={status}" in caplog.text
     assert "fixture-sensitive" not in caplog.text + response.text
 
 
