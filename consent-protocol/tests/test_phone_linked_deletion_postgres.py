@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
+from asyncpg import LockNotAvailableError
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 
@@ -500,3 +501,81 @@ async def test_fixture_code_outcome_stays_readable_after_the_holder_is_erased(db
     assert (await AccountService().delete_account(REQUESTER, target="both"))["success"] is True
     await _finish_cleanup(REQUESTER)
     assert await _receipt_row(db, prepared["operation_id"]) is None
+
+
+async def test_prune_never_waits_on_a_receipt_another_transaction_holds(db):
+    held = (await linked.prepare(REQUESTER, PHONE))["operation_id"]
+    free = (await linked.prepare(REQUESTER, PHONE))["operation_id"]
+    async with db.pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE account_phone_linked_deletions SET created_at=created_at-INTERVAL '2 hours',
+            expires_at=expires_at-INTERVAL '2 hours' WHERE operation_id=ANY($1::uuid[])""",
+            [held, free],
+        )
+    async with db.pool.acquire() as holder, db.pool.acquire() as pruner:
+        async with holder.transaction():
+            await holder.execute(
+                "SELECT 1 FROM account_phone_linked_deletions WHERE operation_id=$1::uuid FOR UPDATE",
+                held,
+            )
+            # An erasure and prepare() both prune; neither may wait on the other's rows.
+            async with pruner.transaction():
+                await pruner.execute("SET LOCAL lock_timeout='500ms'")
+                await pruner.execute(linked.RECEIPT_PRUNE_SQL)
+    remaining = await _value(
+        db,
+        "SELECT array_agg(operation_id::text) FROM account_phone_linked_deletions",
+    )
+    assert remaining == [held]
+
+
+async def test_status_reports_the_current_outcome_while_an_erasure_holds_the_receipt(db):
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    lost = AsyncMock(side_effect=ConnectionError("lost admission response"))
+    assert (await _confirm(prepared["operation_id"], lost))["state"] == "action_required"
+    assert (await AccountService().delete_account(HOLDER, target="both"))["success"] is True
+    async with db.pool.acquire() as eraser:
+        async with eraser.transaction():
+            await eraser.execute(
+                "SELECT 1 FROM account_phone_linked_deletions WHERE operation_id=$1::uuid FOR UPDATE",
+                prepared["operation_id"],
+            )
+            # The read-back must not fail while the holder's erasure holds the receipt.
+            held = await linked.status(REQUESTER, prepared["operation_id"])
+    assert held["state"] == "action_required"
+    assert (await linked.status(REQUESTER, prepared["operation_id"]))["state"] == "admitted"
+
+
+async def test_requester_erasure_waits_out_its_own_in_flight_admission(db, sms, monkeypatch):
+    import threading
+
+    from hushh_mcp.services import account_service as service_module
+
+    sms.proofs["own"] = (PHONE, "phone-session", int(time.time()))
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    assert (await AccountService().delete_account(REQUESTER, target="both"))["success"] is True
+    reached, release = threading.Event(), threading.Event()
+    original = service_module.guard_answer_erasure
+
+    def paused(conn, *, user_id):
+        # Pause the requester's erasure right after it took its receipt locks.
+        if user_id == REQUESTER:
+            reached.set()
+            release.wait(10)
+        return original(conn, user_id=user_id)
+
+    monkeypatch.setattr(service_module, "guard_answer_erasure", paused)
+    erasure = asyncio.create_task(_finish_cleanup(REQUESTER))
+    assert await asyncio.to_thread(reached.wait, 10)
+    calls = []
+    admission = asyncio.create_task(_sms_confirm(prepared["operation_id"], "own", _deleting(calls)))
+    await asyncio.sleep(0.5)
+    # The admission waits on the erasure, so it can never spend the proof and
+    # then lose its receipt to the requester's cascade.
+    assert not admission.done()
+    release.set()
+    await erasure
+    with pytest.raises((HTTPException, LockNotAvailableError)):
+        await admission
+    assert calls == [] and await _holder(db) == HOLDER
+    assert not await _value(db, "SELECT count(*) FROM account_phone_linked_deletions")
