@@ -255,7 +255,11 @@ async def list_followups(
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
         result = await store.list_conversations(
-            monitor, limit=FOLLOWUP_PAGE_SIZE, offset=payload.offset, view=payload.view
+            monitor,
+            limit=FOLLOWUP_PAGE_SIZE,
+            offset=payload.offset,
+            view=payload.view,
+            calendar_only=True,
         )
         await _require_current(store, monitor, grant)
         return result
@@ -275,7 +279,7 @@ async def detail_followup(
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
-        result = await store.detail(monitor, str(payload.conversation_id))
+        result = await store.detail(monitor, str(payload.conversation_id), calendar_only=True)
         await _require_current(store, monitor, grant)
         return result
     except Exception as exc:

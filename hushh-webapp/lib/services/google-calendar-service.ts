@@ -288,8 +288,13 @@ export class GoogleCalendarService {
     userId: string;
     proposalId: string;
     accountId?: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<CalendarExecution> {
-    if (await ownerContentIsPrivate()) {
+    const privateOwner = await ownerContentIsPrivate();
+    if (params.isEffectCurrent?.() === false) {
+      throw new DOMException("The Calendar account changed.", "AbortError");
+    }
+    if (privateOwner) {
       const value = await confirmPrivateGoogleAction(params.proposalId, 'calendar');
       if (!['create', 'reschedule', 'cancel'].includes(String(value.action)) || !value.event || typeof value.event !== 'object') throw new Error('Your agent could not confirm the Calendar outcome.');
       return value as CalendarExecution;
@@ -298,6 +303,7 @@ export class GoogleCalendarService {
       "/api/one/calendar/proposals/execute",
       {
         method: "POST",
+        isEffectCurrent: params.isEffectCurrent,
         headers: {
           Authorization: `Bearer ${params.vaultOwnerToken}`,
           "Content-Type": "application/json",

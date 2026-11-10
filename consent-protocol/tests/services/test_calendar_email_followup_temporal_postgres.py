@@ -1049,3 +1049,55 @@ async def test_read_projections_are_owner_and_account_scoped(followup_pg):
     assert [request["repeat_count"] for request in detail["requests"]] == [0]
     with pytest.raises(FollowupStateError, match="request_unavailable"):
         await store.resolve_request(other_monitor, other_request)
+
+
+@pytest.mark.asyncio
+async def test_calendar_projection_hides_legacy_history_and_raw_evidence(followup_pg):
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    current = _message("m-current-projection", "Please send the signed agenda by 20 November.")
+    legacy = _message("m-legacy-projection", "Pay this old invoice by 20 November.")
+    finished = dataclasses.replace(
+        _message("m-finished-projection", "Please reserve the meeting room by 21 November."),
+        thread_id=current.thread_id,
+    )
+    for message, title, due in (
+        (current, "Send the signed agenda", "2026-11-20"),
+        (legacy, "Pay the old invoice", "2026-11-20"),
+        (finished, "Reserve the meeting room", "2026-11-21"),
+    ):
+        await _put(
+            store,
+            account_id,
+            message,
+            _ask(message, message.body, title, due, original_due_wording=due),
+        )
+    monitor, old_request = await _request_for(store, account_id, "Pay the old invoice")
+    _, finished_request = await _request_for(store, account_id, "Reserve the meeting room")
+    await store.mutate_request(
+        monitor,
+        request_id=finished_request["id"],
+        expected_revision=finished_request["revision"],
+        idempotency_key=str(uuid.uuid4()),
+        action="dismiss",
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE calendar_email_followup_requests SET assessment_version=:version WHERE id=:id"
+            ),
+            {"version": ASSESSMENT_VERSION - 1, "id": old_request["id"]},
+        )
+    listing = await _listing(store, account_id, calendar_only=True)
+    assert _titles(listing) == ["Send the signed agenda"]
+    [conversation] = listing["conversations"]
+    assert conversation["subject"] == conversation["sender"] == ""
+    assert conversation["preview_requests"][0]["original_due_wording"] is None
+
+    detail = await store.detail(monitor, conversation["id"], now=TODAY, calendar_only=True)
+    assert detail["subject"] == detail["sender"] == ""
+    [request] = detail["requests"]
+    assert request["title"] == "Send the signed agenda"
+    assert request["due_date"] == "2026-11-20"
+    assert request["source_excerpt"] == ""
+    assert request["original_due_wording"] is None
