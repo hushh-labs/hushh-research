@@ -15,6 +15,13 @@ flowchart LR
 
 ## Current Dev application — 9 November 2026
 
+Fresh read-only observation at 10 November 06:12:58 UTC identified Dev source
+`3482e95b3a49`, ledger through 987, the original profile/vault still present and
+no admitted full-account deletion. Its original removal remains incomplete with
+70 dispatches, 70 acknowledgements and four worker exits. This supersedes the
+serving-source statement in the older full browser/revision receipt below; no
+new candidate deployment or browser acceptance is implied.
+
 **Account erasure in this work is Dev-only.** UAT domain/Auth preparation is
 separate and does not gate Dev account-deletion acceptance.
 
@@ -94,6 +101,14 @@ The broader quality diagnostic reports 77 passing cases and two existing direct-
 route checks failing. Both finding vectors match Dev `dbc4e4b3cb7b` exactly
 (five direct-access lines and thirteen import lines); the candidate adds neither.
 These are retained for the CI workstream, without changing its policy or those routes.
+The required local core attempt stopped in governance: `skill-lint` and the
+architecture baseline ratchet refused. The skill inputs are unchanged from Dev.
+A comparison using the canonical analyzer also finds 38 new or worsened size
+findings on the candidate’s changed surfaces; those are candidate-owned, not
+classified as inherited. Secret scanning passed with pinned Gitleaks 8.24.2.
+Protocol/web-core and later core stages were not reached. No gate was weakened;
+the candidate is not release-ready. Preserve this evidence for the coordinated
+CI follow-up before exact-candidate CI and deployment.
 Focused candidate evidence covers pending/completed handoffs, wrong digest and direct
 rewrites, project-admission fencing, original-journal continuation, native KMS shells,
 owner-template IAM/redirect safety, full 420/421 replay with Files preimages, rollback,

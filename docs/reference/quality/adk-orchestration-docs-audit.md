@@ -66,6 +66,18 @@ uses native deadlines and the child's release/session guard. The broad quality
 diagnostic has two inherited direct-DB route failures, with identical findings on
 Dev `dbc4e4b3cb7b`; it is not a green full-quality claim. CI policy and those
 unrelated routes remain owned by the existing CI workstream.
+The required local core attempt stopped at `skill-lint` and the architecture
+baseline ratchet; later core stages were not reached. Skill inputs are unchanged,
+but canonical analysis against Dev identifies 38 candidate-owned new or worsened
+size findings. These are recorded rather than attributed to inherited debt or
+removed by weakening policy. Secret scanning passed with pinned Gitleaks 8.24.2.
+The candidate is not release-ready.
+
+Fresh read-only Dev evidence at 10 November 06:12:58 UTC identifies source
+`3482e95b3a49`, schema through 987, the original profile/vault and no admitted
+full-account deletion. Its removal remains incomplete (70 dispatches, 70 matching
+acknowledgements, four exits). The older full browser/revision receipt below is
+historical; no new browser or deployed-candidate acceptance is claimed.
 
 These are separate acceptance gates. Local candidate checks do not change the
 live measurements below. Managed pilot, UAT and production remain outside this release.
