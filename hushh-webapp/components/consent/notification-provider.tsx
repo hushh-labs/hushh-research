@@ -97,7 +97,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notification-reconciliation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
-import { useEmergencySmsAlarm } from "@/components/consent/use-emergency-sms-alarm";
+import { useEmergencySmsAlarm, useEmergencySmsDeliveryRecovery } from "@/components/consent/use-emergency-sms-alarm";
 import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import {
@@ -785,7 +785,12 @@ export function ConsentNotificationProvider({
     [getVaultOwnerToken, isNativePlatform, applicationOwnerId],
   );
 
-  const { startEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(applicationOwnerId ?? undefined, isNativePlatform, fcmInitStatus);
+  const { startEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(
+    applicationOwnerId ?? undefined,
+    isNativePlatform,
+    isNativePlatform ? fcmInitStatus : null,
+    isNativePlatform ? deliveryDetail : null,
+  );
 
   const showOneLocationShareNotification = useCallback(
     (
@@ -2045,7 +2050,9 @@ export function ConsentNotificationProvider({
         });
         // Unsounded alerts keep the OS fallback eligible after a display
         // failure. The worker owns successful system-presentation deduplication.
-        if (!isNativePlatform && sounded === false) detail.accepted = false;
+        if (!isNativePlatform && (sounded === false || (smsCreation && !shouldPresent))) {
+          detail.accepted = false;
+        }
         return;
       }
 
@@ -2226,6 +2233,18 @@ export function ConsentNotificationProvider({
     showOneLocationWorkflowNotification,
     applicationOwnerId,
   ]);
+
+  useEmergencySmsDeliveryRecovery({
+    userId: isVaultUnlocked ? applicationOwnerId ?? undefined : undefined,
+    isNativePlatform,
+    getVaultOwnerToken,
+    present: (alert) => {
+      if (!isVaultUnlocked || !applicationOwnerId || alert.user_id !== applicationOwnerId ||
+          !alert.grant_id || smsPresentationRef.current.has(alert.grant_id) ||
+          hasSeenOneLocationNotification(applicationOwnerId, `sms-presented:${alert.grant_id}`)) return;
+      showOneLocationWorkflowNotification(alert, { present: true, source: "live" });
+    },
+  });
 
   const reconcileOneLocationNotifications = useCallback(async () => {
     if (!applicationOwnerId || !isVaultUnlocked || !fcmInitStatus) return;

@@ -147,6 +147,53 @@ def replay_migration(db):
         raw.close()
 
 
+def test_foreground_sms_read_requires_fresh_publication_and_live_recipient_authority(
+    push_db, monkeypatch
+):
+    from hushh_mcp.services import one_location_agent_service
+
+    db = push_db
+    monkeypatch.setattr(one_location_agent_service, "get_db", lambda: db)
+    service = one_location_agent_service.OneLocationAgentService()
+    grant = sql(
+        db,
+        """INSERT INTO one_location_share_grants(metadata, latest_envelope_id)
+           VALUES('{"share_kind":"sos"}', NULL) RETURNING id""",
+    )[0]["id"]
+    assert service.list_recent_received_sms_alerts(recipient_user_id="recipient") == []
+    sql(db, "INSERT INTO one_location_share_grants DEFAULT VALUES")
+    sql(
+        db,
+        "UPDATE one_location_share_grants SET latest_envelope_id=gen_random_uuid() WHERE id=:id",
+        {"id": grant},
+    )
+    alerts = service.list_recent_received_sms_alerts(recipient_user_id="recipient")
+    assert len(alerts) == 1
+    assert alerts[0] == {
+        "type": "location_share_created",
+        "grant_id": str(grant),
+        "owner_user_id": "sender",
+        "user_id": "recipient",
+        "share_kind": "sos",
+        "owner_display_label": "Alex",
+        "expires_at": alerts[0]["expires_at"],
+    }
+    assert service.list_recent_received_sms_alerts(recipient_user_id="next-owner") == []
+    sql(db, "UPDATE one_location_recipient_keys SET status='revoked'")
+    assert service.list_recent_received_sms_alerts(recipient_user_id="recipient") == []
+    sql(db, "UPDATE one_location_recipient_keys SET status='active'")
+    sql(db, "UPDATE system_push_outbox SET created_at=now()-interval '5 minutes'")
+    sql(
+        db,
+        "UPDATE one_location_share_grants SET latest_envelope_id=gen_random_uuid() WHERE id=:id",
+        {"id": grant},
+    )
+    assert service.list_recent_received_sms_alerts(recipient_user_id="recipient") == []
+    sql(db, "UPDATE system_push_outbox SET created_at=now()")
+    sql(db, "UPDATE one_location_share_grants SET status='revoked' WHERE id=:id", {"id": grant})
+    assert service.list_recent_received_sms_alerts(recipient_user_id="recipient") == []
+
+
 def test_migration_replay_preserves_intents_and_accepted_devices(push_db):
     db = push_db
     add_devices(db)

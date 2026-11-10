@@ -39,7 +39,7 @@ const RESET = "event: feed_reset\ndata: {}\n\n";
 const changed = (id: string) => `event: feed_changed\nid: e\ndata: {"request_id":"${id}"}\n\n`;
 const PAYOUT = `event: payout_changed\ndata: {"kinds":["wallet"],"request_ids":["${REQUEST}"]}\n\n`;
 const ALL_KINDS = [...PAYOUT_KINDS];
-const FULL = { general: true, consent: true };
+const FULL = { general: true, consent: true, reconcileSms: true };
 const targeted = (requestId: string) => ({ general: false, consent: true, requestId });
 const encoder = new TextEncoder();
 
@@ -241,6 +241,19 @@ describe("document feed stream manager", () => {
     expect(deps.dispatchFeed.mock.calls).toEqual([
       [{ general: true, consent: false, historyMutated: true }],
       [{ general: true, consent: false, historyMutated: true }],
+    ]);
+    manager.stop();
+  });
+
+  it("preserves an emergency reread hint through a burst of ordinary Feed changes", async () => {
+    const { manager, transport, deps } = setup();
+    manager.start();
+    await tick();
+    transport.last().push(HELLO + 'event: feed_changed\ndata: {}\n\nevent: feed_changed\ndata: {"emergency_sms":true}\n\n');
+    await tick(10_000);
+    expect(deps.dispatchFeed.mock.calls).toEqual([
+      [{ general: true, consent: false }],
+      [{ general: true, consent: false, reconcileSms: true }],
     ]);
     manager.stop();
   });

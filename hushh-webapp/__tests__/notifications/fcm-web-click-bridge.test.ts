@@ -350,6 +350,17 @@ describe("web system-notification click bridge", () => {
     );
   });
 
+  it("leaves the emergency popup to the OS if focus is lost during the worker handoff", async () => {
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    try {
+      const data = await bridgedPushData({ type: "location_share_created", share_kind: "sos" });
+      expect(data).toBeUndefined();
+      expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("action");
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
   it("does not refresh a hidden peer tab until its visibility hook catches up", async () => {
     await prepareFCMListeners();
     Object.defineProperty(document, "visibilityState", {

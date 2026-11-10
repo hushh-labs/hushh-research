@@ -13,6 +13,7 @@ import {
   type DocumentFeedStreamManager,
 } from "@/lib/feed/document-feed-stream-manager";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { dispatchSmsAlertsChanged } from "@/lib/one-location/sms-alarm-state";
 import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 import { setPayoutStreamState } from "@/lib/payouts/payout-live-store";
 import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
@@ -85,7 +86,8 @@ function openSharedStream(user: FeedUser, ownerId: string): SharedStream {
     getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
     isCurrent,
     isVisible: () => document.visibilityState !== "hidden",
-    dispatchFeed: ({ general, consent, requestId, historyMutated }) => {
+    dispatchFeed: ({ general, consent, requestId, historyMutated, reconcileSms }) => {
+      if (reconcileSms) dispatchSmsAlertsChanged(uid);
       // Server activity invalidates both Feed projections and fences older reads.
       if (historyMutated) CacheSyncService.onFeedHistoryMutated(uid);
       else CacheSyncService.onFeedChanged(uid);
