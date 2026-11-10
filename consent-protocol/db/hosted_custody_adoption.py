@@ -313,7 +313,7 @@ def hosted_custody_recovery_replay(entry: MigrationManifestEntryV2, sql: str) ->
         raise MigrationAuthorityError("Managed custody recovery guard shape changed")
     digest = QUALIFIED["guard_personal_agent_erasure_registry()"]
     hosted_files_digest = HOSTED_FILES_QUALIFIED["guard_personal_agent_erasure_registry()"]
-    from db import account_cloud_retirement_adoption as retirement
+    from db import private_agent_adoption_successors as retirement
 
     wrapped = f"""DO $retain_managed_custody$
 DECLARE actual text; expected text;

@@ -33,7 +33,7 @@ FOOTPRINT += f""" OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid
 def qualification_sql(*, resume_required: bool = False) -> str:
     """All bodies, authority, overloads, column, bound and guard must agree."""
     pins = dict(PINS)
-    from db import account_cloud_retirement_adoption as retirement
+    from db import private_agent_adoption_successors as retirement
 
     if resume_required:
         pins["legacy_cloud_removal_event_valid(jsonb,jsonb)"] = RESUME_EVENT_SHA256
@@ -157,7 +157,7 @@ def installation_sql(entry) -> str:
             or hashlib.sha256(entry.sql.encode()).hexdigest() != SOURCE_986_SHA256
         ):
             raise MigrationAuthorityError("Legacy cloud-removal resume checksum changed")
-        from db.account_cloud_retirement_adoption import FOOTPRINT as RETIREMENT
+        from db.private_agent_adoption_successors import FOOTPRINT as RETIREMENT
 
         body = entry.sql.split("BEGIN;", 1)[1].rsplit("COMMIT;", 1)[0]
         return f"""BEGIN;
