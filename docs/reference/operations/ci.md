@@ -26,10 +26,12 @@ Every step calling `assert-governed-actor.py` supplies its existing job token
 and requires `actions: write` for the bounded Main permission request. Forwarded
 clearance does not replace that current-operation recheck. Keep the App key and
 security-alert credential inside the protected Main job.
-The same requirement applies to authored nested callers: UAT capacity waiting,
-PLG frontend finalization and production incident dispatch. Cloud-read-only
-preflight jobs still need Actions dispatch permission for their Main authorization
-request; candidate build jobs remain unprivileged.
+The same requirement applies to mutation callers, including PLG frontend
+finalization and production incident dispatch. UAT's read-only capacity wait
+instead validates the security job's exact-source, current-attempt authorization
+directly and needs only Actions read access. It does not request another broker
+run. Deployment still refreshes live membership before mutation; candidate build
+jobs remain unprivileged.
 
 Explicit Dev/UAT release CI uses the verified serving comparison through the
 existing `uat_base_sha` input (`scope=all`). For Dev, supply the accepted Dev
@@ -593,9 +595,11 @@ isolation and elapsed time on the hosted candidate before claiming a speedup.
 
 ### Failure causes and next improvements
 
-- **PR preparation:** missing Live Memory impact declarations and an unauthorized
-  protected-policy edit produced valid early refusals. Use the current PR template
-  and existing governance preflight before publication; retain those checks.
+- **PR preparation:** protected-policy edits require the applicable team approval.
+  Live Memory PR prose is optional review context, not source-integrity authority;
+  `live-memory-source-gate.py` still validates registration, writer ownership,
+  journal parity and paid-retrieval isolation. Its `--review-pr-description` mode
+  is an explicit diagnostic. Historical prose-only refusals are not the current policy.
   [Missing declaration](https://github.com/hushh-labs/hushh-research/actions/runs/39169067111),
   [protected-policy refusal](https://github.com/hushh-labs/hushh-research/actions/runs/39149416659).
 - **Browser fixtures and behavior:** a source extractor could no longer locate the
