@@ -3,6 +3,8 @@
 .conversationMetrics, .page, .composer, .newChatDialog, .messageMenu,
 .attachmentMenu, .editDialog, .photoDialog {
   --messages-control-size: 44px;
+  --messages-action-gap: 6px;
+  --messages-action-gutter: calc(2 * var(--messages-control-size) + var(--messages-action-gap));
   --messages-receipt-icon-size: 14px;
   --messages-list-avatar-size: 44px;
   --messages-header-avatar-size: 40px;
@@ -710,6 +712,7 @@ article[data-message-role] .messageActionButton:focus-visible {
 }
 
 .replyPreview {
+  appearance: none;
   display: grid;
   gap: 0.125rem;
   width: fit-content;
@@ -719,9 +722,11 @@ article[data-message-role] .messageActionButton:focus-visible {
   margin: 0 0 0.25rem;
   padding-block: 0.125rem;
   padding-inline: 0.5rem 0;
+  border: 0;
   border-inline-start: 0.125rem solid color-mix(in oklab, currentColor 55%, transparent);
   border-radius: 0;
   background: transparent;
+  box-shadow: none;
   text-align: start;
   cursor: pointer;
   font-size: 0.75rem;
@@ -1517,7 +1522,7 @@ article[data-message-role="user"] .messageActions {
 /* Both controls overlay a constant side gutter, clear of text and metadata. */
 article[data-message-role] .messageActions {
   top: 0;
-  left: calc(100% + 6px);
+  left: calc(100% + var(--messages-action-gap));
   right: auto;
   width: max-content;
   justify-content: flex-end;
@@ -1526,7 +1531,7 @@ article[data-message-role] .messageActions {
   transform: none;
   pointer-events: none;
 }
-article[data-message-role="user"] .messageActions { left: auto; right: calc(100% + 6px); }
+article[data-message-role="user"] .messageActions { left: auto; right: calc(100% + var(--messages-action-gap)); }
 .messageActions > :first-child:not(:last-child) { position: static; left: auto; right: auto; }
 article[data-message-role] .messageActionButton { pointer-events: none; }
 article[data-actions-visible="true"] .messageActionButton,
@@ -1713,7 +1718,8 @@ article[data-message-role="peer"] .messageCluster {
   border-radius: var(--messages-row-radius);
   padding: var(--messages-row-inset-block) var(--messages-row-inset-inline);
 }
-.conversationRow[data-active="true"] { background: var(--chat-row-active); }
+.conversationRow[data-active="true"] { background: transparent; }
+.conversationRow[data-active="true"] .conversationName { color: var(--chat-accent); font-weight: 600; }
 .conversationItem { position: relative; min-width: 0; }
 .conversationItem .conversationRow { padding-right: calc(var(--messages-control-size) + var(--messages-row-gap)); }
 .conversationOptions {
@@ -1776,7 +1782,7 @@ article[data-message-role="peer"] .messageCluster {
 }
 .peerMessageBubble,
 article[data-message-role="peer"] .messageBubble {
-  background: var(--chat-incoming) !important;
+  background: transparent !important;
   color: var(--chat-text) !important;
   border: 0;
   box-shadow: none !important;
@@ -1784,6 +1790,7 @@ article[data-message-role="peer"] .messageBubble {
 }
 /* Only the text reserves 44px for actions; metadata ends at the 14px inset. */
 .messageBubbleMeta { font-size: var(--messages-meta-size); line-height: var(--messages-meta-line); min-height: var(--messages-meta-line); margin-right: 0; }
+.messageBubble:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 2px; }
 @media (max-width: 374px) {
   .messageBubble, article[data-message-role="user"] .messageBubble { padding-left: var(--messages-bubble-inset-inline) !important; }
 }
@@ -1953,7 +1960,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
   background: var(--chat-outgoing-pressed) !important;
 }
 .page[data-theme="light"] article[data-message-role="peer"] .messageBubble:not([data-photo-message="true"]):active {
-  background: var(--chat-line) !important;
+  background: transparent !important;
 }
 /* Pressed fills need stronger supporting-text contrast than the resting fills. */
 .page[data-theme="light"] .messageBubble:active :is(.messageBubbleMeta, .deletedMessage),
@@ -2039,6 +2046,14 @@ article[data-message-role="peer"] .messageActionError { grid-row: 3; }
   article[data-message-role="peer"] .messageBubbleWrap,
   article[data-message-role="peer"] .messageReactions,
   article[data-message-role="peer"] .messageActionError { max-width: var(--messages-peer-bubble-max-width); }
+}
+/* Reserve the actual two-target sidecar in narrow desktop panes as well as
+   wide ones. Touch/keyboard controls above a bubble keep its ordinary width. */
+@media (min-width: 768px) and (hover: hover) and (pointer: fine) {
+  .messageCluster { max-width: min(var(--messages-bubble-max-width), calc(100% - var(--messages-action-gutter))); }
+  article[data-message-role="peer"] .messageBubbleWrap,
+  article[data-message-role="peer"] .messageReactions,
+  article[data-message-role="peer"] .messageActionError { max-width: min(var(--messages-peer-bubble-max-width), calc(100% - var(--messages-action-gutter))); }
 }
 @media (max-width: 767px), (hover: none) {
   article[data-message-role="peer"] .messageBubbleWrap,
