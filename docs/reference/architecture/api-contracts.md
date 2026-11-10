@@ -2946,18 +2946,29 @@ connection ended.
 | Method | Path | Description |
 | --- | --- | --- |
 | POST | `/api/one/messages/route-token` | Mint with exactly one of `{conversationId, personRef}`, or restore with `{token}`. Firebase authenticated, participant checked on both mint and restore, and private/no-store. Returns `{token, kind, ref}`; business identifiers remain in memory and API bodies. |
-| GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
+| GET | `/api/one/messages/conversations?limit=&cursor=` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. Returns `{items, unreadCount, nextCursor}`; `limit` is 1–100 (default 100). `unreadCount` is global across pages; nullable `nextCursor` continues descending `(activity timestamp, conversation UUID)` order. Cursors are signed, purpose/owner-bound and bounded to 512 characters. Invalid or foreign cursors fail privately before database reads. |
 | DELETE | `/api/one/messages/conversations/{conversationId}` | Hide the entire chat for the authenticated participant using existing per-message deletion timestamps. Returns `{conversationId, deleted:true, scope:"me"}`; preserves the other participant's history and the connection. |
 | GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
 | POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?, clientMessageId?}`. Optional UUID makes a retry return the original message without another Feed/push event. A reused ID with different normalized text, reply target, conversation or sender returns the same generic 409. Every replay rechecks the active connection and block gate. Creates the canonical pair conversation on first message; empty text, self-send, unconnected pair, and a block fail closed. | A reply must reference a message in the same participant conversation.
 | GET | `/api/one/messages/conversations/{conversationId}/messages?before=&limit=` | Participant-only chronological history page; `before` is an opaque message id and `limit` is bounded. |
 | PATCH | `/api/one/messages/conversations/{conversationId}/messages/{messageId}` | Edit the caller's non-deleted sent message using `{content}`. The envelope is re-encrypted with its original message identity, and the response is the participant-safe updated projection. |
-| DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only and replaces content with the durable deleted-message marker for both participants. |
+| DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only, atomically clears durable reactions and replaces content with the deleted-message marker for both participants. Reactions and global deletion serialize on the message row; tombstone projections always have `reactions:[]`, including legacy rows. |
 | PUT | `/api/one/messages/conversations/{conversationId}/messages/{messageId}/reaction` | Set the caller's one durable emoji reaction using `{emoji}`. The response aggregates emoji counts without exposing participant identities. |
 | POST | `/api/one/messages/conversations/{conversationId}/delivered` | Recipient acknowledgment of received bodies using `{messageIds: UUID[]}` (1–100). Every id must be a visible received message in this participant conversation; own, hidden, deleted or foreign messages fail the entire batch without updates. Delivery is idempotent and monotonic; returns `deliveredCount` and `deliveredAt`. |
 | POST | `/api/one/messages/conversations/{conversationId}/read?throughMessageId=` | Mark the viewer's received unread messages through the supplied message's `(created_at,id)` boundary. The optional UUID must belong to this participant-scoped conversation; a foreign boundary returns 404 without updates. Returns `readCount`, `readAt` and, when bounded, `readThroughCreatedAt`. Omitting the boundary preserves the legacy whole-conversation behavior. Reading preserved history remains available after a connection ends. |
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
+
+The People inbox loads further pages on demand and searches the remaining pages
+while a People query is active. Page failures preserve loaded results and expose
+a retry; incomplete discovery never claims an empty result. Background head
+refreshes retain the loaded tail and its continuation. This is a live keyset list,
+not a frozen snapshot under arbitrary concurrent activity. Reactions reconcile
+only their own emoji while their optimistic lease remains current; completion
+never restores an older message body, receipt or tombstone. History revalidation
+remains fenced to the selected conversation and owner.
+Message actions acquire the participant conversation lock before the message
+lock, matching whole-chat deletion and the reaction trigger's parent read.
 
 Opening a person returns their participant-safe `peerDisplayName` and
 `peerPhotoUrl` alongside `peerPersonRef`, including an accepted, unblocked
