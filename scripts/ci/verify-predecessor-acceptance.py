@@ -15,6 +15,7 @@ import importlib.util
 import json
 import os
 import re
+import runpy
 import subprocess
 import time
 from tempfile import TemporaryDirectory
@@ -478,14 +479,23 @@ def main_source(args) -> dict:
     require(bool(token), "GitHub qualification credential is unavailable")
     env = dict(os.environ, GITHUB_REPOSITORY=REPOSITORY, GITHUB_TOKEN=token,
                REQUIRED_BRANCH="main", REQUIRE_CI_SUCCESS="1")
-    # Use the existing canonical producer/current-attempt verifier twice.
-    # Smoke and functional qualification are AND requirements, never any-of.
+    recovery = runpy.run_path(str(Path(__file__).with_name("production_recovery_ci.py")))
+
+    # The sealed recovery source has dedicated two-SHA functional evidence.
+    # Every source still requires separate Main smoke, including this recovery.
     proofs = {}
     with TemporaryDirectory(prefix="hussh-main-qualification-") as directory:
         for kind, sha, checks in (
             ("functional", args.sha, "CI Status Gate,Queue Validation,Branch Validation Gate"),
             ("smoke", approval, "Main Post-Merge Smoke Gate"),
         ):
+            if kind == "functional" and sha == recovery["ACTIVE_ANCHOR_PRIMARY_SOURCE"]:
+                require(approval == sha, "Recorded recovery requires smoke on its exact application")
+                try:
+                    proofs[kind] = recovery["qualification"](GitHub(), sha)
+                except recovery["Refused"] as error:
+                    raise Refused(str(error)) from None
+                continue
             output = Path(directory) / f"{kind}.json"
             result = subprocess.run(
                 ["bash", str(Path(__file__).with_name("require-deploy-sha-on-main.sh")), sha],

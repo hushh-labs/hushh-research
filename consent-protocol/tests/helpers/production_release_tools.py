@@ -20,6 +20,7 @@ DRIVE_PRODUCTION_TOOLS = (
 
 
 CI_PRODUCTION_TOOLS = (
+    "capture_managed_provider_receipt.py",
     "production_auth_domain_refresh.py",
     "uat-retention-maintenance.py",
     "retention_publication.py",
@@ -67,6 +68,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "config/ci-governance.json",
         "config/release-cadence.json",
         "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/production_recovery_ci.py",
         "scripts/ci/release_acceptance_provenance.py",
         "scripts/ci/uat_exact_ci.py",
         "scripts/ci/github_security_authority.py",

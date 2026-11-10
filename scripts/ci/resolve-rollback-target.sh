@@ -15,12 +15,54 @@
 # deployed/<environment>-latest tag exists yet).
 set -euo pipefail
 
+validate_revision() {
+  local lane="$1" revision="$2" pattern
+  case "$lane" in
+    backend)
+      pattern='^consent-protocol-[a-z0-9-]*[a-z0-9]$'
+      if [[ "$revision" == consent-protocol-drive-worker-* ]]; then
+        echo "Invalid backend rollback revision." >&2
+        return 1
+      fi
+      ;;
+    frontend) pattern='^hushh-webapp-[a-z0-9-]*[a-z0-9]$' ;;
+    drive-worker) pattern='^consent-protocol-drive-worker-[0-9]+-[a-z0-9]+$' ;;
+    *) echo "Invalid rollback lane." >&2; return 1 ;;
+  esac
+  if [[ ${#revision} -gt 63 || ! "$revision" =~ $pattern ]]; then
+    printf 'Invalid %s rollback revision.\n' "$lane" >&2
+    return 1
+  fi
+}
+
+if [[ "${1:-}" == --validate-inputs ]]; then
+  case "${2:-}:${ROLLBACK_SCOPE:-}" in
+    uat:drive-worker) validate_revision drive-worker "${WORKER_REVISION:-}" ;;
+    uat:backend|uat:frontend|uat:all|production:backend|production:frontend|production:all) ;;
+    *) echo "Invalid rollback environment or scope." >&2; exit 1 ;;
+  esac
+  [[ -z "${BACKEND_REVISION:-}" ]] || validate_revision backend "$BACKEND_REVISION"
+  [[ -z "${FRONTEND_REVISION:-}" ]] || validate_revision frontend "$FRONTEND_REVISION"
+  [[ -z "${WORKER_REVISION:-}" || "$ROLLBACK_SCOPE" == drive-worker ]] || validate_revision drive-worker "$WORKER_REVISION"
+  if [[ ! "${ROLLBACK_REASON:-}" =~ [^[:space:]] ]]; then
+    echo "A rollback reason is required." >&2
+    exit 1
+  fi
+  exit 0
+fi
+
 ENVIRONMENT="${1:?usage: resolve-rollback-target.sh <environment> <backend|frontend> [explicit-revision]}"
 LANE="${2:?usage: resolve-rollback-target.sh <environment> <backend|frontend> [explicit-revision]}"
 EXPLICIT="${3:-}"
 
+case "$ENVIRONMENT:$LANE" in
+  uat:backend|uat:frontend|production:backend|production:frontend) ;;
+  *) echo "Invalid rollback environment or service lane." >&2; exit 1 ;;
+esac
+
 if [ -n "$EXPLICIT" ]; then
-  echo "$EXPLICIT"
+  validate_revision "$LANE" "$EXPLICIT"
+  printf '%s\n' "$EXPLICIT"
   exit 0
 fi
 
@@ -43,6 +85,8 @@ if [ -z "$REVISION" ]; then
   echo "[resolve-rollback-target] refs/tags/${TAG} exists but has no ${LANE}_revision line — pass the revision explicitly." >&2
   exit 1
 fi
+
+validate_revision "$LANE" "$REVISION"
 
 # A tag is a record of what WAS live, not a promise it still exists. Cloud Run
 # revisions are pruned (scripts/ci/cloudrun-retention.sh), so a tag that has
@@ -85,4 +129,4 @@ if [ -n "$VERIFY_SERVICE" ] && [ -n "$VERIFY_REGION" ] && command -v gcloud >/de
   fi
 fi
 
-echo "$REVISION"
+printf '%s\n' "$REVISION"
