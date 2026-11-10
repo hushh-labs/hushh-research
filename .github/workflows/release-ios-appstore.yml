@@ -2,7 +2,7 @@ name: Release iOS to App Store
 
 # Public App Store release for Hushh One iOS. Cuts a build from an exact green
 # `main` SHA and builds the Capacitor app against the backend chosen by
-# `backend_target` (default `uat`; `production` for a store binary that talks
+# `backend_target` (default `production`; a store binary talks
 # to one.hushh.ai). Production Firebase inputs come from hushh-pda, UAT inputs
 # from hushh-pda-uat. Signs with Apple-managed signing via an App Store
 # Connect API key, verifies production APNs in a distribution-exported IPA,
@@ -17,8 +17,8 @@ name: Release iOS to App Store
 # attaching the processed build to a MANUAL-release App Store version.
 #
 # Backend note: `backend_target` picks the backend the binary talks to. The
-# default `uat` keeps the historical behaviour (latest frontend + latest backend,
-# matching UAT); public submission and automatic release require production.
+# default is production; explicit `uat` remains for legacy diagnostic builds.
+# Public submission and automatic release require production.
 # `production` reads routing, web Firebase identity, Maps and native plist inputs
 # through production workload identity. Apple signing custody stays unchanged.
 # PROD and UAT Firebase identities are validated independently, not made equal.
@@ -69,9 +69,9 @@ on:
         required: false
         type: string
       backend_target:
-        description: "Backend the binary talks to. uat = historical default; production = one.hussh.ai and the production API."
+        description: "Production API by default. Explicit UAT is for legacy diagnostic builds, never public submission."
         required: false
-        default: uat
+        default: production
         type: choice
         options:
           - uat
@@ -95,7 +95,7 @@ env:
   GCP_REGION: us-central1
   # Only read when backend_target=production: the routing half of the contract.
   PROD_GCP_PROJECT_ID: hushh-pda
-  BACKEND_TARGET: ${{ github.event.inputs.backend_target || 'uat' }}
+  BACKEND_TARGET: ${{ github.event.inputs.backend_target || 'production' }}
   IOS_BUNDLE_ID: com.hushh.app
   XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
   XCODE_SCHEME: App

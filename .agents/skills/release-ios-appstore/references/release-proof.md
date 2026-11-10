@@ -13,11 +13,10 @@ Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
   attach the processed build -> (opt-in) submit for public review. Submission is not publication:
   default `MANUAL` release still needs publication after approval. The additional authorized
   `--release-after-approval` flag chooses automatic publication only after Apple approval.
-- **Backend is selected per build.** `backend_target=uat` is the historical default;
+- **Backend is selected per build.** `backend_target=production` is the default; explicit UAT is a legacy diagnostic option.
   `backend_target=production` binds the binary to `one.hushh.ai` and the production API.
   The workflow reads production routing through production workload identity and refuses a
-  production/UAT Firebase identity mismatch. Signing and the shared native Firebase config
-  still come from `hushh-pda-uat` Secret Manager. Both targets archive with **production APNs**
+  mismatch against the selected target's Firebase identity. Apple signing retains `hushh-pda-uat` Secret Manager custody; a production-backed binary reads its native Firebase configuration from production. Both targets archive with **production APNs**
   entitlements. Record the selected backend and its serving SHA; never infer one from the
   workflow's name or the Firebase secret project.
 - **Bundle** `com.hushh.app`; App Store Connect app id `6757718917`; team `WVDK9JW99C`;
@@ -103,8 +102,8 @@ These operator checks complement existing workflow gates; prose is not an automa
 
 ## Identity / governance
 
-The actor must be in `config/ci-governance.json` -> `production.manual_dispatch_users`. If not,
-`scripts/ci/assert-governed-actor.py --surface production` rejects the dispatch. Confirm before
+The actor and rerunner must have current `deploy-production` team membership.
+The trusted `scripts/ci/assert-governed-actor.py --surface production` admission refuses otherwise. Confirm before
 Gate 1. Do not weaken branch protection and do not accept Apple Program License Agreements or enter
 the Apple ID password — those are the user's to perform.
 
