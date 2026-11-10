@@ -363,7 +363,8 @@ class DeploymentSecurityTest(unittest.TestCase):
                 if name == "validate-production-recovery-source.yml":
                     validation = yaml.safe_load(source)
                     self.assertEqual(
-                        set(jobs), {"source", "deployment-security", "functional", "gate"}
+                        set(jobs),
+                        {"source", "deployment-security", "functional", "browser", "gate"},
                     )
                     self.assertTrue(
                         all(level == "read" for level in validation["permissions"].values())
@@ -376,8 +377,17 @@ class DeploymentSecurityTest(unittest.TestCase):
                     self.assertEqual(jobs["functional"]["uses"], "./.github/workflows/ci.yml")
                     self.assertEqual(jobs["functional"]["with"]["scope"], "all")
                     self.assertNotIn("secrets", jobs["functional"])
+                    self.assertEqual(jobs["browser"]["needs"], ["source", "deployment-security"])
+                    self.assertNotIn("secrets", jobs["browser"])
+                    self.assertIn("WEB_TARGETED_PART: browser", source)
+                    self.assertIn("scripts/ci/document-delivery-check.sh --ci-macos-webkit", source)
                     self.assertEqual(
-                        jobs["gate"]["needs"], ["source", "deployment-security", "functional"]
+                        jobs["gate"]["needs"],
+                        ["source", "deployment-security", "functional", "browser"],
+                    )
+                    self.assertIn(
+                        'test "$SOURCE_RESULT:$CI_RESULT:$BROWSER_RESULT:$SECURITY_RESULT" = success:success:success:success',
+                        source,
                     )
                     self.assertIn('test "$GITHUB_RUN_ATTEMPT:$SECURITY_ATTEMPT" = 1:1', source)
                     self.assertIn('test "$SECURITY_SHA" = "$SOURCE_SHA"', source)

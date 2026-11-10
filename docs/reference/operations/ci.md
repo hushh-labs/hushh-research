@@ -210,7 +210,9 @@ operator can dispatch **Validate Production Recovery Source** on `main` with
 the attempt fails. Each functional job checks out the recorded application
 without a source overlay. The full release scope uses that checkout's test
 inventory, the current Main CI job graph, DCO and Gitleaks policy, and the
-protected Deployment Security job. The run records the application SHA, its
+protected Deployment Security job. Recovery also requires the snapshot’s selected
+Chromium and WebKit contracts and its native WebKit document check. The run
+records the application SHA, its
 tree and comparison SHA, and the separate Main tooling SHA.
 
 Production's existing Main-source verifier requires the newest successful

@@ -61,9 +61,64 @@ jobs:
       production_recovery_tree: ${{ needs.source.outputs.tree }}
       uat_base_sha: ${{ needs.source.outputs.base }}
 
+  browser:
+    # The pinned snapshot had required selected browser contracts and a
+    # native WebKit/SQL document check. Keep them specific to this recovery.
+    name: Exact recovery browser contracts
+    needs: [source, deployment-security]
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout exact production recovery application
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+          SOURCE_BASE: ${{ needs.source.outputs.base }}
+          SOURCE_TREE: ${{ needs.source.outputs.tree }}
+        run: python3 scripts/ci/production_recovery_ci.py "$SOURCE_SHA" "$SOURCE_BASE" "$SOURCE_TREE"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+      - name: Install locked web dependencies and browsers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -c 'source scripts/ci/web-common.sh && web_ci_install'
+          cd hushh-webapp
+          npm exec -- playwright install chromium webkit
+      - name: Run selected browser contracts
+        env:
+          WEB_TARGETED_PART: browser
+          WEB_TARGETED_FULL_SUITE_OWNED: "1"
+          WEB_CI_DEPS_INSTALLED: "1"
+          WEB_TARGETED_BASE_SHA: ${{ needs.source.outputs.base }}
+          WEB_TARGETED_HEAD_SHA: ${{ inputs.sha }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ needs.source.outputs.base }}
+        run: bash scripts/ci/orchestrate.sh web-targeted
+      - name: Prepare isolated PostgreSQL binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew list --versions postgresql@16 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@16
+          pg_bin="$(brew --prefix postgresql@16)/bin"
+          test -x "$pg_bin/initdb"
+          printf '%s\n' "$pg_bin" >> "$GITHUB_PATH"
+          printf 'HUSHH_TEST_PG_BIN=%s\n' "$pg_bin" >> "$GITHUB_ENV"
+      - name: Verify native WebKit protected documents through real SQL
+        run: bash scripts/ci/document-delivery-check.sh --ci-macos-webkit
+
   gate:
     name: Production Recovery Source Gate
-    needs: [source, deployment-security, functional]
+    needs: [source, deployment-security, functional, browser]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -76,12 +131,13 @@ jobs:
           SOURCE_BASE: ${{ needs.source.outputs.base }}
           SOURCE_RESULT: ${{ needs.source.result }}
           CI_RESULT: ${{ needs.functional.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
           SECURITY_RESULT: ${{ needs.deployment-security.result }}
           SECURITY_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
         run: |
           set -euo pipefail
-          test "$SOURCE_RESULT:$CI_RESULT:$SECURITY_RESULT" = success:success:success
+          test "$SOURCE_RESULT:$CI_RESULT:$BROWSER_RESULT:$SECURITY_RESULT" = success:success:success:success
           test "$GITHUB_RUN_ATTEMPT:$SECURITY_ATTEMPT" = 1:1
           test "$SECURITY_SHA" = "$SOURCE_SHA"
           [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ && "$SOURCE_TREE" =~ ^[a-f0-9]{40}$ && "$SOURCE_BASE" =~ ^[a-f0-9]{40}$ ]]
