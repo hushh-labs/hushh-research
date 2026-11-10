@@ -67,6 +67,41 @@ def profile_hash(value: dict) -> str:
     ).hexdigest()
 
 
+def load_drive_text_policy(
+    path: Path = PROFILE_PATH, *, environment: str | None = None
+) -> dict | None:
+    """Drive's scoped processor; historical images retain their original binding."""
+    value = json.loads(path.read_text()).get("drive_text_uat")
+    if value is None:
+        return None
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {
+            "version",
+            "provider",
+            "model",
+            "thinking_level",
+            "max_output_tokens",
+            "allow_cross_provider_fallback",
+        }
+        or not re.fullmatch(r"[a-z0-9-]{1,64}", str(value["version"]))
+        or value["provider"] != "vertex"
+        or not re.fullmatch(r"gemini-[a-z0-9.-]{1,100}", str(value["model"]))
+        or value["thinking_level"] != "high"
+        or type(value["max_output_tokens"]) is not int
+        or not 8192 <= value["max_output_tokens"] <= 32768
+        or value["allow_cross_provider_fallback"] is not False
+    ):
+        raise ValueError("Invalid Drive text processing policy")
+    env = (
+        (environment or os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "local")
+        .strip()
+        .lower()
+    )
+    return dict(value) if env == "uat" else None
+
+
 def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     """Versioned administrator rollout; never an owner's acceptance receipt."""
     value = json.loads(path.read_text())["private_drive_text_uat"]
@@ -139,6 +174,7 @@ def validate_runtime_config(path: Path = PROFILE_PATH) -> dict:
         load_profile(environment, path)
         providers[environment] = configured_managed_provider(environment, path)
     load_private_drive_text_policy(path)
+    load_drive_text_policy(path, environment="uat")
     load_pwm_policy(path, environment="production", provider="vertex")
     load_pwm_policy(path, environment="uat", provider="azure_openai")
     _validate_standby_azure_accounts(document)

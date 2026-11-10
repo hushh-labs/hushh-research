@@ -22,6 +22,68 @@ from tests.services.test_azure_adk import message, model, request, response
 from tests.services.test_one_azure_chat_contract import advance_model_clock as advance_model_clock
 
 
+@pytest.mark.asyncio
+async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
+    from pathlib import Path
+
+    from hushh_mcp.hushh_adk import single_turn
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+    from hushh_mcp.runtime_providers import managed_azure, managed_azure_text
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    forbidden = Mock(side_effect=AssertionError("Drive must not construct or call Azure"))
+    monkeypatch.setattr(managed_azure, "_credential_supplier", forbidden)
+    monkeypatch.setattr(managed_azure_text, "build_azure_text_model", forbidden)
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", forbidden)
+    sent = []
+    failure = False
+
+    async def vertex(req, stream=False):
+        sent.append(req.model)
+        if failure:
+            raise TimeoutError("synthetic Vertex outage")
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="ready")]))
+
+    native = SimpleNamespace(model="gemini-4-carbon", generate_content_async=vertex)
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
+    current = AsyncMock()
+    wrapped = managed.build_managed_text_model(
+        scope="drive_document_requests", require_current=current
+    )
+    assert wrapped.model == "gemini-4-carbon" and wrapped.primary_provider == "vertex"
+    assert wrapped.allow_fallback is False
+    assert len([r async for r in wrapped.generate_content_async(request())]) == 1
+    failure = True
+    with pytest.raises(TimeoutError):
+        _ = [r async for r in wrapped.generate_content_async(request())]
+    assert sent == ["gemini-4-carbon", "gemini-4-carbon"]
+    current.side_effect = PermissionError("revoked")
+    with pytest.raises(managed.ManagedTextAuthorityError):
+        _ = [r async for r in wrapped.generate_content_async(request())]
+    assert len(sent) == 2
+
+    # Exercise every authored Documents gene through the shared single-turn builder.
+    from google.adk.models import Gemini
+
+    native_adk = Gemini(model="gemini-4-carbon")
+    monkeypatch.setattr(
+        ManagedGeminiRuntimeBinding, "build_regional_adk_model", lambda *a, **k: native_adk
+    )
+    manifest = ManifestLoader.load(
+        str(Path(__file__).parents[2] / "hushh_mcp/agents/documents/agent.yaml")
+    )
+    for gene in manifest.subagents:
+        agent = single_turn.build_single_turn_agent(gene, output_schema={"type": "object"})
+        assert agent.model is native_adk
+        assert (
+            agent.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.HIGH
+        )
+    forbidden.assert_not_called()
+
+
 def _completed_azure_history():
     return [
         types.Content(role="user", parts=[types.Part(text="Previous Azure request")]),
@@ -232,6 +294,12 @@ async def test_vertex_chat_rechecks_each_delta_and_closes_only_its_owned_model(
 async def test_managed_drive_fallback_targets_gemini_without_replaying_tools(
     monkeypatch, status, scope
 ):
+    # Historical policies retain their bounded fallback contract.
+    monkeypatch.setattr(
+        __import__("hushh_mcp.runtime_providers.managed_text", fromlist=["load_drive_text_policy"]),
+        "load_drive_text_policy",
+        lambda: None,
+    )
     from unittest.mock import AsyncMock
 
     from google.adk.models.llm_response import LlmResponse
@@ -264,7 +332,7 @@ async def test_managed_drive_fallback_targets_gemini_without_replaying_tools(
         token_supplier=lambda: "synthetic",
         require_current=guard,
         fallback_model=SimpleNamespace(model="gemini-fallback", generate_content_async=gemini),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope=scope)["generation"],
         processing_scope=scope,
     )
     req = request(
@@ -335,7 +403,7 @@ async def test_managed_uat_denial_auth_configuration_never_falls_back(monkeypatc
         token_supplier=lambda: "synthetic",
         require_current=AsyncMock(),
         fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope=scope)["generation"],
         processing_scope=scope,
     )
     with pytest.raises(type(error)):
@@ -361,7 +429,7 @@ async def test_managed_primary_success_partial_output_and_authority_fence(monkey
         token_supplier=lambda: "synthetic",
         require_current=guard,
         fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope=scope)["generation"],
         processing_scope=scope,
     )
 

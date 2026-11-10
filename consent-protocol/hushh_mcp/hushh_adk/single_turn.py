@@ -72,23 +72,40 @@ def build_single_turn_agent(
         raise ValueError("single-turn output_schema is required")
     config = _manifest_config(manifest_or_subagent)
     configured_model = resolve_fleet_model_name(config.name)
+    agent_id = str(getattr(manifest_or_subagent, "id", "single_turn") or "single_turn")
+    # Authored Documents identities own this scope; model output never selects it.
+    scope = (
+        {"processing_scope": "drive_document_requests"}
+        if agent_id == "agent_documents" or agent_id.startswith("agent_documents_")
+        else {}
+    )
+    from hushh_mcp.managed_ai_config import load_drive_text_policy
+
+    drive_policy = load_drive_text_policy() if scope else None
     # Managed policy defaults to Azure in UAT; Vertex retains regional failover.
     # Azure failures do not silently switch this turn to Vertex.
     resolved = (
-        model if model is not None else build_managed_regional_gemini_adk_model(configured_model)
+        model
+        if model is not None
+        else build_managed_regional_gemini_adk_model(configured_model, **scope)
     )
     model_name = resolved if isinstance(resolved, str) else str(getattr(resolved, "model", ""))
     if not model_name:
         model_name = config.name
-    agent_id = str(getattr(manifest_or_subagent, "id", "single_turn") or "single_turn")
     # ADK 2.9 requires a chat/task root for Runner execution.  The manifest's
     # single_turn declaration remains the product contract; this supported
     # runtime mode still creates a fresh session for every invocation.
     generation_options: dict[str, Any] = {
         "response_mime_type": "application/json",
         "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
-        "max_output_tokens": manifest_or_subagent.performance.max_output_tokens,
-        "thinking_config": thinking_config_for(model_name, config.thinking_level, types),
+        "max_output_tokens": drive_policy["max_output_tokens"]
+        if drive_policy is not None
+        else manifest_or_subagent.performance.max_output_tokens,
+        "thinking_config": thinking_config_for(
+            model_name,
+            drive_policy["thinking_level"] if drive_policy is not None else config.thinking_level,
+            types,
+        ),
     }
     request_labels = _SINGLE_TURN_REQUEST_LABELS.get()
     if request_labels:

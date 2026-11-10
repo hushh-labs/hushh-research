@@ -190,13 +190,38 @@ async def test_frozen_packet_pages_exact_metadata_and_rebinds_to_buyer_request(c
     )
 
 
-@pytest.mark.parametrize("tamper", [None, "queries", "binding", "origin"])
-def test_catalog_checkpoint_cannot_substitute_request_or_provider_plan(tamper):
+@pytest.mark.parametrize("tamper", [None, "queries", "binding", "origin", "missing_request"])
+@pytest.mark.parametrize("historical_processor", [False, True])
+def test_catalog_checkpoint_cannot_substitute_request_or_provider_plan(
+    tamper, historical_processor, monkeypatch
+):
+    from hushh_mcp.services.drive_owner_search_store import _semantic_binding_current
     from hushh_mcp.services.drive_period_packet_page import validate_buyer_checkpoint
+    from hushh_mcp.services.drive_request_search_contract import validated_request_semantics
+
+    historical = (
+        {
+            "provider": "azure_openai",
+            "deployment": "historical-synthetic",
+            "config_fingerprint": "historical-fingerprint",
+            "approval_generation": str(uuid4()),
+            "authorization_basis": "uat_policy",
+        }
+        if historical_processor
+        else None
+    )
+
+    def changed_processor(_binding):
+        raise ValueError("Current processor changed")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_package_assessment.validate_semantic_model_binding",
+        changed_processor,
+    )
 
     plan = semantic()
     queries = compile_discovery_queries(plan)
-    binding = {"packetId": "packet", "version": 1}
+    binding = {"packetId": str(uuid4()), "version": 1}
     purpose = {
         "purpose": "Synthetic packet",
         "periodStart": "2026-01-01",
@@ -204,7 +229,7 @@ def test_catalog_checkpoint_cannot_substitute_request_or_provider_plan(tamper):
     }
     manifest = {
         "kind": "provider_discovery",
-        "search": {"plan": plan, "queries": queries, "model_binding": None},
+        "search": {"plan": plan, "queries": queries, "model_binding": historical},
         "periodStart": "2026-01-01",
         "periodEnd": "2026-02-28",
         "timezone": "UTC",
@@ -213,7 +238,7 @@ def test_catalog_checkpoint_cannot_substitute_request_or_provider_plan(tamper):
     checkpoint = {
         "semantic_plan": plan,
         "semantic_plan_digest": semantic_plan_digest(plan),
-        "semantic_model_binding": None,
+        "semantic_model_binding": historical,
         "queries": queries,
         "requested_period": {"start": "2026-01-01", "end": "2026-02-28", "timezone": "UTC"},
         "semantic_purpose": purpose,
@@ -222,6 +247,8 @@ def test_catalog_checkpoint_cannot_substitute_request_or_provider_plan(tamper):
         "authority_mode": "agent_package",
         "evidence_route": "packet",
         "discovery_delivery_policy": DISCOVERY_DELIVERY_POLICY,
+        "request_origin_id": str(uuid4()),
+        "request_revision": 1,
     }
     changed = deepcopy(checkpoint)
     if tamper == "queries":
@@ -230,11 +257,35 @@ def test_catalog_checkpoint_cannot_substitute_request_or_provider_plan(tamper):
         changed["semantic_model_binding"] = {"provider": "other"}
     elif tamper == "origin":
         changed["reusable_packet"] = {"packetId": "other", "version": 1}
+    elif tamper == "missing_request":
+        changed.pop("request_origin_id")
+        with pytest.raises(DriveReadError, match="search_superseded"):
+            _semantic_binding_current(changed)
+        return
     if tamper:
         with pytest.raises(DriveReadError, match="search_superseded"):
             validate_buyer_checkpoint(manifest, private, changed, checkpoint)
     else:
         validate_buyer_checkpoint(manifest, private, changed, checkpoint)
+        _semantic_binding_current(checkpoint)
+        options = dict(
+            discovery_delivery_enabled=True,
+            semantic_model_binding=historical,
+            semantic_search=True,
+            v1_live_request=False,
+            indexed=True,
+            provider_packet=True,
+            parsed_brain=None,
+        )
+        _, selected, policy = validated_request_semantics({"semantic_query": plan}, **options)
+        assert selected == historical and policy.startswith("frozen-provider-packet-v1:")
+        if historical_processor:
+            # The same old binding cannot authorize any new model execution.
+            with pytest.raises(ValueError, match="Current processor changed"):
+                validated_request_semantics(
+                    {"semantic_query": plan},
+                    **{**options, "provider_packet": False, "indexed": False},
+                )
 
 
 async def test_worker_threads_exact_head_lease_to_pre_send_guard(monkeypatch):

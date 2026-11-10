@@ -94,7 +94,7 @@ def new_semantic_model_binding(*, policy_version: int) -> dict | None:
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
 
     binding: dict | None
-    if managed_text_policy() is not None:
+    if managed_text_policy(scope="drive_document_requests") is not None:
         binding = managed_text_binding()
     else:
         provider = os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()

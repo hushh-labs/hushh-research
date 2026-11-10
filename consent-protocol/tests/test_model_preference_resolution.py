@@ -170,9 +170,54 @@ def _approved_row():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "provider,expected", [("azure_openai", "azure_openai"), ("vertex", "gemini")]
-)
+async def test_drive_vertex_authority_is_independent_of_chat_and_disclosed_by_scope(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.runtime_providers import managed_text
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    monkeypatch.setattr(approval, "_read", AsyncMock(return_value=None))
+    chat = await approval.require_private_azure_text_approval("owner", scope="one_text_chat")
+    drive = await approval.require_private_azure_text_approval(
+        "owner", scope=approval.DRIVE_DOCUMENT_REQUESTS_SCOPE
+    )
+    chat_current = approval.private_azure_text_require_current(chat)
+    drive_current = approval.private_azure_text_require_current(drive)
+    assert chat.generation != drive.generation
+    await chat_current()
+    await drive_current()
+    original = managed_text.load_drive_text_policy()
+    with monkeypatch.context() as rotated:
+        rotated.setattr(
+            managed_text, "load_drive_text_policy", lambda: {**original, "version": "rotated-drive"}
+        )
+        with pytest.raises(approval.PrivateTextApprovalError):
+            await drive_current()
+        await chat_current()
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    with pytest.raises(approval.PrivateTextApprovalError):
+        await chat_current()
+    await drive_current()
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    status = await approval.get_private_text_approval(
+        user_id="owner",
+        include_policy=True,
+        include_processing_provider=True,
+        include_scope_providers=True,
+    )
+    assert status["processing_policy"]["provider"] is None
+    assert status["processing_policy"]["scope_providers"] == {
+        "one_text_chat": "azure_openai",
+        "drive_document_requests": "gemini",
+    }
+    assert status["enabled"] is False and status["accepted_at"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider,expected", [("azure_openai", None), ("vertex", "gemini")])
 async def test_uat_drive_default_has_policy_authority_not_fake_owner_acceptance(
     monkeypatch, provider, expected
 ):
@@ -233,12 +278,12 @@ async def test_uat_drive_policy_rechecks_revocation_generation_and_environment(m
     row = None
     from hushh_mcp import managed_ai_config
 
-    original = managed_ai_config.load_private_drive_text_policy()
+    original = managed_ai_config.load_drive_text_policy()
     monkeypatch.setattr(
         __import__(
             "hushh_mcp.runtime_providers.managed_text", fromlist=["load_private_drive_text_policy"]
         ),
-        "load_private_drive_text_policy",
+        "load_drive_text_policy",
         lambda: {**original, "version": "rotated-policy-v2"},
     )
     with pytest.raises(approval.PrivateTextApprovalError) as changed:
@@ -248,7 +293,7 @@ async def test_uat_drive_policy_rechecks_revocation_generation_and_environment(m
         __import__(
             "hushh_mcp.runtime_providers.managed_text", fromlist=["load_private_drive_text_policy"]
         ),
-        "load_private_drive_text_policy",
+        "load_drive_text_policy",
         lambda: original,
     )
     monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")

@@ -364,8 +364,9 @@ class DriveRequestBulkService:
             raise DriveSharingError("invalid_argument")
         await self._owner()
         migrate = getattr(self.search.store, "migrate_request_processor", None)
-        if callable(migrate) and authority_mode == "trusted_auto":
-            if await migrate(user_id=user_id, request_id=request_id):
+        if callable(migrate) and authority_mode in {"owner", "trusted_auto"}:
+            options = {"authority_mode": "owner"} if authority_mode == "owner" else {}
+            if await migrate(user_id=user_id, request_id=request_id, **options):
                 await self.wake("suggestions")
         context = await self._context(user_id, request_id)
         if context.get("agentPackageRequired"):

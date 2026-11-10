@@ -663,7 +663,7 @@ async def test_managed_invocation_guards_are_owner_local_and_policy_changes_bloc
     original_policy = managed.managed_text_policy()
     token.side_effect = lambda: (
         monkeypatch.setattr(
-            managed, "managed_text_policy", lambda: {**original_policy, "generation": "changed"}
+            managed, "managed_text_policy", lambda **_: {**original_policy, "generation": "changed"}
         )
         or "synthetic"
     )
@@ -679,6 +679,9 @@ async def test_managed_timeout_is_bounded_and_closed_before_single_fallback(monk
 
     from hushh_mcp.runtime_providers import managed_text as managed
 
+    monkeypatch.setattr(
+        managed, "load_drive_text_policy", lambda: None
+    )  # Historical fallback contract.
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     closed, calls = [], []
@@ -761,6 +764,9 @@ async def test_vertex_primary_uses_real_sdk_status_and_reports_only_actual_compl
 
     from hushh_mcp.runtime_providers import managed_text as managed
 
+    monkeypatch.setattr(
+        managed, "load_drive_text_policy", lambda: None
+    )  # Historical fallback contract.
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     calls, completed = [], []
