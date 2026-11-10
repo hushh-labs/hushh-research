@@ -75,11 +75,14 @@ export function DetailedPersonaForm({
 
   return (
     <form
-      className={styles.form}
+      className={`${styles.form} ${styles.assessmentForm}`}
       onSubmit={(event) => void proceed(event)}
       aria-busy={busy}
     >
-      <p className="ui-text-helper-text">Question {step + 1} of {total}</p>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 ui-text-helper-text">
+        <p>Question {step + 1} of {total}</p>
+        <p>{step < 8 ? "Risk comfort" : "Planning needs"}</p>
+      </div>
       <div className={styles.detailedQuestion}>
         <fieldset key={step} disabled={busy}>
           <legend tabIndex={-1} ref={focusQuestion}>
@@ -119,7 +122,7 @@ export function DetailedPersonaForm({
           const answer = answers[index];
           const tone = answer === undefined ? "future" : answer === null ? "unsure"
             : index >= 8 ? "planning" : (["careful", "balanced", "growth"] as const)[answer];
-          return <span key={prompt} data-tone={tone} aria-hidden="true" />;
+          return <span key={prompt} data-tone={tone} data-current={index === step ? "true" : undefined} aria-hidden="true" />;
         })}
       </div>
       {error ? (
@@ -131,6 +134,7 @@ export function DetailedPersonaForm({
         {step > 0 ? (
           <ShellActionSurface
             variant="pill"
+            className="ui-text-compact-button-label"
             disabled={busy}
             onClick={() => setStep(step - 1)}
           >
@@ -140,7 +144,7 @@ export function DetailedPersonaForm({
         <ShellActionSurface
           type="submit"
           variant="pill"
-          className={styles.primary}
+          className={`${styles.primary} ui-text-compact-button-label`}
           rippleEffect="fill"
           disabled={busy || answers[step] === undefined}
         >

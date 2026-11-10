@@ -47,8 +47,9 @@ export function AdvisorCalendarConnection({ calendar, advisor }: {
   const { refresh } = calendar;
   return (
     <div className={styles.calendarRow}>
-      <span className="ui-text-section-label">Google Calendar</span>
-      {calendarLabel ? <span className={styles.calendarBadge} title={calendarLabel}><span aria-hidden />{calendarLabel}</span> : null}
+      {calendarLabel ? (
+        <span className={styles.calendarBadge} title={calendarLabel}>{calendarLabel}<span aria-hidden /></span>
+      ) : <span className="ui-text-section-label">Google Calendar</span>}
       {calendar.error ? (
         <button type="button" className={styles.quietAction} onClick={refresh}>Retry Calendar status</button>
       ) : calendar.loaded ? (

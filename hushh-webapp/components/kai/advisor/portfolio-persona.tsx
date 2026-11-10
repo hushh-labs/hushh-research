@@ -27,17 +27,19 @@ export function PortfolioPersona({
   return (
     <div className={styles.row}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="ui-text-helper-text">Investing persona</span>
+        <h3 className="ui-text-section-label">Investing persona</h3>
         <FinancePersonaBadge preferences={preferences} />
       </div>
-      <button ref={trigger} type="button" className={styles.quietAction} onClick={() => setOpen(true)}>
+      <button ref={trigger} type="button" className={`${styles.quietAction} ${styles.refinePersona}`} onClick={() => setOpen(true)}>
         Refine persona
       </button>
       <AdaptiveDetailSurface
         open={open}
         onOpenChange={(next) => { if (!saving) setOpen(next); }}
-        title="Refine your persona"
-        description="13 questions about risk, cash needs and timing."
+        title={<span className="ui-text-section-label">Refine persona</span>}
+        description={<span className="sr-only">13 questions about risk, cash needs and timing.</span>}
+        surfaceClassName={styles.reviewSheet}
+        bodyClassName="px-4"
         mobilePresentation="sheet"
         showMobileCloseButton
         desktopMaxWidthClassName="sm:!max-w-[34rem]"
