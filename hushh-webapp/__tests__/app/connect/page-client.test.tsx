@@ -947,8 +947,9 @@ describe("Connect — People", () => {
     expect(rows.map(row => row.getAttribute("data-voice-label"))).toEqual([
       "Asha Contact", "Manual Friend", "Legacy Friend", "Second Contact",
     ]);
-    const contactBadge = within(rows[0]).getByRole("button", { name: "Via contacts" });
-    const riaBadge = within(rows[0]).getByRole("button", { name: "Verified Advisor" });
+    const avatar = rows[0].querySelector('[data-avatar-size="compact"]') as HTMLElement;
+    const contactBadge = within(avatar).getByRole("button", { name: "Via contacts" });
+    const riaBadge = within(avatar).getByRole("button", { name: "Verified Advisor" });
     const profileButton = within(rows[0]).getByRole("button", { name: "Open Asha Contact's profile" });
     expect(profileButton).not.toContainElement(contactBadge);
     expect(profileButton).not.toContainElement(riaBadge);

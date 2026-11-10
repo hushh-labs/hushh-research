@@ -2,9 +2,14 @@
 
 import { useState } from "react";
 import { BadgeCheck, ContactsBookIcon } from "@/components/icons";
+import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-function ConnectionStatusBadge({ verified }: { verified?: boolean }) {
+export function ConnectionStatusBadge({ verified, className, iconClassName }: {
+  verified?: boolean;
+  className?: string;
+  iconClassName?: string;
+}) {
   const label = verified ? "Verified Advisor" : "Via contacts";
   const Icon = verified ? BadgeCheck : ContactsBookIcon;
   const [open, setOpen] = useState(false);
@@ -15,11 +20,11 @@ function ConnectionStatusBadge({ verified }: { verified?: boolean }) {
         <button
           type="button"
           aria-label={label}
-          className="inline-grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn("inline-grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring", className)}
           onClick={() => setOpen(true)}
           onBlur={() => setOpen(false)}
         >
-          <Icon aria-hidden="true" className={verified ? "size-4 text-[color:var(--app-success)]" : "size-4"} />
+          <Icon aria-hidden="true" className={cn("size-4", verified && "text-[color:var(--app-success,#16a34a)]", iconClassName)} />
         </button>
       </TooltipTrigger>
       <TooltipContent sideOffset={4} collisionPadding={12}>{label}</TooltipContent>

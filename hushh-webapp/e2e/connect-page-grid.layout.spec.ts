@@ -332,15 +332,25 @@ for (const dark of [false, true]) {
           fill: getComputedStyle(icon.querySelector("g[fill]")!).fill,
           stroke: getComputedStyle(icon.querySelector("g[stroke]")!).stroke };
       });
-      expect(contactIcon.width).toBe(16);
-      expect(contactIcon.height).toBe(16);
+      expect(contactIcon.width).toBe(12);
+      expect(contactIcon.height).toBe(12);
       expect(contactIcon.fill).toBe(contactIcon.accent);
       expect(contactIcon.stroke).toBe(contactIcon.outline);
       expect(contactIcon.fill).not.toBe(contactIcon.stroke);
       await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
       const connectionRows = connectionGroup.getByTestId("connect-person-row");
       const jordan = connectionRows.filter({ hasText: "Jordan Lee" });
-      await expect(jordan.getByRole("button", { name: "Via contacts" })).toBeVisible();
+      const avatar = jordan.locator('[data-avatar-size="compact"]');
+      const avatarContactBadge = avatar.getByRole("button", { name: "Via contacts" });
+      const riaBadge = avatar.getByRole("button", { name: "Verified Advisor" });
+      await expect(avatarContactBadge).toBeVisible();
+      await expect(riaBadge).toBeVisible();
+      const face = (await avatar.boundingBox())!;
+      const contact = (await avatarContactBadge.boundingBox())!;
+      const advisor = (await riaBadge.boundingBox())!;
+      expect(advisor.y + advisor.height / 2).toBeLessThan(face.y + face.height / 2);
+      expect(contact.y + contact.height / 2).toBeGreaterThan(face.y + face.height / 2);
+      expect(advisor.y + advisor.height).toBeLessThanOrEqual(contact.y);
       await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByRole("button", { name: "Via contacts" })).toHaveCount(0);
       if (width === WIDTHS[0]) {
         const glyph = contactBadge.locator("svg");
@@ -354,7 +364,6 @@ for (const dark of [false, true]) {
         await page.keyboard.press("Escape");
         await expect(contactDetails).toBeHidden();
 
-        const riaBadge = jordan.getByRole("button", { name: "Verified Advisor" });
         if (testInfo.project.use.hasTouch) await riaBadge.tap();
         else await riaBadge.focus();
         const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });

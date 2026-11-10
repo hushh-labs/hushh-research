@@ -2,6 +2,8 @@
 
 import { BadgeCheck } from "@/components/icons";
 import { ContactSourceBadge } from "./contact-source-badge";
+import { ConnectionStatusBadge } from "./connection-status-badges";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -84,6 +86,7 @@ export function ConnectionPersonAvatar({
   personRef,
   userId,
   minimumHitArea = false,
+  showBadgeDetails = false,
 }: PersonProfilePreviewIdentity & {
   photoUrl?: string | null;
   label: string;
@@ -98,8 +101,47 @@ export function ConnectionPersonAvatar({
   fallbackClassName?: string;
   testId?: string;
   minimumHitArea?: boolean;
+  /** Use for passive avatars in rows that support separate badge controls. */
+  showBadgeDetails?: boolean;
 }) {
   const interactive = Boolean(personRef?.trim() || userId?.trim());
+  const badgeControls = showBadgeDetails && !interactive && (verified || fromContacts);
+  const verifiedBadgeClassName = cn(
+    "absolute -right-0.5 z-10 inline-flex items-center justify-center rounded-full bg-background",
+    fromContacts ? "-top-0.5" : "-bottom-0.5",
+    AVATAR_BADGE_CLASSNAME[size],
+  );
+  const contactBadgeClassName = "absolute -bottom-0.5 -right-0.5 z-10 size-3 rounded-sm bg-background ring-2 ring-background";
+  const badgeHitArea = "after:absolute after:-inset-1.5 after:content-['']";
+  const badges = <>
+    {verified ? (
+      badgeControls ? (
+        <ConnectionStatusBadge
+          verified
+          className={cn(verifiedBadgeClassName, badgeHitArea)}
+          iconClassName={AVATAR_BADGE_GLYPH_CLASSNAME[size]}
+        />
+      ) : (
+        <span role="img" aria-label="Verified advisor" className={verifiedBadgeClassName}>
+          <BadgeCheck
+            className={cn("text-[color:var(--app-success,#16a34a)]", AVATAR_BADGE_GLYPH_CLASSNAME[size])}
+            aria-hidden="true"
+          />
+        </span>
+      )
+    ) : null}
+    {fromContacts ? (
+      badgeControls ? (
+        <ConnectionStatusBadge className={cn(contactBadgeClassName, badgeHitArea)} iconClassName="size-full" />
+      ) : (
+        <ContactSourceBadge className={contactBadgeClassName} />
+      )
+    ) : null}
+  </>;
+  const profileDescription = [
+    verified ? "Verified advisor" : null,
+    fromContacts ? "Connected from your contacts" : null,
+  ].filter(Boolean).join(". ") || undefined;
   const content = <>
 
       {photoUrl?.trim() ? (
@@ -117,27 +159,7 @@ export function ConnectionPersonAvatar({
       >
         {connectionAvatarInitials(label)}
       </AvatarFallback>
-      {verified ? (
-        <span
-          className={cn(
-            "absolute -right-0.5 z-10 inline-flex items-center justify-center rounded-full bg-background",
-            fromContacts ? "-top-0.5" : "-bottom-0.5",
-            AVATAR_BADGE_CLASSNAME[size],
-          )}
-          aria-label="Verified advisor"
-        >
-          <BadgeCheck
-            className={cn(
-              "text-[color:var(--app-success,#16a34a)]",
-              AVATAR_BADGE_GLYPH_CLASSNAME[size],
-            )}
-            aria-hidden="true"
-          />
-        </span>
-      ) : null}
-      {fromContacts ? (
-        <ContactSourceBadge className="absolute -bottom-0.5 -right-0.5 z-10 size-3 rounded-sm bg-background ring-2 ring-background" />
-      ) : null}
+      {badgeControls ? <TooltipProvider>{badges}</TooltipProvider> : badges}
   </>;
   const expandedHitArea = interactive && minimumHitArea;
   const avatar = (
@@ -154,7 +176,7 @@ export function ConnectionPersonAvatar({
       data-avatar-size={size}
       data-testid={testId}
     >
-      {interactive && !expandedHitArea ? <button type="button" aria-label={`View ${label}'s profile`} onClick={event => {
+      {interactive && !expandedHitArea ? <button type="button" aria-label={`View ${label}'s profile`} aria-description={profileDescription} onClick={event => {
         event.preventDefault();
         event.stopPropagation();
         openPersonProfilePreview({ personRef, userId }, event.currentTarget);
@@ -162,7 +184,7 @@ export function ConnectionPersonAvatar({
     </Avatar>
   );
   if (!expandedHitArea) return avatar;
-  return <span className="relative inline-flex shrink-0">{avatar}<button type="button" aria-label={`View ${label}'s profile`}
+  return <span className="relative inline-flex shrink-0">{avatar}<button type="button" aria-label={`View ${label}'s profile`} aria-description={profileDescription}
     className="absolute left-1/2 top-1/2 z-10 size-11 -translate-x-1/2 -translate-y-1/2 cursor-pointer appearance-none rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     onClick={event => { event.preventDefault(); event.stopPropagation(); openPersonProfilePreview({ personRef, userId }, event.currentTarget); }} /></span>;
 }

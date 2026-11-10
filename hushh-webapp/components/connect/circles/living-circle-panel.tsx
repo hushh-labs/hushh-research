@@ -138,7 +138,7 @@ export function LivingCirclePanel({
         {loading && !candidates.length && peopleView === "all" ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
           : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
           : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
-            avatar={<ConnectionPersonAvatar userId={person.userId} size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />}
+            avatar={<ConnectionPersonAvatar userId={person.userId} size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />}
             name={connectPersonName(person)} detail={connectPersonSelectionDetail(person)} checked={selectedUserIds.has(person.userId)}
             onCheckedChange={() => onAdd(person.userId)}
             disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
@@ -185,6 +185,7 @@ export function LivingCirclePanel({
             name: connectPersonName(member),
             photoUrl: member.photoUrl,
             verified: Boolean(member.isRia),
+            fromContacts: member.connectedFromContacts,
             publicPersonRef: member.publicPersonRef,
           }))}
           totalCount={orbitMemberCount}
@@ -344,7 +345,7 @@ export function LivingCirclePanel({
                       }}
                       className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] "
                     >
-                      <ConnectionPersonAvatar userId={person.userId} size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />
+                      <ConnectionPersonAvatar userId={person.userId} size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />
                       <span className="min-w-0 flex-1">
                         <span data-profile-role="name" className="block truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
                         <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]">{connectPersonSelectionDetail(person)}</span>

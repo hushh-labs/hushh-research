@@ -135,7 +135,7 @@ The action opens the existing picker; its final confirmation retains its primary
 | Control or state | Result and product boundary |
 | --- | --- |
 | **My connections N / Find people** | Tabs appear in that order with discovery selected by default. My connections shows one paged list of accepted relationships in server order with its own search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
-| **Connection source icons** | Icon-only controls show **Verified Advisor** or **Via contacts** on hover, focus or tap. Verification describes the person. Contacts describes a match from the viewer's synced contacts. A connection can show both. Verification and mutual metadata share a compact row when available. Escape dismisses the tooltip. |
+| **Connection source icons** | My connections and My RIAs put **Verified Advisor** and **Via contacts** on the avatar. Each icon explains its status on hover, focus or tap. Verification describes the person. Contacts describes a match from the viewer's synced contacts. A connection can show both. Escape dismisses the tooltip. |
 | **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |

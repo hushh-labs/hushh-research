@@ -58,7 +58,8 @@ export function PersonPicker({
           <ConnectionPersonAvatar userId={recipient.userId}
             label={recipient.displayName}
             photoUrl={recipient.photoUrl}
-            verified={recipient.phoneVerified}
+            verified={recipient.isRia}
+            fromContacts={recipient.connectedFromContacts}
           />
           <span className="min-w-0 flex-1">
             <span className="ui-text-row-label block truncate">
