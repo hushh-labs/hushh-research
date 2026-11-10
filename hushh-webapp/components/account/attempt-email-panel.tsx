@@ -8,8 +8,7 @@ export function AttemptEmailPanel({ owner }: { owner: string | null }) {
   const model = useAttemptEmail(owner);
   return <section aria-label="Optional activity emails" className="rounded-xl border p-4 text-left space-y-3">
     <h2 className="text-sm font-medium">Activity emails (optional)</h2>
-    <p className="text-sm text-muted-foreground">Receive one email when an agent attempt reports its outcome. Emails include the agent, action and reported status, without your prompts or results. You can turn them off here or unsubscribe in any activity email.</p>
-    <p className="text-sm text-muted-foreground">Some attempts may not be recorded. Delivery can be delayed; an email does not confirm that an external action succeeded.</p>
+    <p className="text-sm text-muted-foreground">Your messages and results stay private. Emails may be late or missing and don't confirm success. Unsubscribe anytime.</p>
     {model.loading ? <p role="status">Loading saved choice…</p> : null}
     {model.error ? <p role="alert">{model.error}</p> : null}
     {model.value ? <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void model.save(model.enabledDraft); }}>
