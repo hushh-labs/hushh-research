@@ -1953,6 +1953,10 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 @media (prefers-reduced-motion: reduce) {
   .page, .laneSwitcher button, .sendButton { transition: none; }
 }
+/* Touch message holds own the action menu rather than native text selection. */
+@media (hover: none), (pointer: coarse) {
+  .messageBubble { -webkit-user-select: none; user-select: none; }
+}
 
 /* Exact light-theme palette from the Chat UI handoff. */
 .page[data-theme="light"] .messageBubbleMeta,
