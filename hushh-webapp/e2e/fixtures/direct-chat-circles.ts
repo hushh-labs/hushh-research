@@ -4,7 +4,7 @@ export { useVault } from "./bottom-shell-boundaries";
 
 // Synthetic unlocked session and directory ports. The complete Messages
 // workspace still renders production People/Circles panes and shared chrome.
-export const VaultContext = createContext({ vaultOwnerToken: "fixture", vaultKey: "fixture" });
+export const VaultContext = createContext({ vaultOwnerToken: "fixture", vaultKey: "ab".repeat(32) });
 export const OneLocationService = {
   listCircles: async () => [
     { id: "circle", name: "Weekend friends", kind: "friends", role: "owner", memberCount: 2 },

@@ -5,25 +5,18 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.message_reactions import REACTION_EMOJIS
 from hushh_mcp.services.requester_identity import label_from_identity_row
 
 MAX_SEQUENCE = 9_007_199_254_740_991
 # One catalogue drives both the picker and exact sequence validation. The DB
 # bounds storage; this allowlist rejects text, components and multiple emoji.
-REACTION_EMOJIS = frozenset(
-    entry[0]
-    for category in json.loads(
-        (Path(__file__).resolve().parents[1] / "data/emoji-reactions.v1.json").read_text()
-    )["categories"]
-    for entry in category["entries"]
-)
 _AUTHORIZED = """
   JOIN circle_chat_recipients r ON r.message_id = m.id AND r.recipient_user_id = :user
   JOIN one_location_circle_memberships membership ON membership.circle_id = m.circle_id
@@ -167,7 +160,7 @@ class CircleChatService:
 
     def state(self, user: str, circle: str) -> dict:
         with self.db.engine.begin() as conn:
-            self._circle(conn, user, circle)
+            membership = self._circle(conn, user, circle)
             roster = self._roster(conn, circle)
             counts = _rows(
                 conn,
@@ -195,6 +188,7 @@ class CircleChatService:
                     {"circle": circle, "user": user},
                 ),
                 "rosterVersion": self._roster_version(roster),
+                "membershipJoinedAt": membership["joined_at"].isoformat(),
                 "members": [
                     {
                         "userId": r["user_id"],

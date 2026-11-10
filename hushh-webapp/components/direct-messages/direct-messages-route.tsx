@@ -8,6 +8,7 @@ import { DirectMessagesResourceService, type DirectMessageSelection } from "@/li
 import { resolveDirectMessageHref } from "@/lib/direct-messages/navigate-direct-message";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { DirectMessagesPage } from "./direct-messages-page";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 
 import { readMessageHistory, replaceMessageHistory, subscribeMessageHistory } from "@/lib/direct-messages/message-history";
 import {
@@ -43,13 +44,17 @@ export function DirectMessagesRoute() {
   const [opening, setOpening] = useState<(DirectMessageSelection & { ownerId: string }) | null>(null);
   const openingRequest = useRef<DirectMessageSelection | null>(null);
   const issuedTokens = useRef(new Set<string>());
+  const draftOwner = useRef(userId);
   const clearOpening = useCallback(() => { openingRequest.current = null; setOpening(null); }, [setOpening]);
   useLayoutEffect(() => {
+    if (draftOwner.current && draftOwner.current !== userId)
+      void MessagesDraftService.clearForUser(draftOwner.current).catch(() => undefined);
+    draftOwner.current = userId;
     clearOpening();
     const tokens = issuedTokens.current;
     tokens.clear();
     return () => { openingRequest.current = null; tokens.clear(); };
-  }, [clearOpening, user]);
+  }, [clearOpening, user, userId]);
   const selected = Boolean(token || conversationId || personRef);
   const cachedSelection = user && userId && token ? DirectMessagesResourceService.readRoute(userId, token) : null;
   const visibleSelection = opening?.ownerId === userId ? opening

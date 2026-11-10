@@ -30,6 +30,8 @@ import quietStyles from "@/components/direct-messages/messages-quiet-action.modu
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
 import { connectPersonName } from "@/lib/connections/person-label";
+import { useMessageDraft } from "@/lib/direct-messages/use-message-draft";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 
 const unavailable = (error: unknown) => error instanceof ApiError &&
   ([401, 403, 423].includes(error.status) || apiErrorCode(error) === "CIRCLE_CHAT_UNAVAILABLE");
@@ -64,6 +66,9 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
   const [revoked, setRevoked] = useState(false);
   const [revision, setRevision] = useState(0);
   const [muting, setMuting] = useState(false);
+  const draftScope = JSON.stringify([session.userId, "circle", session.circleId]);
+  const draftSession = MessagesDraftService.session(session.userId);
+  const discardDraft = useCallback(() => { void MessagesDraftService.remove(draftSession, draftScope).catch(() => undefined); }, [draftSession, draftScope]);
   const acknowledgedRead = useRef(0);
   const threadScope = useRef({ session, revision: 0 });
   if (threadScope.current.session !== session) {
@@ -99,7 +104,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
           await cadence(abort.signal, startedAt + REFRESH_CADENCE_MS);
         }
       } catch (err) {
-        if (active && !abort.signal.aborted && unavailable(err)) { setRevoked(true); setState(null); setOpen(false); }
+        if (active && !abort.signal.aborted && unavailable(err)) { discardDraft(); setRevoked(true); setState(null); setOpen(false); }
       } finally {
         running = false;
         // On native, the physical HTTP request stayed awaited after a logical
@@ -114,7 +119,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     document.addEventListener("visibilitychange", resume); window.addEventListener("online", resume);
     return () => { active = false; abort?.abort(); clearInterval(timer); removeLifecycle();
       document.removeEventListener("visibilitychange", resume); window.removeEventListener("online", resume); };
-  }, [session, revoked]);
+  }, [session, revoked, discardDraft]);
   useEffect(() => {
     let active = true;
     let running = false;
@@ -141,7 +146,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       } catch (err) {
         if (active && !abort.signal.aborted) {
           setError(errorText(err));
-          if (unavailable(err)) { setRevoked(true); setState(null); setOpen(false); active = false; abort.abort(); }
+          if (unavailable(err)) { discardDraft(); setRevoked(true); setState(null); setOpen(false); active = false; abort.abort(); }
         }
       } finally { running = false; }
     };
@@ -151,6 +156,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     };
     const unsubscribe = subscribeToOneLocationStateChanges((detail) => {
       if (detail.userId === session.userId && circleStateChangeClosesDetail(detail, session.userId, session.circleId)) {
+        discardDraft();
         active = false; abort.abort(); setRevoked(true); setState(null); setOpen(false);
       }
     });
@@ -163,7 +169,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     return () => { active = false; abort.abort(); clearInterval(timer); unsubscribe(); removeLifecycle();
       window.removeEventListener(CIRCLE_CHAT_CHANGED, onEvent); window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh); };
-  }, [session, revision]);
+  }, [session, revision, discardDraft]);
 
   return <><section ref={surface} data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
     ? `${laneStyles.surface} flex h-full min-h-0 flex-col overflow-visible bg-transparent`
@@ -186,15 +192,16 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
     {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
-    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={threadScope.current.revision} circleName={circleName} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
+    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={`${threadScope.current.revision}:${state.membershipJoinedAt ?? "legacy"}`} circleName={circleName} session={session} membershipJoinedAt={state.membershipJoinedAt} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
   </>;
 }
 
-function CircleChatThread({ circleName, session, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
+function CircleChatThread({ circleName, session, membershipJoinedAt, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
   session: CircleChatSession; visible: boolean; onRead: (sequence: number) => void; onRevoked: () => void;
+  membershipJoinedAt?: string;
   circleName: string; readingBlocked: boolean; chatLane: boolean; chatLaneTheme: "light" | "dark";
 }) {
   const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
@@ -252,14 +259,18 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   const onRevokedRef = useRef(onRevoked); onRevokedRef.current = onRevoked;
   const fileInput = useRef<HTMLInputElement>(null);
   const composerEditor = useRef<HTMLTextAreaElement>(null);
+  const persistedDraft = useMessageDraft({ userId: session.userId, scope: JSON.stringify([session.userId, "circle", session.circleId]),
+    vaultKey: session.vaultKey, binding: membershipJoinedAt ?? null,
+    enabled: Boolean(membershipJoinedAt && !loading && !sending && !pending), value: text, setValue: setText });
   useChatAlertVisibility(visible && !loading && !readingBlocked && !blockingLayer && !actionRequest && viewers.size === 0
     ? `circle-chat:${session.circleId}` : null, transcript);
 
+  const retireDraft = persistedDraft.retire;
   const fail = useCallback((err: unknown) => {
     if (!active.current) return;
-    if (unavailable(err)) { active.current = false; setMessages([]); messagesRef.current = []; targetsRef.current.clear(); setReplyTargets(new Map()); setReply(null); setActionRequest(null); outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
+    if (unavailable(err)) { void retireDraft().catch(() => undefined); active.current = false; setMessages([]); messagesRef.current = []; targetsRef.current.clear(); setReplyTargets(new Map()); setReply(null); setActionRequest(null); outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
     else setError(errorText(err));
-  }, []);
+  }, [retireDraft]);
   const decrypt = useCallback(async (items: ChatMessage[]) => Promise.all(items.map(async (message) => {
     if (message.deletedForEveryoneAt) { decryptFailures.current.delete(message.sequence); return { ...message, content: null, failed: false, hasImage: false, reactions: [] }; }
     const current = () => {
@@ -579,6 +590,8 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
         outgoingRef.current = local; setOutgoing(local);
       }
       setPending(sealed);
+      const retiredDraft = await persistedDraft.retire();
+      if (!active.current || !persistedDraft.isCurrent()) { persistedDraft.preserve(text, retiredDraft ?? undefined); return; }
       const sent = await CircleChatService.send(session, sealed);
       if (!active.current) return;
       if (anchored.current) await showWindow();
@@ -596,6 +609,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       // A definite roster refusal never committed; reseal only on the person's next Send.
       if (["CIRCLE_CHAT_ROSTER_CHANGED", "CIRCLE_CHAT_RETRY_CONFLICT"].includes(apiErrorCode(err) ?? "")
           || err instanceof ApiError && [413, 422].includes(err.status) || !sealed) {
+        if (!unavailable(err)) persistedDraft.preserve(text);
         setPending(null); outgoingRef.current = null; setOutgoing(null);
       } else if (active.current && local) {
         const uncertain: OutgoingChatMessage = { ...local, delivery: "unconfirmed" };
@@ -686,7 +700,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
           setError(errorText(caught)); event.target.value = "";
         }
       }} />
-    <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={setText} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={composerEditor}
+    <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={persistedDraft.update} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={composerEditor}
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
@@ -694,11 +708,12 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
         const editor = composerEditor.current;
         const start = editor?.selectionStart ?? text.length;
         const end = editor?.selectionEnd ?? start;
-        setText((current) => `${current.slice(0, start)}${emoji}${current.slice(end)}`);
+        persistedDraft.update((current) => `${current.slice(0, start)}${emoji}${current.slice(end)}`);
         requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + emoji.length, start + emoji.length); });
       }} /> : undefined}
       emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
       leadingAction={<ShellActionSurface className={chatLane ? laneStyles.attachButton : "size-11"} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
+    {text && persistedDraft.status ? <span className="sr-only" role="status">{persistedDraft.status}</span> : null}
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     </div>
     </AgentDockPortal>
