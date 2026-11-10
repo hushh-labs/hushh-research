@@ -85,7 +85,8 @@ describe("SosPanel", () => {
   });
   it.each(["pointer", "keyboard"])("sends a preset through a two-second %s Send hold exactly once even after late release", async (mode) => {
     const onTrigger = vi.fn().mockResolvedValue(undefined);
-    render(<SosPanel {...baseProps} contactCount={8} onTrigger={onTrigger} />);
+    const onPrepareSend = vi.fn<(signal: AbortSignal) => void>();
+    render(<SosPanel {...baseProps} contactCount={8} onTrigger={onTrigger} onPrepareSend={onPrepareSend} />);
     expect(screen.getByText("8 contacts · Live location")).toBeInTheDocument();
     expect(screen.getByText("Choose or type a message")).toBeInTheDocument();
     expect(screen.queryByText("Pick a quick message.")).toBeNull();
@@ -93,6 +94,8 @@ describe("SosPanel", () => {
     const send = screen.getByTestId("sos-send-custom-message");
     if (mode === "pointer") fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
     else fireEvent.keyDown(send, { key: " " });
+    expect(onPrepareSend).toHaveBeenCalledTimes(1);
+    expect(onPrepareSend.mock.calls[0][0].aborted).toBe(false);
     act(() => vi.advanceTimersByTime(1_999));
     expect(onTrigger).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTime(1));
@@ -122,9 +125,10 @@ describe("SosPanel", () => {
     expect(send).toHaveTextContent("Send");
   });
 
-  it("cancels an interrupted Send hold including its synthesized click", () => {
+  it("cancels preparation and sending when a pointer hold is interrupted", () => {
     const onTrigger = vi.fn();
-    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    const onPrepareSend = vi.fn<(signal: AbortSignal) => void>();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} onPrepareSend={onPrepareSend} />);
     fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
     const send = screen.getByTestId("sos-send-custom-message");
     fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
@@ -132,6 +136,8 @@ describe("SosPanel", () => {
     fireEvent.pointerUp(send, { pointerId: 1 });
     fireEvent.click(send);
     act(() => vi.advanceTimersByTime(3_000));
+    expect(onPrepareSend).toHaveBeenCalledTimes(1);
+    expect(onPrepareSend.mock.calls[0][0].aborted).toBe(true);
     expect(onTrigger).not.toHaveBeenCalled();
   });
 
