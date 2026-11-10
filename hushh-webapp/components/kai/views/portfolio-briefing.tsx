@@ -25,7 +25,7 @@ export function PortfolioBriefing({
       <SurfaceCardContent className={styles.insightCard}>
         <h2 className="ui-text-section-label">Portfolio review</h2>
         <dl className="flex items-baseline justify-between gap-3">
-          <dt className="ui-text-row-description">Snapshot score</dt>
+          <dt className="ui-text-row-description">Portfolio score</dt>
           <dd className="shrink-0 ui-text-row-description tabular-nums">
             {score === null ? "Unavailable" : (
               <><strong className="ui-text-row-label-emphasized">{score}</strong> / 100</>
@@ -34,8 +34,8 @@ export function PortfolioBriefing({
         </dl>
         {review?.next_step ? (
           <div className="space-y-1">
-            <h3 className="ui-text-row-description font-semibold text-[var(--app-accent)]">Next step</h3>
-            <p className="line-clamp-2 ui-text-row-label">{review.next_step}</p>
+            <h3 className="ui-text-row-description font-semibold !text-[var(--app-accent)]">Next step</h3>
+            <p className="ui-text-row-description">{review.next_step}</p>
           </div>
         ) : null}
         <div className={styles.cardFooter}>

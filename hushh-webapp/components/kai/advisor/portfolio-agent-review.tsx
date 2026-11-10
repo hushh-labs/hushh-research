@@ -186,7 +186,7 @@ export function PortfolioAgentReview({
             ) : null}
             {review ? (
               <div className={styles.row}>
-                <h3 className="ui-text-section-label">Snapshot score</h3>
+                <h3 className="ui-text-section-label">Portfolio score</h3>
                 {review.score !== null ? (
                   <p className="ui-text-row-description tabular-nums"><strong className="ui-text-row-label-emphasized">{review.score}</strong> / 100</p>
                 ) : <p className="ui-text-helper-text">{missing ? `Add ${missing}` : "Unavailable"}</p>}
