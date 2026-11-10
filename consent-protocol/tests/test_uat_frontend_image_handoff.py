@@ -358,6 +358,51 @@ def test_late_image_roundtrip_uses_the_original_hash_checked_pin_without_resolvi
         )
 
 
+def test_late_image_binds_to_the_controller_selected_qualification_mode(
+    image_handoff, tmp_path, monkeypatch
+):
+    module = image_handoff
+    context = _handoff_context(module)
+    report = _pin_late_image(module, context, tmp_path, monkeypatch)
+    build = _completed_deployment_build(module, context, report)
+    substitutions = build["substitutions"]
+    substitutions["_MANAGED_READINESS_MODE"] = "core"
+    monkeypatch.setattr(module, "cloud_json", lambda *_: build)
+
+    with pytest.raises(module.ReceiptError, match="build_context_mismatch"):
+        module.collect_image(context, substitutions["_IMAGE_REFERENCE"], False, float("inf"))
+
+    image, _ = module.collect_image(
+        context,
+        substitutions["_IMAGE_REFERENCE"],
+        False,
+        float("inf"),
+        qualification_mode="core",
+    )
+    assert image == report["image"]
+
+    substitutions["_MANAGED_READINESS_MODE"] = "full"
+    with pytest.raises(module.ReceiptError, match="build_context_mismatch"):
+        module.collect_image(
+            context,
+            substitutions["_IMAGE_REFERENCE"],
+            False,
+            float("inf"),
+            qualification_mode="core",
+        )
+
+
+def test_release_passes_its_backend_mode_to_the_late_frontend_collector():
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    collector = next(step for step in steps if step.get("id") == "build-frontend-image")
+    assert collector["env"]["FRONTEND_BACKEND_QUALIFICATION_MODE"] == (
+        "${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}"
+    )
+    assert '--qualification-mode "$FRONTEND_BACKEND_QUALIFICATION_MODE"' in collector["run"]
+
+
 def test_historical_checkout_keeps_the_current_handoff_and_its_resolver(tmp_path):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
