@@ -575,6 +575,17 @@ export class OneLocationService {
     };
   }
 
+  static async getRecentSmsAlerts(
+    vaultOwnerToken: string,
+    signal: AbortSignal,
+  ): Promise<Record<string, string>[]> {
+    const { alerts } = await apiJson<{ alerts: Record<string, string>[] }>(
+      "/api/one/location/sms-alerts/recent",
+      { headers: authHeaders(vaultOwnerToken), cache: "no-store", signal },
+    );
+    return alerts;
+  }
+
   static async updateAutoApprovePreference(params: {
     vaultOwnerToken: string;
     enabled: boolean;

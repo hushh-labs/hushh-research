@@ -3,6 +3,11 @@
 // receipts contain opaque grant IDs and state only: no message, position or key.
 // They must survive reloads and notify other tabs without requiring vault unlock.
 export const SMS_ALARM_ACKNOWLEDGED_EVENT = "hushh:sms-alarm-acknowledged";
+export const SMS_ALERTS_CHANGED_EVENT = "hushh:sms-alerts-changed";
+
+export function dispatchSmsAlertsChanged(userId: string): void {
+  window.dispatchEvent(new CustomEvent(SMS_ALERTS_CHANGED_EVENT, { detail: { userId } }));
+}
 const prefix = (userId: string) => `one_location_sms_alarm_v1:${encodeURIComponent(userId)}:`;
 const key = (userId: string, grantId: string) => `${prefix(userId)}${encodeURIComponent(grantId)}`;
 const memory = new Map<string, string>();
