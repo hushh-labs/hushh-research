@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from .provider_return_surfaces import validate_website_return
 from .provider_sandbox import SandboxPolicy
 from .stripe_adapter import CommerceProviderError
 
@@ -27,6 +28,8 @@ class ScopeCommerceProviderConfig:
     platform_account_id: str = ""
     frontend_origin: str = ""
     return_path: str = "/one/profile/payouts"
+    website_origin: str = ""
+    website_return_path: str = "/profile"
     countries: dict[str, CountryPayoutPolicy] = field(default_factory=dict)
     fee_configuration_ref: str = ""
     approval_refs: tuple[str, ...] = ()
@@ -106,6 +109,8 @@ class ScopeCommerceProviderConfig:
             platform_account_id=os.getenv("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID") or "",
             frontend_origin=origin,
             return_path=os.getenv("SCOPE_COMMERCE_RETURN_PATH") or "/one/profile/payouts",
+            website_origin=os.getenv("SCOPE_COMMERCE_WEBSITE_ORIGIN") or "",
+            website_return_path="/profile",
             countries=countries,
             fee_configuration_ref=os.getenv("SCOPE_COMMERCE_FEE_CONFIGURATION_REF") or "",
             approval_refs=refs,
@@ -115,6 +120,11 @@ class ScopeCommerceProviderConfig:
         )
 
     def validate(self, *, new_activity: bool) -> None:
+        if self.website_origin:
+            try:
+                validate_website_return(self.website_origin, self.website_return_path)
+            except ValueError:
+                raise CommerceProviderError("provider_configuration_invalid") from None
         parsed = urlsplit(self.frontend_origin)
         runtime_env = os.getenv("ENVIRONMENT", "").lower()
         deploy_env = os.getenv("HUSHH_DEPLOY_ENV", "").lower()
