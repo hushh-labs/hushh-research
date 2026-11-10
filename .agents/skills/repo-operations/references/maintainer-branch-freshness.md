@@ -91,6 +91,11 @@ separate authorities; follow [Admin SOP](admin-release-sop.md).
 Use the current PR template and existing protected-edit and impact validators.
 Run affected contract checks before pushing. Full local diagnostics remain
 available explicitly; ordinary pushes do not require a whole-repository mirror.
+`./bin/hushh agents pre-pr --pr <number>` passes the verified destination SHA
+to every affected check, including capability-graph evolution; an inherited
+Main comparison must not override a Dev/UAT target. Direct `orchestrate.sh`
+diagnostics keep explicit-base semantics: supply `CAPABILITY_GRAPH_BASE_REF`
+when their comparison differs from the default.
 Use the actual destination in local diff/selection inputs. `check-main-sync.sh`
 remains a diagnostic tool; its optional strict mode is not the ordinary merge gate.
 The push hook uses an explicitly supplied `MAIN_SYNC_BRANCH`, the current stable
