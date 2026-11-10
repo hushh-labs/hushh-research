@@ -354,7 +354,7 @@ async function locationPresentation(grantId, update) {
   } finally { db?.close(); }
 }
 
-async function deliverPushToClients(payload) {
+async function deliverPushToClients(payload, focusedOnly = false) {
   const clientList = await self.clients.matchAll({
     type: "window",
     includeUncontrolled: true,
@@ -364,7 +364,7 @@ async function deliverPushToClients(payload) {
   );
   const owner =
     visibleClients.find((client) => client.focused === true) ||
-    visibleClients[0] ||
+    (focusedOnly ? null : visibleClients[0]) ||
     null;
 
   clientList.forEach((client) => {
@@ -612,7 +612,7 @@ self.addEventListener("push", function (event) {
           tag,
           requireInteraction,
           data: notificationData,
-        });
+        }, smsCreated);
         const acknowledged = visibleClientCount > 0 ? await deliveryAck : false;
         // Suppress the browser notification only after the visible app bridge
         // confirms receipt. Otherwise the system tray remains the reliable fallback.

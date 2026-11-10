@@ -400,6 +400,7 @@ export class OneLocationService {
     maxAgeMs?: number;
     /** Reject a held/restored fix when an action needs a current measurement. */
     requireMeasurement?: boolean;
+    fastNetworkFallback?: boolean;
     /**
      * "I need a fix that describes where the user is right now" — dropping a
      * pin, saving a place, anchoring a check-in.
@@ -417,7 +418,11 @@ export class OneLocationService {
       (options?.fresh || options?.requireMeasurement ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
 
     const generation = LocationBus.getAccountGeneration();
-    const snapshot = await LocationBus.ensure({ maxAgeMs, ...(options?.requireMeasurement ? { requireMeasurement: true } : {}) });
+    const snapshot = await LocationBus.ensure({
+      maxAgeMs,
+      ...(options?.requireMeasurement ? { requireMeasurement: true } : {}),
+      ...(options?.fastNetworkFallback ? { fastNetworkFallback: true } : {}),
+    });
     if (generation !== LocationBus.getAccountGeneration()) {
       throw new Error("Location session changed.");
     }
@@ -573,6 +578,17 @@ export class OneLocationService {
       ...state,
       recipients: (state.recipients ?? []).map(normalizeRecipient),
     };
+  }
+
+  static async getRecentSmsAlerts(
+    vaultOwnerToken: string,
+    signal: AbortSignal,
+  ): Promise<Record<string, string>[]> {
+    const { alerts } = await apiJson<{ alerts: Record<string, string>[] }>(
+      "/api/one/location/sms-alerts/recent",
+      { headers: authHeaders(vaultOwnerToken), cache: "no-store", signal },
+    );
+    return alerts;
   }
 
   static async updateAutoApprovePreference(params: {

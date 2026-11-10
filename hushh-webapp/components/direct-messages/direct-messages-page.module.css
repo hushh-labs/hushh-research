@@ -549,7 +549,7 @@ article[data-message-role="user"] .messageContent {
   display: flow-root;
   width: fit-content;
   max-width: 100%;
-  padding: var(--messages-bubble-inset-block) var(--messages-control-size) var(--messages-bubble-inset-block) var(--messages-bubble-inset-inline) !important;
+  padding: var(--messages-bubble-inset-block) var(--messages-bubble-inset-inline) !important;
   border-radius: var(--messages-bubble-radius) !important;
   background: var(--app-accent) !important;
   box-shadow: 0 2px 6px rgb(0 122 255 / 0.25) !important;
@@ -1289,15 +1289,28 @@ form.composer { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px a
   }
 }
 
-:global(html.kb-open:not(.kb-resizes)) .page:not([data-chat-open="true"]) {
-  height: calc(100dvh - var(--app-top-content-offset, 6rem) - var(--messages-top-clearance) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--kb-height, 0px) + 1rem)));
+/* Share one visible lower edge between People, Circles and their transcripts. */
+.page {
+  --direct-message-viewport-bottom: 100dvh;
+  --direct-message-keyboard-inset: var(--kb-height, 0px);
+  --direct-message-bottom-clearance: max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)));
 }
-
-/* Bound the transcript above the shared app chrome and keyboard. */
-.page { --direct-message-keyboard-inset: var(--kb-height, 0px); }
 :global(html.kb-resizes) .page { --direct-message-keyboard-inset: 0px; }
 :global(html.kb-open:not(.kb-resizes)) .page { --direct-message-dock-clearance: 8px; }
-.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance)) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px))))); min-height: 0; max-height: none; }
+/* Safari may pan the visual viewport while keeping the layout viewport tall. */
+:global(html.kb-open:not(.native-keyboard-inset):not(.kb-resizes)) .page {
+  --direct-message-viewport-bottom: calc(var(--kb-visible-top, 0px) + var(--kb-visible-height, calc(100dvh - var(--kb-height, 0px))));
+  --direct-message-keyboard-inset: 0px;
+  --direct-message-bottom-clearance: calc(var(--direct-message-dock-height, 0px) + 8px);
+}
+/* Inbox search hides the idle dock; its retained measurement is not clearance. */
+:global(html.kb-open) .page:not([data-chat-open="true"]) {
+  --direct-message-bottom-clearance: calc(var(--direct-message-keyboard-inset) + 8px);
+}
+:global(html.kb-open body:has([data-messages-dock][data-command-active="true"], [data-messages-dock] [data-command-active="true"])) .page {
+  --direct-message-bottom-clearance: calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + 8px);
+}
+.page, .page[data-chat-open="true"] { height: max(0px, calc(var(--direct-message-viewport-bottom) - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance)) - var(--direct-message-bottom-clearance))); min-height: 0; max-height: none; }
 .thread { position: relative; }
 .inboxHeader, .threadHeaderContent { min-height: var(--messages-header-size); }
 .backButton, .headerAction, .refreshButton, .voiceButton, .sendButton, .threadSearchClear, .messageActionButton, .composerReplyPreview button, .messageEditActions button, .reactionChip { min-width: var(--messages-control-size); min-height: var(--messages-control-size); height: var(--messages-control-size); }
@@ -1774,7 +1787,7 @@ article[data-message-role="peer"] .messageCluster {
   box-shadow: none !important;
   border-radius: var(--messages-bubble-radius) !important;
   min-height: var(--messages-control-size);
-  padding: var(--messages-bubble-inset-block) var(--messages-control-size) var(--messages-bubble-inset-block) var(--messages-bubble-inset-inline) !important;
+  padding: var(--messages-bubble-inset-block) var(--messages-bubble-inset-inline) !important;
   font-family: var(--font-app-body);
   font-size: var(--messages-body-size);
   font-weight: 400;
@@ -1788,7 +1801,7 @@ article[data-message-role="peer"] .messageBubble {
   box-shadow: none !important;
   border-radius: var(--messages-bubble-radius) !important;
 }
-/* Only the text reserves 44px for actions; metadata ends at the 14px inset. */
+/* Actions live outside the bubble, so text and metadata share its normal inset. */
 .messageBubbleMeta { font-size: var(--messages-meta-size); line-height: var(--messages-meta-line); min-height: var(--messages-meta-line); margin-right: 0; }
 .messageBubble:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 2px; }
 @media (max-width: 374px) {
@@ -1876,12 +1889,12 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   /* Both panes reserve the shared composer and navigation stack. */
   .page, .page[data-chat-open="true"] {
-    height: max(0px, calc(100dvh - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance))));
+    height: max(0px, calc(var(--direct-message-viewport-bottom) - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance))));
   }
   .inbox,
   .thread {
     align-self: start;
-    height: max(0px, calc(100% - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)))));
+    height: max(0px, calc(100% - var(--direct-message-bottom-clearance)));
   }
   .messageCluster,
   article[data-message-role="peer"] .messageCluster {
@@ -1903,7 +1916,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
   }
   .page .threadHeader, .page .threadHeaderContent { height: var(--messages-stacked-header-size); min-height: var(--messages-stacked-header-size); }
 }
-@media (min-width: 1280px) and (max-height: 500px) {
+@media (min-width: 1280px) and (max-height: 500px), (min-width: 380px) and (max-width: 1023px) and (max-height: 499px) {
   .page .inboxHeader { height: var(--messages-control-size); min-height: var(--messages-control-size); padding-block: 0; }
 }
 @media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {
@@ -2001,7 +2014,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 .newChatDialog .newChatSearch { font-family: var(--font-app-body); font-size: 14px; line-height: 22px; font-weight: 400; }
 .editDialog .messageEditInput { font-size: 16px; line-height: 24px; font-weight: 400; }
 
-@media (max-width: 620px) {
+@media (max-width: 767px), (hover: none) {
   .page .inboxSearchField input, .page .threadSearchField input,
   .newChatDialog .newChatSearch { font-size: 16px; }
 }

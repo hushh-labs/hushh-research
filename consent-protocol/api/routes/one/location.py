@@ -798,6 +798,21 @@ def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
         raise _handle_error(exc) from exc
 
 
+@router.get("/location/sms-alerts/recent")
+def get_recent_received_sms_alerts(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    _set_private_no_store(response)
+    try:
+        return {
+            "alerts": _service().list_recent_received_sms_alerts(
+                recipient_user_id=_user_id(token_data)
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/sms-contacts", dependencies=[Depends(_sms_add_identity_ready)])
 def add_location_sms_contact(
     payload: AddSmsContactRequest,

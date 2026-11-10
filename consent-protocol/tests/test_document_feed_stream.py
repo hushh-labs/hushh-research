@@ -291,6 +291,30 @@ async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue,
     await frames.aclose()
 
 
+@pytest.mark.asyncio
+async def test_sms_alert_sends_only_an_authenticated_reread_hint(owner_queue):
+    frames = document_feed_event_generator(
+        "owner", CONNECTED, version=2, lifetime_seconds=30, timing=FAST
+    )
+    await _next(frames)
+    await _next(frames)
+    owner_queue.queue.put_nowait(
+        {"type": "location_share_created", "share_kind": "share", "title": "Ordinary share"}
+    )
+    owner_queue.queue.put_nowait(
+        {
+            "type": "location_share_created",
+            "share_kind": "sos",
+            "grant_id": REQUEST,
+            "owner_user_id": "sender",
+            "user_id": "owner",
+            "body": "Private details",
+        }
+    )
+    assert await _next(frames) == {"event": "feed_changed", "data": '{"emergency_sms":true}'}
+    await frames.aclose()
+
+
 # --- v1 protection for installed builds ------------------------------------------
 
 

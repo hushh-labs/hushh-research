@@ -499,6 +499,22 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     });
   });
 
+  it("shows the emergency system alert when One is visible behind another app", async () => {
+    const harness = createHarness({
+      clients: [{ visibilityState: "visible", focused: false, acknowledgeDelivery: true }],
+    });
+    await harness.push("location_share_created", {
+      type: "location_share_created",
+      share_kind: "sos",
+      grant_id: "unfocused-emergency",
+    });
+    expect(harness.clientMessages).toEqual([
+      { type: "hushh:fcm_feed_changed", reason: "push_received" },
+    ]);
+    expect(harness.shown).toHaveLength(1);
+    expect(harness.shown[0]?.options?.silent).toBe(false);
+  });
+
   it.each(["location_share_created", "location_access_approved"])(
     "routes a warm %s body tap to Shared with me without document navigation",
     async (type) => {

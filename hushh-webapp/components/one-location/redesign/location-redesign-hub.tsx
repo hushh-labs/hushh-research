@@ -738,6 +738,7 @@ export type LocationHubViewModel = {
   // an early bail-out, so narrowing it back to `void` here would strip the
   // signal the panel needs to release its fired latch.
   onTriggerSos: (message?: string | null) => void | Promise<void>;
+  onPrepareSosSend?: (signal: AbortSignal) => void;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
   /**
@@ -4862,6 +4863,7 @@ function SosFlow({
         dispatchStatus={vm.sosDispatchStatus}
         busy={vm.sosBusy}
         onTrigger={vm.onTriggerSos}
+        onPrepareSend={vm.onPrepareSosSend}
         onStopSos={vm.onStopSos}
         stopBusy={vm.sosBusy}
         onClose={onClose}
