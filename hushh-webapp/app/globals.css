@@ -9108,7 +9108,7 @@ body[data-persona-surface="ria"] {
 [data-location-action-fit],
 [data-location-action-fit] .ui-text-button-label {
   min-width: 0;
-  line-height: max(var(--type-button-label-line), 1.25em) !important;
+  line-height: max(var(--type-button-label-line), 1.28em) !important;
   white-space: normal !important;
   overflow-wrap: anywhere;
 }

@@ -226,15 +226,15 @@ for (const dark of [false, true]) {
       if (width === 320) {
         const enlarged = await add.evaluate((button) => {
           button.style.setProperty("--type-button-label-size", "34px");
-          button.style.setProperty("--type-button-label-line", "44px");
           const label = Array.from(button.childNodes).find((node) => node.nodeType === Node.TEXT_NODE)!;
           const range = document.createRange();
           range.selectNodeContents(label);
           const text = range.getBoundingClientRect();
           const box = button.getBoundingClientRect();
-          return { fits: text.left >= box.left && text.right <= box.right && text.top >= box.top && text.bottom <= box.bottom, height: box.height };
+          return { fits: text.left >= box.left && text.right <= box.right && text.top >= box.top && text.bottom <= box.bottom, height: box.height, line: parseFloat(getComputedStyle(button).lineHeight) };
         });
         expect(enlarged.fits).toBe(true);
+        expect(enlarged.line).toBeGreaterThan(43);
         expect(enlarged.height).toBeGreaterThan(measured.addHeight);
       }
       await add.click();
