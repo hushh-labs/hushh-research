@@ -461,7 +461,7 @@ Nearby Check-In is a separate short-lived presence workflow owned by Your Map.
 It never widens a private live-location grant, and a Connect relationship never
 grants nearby or live-location visibility.
 
-1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
+1. The signed-in vault owner opens Check in on Your Map. One
    captures a foreground point and draws a transient 500-meter search boundary.
    The drawer merges explicit-type and dense-area searches without a total row cap,
    showing de-duplicated Google places ordered
@@ -477,7 +477,8 @@ grants nearby or live-location visibility.
 2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
    their safe display label to other opted-in check-ins within the fixed
    500-meter radius. Allowing Connect requests is a separate switch and
-   defaults off.
+   defaults off. Both people must have verified phone numbers before a
+   connection request can be sent.
 3. On confirmation, One captures a new foreground point. The backend resolves
    the selected place itself, rejects address/geocode records, closed places,
    and service-area-only businesses, and checks that the owner is plausibly at
