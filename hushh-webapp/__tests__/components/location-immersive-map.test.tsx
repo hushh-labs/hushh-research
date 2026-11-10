@@ -275,7 +275,7 @@ vi.mock(
       rendererAccess?: ReactNode;
       open: boolean;
       onOpenChange: (open: boolean) => void;
-      onStateChange: (state: unknown) => void;
+      onStateChange: (state: unknown, confirmedCheckIn?: true) => void;
       onSearchAreaChange: (point: unknown) => void;
       onPlaceFocusChange: (focus: unknown) => void;
       captureCurrentPosition: (
@@ -318,7 +318,7 @@ vi.mock(
         <button
           type="button"
           data-testid="publish-nearby-state"
-          onClick={() =>
+          onClick={(event) =>
             onStateChange({
               presence: {
                 status: "active",
@@ -346,7 +346,7 @@ vi.mock(
                   canConnect: true,
                 },
               ],
-            })
+            }, event.shiftKey ? true : undefined)
           }
         >
           Publish nearby state
@@ -1315,6 +1315,9 @@ describe("LocationImmersiveMap demo experience", () => {
 
     fireEvent.click(screen.getByTestId("publish-nearby-state"));
 
+    expect(readOneLocationControlState("test-user").paused).toBe(true);
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("publish-nearby-state"), { shiftKey: true });
     expect(readOneLocationControlState("test-user")).toEqual(
       expect.objectContaining({
         paused: false,
