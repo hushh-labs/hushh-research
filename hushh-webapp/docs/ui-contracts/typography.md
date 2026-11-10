@@ -257,6 +257,30 @@ Sources: [Connect root](../../app/connect/page-client.tsx),
 [actionable](../../components/feed/feed-actionable-row.tsx),
 [Profile selectors](../../app/globals.css).
 
+## Connect scale inside four Profile pages
+
+Appearance & preferences, Your account, Hosting and Help & feedback opt into
+Connect's row, group and field values. `ProfileStackEntry.typeScale: "connect"`
+puts `data-connect-type-scale="profile"` on that screen's stack content; Profile
+home and every other Profile screen keep the 10/13/12 scale above. One `@layer
+base` block in [globals.css](../../app/globals.css) applies it inside the pane
+and wins over the earlier Profile rules by specificity.
+
+| Role | Size / line height / weight |
+| --- | --- |
+| Group heading | 14 / 22 / 600 |
+| Row title, email-card heading, CTA, segment label | 14 / 21 / 550 |
+| Description, helper, trailing value | 12 / 18 / 400 |
+| Inline action, `data-profile-role="action"` button | 12 / 18 / 550 |
+| Form label | 15 / 22 / 550 |
+| Input, select, textarea | 14 / 22 / 400 at every width |
+
+Fields stay 14 on phones, unlike Connect's 16 at 620px and below: they sit
+beside their labels in a pane at most 430px wide, and 16px truncates "No
+preference" at 320px. Weight 550 paints the SemiBold face. The Appearance card
+shares the writing rows' 6px inset, 22px icon and 5px gap so both cards keep one
+icon column, text edge and right edge.
+
 ## Rendering pipeline and every local branch
 
 Typography has **no business API or mutation**. Component props→emitted tag/

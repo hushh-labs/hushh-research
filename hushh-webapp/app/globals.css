@@ -2688,7 +2688,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 .profile-preferences-content .profile-preferences-control-row > .grid {
-  grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 148px));
+  /* Wide enough for "No preference" at the Connect 14px field size. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(56%, 156px));
   align-items: center;
   column-gap: var(--settings-row-gap);
   row-gap: 0;
@@ -9924,6 +9925,164 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
     :is(input, textarea):not([data-consent-input])::placeholder {
     font-size: 13px !important;
+  }
+}
+
+/* Connect v14 type scale inside the Profile pages that opt in.
+   `ProfileStackEntry.typeScale: "connect"` puts `data-connect-type-scale="profile"`
+   on the stack screen for Appearance & preferences, Your account, Hosting and
+   Help & feedback only; every other Profile screen keeps its own scale. The
+   values are Connect's (connect-workspace.module.css, typography.md): row
+   14/21/550, description 12/18/400, group 14/22/600, form label 15/22/550,
+   input 14/22/400, action 12/18/550. Unlike Connect's workspace, fields stay
+   14 on phones: here they sit beside their labels in a pane at most 430px
+   wide, and 16px truncates values such as "No preference" at 320px. Only 400,
+   600 and 700 faces ship, so 550 paints SemiBold. The earlier Profile rules are important
+   declarations in this same layer, so each selector below carries enough
+   specificity to win outright; none of them sets color on a row title, which
+   keeps the destructive row red. */
+@layer base {
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] {
+    --connect-scale-row-size: 14px;
+    --connect-scale-row-weight: 550;
+    --connect-scale-row-line: 21px;
+    --connect-scale-description-size: 12px;
+    --connect-scale-description-weight: 400;
+    --connect-scale-description-line: 18px;
+    --connect-scale-group-size: 14px;
+    --connect-scale-group-weight: 600;
+    --connect-scale-group-line: 22px;
+    --connect-scale-form-size: 15px;
+    --connect-scale-form-weight: 550;
+    --connect-scale-form-line: 22px;
+    --connect-scale-input-size: 14px;
+    --connect-scale-input-line: 22px;
+    --connect-scale-action-size: 12px;
+    --connect-scale-action-weight: 550;
+    --connect-scale-action-line: 18px;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-slot="settings-group-heading"][role="heading"][aria-level] {
+    color: var(--ios-account-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-group-size) !important;
+    font-weight: var(--connect-scale-group-weight) !important;
+    letter-spacing: 0 !important;
+    line-height: var(--connect-scale-group-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="settings-row-title"], [data-profile-role="name"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-row-size) !important;
+    font-weight: var(--connect-scale-row-weight) !important;
+    letter-spacing: 0 !important;
+    line-height: var(--connect-scale-row-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="settings-row-description"], [data-slot="settings-group-description"], [data-profile-role="description"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-description-size) !important;
+    font-weight: var(--connect-scale-description-weight) !important;
+    letter-spacing: 0 !important;
+    line-height: var(--connect-scale-description-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="settings-row-trailing"], [data-ui-role="trailing-value"], .profile-account-row-value) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-description-size) !important;
+    line-height: var(--connect-scale-description-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is(.profile-account-inline-action, [data-profile-role="action"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-action-size) !important;
+    font-weight: var(--connect-scale-action-weight) !important;
+    line-height: var(--connect-scale-action-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="field-label"], label[for="support-message"], #support-intent-label) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-form-size) !important;
+    font-weight: var(--connect-scale-form-weight) !important;
+    letter-spacing: 0 !important;
+    line-height: var(--connect-scale-form-line) !important;
+    text-transform: none !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="field-description"], form > p:not([role="alert"]), form [role="alert"], [data-testid="style-settings-status"], [data-testid="style-settings-note-count"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-description-size) !important;
+    font-weight: var(--connect-scale-description-weight) !important;
+    line-height: var(--connect-scale-description-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is(
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+      textarea,
+      select,
+      [data-slot="select-trigger"],
+      [role="combobox"]
+    ):not([data-consent-input]):not([data-profile-appearance-preferences] *) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-input-size) !important;
+    font-weight: 400 !important;
+    line-height: var(--connect-scale-input-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is(input, textarea):not([data-consent-input]):not([data-profile-appearance-preferences] *)::placeholder {
+    font-size: var(--connect-scale-input-size) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-ui-role="segmented-tabs"] [data-ui-contract="required-title"], [data-profile-role="cta"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-row-size) !important;
+    font-weight: var(--connect-scale-row-weight) !important;
+    line-height: var(--connect-scale-row-line) !important;
+  }
+
+  /* The appearance card keeps compact 34px controls, so its select uses the
+     action role instead of the 44px input role above. */
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-appearance-preferences] :is(
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+      textarea,
+      select,
+      [data-slot="select-trigger"],
+      [role="combobox"]
+    ):not([data-consent-input]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-action-size) !important;
+    font-weight: var(--connect-scale-action-weight) !important;
+    line-height: var(--connect-scale-action-line) !important;
+  }
+
+  /* The two optional email cards sit above the account groups. Give them the
+     same card surface, inset and spacing so they read as one column. */
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] {
+    margin: 0 0 12px !important;
+    padding: 14px 16px !important;
+    border: 1px solid var(--profile-pane-card-border, var(--profile-pane-hair, var(--app-separator))) !important;
+    border-radius: 17px !important;
+    background: var(--profile-pane-card-surface, var(--profile-pane-surface-soft, var(--app-card-surface-default))) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] :is(label, [role="status"], [role="alert"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-row-size) !important;
+    font-weight: var(--connect-scale-row-weight) !important;
+    line-height: var(--connect-scale-row-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] :is([role="status"], [role="alert"]) {
+    font-size: var(--connect-scale-description-size) !important;
+    font-weight: var(--connect-scale-description-weight) !important;
+    line-height: var(--connect-scale-description-line) !important;
+  }
+
+  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] button {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--connect-scale-action-size) !important;
+    font-weight: var(--connect-scale-action-weight) !important;
+    line-height: var(--connect-scale-action-line) !important;
   }
 }
 

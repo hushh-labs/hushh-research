@@ -334,7 +334,7 @@ for (const width of [320, 390]) {
   }
 }
 
-test("Profile pane writing preferences use the Your account type scale", async ({ page }) => {
+test("Profile pane writing preferences use the Connect type scale", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, "light", "saved", "reduce", true);
   const typography = await page.getByTestId("style-settings").evaluate((root) => {
@@ -352,20 +352,22 @@ test("Profile pane writing preferences use the Your account type scale", async (
       save: size('[data-testid="style-settings-save"]'),
     };
   });
+  // Connect v14: group 14, row 14, fields 14, description and action 12. Fields
+  // stay 14 on a phone: 16px truncates "No preference" beside the label at 320px.
   expect(typography).toEqual({
-    groupHeading: "10px",
+    groupHeading: "14px",
     groupDescription: "12px",
-    rowTitles: Array(5).fill("13px"),
+    rowTitles: Array(5).fill("14px"),
     rowDescriptions: [],
-    input: "12px",
-    select: "12px",
-    note: "13px",
-    noteCount: "10px",
+    input: "14px",
+    select: "14px",
+    note: "14px",
+    noteCount: "12px",
     status: "12px",
     save: "12px",
   });
   await page.getByRole("combobox", { name: "Tone" }).click();
-  expect(await page.getByRole("option", { name: "No preference" }).evaluate((option) => getComputedStyle(option).fontSize)).toBe("13px");
+  expect(await page.getByRole("option", { name: "No preference" }).evaluate((option) => getComputedStyle(option).fontSize)).toBe("14px");
 
   await open(page, "light");
   await page.getByRole("combobox", { name: "Tone" }).click();

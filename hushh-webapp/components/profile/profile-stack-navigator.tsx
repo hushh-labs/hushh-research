@@ -14,6 +14,8 @@ export type ProfileStackEntry = {
   description?: ReactNode;
   content: ReactNode;
   presentation?: "default" | "account";
+  /** Opts this screen into the Connect v14 type scale (see typography.md). */
+  typeScale?: "connect";
 };
 
 function screensMatch(left: ProfileStackEntry[], right: ProfileStackEntry[]) {
@@ -237,6 +239,7 @@ export function ProfileStackNavigator({
               ) : (
                 <div
                   data-profile-stack-content="true"
+                  data-connect-type-scale={entry.typeScale === "connect" ? "profile" : undefined}
                   /* A reading gap, not a reserve for the fixed bottom bars.
                    * This sits inside the scroll root, which already reserves
                    * them — see --app-page-content-bottom-gap. It used to carry
