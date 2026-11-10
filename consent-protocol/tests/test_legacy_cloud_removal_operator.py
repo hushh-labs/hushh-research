@@ -707,7 +707,10 @@ def test_owner_authority_template_uses_own_login_exact_native_identity_and_etag(
     import sys
     import urllib.request
 
-    path = Path(__file__).resolve().parents[2] / "scripts/ops/cloud_removal_owner_authority.py"
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "hushh_mcp/services/legacy_cloud_removal_owner_authority.py"
+    )
     spec = importlib.util.spec_from_file_location("owner_cleanup_authority", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -822,7 +825,10 @@ def test_owner_template_redirect_cannot_forward_authority_to_another_host(tmp_pa
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from threading import Thread
 
-    path = Path(__file__).resolve().parents[2] / "scripts/ops/cloud_removal_owner_authority.py"
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "hushh_mcp/services/legacy_cloud_removal_owner_authority.py"
+    )
     spec = importlib.util.spec_from_file_location("owner_authority_redirect", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -456,7 +456,9 @@ def main():
         row = retained(engine, args.owner, args.attempt)
         _require(row["reservation"]["registrySnapshot"]["user_cloud_project"] == args.project)
         if args.action == "owner-authority-template":
-            from cloud_removal_owner_authority import render_owner_authority_template
+            from hushh_mcp.services.legacy_cloud_removal_owner_authority import (
+                render_owner_authority_template,
+            )
 
             _require(row["recovery"] is not None)
             print(render_owner_authority_template(row["recovery"]), end="")
