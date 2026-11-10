@@ -16545,6 +16545,157 @@
     },
     {
       "aliases": [
+        "Copy message text"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "messages.copy_text",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicitly copies readable plain text from the current message menu to the local clipboard; opaque shares are excluded.",
+      "execution": {
+        "binding_ref": "render:messages.copy_text",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.messages.copy_text",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Copy message text",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/messages"
+        ],
+        "screens": [
+          "one_messages"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "message",
+        "copy text"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Agents",
         "open agents",
         "open one agents",
@@ -52579,7 +52730,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "54a103a79b72233707dca01190d6e94e67dcf3d473ef5800d6dc3ceef1018f76",
+      "projection_digest": "8f4a0916d5ace1e4c2cea2e270b9c6c4cf991fa7e44ebcde1c2e860c9d4e1ff1",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52598,7 +52749,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "397e42888f424c55",
+      "source_revision": "55fdc71527d92200",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -54116,7 +54267,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "397e42888f424c55",
+    "source_revision": "55fdc71527d92200",
     "web": {
       "actions": [
         {
@@ -54159,7 +54310,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "9131e6d12981fe423b2fa88c4e95264817f330fd434a1c05477116c8ff2d4092",
+      "projection_digest": "5a7d043a9b903b95add6aa82d8d9c5c8e2dc53c0d0a716a2f67516c161df41e6",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54178,7 +54329,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "397e42888f424c55",
+      "source_revision": "55fdc71527d92200",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -55735,7 +55886,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "397e42888f424c55",
+  "revision": "55fdc71527d92200",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -57729,18 +57880,14 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:messages.copy_text"
+    ],
     "breaking": [],
-    "changed": [
-      "brains:location",
-      "services:service.location",
-      "workflows:workflow.setup.location"
-    ],
-    "compatible": [
-      "workflows:workflow.setup.location"
-    ],
+    "changed": [],
+    "compatible": [],
     "deprecated": [],
-    "from_revision": "c32cf5e00a63cfc1",
+    "from_revision": "397e42888f424c55",
     "migrated": [],
     "removed": []
   },
@@ -60113,7 +60260,7 @@
     "capability_graph_evolution": "824b5cc651bc57180cb2101adcc61e08b5ad3ea3d5f01561ecac819c0a82d3bf",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "2ab12ce02dcd9e7c44eb14f25bc9d6e7a62ee6764d61637497cc2a9eb8fdaa9f",
+    "kai_action_gateway": "2b29044e8bdfaa8adabc5504a45764bfcb4a53abfa979b0e61a4c76e9b1cede7",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -60122,9 +60269,9 @@
     "route_orchestration_index": "2cf09d1f281d70589f0300ededf21ff1a0fc56ae4bbd76037b5773f3b8dbf169",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "397e42888f424c55",
+  "source_revision": "55fdc71527d92200",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "397e42888f424c55",
+    "current_graph_revision": "55fdc71527d92200",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -60204,6 +60351,7 @@
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -60594,6 +60742,7 @@
           "35982be19f859840",
           "366da54ed07dd315",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
           "3c485e1154148116",
@@ -60749,6 +60898,7 @@
           "2f9a5e01d9f2ee5b",
           "329aa425edaeda92",
           "354b635d33714f9a",
+          "397e42888f424c55",
           "3e761f3cb5bebeaf",
           "6c49b50b94a5d1d7",
           "70d968726856f988",
@@ -61200,6 +61350,7 @@
           "3618b09083db26c6",
           "366da54ed07dd315",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -61575,6 +61726,7 @@
           "329aa425edaeda92",
           "354b635d33714f9a",
           "366da54ed07dd315",
+          "397e42888f424c55",
           "3adc9c7720dda6e7",
           "3c485e1154148116",
           "3e761f3cb5bebeaf",
@@ -62075,6 +62227,7 @@
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -62509,6 +62662,7 @@
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -62941,6 +63095,7 @@
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",

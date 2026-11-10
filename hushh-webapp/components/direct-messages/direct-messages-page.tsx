@@ -119,7 +119,8 @@ import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadat
 
 import styles from "./direct-messages-page.module.css";
 import quietStyles from "./messages-quiet-action.module.css";
-import { DirectMessageSharedContent } from "./direct-message-shared-content";
+import { DirectMessageSharedContent, directMessagePlainText } from "./direct-message-shared-content";
+import { copyToClipboard } from "@/lib/utils/clipboard";
 import { isWalletCardShare } from "@/lib/wallet/wallet-card-share";
 import { connectionMessagePreview as walletMessagePreview } from "@/lib/finance-sharing/message-preview";
 
@@ -683,7 +684,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [atBottom, setAtBottom] = useState(true);
   const [readRevision, setReadRevision] = useState(0);
   const blockingLayer = Boolean(useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions);
-  const messageLongPress = useLongPress(lane !== "people" || !hasRouteSelection || !isCurrentRead || pendingSelection || blockingLayer);
+  const copyAdmission = useRef(false);
+  copyAdmission.current = isCurrentRead && !pendingSelection && !blockingLayer;
+  const messageLongPress = useLongPress(
+    lane !== "people" || !hasRouteSelection || !isCurrentRead || pendingSelection || blockingLayer,
+    false,
+    500,
+  );
   const cancelMessageLongPress = messageLongPress.cancel;
   const foreground = () => document.visibilityState === "visible" && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
   const bottomIsUncovered = useCallback(() => {
@@ -1611,6 +1618,23 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setJumpTarget(null);
   }, [jumpTarget, messages, messageSearchQuery]);
 
+  const copyMessageText = async (message: DirectMessage) => {
+    const text = directMessagePlainText(message.content);
+    const opening = messageMenuOpening.current;
+    if (!text?.trim() || !isCurrentRead || pendingSelection || blockingLayer || !opening ||
+        opening.generation !== operationGeneration.current || opening.messageId !== message.id) return;
+    const generation = operationGeneration.current;
+    const selection = selectionRef.current;
+    const isCurrent = () => copyAdmission.current && generation === operationGeneration.current && selection === selectionRef.current &&
+      readAdmission.current.ownerId === userId && readAdmission.current.lane === "people" &&
+      messagesRef.current.some(current => current.id === message.id && current.content === text && !current.deletedForEveryoneAt);
+    const copied = await copyToClipboard(text, isCurrent);
+    if (isCurrent()) {
+      if (copied) morphyToast.success("Copied.");
+      else morphyToast.error("Couldn't copy. Try again.");
+    }
+  };
+
   const startReply = (message: DirectMessage) => {
     if (sendingSelections.current.has(draftScope) || sendAttempts.current.get(draftScope)?.unconfirmed) return;
     const opening = messageMenuOpening.current;
@@ -2163,6 +2187,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                             );
                           }
                         }}
+                        onPointerDownCapture={messageLongPress.resetClick}
+                        onClickCapture={messageLongPress.consumeClick}
                         onPointerDown={(event) => messageLongPress.start(event, () => openMessageActions(message))}
                         onPointerMove={messageLongPress.move}
                         onPointerUp={messageLongPress.cancel}
@@ -2332,6 +2358,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       <DropdownMenuItem disabled={sending || hasUnconfirmedSend} onSelect={() => startReply(message)}>
                                         <ArrowBendUpLeft weight="fill" className="h-3.5 w-3.5" aria-hidden="true" />
                                         Reply
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {openMessageMenu === message.id && !message.deletedForEveryoneAt && directMessagePlainText(message.content)?.trim() ? (
+                                      <DropdownMenuItem data-voice-control-id="messages-people-copy-text" onSelect={() => { void copyMessageText(message); }}>
+                                        Copy text
                                       </DropdownMenuItem>
                                     ) : null}
                                     {message.senderIsViewer && !message.deletedForEveryoneAt && !isWalletCardShare(message.content) ? (
