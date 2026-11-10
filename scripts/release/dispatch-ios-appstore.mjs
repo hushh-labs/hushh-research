@@ -4,7 +4,7 @@
  *
  * Wraps the GitHub Actions workflow "Release iOS to App Store"
  * (.github/workflows/release-ios-appstore.yml): it resolves the release SHA
- * (the current tip of origin/main by default — i.e. what is live), asks for an
+ * (the current tip of origin/main by default, which still needs serving admission), asks for an
  * explicit confirmation, dispatches through GitHub's versioned REST API, then
  * streams the run with `gh run watch`.
  *
@@ -14,7 +14,7 @@
  * runner, because GCP has no macOS instances and local builds hang inside iCloud
  * Drive. This script is the thin, auditable dispatcher.
  *
- * BACKEND: `--backend uat` (default) ships the same UAT backend + shared Firebase
+ * BACKEND: explicit `--backend uat` retains the legacy UAT backend + shared Firebase
  * authority (hushh-pda; config stored in hushh-pda-uat) as TestFlight. `--backend
  * production` maps to the workflow's `backend_target=production`: the binary
  * talks to one.hussh.ai and the production API, with the same shared Firebase
@@ -80,7 +80,7 @@ export function parseArgs(argv) {
     releaseAfterApproval: false,
     whatsNew: "",
     notes: "",
-    backend: "uat",
+    backend: "production",
     marketingVersion: null,
     yes: false,
     watch: true,
