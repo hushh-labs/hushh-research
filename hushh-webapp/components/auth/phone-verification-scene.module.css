@@ -4,7 +4,6 @@
 :global(.dark) .shapes { color: #e1e3ea; }
 .mascot { position: absolute; z-index: 2; left: 19cqw; top: 9cqw; width: 69cqw; height: auto; object-fit: contain; pointer-events: none; }
 .codeMascot { left: 16cqw; top: 8cqw; width: 71cqw; }
-.conflictMessage { display: none; }
 .sticker { position: absolute; z-index: 4; display: flex; align-items: center; gap: 2.3cqw; width: max-content; max-width: 85%; min-height: 11.5cqw; padding: 1.7cqw 3cqw; border: 1px solid #d9dde6; border-radius: 3cqw; background: #fff; color: #1d1d1f; box-shadow: 0 2cqw 5cqw #1717200d; font-family: var(--font-app-body); font-size: 3.5cqw; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; }
 :global(.dark) .sticker, :global(.dark) .codeDots { border-color: #393c47; background: #1b1c22; color: #f5f5f7; }
 .icon { display: grid; place-items: center; width: 7.2cqw; height: 7.2cqw; flex: 0 0 auto; border-radius: 2.1cqw; }

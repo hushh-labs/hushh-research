@@ -1,6 +1,6 @@
 """Phone-proven deletion of the account holding a verified number.
 
-A fresh real SMS proof authorizes
+A fresh real SMS proof (or, in UAT only, the configured fixture code) authorizes
 the existing full-account erasure of the number's current verified holder.
 Preparation is opaque: nothing about the holder is decided or revealed before
 the proof verifies. The requester then claims the number through the existing
@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from asyncpg import UniqueViolationError
+from asyncpg import LockNotAvailableError, UniqueViolationError
+from fastapi import HTTPException
 from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
@@ -51,7 +52,15 @@ _PRUNE = """DELETE FROM account_phone_linked_deletions WHERE operation_id IN
      WHERE (state IN ('prepared','cancelled') AND expires_at<clock_timestamp()-INTERVAL '1 hour')
         OR (state IN ('admitted','refused','pending','action_required')
             AND expires_at<clock_timestamp()-INTERVAL '90 days')
-     ORDER BY expires_at LIMIT 100)"""
+        -- An erased requester's receipt is unreadable; it only guards a spent
+        -- SMS event, which cannot authorize again after its 300 s window.
+        OR (requester_user_id IS NULL AND dispatched_at<clock_timestamp()-INTERVAL '10 minutes')
+     -- Never wait on a receipt another transaction holds: erasure and prepare()
+     -- both prune, and waiting here inverts their owner-barrier lock order.
+     ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED)"""
+# Account erasure runs the same bounded prune, so retained receipts age out
+# even when no new deletion is ever prepared.
+RECEIPT_PRUNE_SQL = _PRUNE
 # A rate limit, not a lock: an unsettled receipt never blocks the requester for good.
 _OPEN_DRAFTS = """SELECT count(*) FROM account_phone_linked_deletions WHERE requester_hash=$1 AND
     created_at>clock_timestamp()-INTERVAL '5 minutes'"""
@@ -66,6 +75,11 @@ _PENDING = """UPDATE account_phone_linked_deletions SET state='pending',proof_ev
     dispatched_at=clock_timestamp() WHERE operation_id=$1::uuid AND state='prepared'"""
 _FINISH = """UPDATE account_phone_linked_deletions SET state=$2,result_code=$3
     WHERE operation_id=$1::uuid AND state IN ('pending','action_required')"""
+_FAILED_PROOF = """UPDATE account_phone_linked_deletions SET failed_proof_count=failed_proof_count+1,
+    state=CASE WHEN failed_proof_count+1>=5 THEN 'cancelled' ELSE state END,
+    result_code=CASE WHEN failed_proof_count+1>=5 THEN 'PHONE_LINKED_DELETION_ATTEMPTS_EXCEEDED'
+                     ELSE result_code END
+    WHERE operation_id=$1::uuid AND requester_hash=$2 AND state='prepared'"""
 _CANCEL = """UPDATE account_phone_linked_deletions SET state='cancelled'
     WHERE operation_id=$1::uuid AND requester_hash=$2 AND state='prepared'"""
 _ADMITTED = """SELECT EXISTS(SELECT 1 FROM account_deletion_tombstones
@@ -77,7 +91,9 @@ class _Proof:
     method: str
     digest: str
     uid: str | None
-    valid_until: float
+    # A real SMS proof expires with its authentication event; configured UAT
+    # test codes are operation-scoped and carry no provider deadline.
+    valid_until: float | None = None
 
 
 def _production_runtime() -> bool:
@@ -88,7 +104,7 @@ def _production_runtime() -> bool:
 
 
 def enabled() -> bool:
-    """Restore the explicit rollout control; production remains off by default."""
+    """Off in production until the founder chooses its safeguards; explicit env wins."""
     explicit = str(os.getenv("HUSHH_PHONE_LINKED_DELETION_ENABLED") or "").strip().lower()
     if explicit:
         return explicit in {"1", "true", "yes", "on"}
@@ -106,6 +122,25 @@ def _normalized(phone: str) -> str:
     if not normalized:
         raise refuse("PHONE_RECOVERY_INVALID_NUMBER", 422)
     return normalized
+
+
+def fixture_transport(owner: str, phone: str) -> bool:
+    """A shared fixture code is possession only for UAT fixture numbers."""
+    from hushh_mcp.services import phone_test_transport as fixtures
+    from hushh_mcp.services.dev_reviewer_phone_transport import (
+        configured_dev_reviewer_phone_transport,
+    )
+
+    if _production_runtime() or not (
+        fixtures._is_uat_environment() or fixtures._isolated_phone_fixture_enabled()
+    ):
+        return False
+    reviewer = configured_dev_reviewer_phone_transport()
+    if reviewer is not None and reviewer.admits(owner, phone):
+        return False
+    return bool(fixtures._configured_uat_phone_test_code()) and (
+        phone in fixtures._configured_uat_phone_test_numbers()
+    )
 
 
 def _receipt(row: Any) -> dict[str, Any]:
@@ -135,12 +170,15 @@ async def prepare(owner: str, phone: str) -> dict[str, Any]:
     _require_enabled()
     normalized = _normalized(phone)
     requester = account_deletion_user_hash(owner)
+    # Prune in its own short transaction, so no pruned row stays locked while
+    # this operation waits on a holder's owner barrier below.
+    async with transaction() as conn:
+        await conn.execute(_PRUNE)
     async with transaction() as conn:
         await conn.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
             f"phone-linked-deletion:{requester}",
         )
-        await conn.execute(_PRUNE)
         if await conn.fetchval(_OPEN_DRAFTS, requester) >= 5:
             raise refuse("PHONE_RECOVERY_LIMIT_REACHED", 429)
         holder = await conn.fetchval(
@@ -160,7 +198,7 @@ async def prepare(owner: str, phone: str) -> dict[str, Any]:
             account_deletion_phone_digest(normalized),
             current["binding_revision"] if current else None,
             current["generation"] if current else None,
-            "sms",
+            "configured_test" if fixture_transport(owner, normalized) else "sms",
         )
     return {
         "operation_id": str(row["operation_id"]),
@@ -220,7 +258,7 @@ async def _admit(owner: str, operation: str, row: Any, proof: _Proof) -> dict[st
             if locked["state"] != "prepared" or not locked["live"]:
                 return _receipt(locked)
             code = None
-            if proof.valid_until <= await conn.fetchval(
+            if proof.valid_until is not None and proof.valid_until <= await conn.fetchval(
                 "SELECT extract(epoch FROM clock_timestamp())"
             ):
                 code = "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED"
@@ -275,14 +313,20 @@ async def _dispatch(
     return _receipt(finished)
 
 
-def _admission_check(row: Any, valid_until: float) -> Callable[[Any], None]:
-    """Recheck the proven binding under the erasure's exclusive owner locks."""
+def _admission_check(row: Any, valid_until: float | None) -> Callable[[Any], None]:
+    """Recheck the proof deadline and proven binding under the erasure's owner locks."""
     from hushh_mcp.services.account_service import AccountDeletionAdmissionRefused
 
     target = row["target_user_id"]
     expected = (row["phone_digest"], row["binding_revision"], row["generation"])
 
     def check(conn: Any) -> None:
+        if (
+            valid_until is not None
+            and valid_until
+            <= conn.execute(text("SELECT extract(epoch FROM clock_timestamp())")).scalar()
+        ):
+            raise AccountDeletionAdmissionRefused("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED")
         identity = (
             conn.execute(
                 text(
@@ -300,11 +344,6 @@ def _admission_check(row: Any, valid_until: float) -> Callable[[Any], None]:
             ),
             {"owner": target},
         ).scalar()
-        if (
-            valid_until
-            <= conn.execute(text("SELECT extract(epoch FROM clock_timestamp())")).scalar()
-        ):
-            raise AccountDeletionAdmissionRefused("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED")
         if (
             not identity
             or identity["phone_verified"] is not True
@@ -329,13 +368,30 @@ async def _verify_proof(
     phone_id_token: str | None,
     test_code: str | None,
 ) -> _Proof:
-    # A shared code proves neither possession nor authority over another owner.
-    # Historical fixture operations cannot be upgraded into real-SMS operations.
-    if test_code or transport == "configured_test":
-        raise refuse("PHONE_LINKED_DELETION_REAL_SMS_REQUIRED", 403)
-    if not phone_id_token:
+    if bool(phone_id_token) == bool(test_code) or (transport == "configured_test") != bool(
+        test_code
+    ):
         raise refuse("PHONE_LINKED_DELETION_PROOF_REQUIRED", 403)
-    event, uid, valid_until = await _sms_event(phone_id_token, phone)
+    if test_code:
+        if not fixture_transport(owner, phone):
+            raise refuse("PHONE_LINKED_DELETION_REAL_SMS_REQUIRED", 403)
+        from hushh_mcp.services.phone_test_transport import (
+            _create_uat_phone_test_verification_id,
+            validate_phone_test_confirmation,
+        )
+
+        try:
+            validate_phone_test_confirmation(
+                owner, phone, _create_uat_phone_test_verification_id(phone), test_code
+            )
+        except HTTPException:
+            async with transaction() as conn:
+                await conn.execute(_FAILED_PROOF, operation, account_deletion_user_hash(owner))
+            raise
+        # Fixture proof is scoped to this requester's operation only.
+        event = f"phone-linked-fixture:{owner}:{operation}"
+        return _Proof("configured_test", hashlib.sha256(event.encode()).hexdigest(), None)
+    event, uid, valid_until = await _sms_event(phone_id_token or "", phone)
     return _Proof("sms", hashlib.sha256(event.encode()).hexdigest(), uid, valid_until)
 
 
@@ -358,9 +414,10 @@ async def _sms_event(token: str, phone: str) -> tuple[str, str, float]:
     if actual != phone or not uid:
         raise refuse("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED", 403)
     await run_in_threadpool(assert_real_sms_provider, get_firebase_auth_app(), phone)
-    if metadata["valid_until"] <= time.time():
+    valid_until = float(metadata["valid_until"])
+    if valid_until <= time.time():
         raise refuse("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED", 403)
-    return f"phone-linked-sms:{metadata['event']}", uid, metadata["valid_until"]
+    return f"phone-linked-sms:{metadata['event']}", uid, valid_until
 
 
 async def _recovery_required(uid: str, phone: str) -> bool:
@@ -419,10 +476,18 @@ async def status(owner: str, operation: str) -> dict[str, Any]:
     async with transaction() as conn:
         row = await _row(conn, owner, operation)
         if row["state"] in {"pending", "action_required"}:
-            if await conn.fetchval(_ADMITTED, row["target_hash"]):
-                await conn.execute(_FINISH, operation, "admitted", None)
-            elif row["state"] == "pending" and row["stale"]:
-                await conn.execute(_FINISH, operation, "action_required", row["result_code"])
+            try:
+                # An erasure holds this receipt until it commits. Report the current
+                # outcome instead of failing; a later read settles it.
+                async with conn.transaction():
+                    if await conn.fetchval(_ADMITTED, row["target_hash"]):
+                        await conn.execute(_FINISH, operation, "admitted", None)
+                    elif row["state"] == "pending" and row["stale"]:
+                        await conn.execute(
+                            _FINISH, operation, "action_required", row["result_code"]
+                        )
+            except LockNotAvailableError:
+                return _receipt(row)
             row = await _row(conn, owner, operation)
         return _receipt(row)
 

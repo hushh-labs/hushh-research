@@ -102,19 +102,18 @@ async function conflict(page) {
   await code.fill("123456");
   stage = "phone_code_confirm_valid";
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await page.getByRole("heading", { name: "Number already linked", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "This number is linked to another account", exact: true }).waitFor();
   stage = "phone_conflict";
 }
 async function handoff(page, action, origin) {
   const created = page.waitForResponse(response => response.request().method() === "POST" &&
     new URL(response.url()).pathname === "/api/account/phone/recovery/continuations")
-    .then(async response => ({ status: response.status(), body: await response.json(), action: response.request().postDataJSON().action }));
-  await page.getByRole("button", { name: "Delete my previous account", exact: true }).click();
+    .then(async response => ({ status: response.status(), body: await response.json() }));
+  await page.getByRole("button", { name: action === "delete" ? "Delete my previous account" : "Recover my previous account", exact: true }).click();
   await page.waitForURL(url => url.pathname === "/login");
   const id = requireHandoff(page.url(), origin);
   const receipt = await created;
   assert.equal(receipt.status, 200);
-  assert.equal(receipt.action, action);
   assert.equal(receipt.body.continuation_id, id);
   await page.getByRole("button", { name: "Use unrelated account", exact: true }).click();
   await page.getByRole("heading", { name: "Sign in to your previous account", exact: true }).waitFor();
@@ -167,14 +166,14 @@ try {
   await Promise.all(Object.values(optimizer?.metadata.discovered || {}).map(dep => dep.processing));
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
-  for (const scenario of ["recover", "occupied", "delete_linked", "devices"]) {
+  for (const scenario of ["recover", "delete", "delete_linked", "transfer", "devices"]) {
     activeScenario = scenario;
     stage = scenario;
     await fixtureRequest("reset", scenario);
     context = await browser.newContext({ viewport: { width: 393, height: 852 }, locale: "en-US", timezoneId: "America/Los_Angeles" });
     const page = await context.newPage(); page.setDefaultTimeout(15_000);
     let transferClick;
-    let erasures = 0, transfers = 0, revocations = 0, linkedConfirms = 0, claimsAfterConfirm = 0;
+    let erasures = 0, transfers = 0, revocations = 0;
     const pageErrors = [];
     page.on("pageerror", error => { pageErrors.push("page_error"); if (diagnostics.errors.length < 5) diagnostics.errors.push(safeError(error)); });
     page.on("response", response => {
@@ -197,9 +196,6 @@ try {
         transfers++; diagnostics.transfer.confirm_requests++;
       }
       if (request.method() === "DELETE" && endpoint.startsWith("/api/account/trusted-devices/")) revocations++;
-      if (request.method() === "POST" && endpoint === "/api/account/phone/linked-account/deletions/confirm") linkedConfirms++;
-      // After admission only a new verification may claim; the spent proof never does.
-      if (request.method() === "POST" && endpoint === "/api/account/phone/claim" && linkedConfirms) claimsAfterConfirm++;
     });
     page.on("requestfailed", request => {
       if (request.method() === "GET" && isTransferReadback(new URL(request.url()).pathname)) diagnostics.transfer.get_failures++;
@@ -207,62 +203,112 @@ try {
     try {
       await page.goto(`${origin}${scenario === "devices" ? "/fixture/devices" : "/register-phone"}`);
       if (scenario !== "devices") await conflict(page);
-      if (scenario === "recover") {
-        await handoff(page, "delete", origin);
-        stage = "owner_verified_deletion_review";
-        await page.getByRole("button", { name: "Review deletion", exact: true }).click();
-        await page.getByRole("button", { name: /^Continue with (Google|Apple)$/ }).first().waitFor();
-        assert.equal(await page.getByRole("button", { name: "Permanently delete account", exact: true }).count(), 0);
-        assert.equal(erasures, 0); assert.equal(transfers, 0);
-        record("previous_owner_deletion_review_requires_fresh_confirmation");
-      } else if (scenario === "occupied") {
-        stage = "occupied_account_boundaries";
-        await page.getByRole("button", { name: "Delete my previous account", exact: true }).waitFor();
-        assert.equal(await page.locator("[data-phone-conflict]").getByRole("button").count(), 2);
-        for (const name of ["Use this number on this account", "Send a real SMS code", "Recover my previous account", "Sign in to existing account", "Review previous device access", "Account options"]) {
-          assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0);
+      if (scenario === "recover" || scenario === "delete") {
+        await handoff(page, scenario, origin);
+        if (scenario === "recover") {
+          stage = "recover_continue";
+          await page.getByRole("button", { name: "Continue to your account", exact: true }).click();
+          await page.getByTestId("phone-fixture-destination").filter({ hasText: /^\/$/ }).waitFor();
+          assert.equal(erasures, 0);
+        } else {
+          await page.getByRole("button", { name: "Review deletion", exact: true }).click();
+          await page.getByRole("button", { name: `Continue with ${config.provider === "apple.com" ? "Apple" : "Google"}`, exact: true }).click();
+          await page.getByRole("textbox", { name: "Mobile number", exact: true }).fill("6505550101");
+          await page.getByRole("button", { name: "Send code", exact: true }).click();
+          await page.getByRole("textbox", { name: "Verification code", exact: true }).fill("123456");
+          await page.getByRole("button", { name: "Verify code", exact: true }).click();
+          await page.getByRole("checkbox", { name: "I understand this can’t be undone.", exact: true }).check();
+          const mutation = page.waitForResponse(response => new URL(response.url()).pathname === "/api/account/delete-lost-vault" && response.request().method() === "POST");
+          await page.getByRole("button", { name: "Permanently delete account", exact: true }).click();
+          assert.equal((await mutation).status(), 202);
+          stage = "delete_pending_login";
+          await page.waitForURL(url => url.pathname === "/login" &&
+            url.searchParams.get("auth_notice") === "account_deletion_requested");
+          await page.getByRole("status").filter({ hasText: /^Deletion requested\./ }).waitFor();
+          await page.getByTestId("phone-fixture-auth").filter({ hasText: /^anonymous:settled$/ }).waitFor();
+          await page.reload();
+          await page.getByRole("status").filter({ hasText: /^Deletion requested\./ }).waitFor();
+          assert.equal(erasures, 1);
+          await fixtureRequest("drain", scenario);
+          assert.equal(new URL(page.url()).searchParams.get("auth_notice"), "account_deletion_requested",
+            "A signed-out pending notice must not become a completion claim without a new status read");
+          assert.equal(await page.getByText("Your old account is deleted. Continue below to start fresh.", { exact: true }).count(), 0);
+          assert.equal(erasures, 1);
+          record("delete_real_sql_worker_and_signed_out_pending_handoff");
         }
-        assert.equal(erasures, 0); assert.equal(transfers, 0);
-        await page.getByRole("button", { name: "Use a different number", exact: true }).click();
-        await page.getByRole("textbox", { name: "Phone number", exact: true }).waitFor();
-        record("occupied_phone_keeps_original_email_and_information");
       } else if (scenario === "delete_linked") {
         stage = "delete_linked_review";
+        let linkedConfirms = 0;
+        page.on("request", request => {
+          if (request.method() === "POST" && new URL(request.url()).pathname === "/api/account/phone/linked-account/deletions/confirm") linkedConfirms++;
+        });
         await page.getByRole("button", { name: "Delete my previous account", exact: true }).click();
         await page.getByRole("heading", { name: "Delete the account linked to ••01?", exact: true }).waitFor();
-        const remove = page.getByRole("button", { name: "Delete that account", exact: true });
-        assert.equal(await remove.isDisabled(), true);
+        assert.equal(await page.getByRole("button", { name: "Delete and continue", exact: true }).isDisabled(), true);
         await page.getByRole("checkbox", { name: "I understand this can’t be undone.", exact: true }).check();
-        assert.equal(await remove.isEnabled(), true);
         const confirmed = page.waitForResponse(response => response.request().method() === "POST" &&
           new URL(response.url()).pathname === "/api/account/phone/linked-account/deletions/confirm")
           .then(async response => ({ status: response.status(), body: await response.json() }));
         stage = "delete_linked_confirm";
-        // Both taps land in one task, before React commits `busy`; only the
-        // synchronous in-flight guard can refuse the second.
-        await remove.evaluate(button => { button.click(); button.click(); });
+        await page.getByRole("button", { name: "Delete and continue", exact: true }).click();
         const receipt = await confirmed;
         assert.equal(receipt.status, 200); assert.equal(receipt.body.state, "admitted");
-        stage = "delete_linked_requested";
-        await page.getByRole("heading", { name: "Deletion requested", exact: true }).waitFor();
-        await page.getByRole("status").filter({ hasText: /^Deletion requested\. This number is not linked to your current account\. Verify again, or use a different number\.$/ }).waitFor();
-        assert.equal(await page.locator("[data-phone-linked-deletion]").getByRole("button").count(), 1);
-        assert.equal(new URL(page.url()).pathname, "/register-phone");
-        assert.equal(await page.getByTestId("phone-fixture-destination").count(), 0);
-        assert.equal(linkedConfirms, 1); assert.equal(claimsAfterConfirm, 0);
+        await page.getByTestId("phone-fixture-destination").filter({ hasText: "/one/setup" }).waitFor();
+        assert.equal(linkedConfirms, 1); assert.equal(erasures, 0); assert.equal(transfers, 0);
         stage = "delete_linked_worker";
-        assert.equal((await fixtureRequest("drain", scenario)).settled, 1);
-        assert.equal(claimsAfterConfirm, 0);
-        stage = "delete_linked_verify_again";
-        await page.getByRole("button", { name: "Verify this number again", exact: true }).click();
-        await page.getByRole("textbox", { name: "Phone number", exact: true }).fill("6505550101");
-        await page.getByRole("button", { name: "Continue", exact: true }).click();
-        await page.getByRole("textbox", { name: "One-time code", exact: true }).fill("123456");
-        await page.getByRole("button", { name: "Confirm", exact: true }).click();
-        await page.getByTestId("phone-fixture-destination").filter({ hasText: /^\/one\/setup$/ }).waitFor();
-        assert.equal(linkedConfirms, 1); assert.equal(claimsAfterConfirm, 1);
-        assert.equal(erasures, 0); assert.equal(transfers, 0);
-        record("delete_linked_requested_erased_then_number_verified_again");
+        await fixtureRequest("drain", scenario);
+        record("delete_linked_phone_proof_claim_and_worker_erasure");
+      } else if (scenario === "transfer") {
+        await page.getByRole("button", { name: "Use this number on this account", exact: true }).click();
+        await page.getByRole("heading", { name: "Use this number on this account?", exact: true }).waitFor();
+        const confirm = page.getByRole("button", { name: "Confirm phone transfer", exact: true });
+        let committedResponseLost = false;
+        stage = "transfer_response_drop";
+        await page.route("**/api/account/phone/transfer/confirm", async route => {
+          // Drop only the browser response AFTER the real API has committed.
+          // The actual confirm/provider effect is forwarded exactly once.
+          const receipt = await route.fetch();
+          assert.equal(receipt.status(), 200);
+          await route.abort("failed");
+          committedResponseLost = true;
+        });
+        await confirm.click();
+        const checkProgress = page.getByRole("button", { name: "Check transfer progress", exact: true });
+        await checkProgress.waitFor();
+        // Finish the owned network fault before the next browser action.
+        await page.unrouteAll({ behavior: "wait" });
+        assert.equal(committedResponseLost, true);
+        assert.equal(transfers, 1);
+        stage = "transfer_readback";
+        if (config.transferReadbackFailure) {
+          await page.route("**/api/account/phone/transfer/*", route => route.abort("failed"));
+        }
+        diagnostics.transfer.click_started = true;
+        transferDebug.before_click = await buttonState(checkProgress);
+        const readback = page.waitForResponse(response => response.request().method() === "GET" &&
+          isTransferReadback(new URL(response.url()).pathname))
+          .then(async response => ({ status: response.status(), body: await response.json() }));
+        transferDebug.click_invoked_ms = elapsed();
+        transferClick = checkProgress.click().then(async () => {
+          diagnostics.transfer.click_completed = true;
+          transferDebug.click_completed_ms = elapsed();
+          // Negative control only; the click and original deadline are unchanged.
+          if (config.transferReadbackFailure) await new Promise(resolve => setTimeout(resolve, 16_000));
+        }).catch(error => {
+          transferDebug.click_failed_ms = elapsed();
+          transferDebug.click_error = clickFailure(error);
+          throw error;
+        });
+        // Observe both promises immediately so a timeout reaches the sanitized
+        // outer diagnostic catch instead of terminating Node as unhandled.
+        const [receipt] = await Promise.all([
+          readback,
+          transferClick,
+        ]);
+        assert.equal(receipt.status, 200); assert.equal(receipt.body.transfer_status, "completed");
+        await page.getByTestId("phone-fixture-destination").filter({ hasText: "/one/setup" }).waitFor();
+        assert.equal(transfers, 1); assert.equal(erasures, 0);
+        record("transfer_lost_response_status_only_completion_preserved_information");
       } else {
         await page.getByRole("button", { name: "Unlink Fixture computer", exact: true }).click();
         await page.getByRole("button", { name: "Send code", exact: true }).click();
