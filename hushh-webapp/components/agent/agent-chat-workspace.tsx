@@ -281,6 +281,7 @@ import {
   executeTrustedActivationGatewayAction,
   type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
+import { settleChatLocationNavigation } from "@/lib/agent/agent-gateway-action-settlement";
 import {
   clearAgentPkmContext,
   loadAgentPkmContext,
@@ -6298,6 +6299,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             phase: "navigating",
             message: `Opening ${action?.label ?? "your request"}`,
           });
+          void settleChatLocationNavigation(result);
         }
         appInteractionCoordinator.finishActionRunFromSettlement(actionRun.id, {
           status: result.status,
@@ -7557,6 +7559,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               phase: "navigating",
               message: `Opening ${action?.label ?? "your request"}`,
             });
+            void settleChatLocationNavigation(result);
           }
           appInteractionCoordinator.finishActionRunFromSettlement(
             actionRun.id,

@@ -43,6 +43,16 @@ vi.mock("@/lib/morphy-ux/hooks/use-page-enter", () => ({
   usePageEnterAnimation: () => undefined,
 }));
 
+const activityAttempt = vi.hoisted(() => ({
+  capture: vi.fn(),
+  started: vi.fn(),
+  settled: vi.fn(),
+}));
+vi.mock("@/lib/observability/product-activity-client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/observability/product-activity-client")>(),
+  captureProductAttempt: activityAttempt.capture,
+}));
+
 function openDropdownMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
 }
@@ -2360,6 +2370,20 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
     expect(screen.queryByText("Check-In")).toBeNull();
     expect(screen.queryByText("Quick actions")).toBeNull();
+  });
+
+  it("records a single Location Settings attempt when the person opens the in-app controls", async () => {
+    activityAttempt.capture.mockReturnValue(activityAttempt);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings", exact: true }));
+
+    expect(await screen.findByRole("heading", { name: "Settings", exact: true })).toBeTruthy();
+    expect(activityAttempt.capture).toHaveBeenCalledExactlyOnceWith("location.open_settings", "user_a");
+    expect(activityAttempt.started).toHaveBeenCalledTimes(1);
+    expect(activityAttempt.settled).toHaveBeenCalledExactlyOnceWith("returned");
+    expect(mockOpenLocationSettings).not.toHaveBeenCalled();
   });
 
   it("keeps the heading and location toggle inline as the only header action", async () => {
