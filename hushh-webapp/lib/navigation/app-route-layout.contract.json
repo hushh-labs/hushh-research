@@ -2676,7 +2676,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: transfer review and a linked-account deletion review that sent nothing return to recovery choices, a deletion review whose confirmation was sent or whose proof is spent or expired (including after deletion is requested) returns to phone entry, choices return to phone entry, and a dispatched transfer or an in-flight deletion confirmation consumes Back until the request settles. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: transfer review and linked-account deletion review return to recovery choices, choices return to phone entry, and a dispatched transfer or unconfirmed deletion consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {

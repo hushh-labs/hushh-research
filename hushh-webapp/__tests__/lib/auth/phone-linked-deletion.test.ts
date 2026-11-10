@@ -1,8 +1,8 @@
 import type { User } from "firebase/auth";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { confirmLinkedDeletion, linkedDeletionMessage, linkedDeletionNeedsFreshProof, type LinkedDeletionPorts } from "@/lib/auth/phone-linked-deletion";
+import { confirmLinkedDeletion, type LinkedDeletionPorts } from "@/lib/auth/phone-linked-deletion";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
-import { apiErrorCode } from "@/lib/services/api-client";
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
 
 const user = { uid: "owner" } as User;
@@ -10,56 +10,26 @@ const input = { operationId: "op-1", phoneNumber: "+16505550101" };
 const verified = { user_id: "owner", phone_number: "+16505550101", phone_verified: true };
 
 function ports(retained: { token: string; userId: string; epoch: number } | null = { token: "sms-proof", userId: "owner", epoch: 3 }) {
-  return { user: () => user, retained: () => retained, requireOwner: vi.fn(), releaseProof: vi.fn() } satisfies LinkedDeletionPorts;
+  return { user: () => user, retained: () => retained, requireOwner: vi.fn(), finalize: vi.fn() } satisfies LinkedDeletionPorts;
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("confirmLinkedDeletion", () => {
-  it("reads a lost response without re-sending deletion or claiming with the previous UID proof", async () => {
+  it("reads a lost response back instead of re-sending the deletion, then claims with the same proof", async () => {
     vi.useFakeTimers();
     const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new TypeError("Failed to fetch"));
     const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
     const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockResolvedValue(verified as never);
     const owner = ports();
-    const result = confirmLinkedDeletion(input, owner).catch(error => error);
+    const result = confirmLinkedDeletion(input, owner);
     await vi.runAllTimersAsync();
-    const failure = await result;
-    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
-    expect(failure.message).toContain("Deletion requested.");
-    expect(failure.message).not.toMatch(/was deleted/i);
+    await expect(result).resolves.toBe(user);
     expect(confirm).toHaveBeenCalledOnce();
     expect(status).toHaveBeenCalledOnce();
-    expect(claim).not.toHaveBeenCalled();
+    expect(claim).toHaveBeenCalledExactlyOnceWith(user, "sms-proof");
     expect(owner.requireOwner).toHaveBeenCalledWith("owner", 3);
-    expect(owner.releaseProof).toHaveBeenCalledOnce();
-  });
-
-  it("refuses a shared test code locally and never sends it as deletion authority", async () => {
-    const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion");
-    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
-    const owner = ports();
-    const failure = await confirmLinkedDeletion({ ...input, testCode: "123456" }, owner).catch(error => error);
-    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_DELETION_REAL_SMS_REQUIRED");
-    expect(linkedDeletionNeedsFreshProof(apiErrorCode(failure))).toBe(true);
-    expect(confirm).not.toHaveBeenCalled();
-    expect(claim).not.toHaveBeenCalled();
-    expect(owner.releaseProof).not.toHaveBeenCalled();
-  });
-
-  it("reports a late admission as requested without releasing a newer same-owner attempt", async () => {
-    let admit!: (value: { operation_id: string; state: "admitted" }) => void;
-    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockReturnValue(new Promise(resolve => { admit = resolve; }));
-    const owner = ports();
-    const result = confirmLinkedDeletion(input, owner).catch(error => error);
-    expect(owner.requireOwner).toHaveBeenCalledOnce();
-    owner.requireOwner.mockImplementation(() => { throw new Error("Phone attempt changed"); });
-    admit({ operation_id: "op-1", state: "admitted" });
-    const failure = await result;
-    // The deletion was requested either way; only the release belongs to the attempt that sent it.
-    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
-    expect(failure.message).toContain("Deletion requested.");
-    expect(owner.releaseProof).not.toHaveBeenCalled();
+    expect(owner.finalize).toHaveBeenCalledExactlyOnceWith(user);
   });
 
   it("keeps a lost response that still reads back pending unconfirmed, never refused", async () => {
@@ -67,72 +37,18 @@ describe("confirmLinkedDeletion", () => {
     vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new TypeError("Failed to fetch"));
     vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "pending" });
     const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
-    const owner = ports();
-    const result = confirmLinkedDeletion(input, owner).catch(error => error);
+    const result = confirmLinkedDeletion(input, ports()).catch(error => error);
     await vi.runAllTimersAsync();
     expect(apiErrorCode(await result)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
     expect(claim).not.toHaveBeenCalled();
-    // Nothing is released while the outcome is unknown.
-    expect(owner.releaseProof).not.toHaveBeenCalled();
   });
 
-  it("keeps a timed-out confirmation that reads back prepared unconfirmed, because it can still be admitted", async () => {
-    vi.useFakeTimers();
-    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new DOMException("The operation timed out.", "TimeoutError"));
-    const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "prepared" });
-    const owner = ports();
-    const result = confirmLinkedDeletion(input, owner).catch(error => error);
-    await vi.runAllTimersAsync();
-    // Never a retryable "Couldn't reach One" with Cancel while the sent request may still run.
-    expect(apiErrorCode(await result)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
-    expect(status).toHaveBeenCalledOnce();
-    expect(owner.releaseProof).not.toHaveBeenCalled();
-  });
-
-  it("rechecks by reading back only, and reports admission truthfully even after the owner fence moved", async () => {
-    const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion");
-    const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
-    // No proof is retained for this attempt any more, so none can be sent or released.
-    const owner = ports(null);
-    const failure = await confirmLinkedDeletion({ ...input, recheck: true }, owner).catch(error => error);
-    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
-    expect(confirm).not.toHaveBeenCalled();
-    expect(status).toHaveBeenCalledExactlyOnceWith(user, "op-1", expect.any(Function));
-    expect(owner.releaseProof).not.toHaveBeenCalled();
-  });
-
-  it("keeps a recheck that still reads prepared unconfirmed and never sends the deletion", async () => {
-    const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion");
-    vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "prepared" });
-    const owner = ports();
-    const failure = await confirmLinkedDeletion({ ...input, recheck: true }, owner).catch(error => error);
-    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
-    expect(confirm).not.toHaveBeenCalled();
-    expect(owner.releaseProof).not.toHaveBeenCalled();
-  });
-
-  it("requires fresh same-owner verification when no holder was found, without calling the number free", async () => {
+  it("never reports a deletion when no holder was found and the claim failed", async () => {
     vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "refused", code: "PHONE_LINKED_ACCOUNT_NOT_FOUND" });
-    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
-    const owner = ports();
-    const failure = await confirmLinkedDeletion(input, owner).catch(error => error);
-    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_ACCOUNT_NOT_FOUND");
-    expect(failure.message).not.toMatch(/deleted|expired|no other account is using/i);
-    expect(failure.message).toContain("an earlier deletion may still be finishing");
-    expect(claim).not.toHaveBeenCalled();
-    expect(owner.releaseProof).toHaveBeenCalledOnce();
-  });
-
-  it("keeps requested, not-found and expired outcomes distinct and never reports erasure", () => {
-    const requested = linkedDeletionMessage("PHONE_LINKED_CLAIM_REQUIRED");
-    const notFound = linkedDeletionMessage("PHONE_LINKED_ACCOUNT_NOT_FOUND");
-    const expired = linkedDeletionMessage("PHONE_LINKED_DELETION_PROOF_REQUIRED");
-    expect(new Set([requested, notFound, expired]).size).toBe(3);
-    for (const message of [requested, notFound, expired]) expect(message).not.toMatch(/was deleted|erased|freed/i);
-    expect(expired).toMatch(/expired/i);
-    // Decoding the proof fails before any write, so the same review may retry.
-    expect(linkedDeletionNeedsFreshProof("PHONE_PROOF_SERVICE_UNAVAILABLE")).toBe(false);
-    expect(linkedDeletionNeedsFreshProof("PHONE_LINKED_ACCOUNT_NOT_FOUND")).toBe(true);
+    vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockRejectedValue(new ApiError("taken", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }));
+    const failure = await confirmLinkedDeletion(input, ports()).catch(error => error);
+    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_ACCOUNT_CHANGED");
+    expect(failure.message).not.toMatch(/deleted/i);
   });
 
   it.each(["PHONE_LINKED_ACCOUNT_PROTECTED", "PHONE_LINKED_DELETION_STALE"])("never claims after a %s refusal", async code => {
@@ -142,18 +58,17 @@ describe("confirmLinkedDeletion", () => {
     const failure = await confirmLinkedDeletion(input, owner).catch(error => error);
     expect(apiErrorCode(failure)).toBe(code);
     expect(claim).not.toHaveBeenCalled();
-    expect(owner.releaseProof).not.toHaveBeenCalled();
+    expect(owner.finalize).not.toHaveBeenCalled();
   });
 
-  it("requires a proof for real numbers and never links a merely admitted deletion", async () => {
+  it("requires a proof for real numbers and reports an admitted deletion whose claim failed", async () => {
     const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
-    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
     expect(apiErrorCode(await confirmLinkedDeletion(input, ports(null)).catch(error => error))).toBe("PHONE_LINKED_PROOF_REQUIRED");
     expect(confirm).not.toHaveBeenCalled();
+    vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockRejectedValue(new ApiError("taken", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }));
     const owner = ports();
     const failure = await confirmLinkedDeletion(input, owner).catch(error => error);
     expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
-    expect(claim).not.toHaveBeenCalled();
-    expect(owner.releaseProof).toHaveBeenCalledOnce();
+    expect(owner.finalize).not.toHaveBeenCalled();
   });
 });
