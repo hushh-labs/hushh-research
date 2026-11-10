@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import { Loader2 } from "@/components/icons";
 
 import {
@@ -228,7 +229,7 @@ export function SmsContactsFlow({
                 aria-controls={"sms-panel-" + entry.value}
                 onClick={() => setTab(entry.value)}
                 className={cn(
-                  "press-scale h-10 flex-1 rounded-full text-[15px] font-semibold transition-colors",
+                  "ui-text-agent-tab-label min-h-11 flex-1 rounded-full px-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   active
                     ? "bg-[color:var(--app-card-surface-default-solid)] text-foreground shadow-sm"
                     : "text-muted-foreground",
@@ -426,9 +427,11 @@ export function SmsContactsFlow({
               )}
             </AlertDialogAction>
             <AlertDialogCancel
-              variant="secondary"
+              variant="ghost"
+              size="standard"
               disabled={removing}
-              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-[color:var(--app-label)] hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
+              className={QUIET_FLOW_ACTION_CLASSNAME}
+              disableHoverRipple
             >
               Cancel
             </AlertDialogCancel>

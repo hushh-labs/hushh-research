@@ -212,7 +212,7 @@ for (const width of [320, 393, 430, 1440]) {
     await awaitProductFont(page);
     const status = page.getByTestId("one-location-header-status");
     const geometry = await status.evaluate((node) => ({ size: parseFloat(getComputedStyle(node).fontSize), width: node.clientWidth, scrollWidth: node.scrollWidth, tapHeight: node.closest("label")!.getBoundingClientRect().height }));
-    expect(geometry.size).toBe(13);
+    expect(geometry.size).toBe(12);
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
     expect(geometry.tapHeight).toBeGreaterThanOrEqual(44);
     const alignment = await status.evaluate(node => {
@@ -247,6 +247,11 @@ for (const width of [320, 393, 430, 1440]) {
     await page.locator("html").evaluate(node => { node.style.fontSize = ""; });
     const share = page.getByRole("button", { name: "Share location", exact: true });
     const caption = page.getByText("Choose a Circle or contact.", { exact: true });
+    const shareTitle = page.getByText("You're not sharing", { exact: true });
+    await expect(shareTitle).toHaveCSS("font-size", "14px");
+    await expect(shareTitle).toHaveCSS("line-height", "22px");
+    await expect(shareTitle).toHaveCSS("font-weight", "600");
+    await expect(caption).toHaveCSS("font-size", "12px");
     if (width < 640) expect(Math.abs((await share.boundingBox())!.x - (await caption.boundingBox())!.x)).toBeLessThanOrEqual(1);
     await share.click();
     await expect(page.locator("body")).toHaveAttribute("data-shared", "true");

@@ -319,7 +319,7 @@ export default function OneLocationCircleInvitePageClient({
               <h1 data-location-type-role="flow-title" className="ui-text-agent-title mt-1">
                 Connect on One
               </h1>
-              <p className="mt-3 text-[15px] font-normal leading-[20px] text-muted-foreground">
+              <p className="ui-text-page-subtitle mt-3 text-muted-foreground">
                 {loading
                   ? "Checking Invite to One link."
                   : error
@@ -345,7 +345,7 @@ export default function OneLocationCircleInvitePageClient({
                 <p data-location-type-role="row-description" className="text-sm text-muted-foreground">Ask the person who invited you for a new link.</p>
                 <Button asChild className="min-h-11 w-full rounded-full"><Link href={ROUTES.ONE_HOME}>Open One</Link></Button>
               </div>
-            ) : <Button data-location-type-role="primary-action" onClick={() => setInviteLoadAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
+            ) : <Button data-location-type-role="primary-action" size="standard" onClick={() => setInviteLoadAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
           ) : null}
 
           {!loading && invite ? (
@@ -371,7 +371,7 @@ export default function OneLocationCircleInvitePageClient({
               {phoneCheckError ? (
                 <div role="alert" className="space-y-2">
                   <p data-location-type-role="row-description" className="text-sm text-muted-foreground">Couldn't check your account. Please try again.</p>
-                  <Button data-location-type-role="primary-action" onClick={() => setPhoneCheckAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
+                  <Button data-location-type-role="primary-action" size="standard" onClick={() => setPhoneCheckAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
                 </div>
               ) : auth.loading || checkingPhone ? (
                 <Button data-location-type-role="primary-action" disabled className="h-11 rounded-full">
@@ -400,9 +400,11 @@ export default function OneLocationCircleInvitePageClient({
                 </div>
               ) : (
                 <Button data-location-type-role="primary-action"
+                  size="prominent"
+                  data-location-action-fit=""
                   onClick={() => void handleClaim()}
                   disabled={!canClaim || claiming}
-                  className="min-h-11 w-full rounded-full"
+                  className="h-auto w-full rounded-full py-3"
                 >
                   {claiming ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />

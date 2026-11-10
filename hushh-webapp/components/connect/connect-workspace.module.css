@@ -662,6 +662,22 @@
 .viewTabs :global([data-slot="tabs-trigger"][data-state="inactive"]) {
   --app-label: var(--app-secondary-label);
 }
+.inviteCodeActions > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.inviteCodeActions > div > div {
+  width: auto;
+}
+
+.inviteCodeActions button {
+  width: auto;
+}
+
 .quietAction {
   --type-compact-button-label-size: 12px;
   --type-compact-button-label-weight: 550;

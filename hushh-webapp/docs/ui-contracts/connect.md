@@ -178,6 +178,7 @@ but the ordinary UI has no control that enables selection mode.
 ### Circle task surfaces
 
 Circle Add people, Rename and Invite code use the shared task surface anatomy.
+An active Invite code presents Share invite as the filled primary action, Copy code as the secondary outlined action, and the owner-only Replace code as a quiet text action. The controls size to their labels and can move onto another row. The Share glyph inherits the primary label color.
 Bottom Sheets become centered at 768px through CSS, preserving the mounted
 form, selection and existing callbacks. Create keeps its existing Dialog and
 page variants; Join remains its existing page flow. Circle member actions

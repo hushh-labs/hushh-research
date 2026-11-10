@@ -24,7 +24,7 @@ export const PUBLIC_LINK_DURATION_GROUP_CLASSNAME = "w-full";
 export const PUBLIC_LINK_SELECT_CLASSNAME = "h-12 rounded-full px-4";
 
 export const PUBLIC_LINK_PRIMARY_CTA_CLASSNAME =
-  "ui-text-button-label h-12 min-h-12 w-auto max-w-full self-start rounded-full px-6 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
+  "ui-text-button-label h-[50px] min-h-[50px] w-auto max-w-full self-start rounded-full px-6 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
 
 export const DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME =
   "grid w-full grid-cols-3 gap-2";
@@ -32,7 +32,7 @@ export const DURATION_EQUAL_BUTTON_CLASSNAME = "min-h-11 min-w-0 px-3";
 
 /** The final share action stays prominent without becoming a full-card slab. */
 export const SHARE_CONFIRM_ACTIONS_CLASSNAME =
-  "mx-auto w-full max-w-[244px] space-y-2.5";
+  "mx-auto w-full max-w-[18rem] space-y-2.5";
 
 export const SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME =
   "ui-text-button-label h-[50px] min-h-[50px] w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35";

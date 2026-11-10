@@ -42,7 +42,7 @@ function Fixture() {
       <LocationRequestDurationHeader />
     </div>
   </main>;
-  if (document.body.dataset.compact) return <main className="app-page-shell" data-app-shell-width="agent">
+  if (document.body.dataset.compact) return <main className="app-page-shell" data-app-shell-width="agent" data-location-type-scale="connect">
     <PageHeader title="Location" accent="location" titleRole="agent" actionsInlineMobile
       actions={<LocationHeaderActions vm={{ locationEnabled: checked, locationAcquiring: false, locationBlocked: false,
         locationPaused: false, locationAccuracyLimited: false, onShowMyLocation: () => setChecked(true), onHideMyLocation: () => setChecked(false) }} />}

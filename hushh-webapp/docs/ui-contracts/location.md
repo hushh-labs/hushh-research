@@ -41,6 +41,12 @@ The production return in `app/one/location/page.tsx` still mounts `LocationRedes
 
 The confirmed presentation gaps were the People Share/Ask filled pills, Links Share/Copy and active-link Copy, embedded contact Request, onboarding contact Request, an invite handoff pair, small recovery/saved-place/private Check-In targets and a few full-flow buttons outside the shared owner. These now use [the CTA classification and outcomes](./location-action-coverage.md) and [the existing site ledger with its current-revision supplement](./location-coverage.md). The Connect row recipe is a 44px transparent Morphy target around a 44px neutral, accent-border pill. Full-flow commits, utility links, destructive actions, selectors, map controls, Circle task controls and the SOS hold ring retain their distinct roles. No service, payload, consent, encryption, persistence, timer, emergency send or Back handler was changed.
 
+### Location typography and control fit
+
+The Location scope uses the shared semantic title, section, row, description, form, helper and CTA roles on the hub, focused flows and overlay hosts. The shared shell owns navigation and workspace tabs. The Now share-card heading uses the 14/22/600 section role, while Nearby Task controls use the task label. SOS display and hold controls retain their dedicated presentation.
+
+Selectable people and place rows use a subtle hover and press treatment with an inset focus ring and a distinct selected indicator. Quiet Cancel actions keep their touch targets. Private Check-In keeps the security explanation beside the shorter confirmation label and lets long recipient-count labels grow vertically. Link Copy can grow past its resting width during copying, and SOS contact actions have a 44px target around the compact pill.
+
 The October 22 coverage JSON and screenshot counts below are historical evidence for their recorded source hashes. They do not prove rendering of the CTA changes at `dcc4f611` plus this local diff. Current checks and the unverified branches are stated in [verification](./location-verification.md). The implementation status means the bounded source changes are present; live, native and full mounted-route acceptance remain pending.
 
 ## Mounted typography pass — current authority
