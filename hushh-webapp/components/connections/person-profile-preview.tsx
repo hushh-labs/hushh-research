@@ -154,13 +154,17 @@ export function PersonProfilePreview() {
   }, [active, user]);
 
   const personRef = active?.personRef?.trim() || (resolved?.key === active?.key ? resolved?.personRef : null);
+  const networkMode = active?.networkList;
+  const title = networkMode === "discovery" ? "Your network" : networkMode === "mutuals" ? "Mutual connections" : networkMode === "connections" ? "Connections" : "Profile";
   return <Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
-    <DialogContent data-person-profile-preview aria-label="Person profile" showCloseButton={false}
-      className="!w-full !max-w-[880px] !gap-0 !p-0"
+    <DialogContent data-person-profile-preview aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
+      className={networkMode
+        ? "!w-[calc(100%-1rem)] !max-w-[760px] !gap-0 !overflow-hidden !p-0 sm:!w-[calc(100%-2rem)]"
+        : "!w-full !max-w-[880px] !gap-0 !p-0"}
       onCloseAutoFocus={event => { event.preventDefault(); if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); }}>
-      <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background px-3 py-2">
-        <button type="button" aria-label="Back to previous screen" className="flex size-11 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring" onClick={close}><ArrowLeft className="size-5" /></button>
-        <DialogTitle>{active?.networkList === "discovery" ? "Your network" : active?.networkList === "mutuals" ? "Mutual connections" : active?.networkList === "connections" ? "Connections" : "Profile"}</DialogTitle>
+      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b bg-background px-3 py-2">
+        <button type="button" aria-label="Back to previous screen" className="flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring" onClick={close}><ArrowLeft className="size-5" /></button>
+        <DialogTitle>{title}</DialogTitle>
       </div>
       <div ref={scroll} data-network-scroll-owner className="min-h-0 overflow-y-auto overscroll-contain py-4">
         {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} /></Suspense></PreviewBoundary>

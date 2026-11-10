@@ -3228,14 +3228,24 @@ export default function ConnectPageClient() {
                       className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}
                     >
                       <Tabs value={connectionView} onValueChange={setConnectionView} className={styles.connectionViews}>
-                        <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
-                          <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
-                            <span>{connectionsHeadingLabel}</span>{connectionsLoaded ? <span className={styles.connectionTabCount}>{connectionsTotalCount}</span> : null}
-                          </TabsTrigger>
-                          <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
-                        </TabsList>
+                        <div className={styles.viewNavigation}>
+                          <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
+                            <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
+                              <span>{connectionsHeadingLabel}</span>{connectionsLoaded ? <span className={styles.connectionTabCount}>{connectionsTotalCount}</span> : null}
+                            </TabsTrigger>
+                            <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
+                          </TabsList>
+                          <button
+                            type="button"
+                            aria-haspopup="dialog"
+                            data-voice-control-id="connect-explore-network"
+                            className={cn("ui-text-form-label", styles.networkTrigger)}
+                            onClick={event => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}
+                          >
+                            Explore your network
+                          </button>
+                        </div>
                         <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
-                          <button type="button" data-voice-control-id="connect-explore-network" className="mb-3 min-h-11 rounded-full border px-4 text-sm font-medium" onClick={event => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}>Explore your network</button>
                           {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
                             <SettingsGroup
                               testId="connect-directory-group"

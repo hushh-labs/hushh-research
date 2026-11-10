@@ -801,6 +801,7 @@ export type LocationHubViewModel = {
     staleAction?: ReactNode,
     /** True when the caller already draws the card around the preview. */
     nested?: boolean,
+    markerIdentity?: { avatarUrl?: string | null; displayName: string },
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
@@ -2895,6 +2896,7 @@ function LocationDetailFlow({
                           // SharedWithMeCard already draws and clips the card
                           // around this preview.
                           true,
+                          { avatarUrl: grant.ownerPhotoUrl, displayName: ownerName },
                         )
                       : null}
                   </SharedWithMeCard>
@@ -5975,8 +5977,7 @@ function AskFlow({
   // rather than a trip back through the hub.
   //
   // There is no `justSent` banner any more. `handleRequestAccess` already
-  // raises a Sonner toast on a resolved success ("Request sent. We'll notify
-  // you here when they respond."), and every person asked already carries the
+  // raises a Sonner toast after a successful send, and every person asked carries the
   // outcome durably in their own row -- an "Asked" pill and "Asked just now for
   // 1 hour, waiting on them". So the banner was the third telling of the same
   // fact, and the only one that took permanent layout at the top of the screen

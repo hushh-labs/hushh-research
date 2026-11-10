@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
+import { Search } from "@/components/icons";
 import { NetworkPersonRow } from "@/components/connect/network-person-row";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -27,6 +28,7 @@ export function NetworkPeopleList(props: ListProps) {
   return <NetworkListSession key={`${userId ?? "signed-out"}:${generation}`} {...props} />;
 }
 function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: ListProps) {
+  const filterHelpId = useId();
   const { user, userId: owner } = useAuth();
   const generation = getAuthSessionGeneration();
   const memoryKey = `network:${visitKey}`;
@@ -175,13 +177,19 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: Li
     }
   };
   const Heading = embedded ? "h3" : "h1";
-  return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-3 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
+  return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-3 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:space-y-4 sm:px-5" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
-      <Heading>{title}</Heading>
+      {!embedded || mode !== "discovery" ? <Heading>{title}</Heading> : null}
       <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : "Find people through connections that allow discovery."}</p>
       {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
-    {mode !== "mutuals" ? <Input aria-label="Search network by name" placeholder="Search by name" value={query} onChange={event => { restore.current = false; setQuery(event.target.value); setPage(1); }} /> : null}
+    {mode !== "mutuals" ? (
+      <div className="relative">
+        <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input aria-label="Search network by name" placeholder="Search by name" value={query} className="ps-9"
+          onChange={event => { restore.current = false; setQuery(event.target.value); setPage(1); }} />
+      </div>
+    ) : null}
     {mode === "discovery" ? <div className="space-y-1.5">
       <div className="grid grid-cols-2 gap-1.5 min-[480px]:flex min-[480px]:flex-wrap" role="group" aria-label="Connection degree filters">
         {([undefined, 1, 2, 3] as const).map(value => (
@@ -189,7 +197,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: Li
             key={value ?? "all"}
             type="button"
             aria-pressed={degree === value}
-            aria-describedby="network-filter-help"
+            aria-describedby={filterHelpId}
             className="min-h-11 min-w-0 rounded-full border px-2 py-1.5 text-xs leading-tight [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground min-[360px]:text-sm sm:px-3"
             onClick={() => { restore.current = false; setDegree(value); setPage(1); }}
           >
@@ -197,7 +205,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: Li
           </button>
         ))}
       </div>
-      <p id="network-filter-help" className="text-sm text-muted-foreground">{degree === 1 ? "People you’re directly connected to." : degree === 2 ? "People who share a connection with you." : degree === 3 ? "People one step beyond your connections’ connections, where sharing is enabled." : "Your connections and wider network."}</p>
+      <p id={filterHelpId} className="text-sm text-muted-foreground">{degree === 1 ? "People you’re directly connected to." : degree === 2 ? "People who share a connection with you." : degree === 3 ? "People one step beyond your connections’ connections, where sharing is enabled." : "Your connections and wider network."}</p>
     </div> : null}
     {busy && !result ? <p role="status" className="py-3 text-sm text-muted-foreground">Loading connections…</p> : null}
     {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRetry(value => value + 1)}>Try again</button></div> : null}
