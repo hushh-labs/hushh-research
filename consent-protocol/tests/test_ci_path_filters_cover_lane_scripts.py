@@ -879,7 +879,13 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
     assert "consent-protocol/tests/test_database_connection_ceiling.py" in controller["argv"]
 
 
-def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
+def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes(
+    monkeypatch,
+) -> None:
+    # A real backend job must not change these hypothetical path-plan inputs.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("CI_PROTOCOL_CONTROLLER_OWNER", "true")
     paths = (
         "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
         "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
