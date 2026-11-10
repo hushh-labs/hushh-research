@@ -4,19 +4,16 @@
  * Every assertion here was written after a real defect, and each one guards a
  * property that a type signature cannot:
  *
- * 1. Capture options must SURVIVE the prop boundary. The nearby check-in
- *    confirmation asks for a genuinely fresh fix with `{ maxAgeMs: 0 }`, but
- *    the function supplying that prop was declared with ZERO parameters.
- *    TypeScript permits the narrower arity — a function may always ignore its
- *    arguments — so it compiled clean, linted clean, passed every test, and
- *    silently discarded the option. The persisted radius anchor could be 20s
- *    stale while a comment three lines above promised it was fresh.
+ * Capture-option forwarding, in-flight freshness and confirmation requirements
+ * are exercised through the actual map and check-in components in their
+ * existing behavioral suites, so adding an option cannot invalidate a source
+ * formatting assertion here.
  *
- * 2. A mutating CTA must not hold its spinner across a full state reload. That
+ * 1. A mutating CTA must not hold its spinner across a full state reload. That
  *    round trip is bookkeeping the user is not waiting on, and it was most of
  *    what "every click takes seconds" meant.
  *
- * 3. Sharing must fan out concurrently, but BOUNDED — each grant costs two
+ * 2. Sharing must fan out concurrently, but BOUNDED — each grant costs two
  *    pooled database connections server-side.
  */
 
@@ -30,56 +27,6 @@ const WEBAPP_ROOT = path.resolve(__dirname, "../../..");
 function read(relativePath: string) {
   return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
 }
-
-describe("One Location capture-options boundary", () => {
-  it("the map's capture forwarders declare and pass their options", () => {
-    const source = read("components/one-location/location-immersive-map.tsx");
-
-    // Declared with the parameter — a zero-arity declaration is the bug.
-    expect(source).toContain(
-      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n      requireMeasurement?: boolean;\n    }): Promise<PlainLocationPoint> => {",
-    );
-    expect(source).toContain(
-      "async (options?: { maxAgeMs?: number; fresh?: boolean; requireMeasurement?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
-    );
-
-    // And actually forwarded to the service, not dropped.
-    expect(source).toContain(
-      "OneLocationService.captureCurrentPosition(options)",
-    );
-    expect(source).not.toContain(
-      "const captureAndRememberCurrentLocation = useCallback(async () => {",
-    );
-  });
-
-  it("an in-flight capture is not handed to a caller demanding a fresh fix", () => {
-    const source = read("components/one-location/location-immersive-map.tsx");
-
-    // Deduplication is right for cached-eligible callers and wrong for a
-    // check-in anchor that must describe where the user is standing now.
-    expect(source).toContain(
-      "options?.maxAgeMs !== 0 &&\n        !options?.fresh",
-    );
-  });
-
-  it("the check-in confirmation anchors on a current fix, not a stale one", () => {
-    const source = read(
-      "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
-    );
-    expect(source.replace(/\s+/g, " ")).toContain(
-      "captureCurrentPosition(forceNew ? { maxAgeMs: 0, requireMeasurement: true } : { fresh: true, requireMeasurement: true })",
-    );
-  });
-
-  it("the check-in sheet's prop type accepts options at all", () => {
-    const source = read(
-      "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
-    );
-    expect(source).toContain(
-      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n    requireMeasurement?: boolean;\n  }) => Promise<PlainLocationPoint>;",
-    );
-  });
-});
 
 describe("One Location CTA latency contract", () => {
   const page = () => read("app/one/location/page.tsx");

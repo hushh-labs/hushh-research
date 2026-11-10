@@ -84,6 +84,14 @@ const serviceHarness = vi.hoisted(() => ({
   updateMapPreferences: vi.fn(),
 }));
 
+const checkInCaptureHarness = vi.hoisted(() => ({
+  options: null as {
+    maxAgeMs?: number;
+    fresh?: boolean;
+    requireMeasurement?: boolean;
+  } | null,
+}));
+
 const overlayHarness = vi.hoisted(() => ({
   enabled: false,
   create: vi.fn(),
@@ -257,6 +265,7 @@ vi.mock(
       onStateChange,
       onSearchAreaChange,
       onPlaceFocusChange,
+      captureCurrentPosition,
       presentationReady = true,
       onStartupReadyChange,
       rendererAccess,
@@ -269,6 +278,9 @@ vi.mock(
       onStateChange: (state: unknown) => void;
       onSearchAreaChange: (point: unknown) => void;
       onPlaceFocusChange: (focus: unknown) => void;
+      captureCurrentPosition: (
+        options?: NonNullable<typeof checkInCaptureHarness.options>,
+      ) => Promise<unknown>;
     }) => {
       useEffect(() => { if (open && !experienceHarness.startupHeld) onStartupReadyChange?.(true); }, [open, onStartupReadyChange]);
       return (
@@ -278,6 +290,18 @@ vi.mock(
         data-open={open && presentationReady ? "true" : "false"}
       >
         {open && presentationReady ? rendererAccess : null}
+        {checkInCaptureHarness.options ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (checkInCaptureHarness.options) {
+                void captureCurrentPosition(checkInCaptureHarness.options);
+              }
+            }}
+          >
+            Capture current check-in position
+          </button>
+        ) : null}
         <button data-testid="finish-check-in-startup" onClick={() => onStartupReadyChange?.(true)}>Finish startup</button>
         <button
           type="button"
@@ -461,6 +485,7 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 });
 
 beforeEach(() => {
+  checkInCaptureHarness.options = null;
   renderWebMarkerElements = false;
   webMarkerElements = new Map();
   mapHarness.map.addMarkers.mockImplementation(async (markers) => markers.map((value, index) => {
@@ -695,6 +720,60 @@ afterEach(() => {
 });
 
 describe("LocationImmersiveMap demo experience", () => {
+  it.each([
+    ["fresh", { fresh: true }],
+    ["zero-age", { maxAgeMs: 0 }],
+    ["measurement", { requireMeasurement: true }],
+  ] as const)(
+    "forwards %s capture requirements while an earlier fix is pending",
+    async (_label, options) => {
+      experienceHarness.demoMode = false;
+      experienceHarness.nearbyAvailable = true;
+      stubCheckInMapGeometry();
+      seedConsentedRenderer();
+      checkInCaptureHarness.options = options;
+
+      type Point = Awaited<ReturnType<typeof serviceHarness.captureCurrentPosition>>;
+      let finishEntryCapture: ((point: Point) => void) | undefined;
+      const entryCapture = new Promise<Point>((resolve) => {
+        finishEntryCapture = resolve;
+      });
+      serviceHarness.captureCurrentPosition.mockReturnValueOnce(entryCapture);
+      render(<LocationImmersiveMap surface="check-in" />);
+
+      try {
+        await waitFor(() => {
+          expect(serviceHarness.captureCurrentPosition).toHaveBeenCalled();
+          expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+            "data-map-ready",
+            "true",
+          );
+        });
+        await act(async () => {
+          fireEvent.click(
+            screen.getByRole("button", {
+              name: "Capture current check-in position",
+            }),
+          );
+        });
+        await waitFor(() => {
+          expect(serviceHarness.captureCurrentPosition).toHaveBeenCalledWith(options);
+        });
+      } finally {
+        await act(async () => {
+          finishEntryCapture?.({
+            latitude: 37.776,
+            longitude: -122.418,
+            accuracyM: 12,
+            capturedAt: "2026-07-23T00:00:00.000Z",
+            sourcePlatform: "ios",
+          });
+          await entryCapture;
+        });
+      }
+    },
+  );
+
   it("opens Your Map directly with existing acceptance without changing preferences", async () => {
     experienceHarness.demoMode = false;
     render(<LocationImmersiveMap />);

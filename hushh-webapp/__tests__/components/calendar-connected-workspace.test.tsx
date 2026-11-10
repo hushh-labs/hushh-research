@@ -432,7 +432,7 @@ describe("CalendarConnectedWorkspace", () => {
     await screen.findByText("Team retreat");
     expect(screen.getByRole("heading", { name: "All-day events" })).toBeInTheDocument();
     const join = screen.getByRole("link", { name: "Join meeting: Current partner meeting", exact: true });
-    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=owner%40example.com");
     expect(join).toHaveAttribute("target", "_blank");
     expect(document.querySelector('[data-calendar-event="primary:ongoing"] img[src="/one-calendar/providers/google-meet-reference.png"]')).toBeInTheDocument();
     expect(document.querySelector('[data-calendar-event="primary:zoom"] svg circle[fill="#0784ff"]')).toBeInTheDocument();

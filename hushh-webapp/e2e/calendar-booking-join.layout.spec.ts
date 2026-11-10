@@ -10,12 +10,15 @@ test("Board booking reviews account B and refreshes its event and free time afte
   await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
 
   const work = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
-  await work.getByRole("link", { name: "Join meeting: QA Client Call 1" }).click();
+  const joinTrigger = work.getByRole("link", { name: "Join meeting: QA Client Call 1" });
+  await joinTrigger.click();
   const join = page.getByRole("dialog", { name: "Check Google account" });
-  await expect(join).toContainText("Use qa-work@example.com in Google Meet. Tap Switch on the pre-join screen.");
-  await expect(join.getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+  await expect(join).toContainText("Use qa-work@example.com in Google Meet.");
+  await expect(join.getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-work%40example.com");
+  await expect(join.getByRole("link", { name: "Choose account" })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij");
   await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-meet-account-mobile-393.png") });
   await join.getByRole("button", { name: "Cancel" }).click();
+  await expect(joinTrigger).toBeFocused();
 
   let created: Record<string, unknown> | null = null;
   let reviewed: Record<string, unknown> | null = null;
