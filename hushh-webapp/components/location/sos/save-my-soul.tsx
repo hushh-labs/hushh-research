@@ -468,6 +468,7 @@ export function SaveMySoul() {
     try {
       const point = await OneLocationService.captureCurrentPosition({
         fresh: true,
+        fastNetworkFallback: true,
       }).catch(() => null);
       if (!point) {
         morphyToast.error(

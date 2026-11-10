@@ -674,6 +674,7 @@ export function LocationPublisherBridge() {
         const held = payload.point_policy === "held_ok";
         point = await OneLocationService.captureCurrentPosition({
           maxAgeMs: held ? HELD_OK_MAX_AGE_MS : 0,
+          ...(payload.sos ? { fastNetworkFallback: true } : {}),
         });
       } catch (error) {
         const denied = isLocationPermissionDeniedError(error);

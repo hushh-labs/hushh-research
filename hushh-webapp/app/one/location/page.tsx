@@ -533,6 +533,9 @@ function shareVoiceDurationSpokenLabel(value: string): string {
 const ONE_LOCATION_SHARE_CONCURRENCY = 4;
 
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
+const SMS_MEASURED_FIX_MAX_AGE_MS = 30_000;
+// Leave time for the two-second hold and the permission check at confirmation.
+const SMS_HOLD_FIX_MAX_AGE_MS = 25_000;
 
 /**
  * How old a fix this heartbeat may reuse without re-reading the device.
@@ -4542,7 +4545,8 @@ export function OneLocationAgentPageContent({
        * check-in confirmation draw the same line for the same reason.
        */
       requireMeasurement?: boolean;
-      maxAgeMs?: number;
+      fastNetworkFallback?: boolean;
+      getMaxAgeMs?: () => number;
       requirePoint?: boolean;
     }): Promise<{
       ready: boolean;
@@ -4631,12 +4635,12 @@ export function OneLocationAgentPageContent({
       }
 
       try {
-        const maxAgeMs = options?.maxAgeMs !== undefined && currentPermission.state === "denied"
-          ? 0
-          : options?.maxAgeMs;
+        const getMaxAgeMs = options?.getMaxAgeMs;
+        const maxAgeMs = getMaxAgeMs && (currentPermission.state === "denied" ? 0 : getMaxAgeMs());
         const point = await OneLocationService.captureCurrentPosition({
           fresh: options?.requireMeasurement,
           requireMeasurement: options?.requireMeasurement,
+          ...(options?.fastNetworkFallback ? { fastNetworkFallback: true } : {}),
           ...(maxAgeMs === undefined ? {} : { maxAgeMs }),
         });
         if (options?.isStale?.()) return { ready: false };
@@ -4709,7 +4713,7 @@ export function OneLocationAgentPageContent({
           : locationBlockReason(nextPermission)
             ? "blocked"
             : nextPermission?.state === "denied" ||
-                (options?.maxAgeMs !== undefined && currentPermission.state === "denied")
+                (options?.getMaxAgeMs && currentPermission.state === "denied")
               ? "denied"
               : "no-fix";
         if (
@@ -5762,8 +5766,13 @@ export function OneLocationAgentPageContent({
           capturePoint: allowPermissionPrompt,
           requirePoint: true,
           requireMeasurement: true,
+          fastNetworkFallback: true,
           ...(sending && ownerId
-            ? { maxAgeMs: LocationBus.getRecentMeasuredFix(ownerId, 30_000) ? 30_000 : 0 }
+            ? {
+                // A prepared fix may arrive during the permission check.
+                getMaxAgeMs: () => LocationBus.getRecentMeasuredFix(ownerId, SMS_MEASURED_FIX_MAX_AGE_MS)
+                  ? SMS_MEASURED_FIX_MAX_AGE_MS : 0,
+              }
             : {}),
           allowPermissionPrompt: options?.allowPermissionPrompt,
           isStale,
@@ -5886,6 +5895,30 @@ export function OneLocationAgentPageContent({
     },
     [],
   );
+
+  const prepareSosSend = useCallback((signal: AbortSignal) => {
+    const owner = auth.userId;
+    if (!owner || !vaultOwnerToken || LocationBus.getRecentMeasuredFix(owner, SMS_HOLD_FIX_MAX_AGE_MS)) return;
+    const generation = LocationBus.getAccountGeneration();
+    const canPrepare = () =>
+      !signal.aborted &&
+      sosOwnerRef.current === owner &&
+      LocationBus.getAccountGeneration() === generation &&
+      appInteractionCoordinator.getLifecycleSnapshot().state === "active" &&
+      !readOneLocationControlState(owner).paused;
+    if (!canPrepare()) return;
+
+    // The hold can warm the existing device capture. The confirmation path
+    // still checks permission, the measured fix and the authoritative Circle.
+    void OneLocationService.getPermissionState().then((currentPermission) => {
+      if (!canPrepare() || currentPermission.state !== "granted" || locationBlockReason(currentPermission)) return;
+      return LocationBus.ensure({
+        maxAgeMs: SMS_HOLD_FIX_MAX_AGE_MS,
+        requireMeasurement: true,
+        fastNetworkFallback: true,
+      });
+    }).catch(() => undefined);
+  }, [auth.userId, vaultOwnerToken]);
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
@@ -14499,6 +14532,7 @@ export function OneLocationAgentPageContent({
     sosEmergencyStatus,
     onResolveSosLocation: resolveSosLocation,
     onTriggerSos: handleTriggerSos,
+    onPrepareSosSend: prepareSosSend,
     onStopSos: async () => { await handleStopSos(); },
     onAddSmsContact: (recipientUserId) =>
       void handleAddSmsContact(recipientUserId),
