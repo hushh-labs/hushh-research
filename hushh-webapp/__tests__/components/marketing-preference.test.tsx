@@ -20,6 +20,7 @@ const empty = { enabled: false, frequency: "weekly", revision: 0, generation: nu
   disclosureVersion: "one-email-updates-v1", consentAt: null, chosenAt: null };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 function Form() { return <MarketingPreferencePanel model={useMarketingPreference("owner", "setup")} />; }
+function AccountForm() { return <MarketingPreferencePanel model={useMarketingPreference("owner", "account")} />; }
 beforeEach(() => {
   publishValidatedAuthSessionOwner(null);
   publishValidatedAuthSessionOwner("owner");
@@ -82,6 +83,35 @@ describe("separate activity email choice", () => {
 });
 
 describe("explicit email preference", () => {
+  it("keeps account frequency changes tied to an enabled draft and preserves the saved frequency on opt-out", async () => {
+    const saved = { ...empty, enabled: true, frequency: "daily", revision: 3 };
+    mocks.fetch.mockResolvedValueOnce(response(saved));
+    render(<AccountForm />);
+    const toggle = await screen.findByRole("switch", { name: "Email updates" });
+    const save = () => screen.queryByRole("button", { name: "Save email preference" });
+    const frequency = () => screen.queryByRole("combobox", { name: "Email frequency" });
+    expect(save()).toBeNull();
+    fireEvent.keyDown(frequency()!, { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "Weekly digest" }), { key: "Enter" });
+    expect(save()).toBeEnabled();
+
+    fireEvent.click(toggle);
+    expect(frequency()).toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    mocks.fetch.mockResolvedValueOnce(response({ ...saved, enabled: false, revision: 4 }));
+    fireEvent.click(save()!);
+    await screen.findByText("Email preference saved.");
+    expect(save()).toBeNull();
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toMatchObject({ enabled: false, frequency: "daily", surface: "account" });
+
+    fireEvent.click(toggle);
+    expect(frequency()).toHaveTextContent("Daily tips");
+    fireEvent.click(toggle);
+    expect(frequency()).toBeNull();
+    expect(save()).toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("loads the real saved choice, stages edits, and saves only after a physical submit", async () => {
     render(<Form />);
     const toggle = await screen.findByRole("switch");
