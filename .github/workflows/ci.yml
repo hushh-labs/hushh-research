@@ -1201,43 +1201,17 @@ jobs:
           nohup xcrun simctl bootstatus "${SIMULATOR_ID}" -b \
             > "${RUNNER_TEMP}/simulator-boot.log" 2>&1 &
 
-      # Restore-only, exact key. .github/workflows/ios-swift-package-cache.yml
-      # resolves this clone directory on main daily and saves it when its key
-      # is new, and only main's entries are restorable by every PR. The
-      # PR-scoped cache this lane had until 2026-09-27 never restored on a new
-      # PR (36346187928), and each ~4.5GB save evicted the npm cache the other
-      # lanes restore from main. Uncached, the resolve below took 6.5-8.8
-      # minutes on 2026-10-14 (38610933231, 38612718847, 38613036864).
-      #
-      # The key is the Xcode version, the runner, and the two files that define
-      # the package graph after cap sync: the project's Package.resolved (every
-      # remote pin, plaid-link-ios included) and the CapApp-SPM Package.swift
-      # that sync regenerates. There is no restore-keys fallback, because a
-      # partial match would hand SwiftPM another graph's checkouts and binary
-      # artifacts. A PR that changes the graph resolves cold, as every PR did
-      # before, until the next daily save. The resolve below stays the
-      # authority either way. A restore also skips the fetch that proved, on
-      # every iOS PR, that each pin and binary artifact can still be
-      # downloaded, so the saver repeats it from an empty directory every
-      # Sunday and files an issue when it fails, rather than every iOS PR
-      # failing at once at the next graph change or eviction.
-      #
-      # Budget: one entry per package graph, estimated at 2.5-3GB of the 10GB.
-      # It is at most the ~4.5GB the old entry measured for this same graph
-      # (Package.resolved last changed 2026-09-22), because that entry also
-      # held ~/Library/Caches/org.swift.swiftpm and this one does not. Most of
-      # it is plaid-link-ios, ~1.5GB of history by GitHub's disk usage figure:
-      # every LinkKit.xcframework release is committed to it, and SwiftPM
-      # clones it in full. The saver logs the measured size. GitHub evicts an
-      # entry nobody restores for 7 days, and over 10GB it evicts the least
-      # recently used first. An evicted entry costs one cold resolve until the
-      # next daily save.
-      - name: Restore Swift packages resolved on main
+      # PRs restore only; the Main-owned dependency-cache workflow saves each
+      # new exact key. PR-scoped saves cannot be shared with other PRs.
+      # Restore compressed binary downloads only. The old multi-GiB clone cache
+      # took 293s to restore in run 42792960565; Git/workspace state is rebuilt
+      # by SwiftPM. Exact graph/toolchain keys and checksum verification remain.
+      - name: Restore Swift binary downloads from main
         id: spm-cache
         uses: actions/cache/restore@v5
         with:
-          path: ${{ runner.temp }}/spm
-          key: ios-spm-xcode${{ env.XCODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'hushh-webapp/ios/App/CapApp-SPM/Package.swift') }}
+          path: ${{ runner.temp }}/spm-cache/artifacts
+          key: ios-spm-artifacts-v2-xcode${{ env.XCODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'hushh-webapp/ios/App/CapApp-SPM/Package.swift') }}
 
       - name: Resolve Swift package dependencies
         shell: bash
@@ -1246,7 +1220,7 @@ jobs:
         run: |
           set -euo pipefail
           # A partial cache restore is a miss; retain the bounded collision retry.
-          if [ "${SPM_CACHE_HIT}" != true ]; then rm -rf "${RUNNER_TEMP}/spm"; fi
+          if [ "${SPM_CACHE_HIT}" != true ]; then rm -rf "${RUNNER_TEMP}/spm-cache/artifacts"; fi
           bash scripts/ci/resolve-ios-packages.sh
 
       - name: Compile app and run native iOS unit tests
@@ -1258,6 +1232,7 @@ jobs:
           # Shared-Keychain tests need the App/NSE entitlements in the simulator.
           # Ad-hoc signing requires no distribution identity or provisioning key.
           xcodebuild test \
+            -showBuildTimingSummary \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
             -configuration Debug \

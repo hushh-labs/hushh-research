@@ -103,8 +103,10 @@ function isTestFixtureInput(file) {
 }
 
 function isOtherOwnerFile(file) {
-  // The native job owns all iOS Swift sources; Vitest cannot exercise them.
-  return OTHER_OWNER_FILES.has(file) || (file.startsWith("ios/") && file.endsWith(".swift"));
+  // The selected native jobs own these sources; Vitest cannot exercise them.
+  return OTHER_OWNER_FILES.has(file) ||
+    (file.startsWith("ios/") && file.endsWith(".swift")) ||
+    /^android\/.+\.(?:kt|java)$/.test(file);
 }
 
 function readChangedFiles(env) {

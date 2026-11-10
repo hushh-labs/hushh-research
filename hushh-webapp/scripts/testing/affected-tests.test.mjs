@@ -368,6 +368,8 @@ test("known native and browser harness inputs stay with their other owner", () =
     CI_CHANGED_FILES: [
       "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
       "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
+      "hushh-webapp/android/app/src/main/java/com/hussh/app/plugins/HushhAuth/DeletionPhoneProof.kt",
+      "hushh-webapp/android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.java",
       "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
       "hushh-webapp/scripts/testing/affected-tests.mjs",
       "hushh-webapp/scripts/testing/affected-tests.test.mjs",
@@ -621,6 +623,8 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
   }, [
     "ios/App/AppTests/NativeSupportTests.swift",
     "ios/App/AppTests/AccountFlowTests.swift",
+    "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/DeletionPhoneProof.kt",
+    "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.java",
     "scripts/testing/phone-conflict-flow.mjs",
     "scripts/testing/affected-tests.mjs",
     "scripts/testing/affected-tests.test.mjs",
@@ -642,6 +646,7 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
   for (const path of [
     "hushh-webapp/lib/vault/passkey-domain-aliases.json",
     "hushh-webapp/lib/unregistered-runtime.json",
+    "hushh-webapp/lib/unregistered-runtime.kt",
   ]) {
     const unknown = buildPlan({ env: {
       CI_VALIDATION_LEVEL: "focused",

@@ -1,5 +1,9 @@
 name: Deployment Security
-run-name: ${{ inputs.source_request && fromJSON(inputs.source_request).kind == 'queue' && 'Merge permission' || inputs.source_request && fromJSON(inputs.source_request).kind == 'operation' && 'Operation permission' || 'Deployment security' }}
+run-name: >-
+  ${{ inputs.source_request && fromJSON(inputs.source_request).kind == 'queue' &&
+      format('Merge permission · {0} · queue {1}', fromJSON(inputs.source_request).phase, fromJSON(inputs.source_request).id) ||
+      inputs.source_request && fromJSON(inputs.source_request).kind == 'operation' &&
+      format('Operation permission · {0}', fromJSON(inputs.source_request).surface) || 'Deployment security' }}
 
 on:
   # Explicit deployment clearance or exact operation/queue permission only.
@@ -40,7 +44,7 @@ permissions:
 
 jobs:
   alerts:
-    name: Verify repository secret clearance
+    name: Verify request authority or release clearance
     if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     environment: ci-security
@@ -63,7 +67,7 @@ jobs:
           owner: hushh-labs
           repositories: hushh-research
           permission-members: read
-      - name: Read protected repository inventory
+      - name: Authorize request or inspect release inventory
         id: clearance
         run: python3 scripts/ci/deployment_security.py
         env:
