@@ -74,14 +74,14 @@ test.beforeAll(async () => {
   const { transform } = await import("lightningcss");
   css = transform({ filename: "direct-chat.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle()), minify: true }).code.toString();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; origin?: string; systemTheme?: boolean } = {}) {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; paginatedInbox?: boolean; origin?: string; systemTheme?: boolean } = {}) {
   if (!options.systemTheme) await page.emulateMedia({ colorScheme: dark ? "dark" : "light" });
   const origin = options.origin ?? "http://localhost";
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route(`${origin}/fixture-person-*.webp`, (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
   await page.route(`${origin}/one/messages*`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`${origin}/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
+  await page.goto(`${origin}/one/messages${inbox ? (options.paginatedInbox ? "?paginatedInbox=1" : "") : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   const input = page.getByRole(inbox ? "searchbox" : "textbox", { name: inbox ? "Search conversations" : "Message Maya Rao" });
@@ -777,7 +777,7 @@ test("quoted history navigation preserves live updates while an older page is pe
   await fixture(page, "fixture.incoming(); fixture.remoteChange('maya-79', 'Live edit during quote navigation')");
   await expect(page.locator('[data-chat-message="maya-79"]')).toContainText("Live edit during quote navigation");
   await fixture(page, "fixture.releaseOlder()");
-  await expect(page.locator('[data-chat-message="maya-0"]')).toBeFocused();
+  await expect(page.locator('[data-chat-message="maya-0"] [data-chat-bubble]')).toBeFocused();
   await expect(page.locator('[data-chat-message="maya-incoming-80"]')).toHaveCount(1);
   await expect(page.locator('[data-chat-message="maya-79"]')).toContainText("Live edit during quote navigation");
   expect(errors).toEqual([]);
@@ -924,6 +924,97 @@ registerMessagesPresentationCases({ mount, touchMessageActions, expectSharedDock
 
 test.describe("compact message layout", () => {
   test.use({ timezoneId: "UTC", locale: "en-US" });
+  for (const width of [393, 768, 1440]) test(`long received quotes keep actions clear and avoid extra boxes at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mount(page, width === 1440);
+    if (width >= 768) {
+      await page.evaluate(() => document.documentElement.style.setProperty("--app-messages-sidebar-width", "360px"));
+      const selected = page.getByRole("group", { name: "Maya Rao chat" }).locator('[class*="conversationRow"]');
+      await page.mouse.move(0, 0);
+      await expect(selected).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(selected).toHaveCSS("border-top-width", "0px");
+      await expect(selected).toHaveCSS("box-shadow", "none");
+    }
+    const text = "A received message with a tagged original and enough words to fill a narrow conversation pane. ".repeat(4);
+    await fixture(page, `fixture.remoteChange('maya-78', ${JSON.stringify(text)}); fixture.quoteOldest('maya-78')`);
+    const row = page.locator('[data-chat-message="maya-78"]');
+    const bubble = row.locator('[data-chat-bubble]');
+    const quote = row.getByRole("button", { name: "Go to original message from Maya Rao" });
+    await expect(bubble).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(bubble).toHaveCSS("border-top-width", "0px");
+    await expect(bubble).toHaveCSS("box-shadow", "none");
+    await expect(quote).toBeVisible();
+    await expect(quote).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(quote).toHaveCSS("border-top-width", "0px");
+    await expect(quote).toHaveCSS("border-bottom-width", "0px");
+    await expect(quote).toHaveCSS("box-shadow", "none");
+    await bubble.scrollIntoViewIfNeeded();
+    const stable = [bubble, bubble.locator("time"), quote];
+    const before = await Promise.all(stable.map(node => node.boundingBox()));
+    for (const label of ["React to message", "Message options"]) {
+      const control = row.getByRole("button", { name: label, exact: true });
+      await control.focus();
+      expect(await Promise.all(stable.map(node => node.boundingBox()))).toEqual(before);
+      const button = (await control.boundingBox())!;
+      const time = (await bubble.locator("time").boundingBox())!;
+      const list = (await transcript(page).boundingBox())!;
+      expect(button.width).toBeGreaterThanOrEqual(44);
+      expect(button.height).toBeGreaterThanOrEqual(44);
+      expect(button.x).toBeGreaterThanOrEqual(list.x);
+      expect(button.x + button.width).toBeLessThanOrEqual(list.x + list.width);
+      expect(button.x + button.width <= time.x || button.x >= time.x + time.width || button.y + button.height <= time.y || button.y >= time.y + time.height,
+        `${label} cannot hide the timestamp`).toBe(true);
+      await control.press("Enter");
+      await expect(page.getByRole(label === "Message options" ? "menu" : "dialog")).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
+    await page.screenshot({ path: test.info().outputPath(`received-quote-${width}.png`), animations: "disabled" });
+    await quote.focus();
+    await quote.press("Enter");
+    const original = page.locator('[data-chat-message="maya-0"]');
+    await expect(original.locator('[data-chat-bubble]')).toBeFocused();
+    await expect(original).not.toBeFocused();
+    await expect(original.locator('[data-chat-bubble]')).toHaveCSS("outline-style", "solid");
+  });
+  for (const width of [768, 1440]) test(`Circle action circles stay outside messages and timestamps at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mount(page, width === 1440, false, true);
+    await page.evaluate(() => document.documentElement.style.setProperty("--app-messages-sidebar-width", "360px"));
+    await page.getByRole("tab", { name: "Circles 3" }).click();
+    await page.getByRole("button", { name: /Weekend friends/ }).click();
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("A short sent Circle message.");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(page.locator('[data-circle-chat-lane] [data-chat-message="message-45"] [data-message-role]')).toHaveAttribute("data-message-role", "user");
+    await page.evaluate(() => (window as any).chatFixture.incoming("A long received Circle message with a stable timestamp. ".repeat(6), "fixture-owner"));
+    const list = page.getByLabel("Circle messages", { exact: true });
+    for (const id of ["message-45", "incoming-46"]) {
+      const row = page.locator(`[data-circle-chat-lane] [data-chat-message="${id}"]`);
+      const bubble = row.locator("[data-chat-bubble]");
+      await bubble.scrollIntoViewIfNeeded();
+      if (id === "incoming-46") await expect(bubble).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      const before = await bubble.boundingBox();
+      for (const label of ["React to message", "Message options"]) {
+        const control = row.getByRole("button", { name: label, exact: true });
+        await control.focus();
+        expect(await bubble.boundingBox()).toEqual(before);
+        const target = (await control.boundingBox())!;
+        const time = (await bubble.locator("time").boundingBox())!;
+        const frame = (await list.boundingBox())!;
+        expect(target.width).toBeGreaterThanOrEqual(44);
+        expect(target.height).toBeGreaterThanOrEqual(44);
+        expect(target.x).toBeGreaterThanOrEqual(frame.x);
+        expect(target.x + target.width).toBeLessThanOrEqual(frame.x + frame.width);
+        expect(target.x + target.width <= time.x || target.x >= time.x + time.width || target.y + target.height <= time.y || target.y >= time.y + time.height,
+          `${label} cannot hide the Circle timestamp`).toBe(true);
+        if (id === "message-45") expect(target.x + target.width).toBeLessThanOrEqual(before!.x);
+        else expect(target.x).toBeGreaterThanOrEqual(before!.x + before!.width);
+      }
+    }
+    await page.screenshot({ path: test.info().outputPath(`circle-action-clearance-${width}.png`), animations: "disabled" });
+  });
   for (const width of [320, 393, 768, 1440]) test(`message timestamps share the text baseline at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1388,6 +1479,79 @@ for (const width of [320, 393, 1440]) {
     await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}
+
+// Acceptance regressions for reaction completion after a newer remote mutation.
+for (const change of ["edit", "delete"] as const) {
+  test(`additional fixes: failed reaction preserves a newer remote ${change}`, async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 844 });
+    await mount(page);
+    const row = page.locator('[data-chat-message="maya-79"]');
+    const oldText = await row.locator("[data-chat-bubble] p").first().textContent();
+    await fixture(page, "fixture.holdReaction()");
+    await holdMessage(page, row); await page.keyboard.press("Escape");
+    await row.getByRole("button", { name: "React to message", exact: true }).click();
+    await page.getByPlaceholder("Search emoji").fill("heart");
+    await page.getByRole("button", { name: "Use \u2764\ufe0f", exact: true }).click();
+    await expect(row.getByRole("button", { name: "\u2764\ufe0f reaction, 1", exact: true })).toBeVisible();
+    const latest = change === "edit" ? "A newer edit received while the reaction waits" : "This message was deleted.";
+    await fixture(page, change === "edit"
+      ? "fixture.remoteChange('maya-79', 'A newer edit received while the reaction waits')"
+      : "fixture.remoteTombstone('maya-79')");
+    await expect(row.getByText(latest, { exact: true })).toBeVisible();
+    await fixture(page, "fixture.rejectReaction()");
+    await expect(row.getByRole("status").filter({ hasText: "update that reaction" })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`reaction-failure-after-${change}.png`), animations: "disabled" });
+    await expect(row.getByText(latest, { exact: true })).toBeVisible();
+    if (oldText) await expect(row.getByText(oldText, { exact: true })).toHaveCount(0);
+  });
+}
+
+test("additional fixes: deleted messages expose no failing reaction controls", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 }); await mount(page);
+  const row = page.locator('[data-chat-message="maya-79"]');
+  await holdMessage(page, row); await page.keyboard.press("Escape");
+  await row.getByRole("button", { name: "React to message", exact: true }).click();
+  await page.getByPlaceholder("Search emoji").fill("heart");
+  await page.getByRole("button", { name: "Use \u2764\ufe0f", exact: true }).click();
+  const chip = row.getByRole("button", { name: "\u2764\ufe0f reaction, 1", exact: true });
+  await expect(chip).toBeVisible();
+  await fixture(page, "fixture.remoteTombstone('maya-79')");
+  await expect(row.getByText("This message was deleted.", { exact: true })).toBeVisible();
+
+  await page.screenshot({ path: test.info().outputPath("deleted-message-reaction-controls.png"), animations: "disabled" });
+  await expect(chip).toHaveCount(0);
+});
+
+test("additional fixes: successful delayed reaction keeps a newer remote edit", async ({ page }) => {
+  await mount(page);
+  const row = page.locator('[data-chat-message="maya-79"]');
+  await fixture(page, "fixture.holdReaction()");
+  await holdMessage(page, row); await page.keyboard.press("Escape");
+  await row.getByRole("button", { name: "React to message", exact: true }).click();
+  await page.getByPlaceholder("Search emoji").fill("heart");
+  await page.getByRole("button", { name: "Use \u2764\ufe0f", exact: true }).click();
+  await expect(row.getByRole("button", { name: "\u2764\ufe0f reaction, 1", exact: true })).toBeVisible();
+  await fixture(page, "fixture.remoteChange('maya-79', 'A newer edit received while the reaction waits')");
+  await expect(row.getByText("A newer edit received while the reaction waits", { exact: true })).toBeVisible();
+  await fixture(page, "fixture.releaseReaction()");
+  await expect(row.getByText("A newer edit received while the reaction waits", { exact: true })).toBeVisible();
+});
+
+for (const width of [393, 1440]) {
+  test(`additional fixes: inbox search reaches conversation 101 at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors = await mount(page, false, false, true, 'idle', { paginatedInbox: true });
+    await expect(page.getByRole('button', { name: 'Load more chats', exact: true })).toBeVisible();
+    await page.getByRole('searchbox', { name: 'Search conversations' }).fill('Oldest unread');
+    await expect(page.getByRole('button', { name: 'Oldest unread connection', exact: true })).toBeVisible();
+    await expect(page.getByText('No matching chats', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Load more chats', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).directChatFixture.inboxPages)).toEqual([null, 'fixture-page-2']);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`inbox-search-101-${width}.png`), animations: 'disabled' });
     expect(errors).toEqual([]);
   });
 }

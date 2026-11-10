@@ -541,7 +541,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
       requestAnimationFrame(() => {
         if (!active.current || generation !== historyGeneration.current) return;
         const row = target ? Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? []).find((item) => item.dataset.chatMessage === target.id) : null;
-        if (row) { row.tabIndex = -1; row.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
+        if (row) { const bubble = row.querySelector<HTMLElement>("[data-chat-bubble]") ?? row; bubble.tabIndex = -1; bubble.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
         else if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
       });
     } catch (caught) { fail(caught); }
@@ -549,7 +549,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
   };
   const jump = (target: OpenMessage) => {
     const row = Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? []).find((item) => item.dataset.chatMessage === target.id);
-    if (row) { row.tabIndex = -1; row.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
+    if (row) { const bubble = row.querySelector<HTMLElement>("[data-chat-bubble]") ?? row; bubble.tabIndex = -1; bubble.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
     else void showWindow(target);
   };
   const mutationResult = async (result: ChatMutationResult) => {

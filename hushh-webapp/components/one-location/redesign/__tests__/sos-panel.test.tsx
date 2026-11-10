@@ -62,7 +62,7 @@ describe("SosPanel", () => {
 
   it("keeps Stop available if the circle becomes empty during an active alert", () => {
     render(<SosPanel {...baseProps} active recipients={[]} />);
-    expect(screen.getByRole("button", { name: "Stop Save My Soul alert" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop SMS alert" })).toBeEnabled();
   });
 
   it("keeps a known selected Circle sendable while the recipient projection is loading", () => {
@@ -563,25 +563,25 @@ describe("SosPanel", () => {
     // Idle: no stop affordance, the core is the pressable SOS control.
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
     expect(screen.getByText("SMS")).toBeInTheDocument();
-    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
 
     // Live: the core becomes a receipt and the stop button appears.
     rerender(<SosPanel {...baseProps} active onStopSos={onStopSos} />);
-    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
-    expect(screen.getByText("SENT")).toBeInTheDocument();
+    expect(screen.getByText("Alert active", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Alert active",
     );
-    expect(screen.getAllByText("Live location sharing is active")).toHaveLength(1);
+    expect(screen.getAllByText("You can stop this alert.")).toHaveLength(1);
     const cancel = screen.getByRole("button", {
-      name: "Stop Save My Soul alert",
+      name: "Stop SMS alert",
     });
     expect(cancel).toHaveTextContent("Stop alert");
     fireEvent.click(cancel);
     const dialog = screen.getByRole("alertdialog");
     expect(
       within(dialog).getByRole("heading", {
-        name: "Stop Save My Soul alert?",
+        name: "Stop SMS alert?",
       }),
     ).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Stop alert" }));
@@ -600,12 +600,12 @@ describe("SosPanel", () => {
 
   it("returns the core to SMS once the session is no longer active (external revoke sync)", () => {
     const { rerender } = render(<SosPanel {...baseProps} active />);
-    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
+    expect(screen.getByText("Alert active", { exact: true })).toBeInTheDocument();
     // Simulate the incident being cleared elsewhere (e.g. Active shares → Stop),
     // which flips `active` back to false and must reset the SMS screen.
     rerender(<SosPanel {...baseProps} active={false} />);
     expect(screen.getByText("SMS")).toBeInTheDocument();
-    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Hold 2 seconds",
     );

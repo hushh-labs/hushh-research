@@ -40,7 +40,12 @@ test.beforeAll(async () => {
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env.NEXT_PUBLIC_APP_URL": JSON.stringify("https://one.example"),
-      "process.env": "{}",
+      "process.env": JSON.stringify({
+        NEXT_PUBLIC_FIREBASE_API_KEY: "synthetic-fixture-key",
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "synthetic.example.test",
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: "synthetic-fixture",
+        NEXT_PUBLIC_FIREBASE_APP_ID: "synthetic-fixture-app",
+      }),
     },
     build: {
       copyPublicDir: false,
@@ -110,8 +115,8 @@ for (const width of [320, 393, 1024]) {
     await close.hover();
     await expect(close).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     expect(await close.evaluate(node => getComputedStyle(node, "::before").backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
-    await expect(panel.getByRole("heading", { name: "Checked in", exact: true })).toHaveCSS("font-size", "17px");
-    const leaving = panel.getByRole("button", { name: "I'm leaving", exact: true });
+    await expect(panel.getByRole("heading", { name: "You’re checked in", exact: true })).toHaveCSS("font-size", "14px");
+    const leaving = panel.getByRole("button", { name: "Leave check-in", exact: true });
     await expect(leaving).toHaveCSS("height", "44px");
     await expect(leaving).toHaveCSS("font-size", "13px");
     await expect(leaving).toHaveCSS("line-height", "20px");
@@ -129,10 +134,19 @@ for (const width of [320, 393, 1024]) {
     await expect(extension).toHaveCSS("line-height", "28px");
     await expect(more).toHaveCSS("height", "44px");
     await expect(more).toHaveCSS("font-size", "13px");
+    const timeDialog = page.getByRole("dialog", { name: "Add time" });
+    const geometry = await timeDialog.evaluate(node => {
+      const close = node.querySelector('button[aria-label="Close"]')!.getBoundingClientRect();
+      const options = [...node.querySelectorAll("button")].filter(button => /min more|hour more/.test(button.textContent ?? ""));
+      const [left, right] = options.map(button => button.getBoundingClientRect());
+      return { above: close.bottom <= Math.min(left.top, right.top), widthDelta: Math.abs(left.width - right.width) };
+    });
+    expect(geometry.above).toBe(true);
+    expect(geometry.widthDelta).toBeLessThanOrEqual(1);
     await more.click();
     await expect(page.locator("body")).toHaveAttribute("data-extended", "true");
     await expect(extension).toBeHidden();
-    await expect(panel.getByRole("heading", { name: "Checked in", exact: true })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "You’re checked in", exact: true })).toBeVisible();
     await page.screenshot({ path: test.info().outputPath(`check-in-task-${width}.png`), animations: "disabled" });
   });
 }

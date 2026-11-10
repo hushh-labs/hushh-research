@@ -167,6 +167,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
         <p>No matching circles</p><p>Try another name.</p>
       </div> : null}
       {visibleCircles.map((circle) => <button key={circle.id} type="button" className={styles.row}
+        aria-current={selectedId === circle.id ? "true" : undefined}
         data-selected={selectedId === circle.id || undefined} onClick={() => {
           setSelectedId(circle.id);
           writeLastMessagesSelection(ownerId, { lane: "circles", circleId: circle.id });

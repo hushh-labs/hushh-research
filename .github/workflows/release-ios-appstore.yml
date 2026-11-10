@@ -817,7 +817,7 @@ jobs:
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-export.log"
 
       # The same uploaded build can go to the TestFlight groups through
-      # resume-ios-testflight.yml, which reads this receipt (same shape the
+      # ship-ios-testflight.yml, which reads this receipt (same shape the
       # TestFlight lane writes). That is how a production-backed build reaches
       # testers without the UAT-only TestFlight lane building a second binary.
       - name: Preserve uploaded build identity for TestFlight distribution

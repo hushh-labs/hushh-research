@@ -198,7 +198,8 @@ function isFresh(snapshot: LocationSnapshot | null, maxAgeMs: number): boolean {
   if (maxAgeMs <= 0) return false;
   const capturedMs = Date.parse(snapshot.capturedAt);
   if (!Number.isFinite(capturedMs)) return false;
-  return Date.now() - capturedMs <= maxAgeMs;
+  const age = Date.now() - capturedMs;
+  return age >= 0 && age <= maxAgeMs;
 }
 
 function toSnapshot(point: {
