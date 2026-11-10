@@ -124,9 +124,10 @@ export function AskForMoreTime({
               Waiting for approval
             </p>
             <Button data-location-type-role="compact-action"
-              variant="ghost"
+              variant="link"
+              disableHoverRipple
               size="sm"
-              className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
+              className="h-9 min-h-9 rounded-full px-2 text-[15px] font-medium text-[#FF3B30] hover:text-[#D70015]"
               onClick={() => onWithdrawRequest(pendingExtension.id)}
               disabled={withdrawingRequestId === pendingExtension.id}
             >

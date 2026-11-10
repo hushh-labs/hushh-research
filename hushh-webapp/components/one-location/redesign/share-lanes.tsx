@@ -92,7 +92,8 @@ export function ShareLaneRow({
   const changeTimeControl = !isSms && onChangeEndTime ? (
     <Button data-location-type-role="utility-action"
       type="button"
-      variant="ghost"
+      variant="link"
+      disableHoverRipple
       size="compact"
       className={cn(ACTIVE_SHARE_CHANGE_TIME_CLASSNAME, (comparison || category) && "justify-start px-0")}
       onClick={(event) => onChangeEndTime(event.currentTarget)}
@@ -143,7 +144,8 @@ export function ShareLaneRow({
         {onStop ? (
         <Button data-location-type-role="utility-action"
           type="button"
-          variant="ghost"
+          variant="link"
+          disableHoverRipple
           size="compact"
           className={cn(ACTIVE_SHARE_STOP_CLASSNAME, category && "sm:ml-auto")}
           onClick={onStop}
@@ -359,7 +361,8 @@ export function ShareLanesDisclosure({
   return (
     <Button data-location-type-role="utility-action"
       type="button"
-      variant="ghost"
+      variant="link"
+      disableHoverRipple
       size="sm"
       className="h-9 shrink-0 gap-1 rounded-full px-3 text-[15px] font-semibold"
       onClick={onToggle}

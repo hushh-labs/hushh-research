@@ -22,7 +22,7 @@ export function connectPersonName(
   return isContactFallback ? fallback : name;
 }
 
-/** Relationship context already available to this picker; never substitute contact details. */
+/** Circle picker subtitle. The avatar badge communicates the Contacts source. */
 export function connectPersonSelectionDetail(person: {
   connectedAt?: string | null;
   connectedFromContacts?: boolean;
@@ -31,7 +31,6 @@ export function connectPersonSelectionDetail(person: {
   const details: string[] = [];
   const connected = formatLocalDateTime(person.connectedAt, { dateStyle: "medium", timeStyle: "short" });
   if (connected) details.push(`Connected ${connected}`);
-  if (person.connectedFromContacts) details.push("From your contacts");
   if (person.isRia) details.push("Verified advisor");
-  return details.join(" · ") || "Connection details unavailable";
+  return details.join(" · ") || (person.connectedFromContacts ? "" : "Connection details unavailable");
 }

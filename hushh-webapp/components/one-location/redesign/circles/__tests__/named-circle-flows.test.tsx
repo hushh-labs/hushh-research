@@ -221,12 +221,22 @@ describe("named Circle flows", () => {
 
   it("adds selected contacts in step 2 without creating another Circle on retry", async () => {
     const props = createProps();
+    const contact = {
+      connectionId: "c-asha", userId: "asha", displayName: "Asha Meena", isRia: false,
+      connectedFromContacts: true, connectedAt: "2026-10-30T17:17:00Z",
+    };
+    props.onLoadPeople.mockResolvedValueOnce({
+      eligibleConnections: [contact],
+      pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: 1,
+    });
     props.onAddPeople.mockRejectedValueOnce(new Error("Temporarily unavailable"));
     render(<CreateCircleFlow {...props} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     const choice = await screen.findByRole("button", { name: "Add Asha Meena" });
-    expect(choice).toHaveAccessibleDescription("Connection details unavailable");
+    expect(choice).toHaveAccessibleDescription(/^Connected .+ · Connected from your contacts$/);
+    expect(screen.getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    expect(screen.getByText("Connected from your contacts", { exact: false })).toHaveClass("sr-only");
     fireEvent.click(choice);
     expect(props.onAddPeople).not.toHaveBeenCalled();
     expect(props.onComplete).not.toHaveBeenCalled();
@@ -405,7 +415,7 @@ describe("named Circle flows", () => {
     const props = detailProps(vi.fn(async () => current));
     props.onLoadEligibleConnections = vi.fn(async () => ({
       eligibleConnections: current.memberCount === 1 ? [{
-        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao",
+        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao", connectedFromContacts: true,
       }] : [],
       pendingInvites: [],
       remainingCapacity: 20 - current.memberCount,
@@ -426,7 +436,11 @@ describe("named Circle flows", () => {
     expect(screen.queryByRole("heading", { name: "Add your first member" })).toBeNull();
     expect(screen.queryByText(/Choose at least one connection below/)).toBeNull();
     expect(screen.getByText("Circle conversation")).not.toBeVisible();
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" }));
+    const choice = await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" });
+    expect(choice).toHaveAccessibleDescription("Connected from your contacts");
+    expect(screen.getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    expect(screen.queryByText("Connection details unavailable")).toBeNull();
+    fireEvent.click(choice);
     fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again"));
     const retry = screen.getByRole("button", { name: "Add people", exact: true });
