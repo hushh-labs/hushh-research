@@ -1,7 +1,5 @@
 import type { User } from "firebase/auth";
-import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import type { AccountIdentity } from "@/lib/services/api-service";
-import { getPhoneReliabilityFlags } from "@/lib/auth/phone-reliability";
 
 type PhoneAttempt = { userId: string; epoch: number };
 type RecoveryPorts = {
@@ -9,9 +7,9 @@ type RecoveryPorts = {
   currentUser: () => User | null;
   currentPhone: () => string | null;
   currentOwner: () => string | undefined;
-  readProviderUser: () => Promise<User | null>;
-  requireOwner: (uid: string | null | undefined, epoch: number) => void;
   refreshIdentity: (user: User) => Promise<AccountIdentity | null>;
+  readProviderUser: (uid: string) => Promise<User | null>;
+  requireOwner: (uid: string | null | undefined, epoch: number) => void;
   persistPhone: (user: User, phone: string) => Promise<void>;
   attemptIsCurrent: (uid: string, epoch: number) => boolean;
   retireAttempt: () => void;
@@ -20,6 +18,15 @@ type RecoveryPorts = {
 /** Recovery owns temporary request resources; AuthProvider retains all identity authority. */
 export function createPhoneVerificationRecovery(ports: RecoveryPorts) {
   let nativeStart: AbortController | null = null;
+  const confirmingUsers = new Set<string>();
+
+  function requireIdle(userId: string): void {
+    if (confirmingUsers.has(userId)) {
+      throw Object.assign(new Error("Phone verification is finishing. Wait a moment and try again."), {
+        code: "phone_verification_busy",
+      });
+    }
+  }
 
   function cancelNativeStart(): void {
     nativeStart?.abort();
@@ -43,12 +50,18 @@ export function createPhoneVerificationRecovery(ports: RecoveryPorts) {
     if (!attempt) {
       throw Object.assign(new Error("Request a new verification code before verifying again."), { code: "phone-verification-required" });
     }
+    requireIdle(attempt.userId);
+    // Keep the slot through provider dispatch and app persistence, even if the
+    // current view or account changes while an exchange is already on the wire.
+    confirmingUsers.add(attempt.userId);
     try {
       return await work();
     } catch (error) {
       // Explicit expiry retires only the exact owner/epoch supplied by AuthProvider.
       retireExpiredPhoneVerification(error, attempt);
       throw error;
+    } finally {
+      confirmingUsers.delete(attempt.userId);
     }
   }
 
@@ -66,11 +79,11 @@ export function createPhoneVerificationRecovery(ports: RecoveryPorts) {
   }
 
   async function finalizeLinkedProviderPhone(
-    phone: string | null | undefined, uid: string | null | undefined, epoch: number,
+    phone: string, uid: string, epoch: number,
   ): Promise<User | null> {
     if (!phone) return null;
     // Reading the provider must not publish a claim whose backend write failed.
-    const user = await ports.readProviderUser();
+    const user = await ports.readProviderUser(uid);
     ports.requireOwner(uid, epoch);
     if (!user || user.uid !== uid) {
       throw new Error("The verified account changed. Start phone verification again.");
@@ -81,24 +94,5 @@ export function createPhoneVerificationRecovery(ports: RecoveryPorts) {
     return user;
   }
 
-  async function recoverLinkedPhoneForStart(phone: string, uid: string, epoch: number): Promise<{
-    linkedUser: User | null;
-    allowLinkedPhoneProof: boolean;
-  }> {
-    try {
-      return { linkedUser: await finalizeLinkedProviderPhone(phone, uid, epoch), allowLinkedPhoneProof: false };
-    } catch (error) {
-      ports.requireOwner(uid, epoch);
-      const code = apiErrorCode(error);
-      if (!getPhoneReliabilityFlags().recovery ||
-          !(error instanceof ApiError) || error.status !== 409 ||
-          (code !== "PHONE_ALREADY_VERIFIED" && code !== "PHONE_VERIFICATION_CHANGED")) throw error;
-      // A fresh isolated web proof goes through the ordinary backend claim policy.
-      // This capability never grants a phone transfer or reports persistence success.
-      return { linkedUser: null, allowLinkedPhoneProof: true };
-    }
-  }
-
-  return { cancelNativeStart, beginNativeStart, confirmAttempt, confirmRetainedNativePhone,
-    finalizeLinkedProviderPhone, recoverLinkedPhoneForStart };
+  return { cancelNativeStart, beginNativeStart, requireIdle, confirmAttempt, confirmRetainedNativePhone, finalizeLinkedProviderPhone };
 }

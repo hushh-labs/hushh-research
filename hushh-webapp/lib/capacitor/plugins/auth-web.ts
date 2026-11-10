@@ -25,6 +25,7 @@ import {
 import { auth } from "@/lib/firebase/config";
 
 export class HushhAuthWeb implements HushhAuthPlugin {
+  async startPhoneLinkVerification(): Promise<never> { throw new Error("Use AuthService for web phone verification."); }
   async startPhoneVerificationProof(): Promise<never> { throw new Error("Use AuthService for web phone verification."); }
   async confirmPhoneVerificationProof(): Promise<never> { throw new Error("Use AuthService for web phone verification."); }
   async cancelPhoneVerificationProof(): Promise<void> {}

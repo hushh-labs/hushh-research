@@ -43,8 +43,13 @@ describe("register-phone conflict runtime", () => {
     const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
     const firebaseConfig = await vi.importActual<typeof import("@/lib/firebase/config")>("@/lib/firebase/config");
     vi.mocked(prepareRecaptchaVerifier).mockImplementation(firebaseConfig.prepareRecaptchaVerifier);
-    Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone, apiFetch: api.ApiService.apiFetch });
-    mocks.identityClaim.mockImplementation(identity.AccountIdentityService.claimCurrentUserPhone.bind(identity.AccountIdentityService));
+    Object.assign(ApiService, { refreshAccountIdentityShadow: api.ApiService.refreshAccountIdentityShadow, apiFetch: api.ApiService.apiFetch });
+    mocks.phoneFinalize.mockImplementation(identity.AccountIdentityService.finalizeNativePhoneVerification.bind(identity.AccountIdentityService));
+    mocks.phoneLinkConfirm.mockImplementation(async ({ phoneNumber }) => {
+      const user = mocks.firebaseUser as import("firebase/auth").User;
+      Object.assign(user, { phoneNumber });
+      return user;
+    });
     vi.mocked(fetch).mockImplementation(async () => Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED", message: "Choose how to continue" } }, { status: 409 }));
   });
   afterEach(cleanupWebAuthMocks);
@@ -68,9 +73,10 @@ describe("register-phone conflict runtime", () => {
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:none:no_back"));
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.queryByText("Phone render failed")).toBeNull();
-    expect(mocks.phoneClaimToken).toHaveBeenCalledOnce();
-    expect(mocks.identityClaim).toHaveBeenCalledOnce();
-    expect(fetch).toHaveBeenCalledWith("/api/account/phone/claim", expect.objectContaining({ method: "POST" }));
+    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
+    expect(mocks.identityClaim).not.toHaveBeenCalled();
+    expect(mocks.phoneFinalize).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith("/api/account/identity/refresh?require_success=true", expect.objectContaining({ method: "POST", body: JSON.stringify({ verified_phone_number: "+16505550101" }) }));
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
@@ -101,6 +107,10 @@ describe("register-phone conflict runtime", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/linked-account/deletions/confirm") || String(url).includes("/delete-lost-vault"))).toBe(false);
   });
   it("@feature_account_deletion requests in-place deletion with the retained SMS proof and never claims the number with it", async () => {
+    mocks.phoneLinkConfirm.mockImplementationOnce(async ({ onConflictProof }) => {
+      onConflictProof("phone-id-token");
+      throw Object.assign(new Error("Phone held"), { code: "credential-already-in-use" });
+    });
     const operation = "5f0c2a64-3c1e-4f5a-9f43-2a8f0c8e7b11";
     vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/linked-account/deletions")
       ? Response.json({ operation_id: operation, state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport: "sms" })
@@ -125,7 +135,7 @@ describe("register-phone conflict runtime", () => {
     expect(confirms).toHaveLength(1);
     expect(JSON.parse(confirms[0]!.body)).toEqual({ operation_id: operation, phone_number: "+16505550101", confirmed: true, phone_id_token: "phone-id-token" });
     // Negative control: the spent proof belongs to the previous holder and never claims the number here.
-    expect(calls.filter(call => call.url.endsWith("/api/account/phone/claim"))).toHaveLength(1);
+    expect(calls.filter(call => call.url.endsWith("/api/account/phone/claim"))).toHaveLength(0);
     expect(calls.some(call => call.url.includes("/recovery/continuations"))).toBe(false);
     expect(mocks.replaceDocument).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Verify this number again" }));
@@ -133,6 +143,10 @@ describe("register-phone conflict runtime", () => {
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
   it("@feature_account_deletion reads a lost confirmation back with Check again and never sends it twice", async () => {
+    mocks.phoneLinkConfirm.mockImplementationOnce(async ({ onConflictProof }) => {
+      onConflictProof("phone-id-token");
+      throw Object.assign(new Error("Phone held"), { code: "credential-already-in-use" });
+    });
     const operation = "5f0c2a64-3c1e-4f5a-9f43-2a8f0c8e7b12";
     let admitted = false;
     vi.mocked(fetch).mockImplementation(async (url) => {
@@ -168,7 +182,7 @@ describe("register-phone conflict runtime", () => {
     const reads = calls.filter(call => call.url.endsWith(`/linked-account/deletions/${operation}`));
     expect(reads.length).toBeGreaterThanOrEqual(2);
     expect(reads.every(call => call.method === "GET" && !call.body.includes("phone-id-token"))).toBe(true);
-    expect(calls.filter(call => call.url.endsWith("/api/account/phone/claim"))).toHaveLength(1);
+    expect(calls.filter(call => call.url.endsWith("/api/account/phone/claim"))).toHaveLength(0);
   }, 10_000);
   it("keeps a wrong-owner continuation generic and never dispatches deletion", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";

@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   phoneClaimToken: vi.fn(),
   phoneTestStart: vi.fn(),
   phoneLinkStart: vi.fn(),
+  phoneLinkConfirm: vi.fn(),
   phoneReplacementConfirm: vi.fn(),
   phoneReplacementStart: vi.fn(),
   phoneFinalize: vi.fn(),
@@ -106,7 +107,9 @@ vi.mock("@/lib/services/auth-service", () => ({
     restoreNativeSession: mocks.authServiceRestoreNativeSession,
     signOut: mocks.authServiceSignOut,
     shouldUseLocalDevPhoneVerification: () => false,
+    reloadPhoneVerificationUser: async () => mocks.firebaseUser,
     startPhoneLinkVerification: mocks.phoneLinkStart,
+    confirmPhoneLinkVerification: mocks.phoneLinkConfirm,
     startPhoneReplacementVerification: mocks.phoneReplacementStart,
     confirmPhoneReplacementVerification: mocks.phoneReplacementConfirm,
     isLocalDevPhoneVerificationId: () => false,
@@ -409,7 +412,13 @@ function resetWebAuthMocks() {
     mocks.identityPeek.mockReturnValue(null);
     mocks.identityClaim.mockReset();
     mocks.phoneFinalize.mockReset().mockResolvedValue(undefined);
-    mocks.phoneReplacementConfirm.mockReset();
+    const linkPhone = async () => {
+      const user = mocks.firebaseUser as User;
+      Object.assign(user, { phoneNumber: "+12025550101" });
+      return user;
+    };
+    mocks.phoneLinkConfirm.mockReset().mockImplementation(linkPhone);
+    mocks.phoneReplacementConfirm.mockReset().mockImplementation(linkPhone);
     mocks.phoneReplacementStart.mockReset().mockResolvedValue({ autoVerified: false, verificationId: "replacement-verification" });
     mocks.phoneTestStart.mockReset().mockResolvedValue({ success: true, eligible: false, reason: "uat_phone_test_not_configured_or_not_allowlisted" });
     mocks.phoneClaimToken.mockReset().mockResolvedValue("phone-id-token");
