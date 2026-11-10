@@ -13,7 +13,7 @@ import {
   PencilIcon as Pencil,
   PlusIcon as Plus,
   SearchIcon as Search,
-  TrashIcon as Trash2,
+  Trash2,
   XIcon as X,
 } from "@/components/icons";
 
@@ -440,10 +440,11 @@ export function AgentHistorySidebar({
                   alignOffset={isMobileMode ? 0 : -6}
                   collisionPadding={12}
                   // Drawer menus share Profile's material even through a portal.
-                  className="w-max min-w-0 max-w-[calc(100vw-24px)] rounded-[17px] border-0 bg-[color:var(--one-chat-menu,var(--popover))] p-1.5 text-foreground shadow-[0_12px_32px_-10px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7),0_2px_8px_rgba(0,0,0,0.4)]"
+                  className="w-max min-w-0 max-w-[calc(100vw-24px)] rounded-[17px] border-0 bg-[color:var(--one-chat-menu,var(--popover))] p-1 text-foreground shadow-[0_12px_32px_-10px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7),0_2px_8px_rgba(0,0,0,0.4)]"
                 >
+                  {/* Bring the labels closer while keeping both 44px tap targets. */}
                   <DropdownMenuItem
-                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] focus:!text-foreground [&_svg]:!size-[18px]"
+                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 pt-2.5 pb-0.5 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] focus:!text-foreground [&_svg]:!size-[18px]"
                     onSelect={() => startRename(conversation)}
                   >
                     <Pencil aria-hidden="true" />
@@ -451,10 +452,11 @@ export function AgentHistorySidebar({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
-                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] [&_svg]:!size-[18px]"
+                    // Inherit the row color even when it transitions on focus.
+                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 pt-0.5 pb-2.5 text-[15px] data-[variant=destructive]:*:[svg]:!text-inherit focus:!bg-[color:var(--one-chat-row-active)] [&_svg]:!size-[18px]"
                     onSelect={() => setDeleteTarget(conversation)}
                   >
-                    <Trash2 aria-hidden="true" />
+                    <Trash2 inheritColor aria-hidden="true" />
                     Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
