@@ -925,7 +925,14 @@ class GoogleCalendarService:
             ),
         }
 
-    async def get_event(self, *, user_id: str, calendar_id: str, event_id: str) -> dict[str, Any]:
+    async def get_event(
+        self,
+        *,
+        user_id: str,
+        calendar_id: str,
+        event_id: str,
+        expected_binding: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
         """Read an exact event; IDs come from a live list or owner-provided link."""
         if not calendar_id or len(calendar_id) > 1024 or not event_id or len(event_id) > 2048:
             raise GoogleConnectionError("Calendar event selection is invalid", status_code=422)
@@ -934,6 +941,7 @@ class GoogleCalendarService:
             method="GET",
             path=f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
             access="read",
+            expected_binding=expected_binding,
         )
         if not response.get("id"):
             raise GoogleConnectionError("Calendar event is unavailable", status_code=502)
