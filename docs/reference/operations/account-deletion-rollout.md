@@ -1366,8 +1366,14 @@ binding) commits nothing and is final for that operation; a raised outcome is
 settled only from the committed full-account tombstone and is never dispatched
 again. An explicit OTP claim no longer treats a holder with a committed
 full-account deletion as an owner; background hydration and provisional
-phone-orphan intents never release a binding. Erasure of either account cascades
-its receipts. Rollback refuses to drop retained receipts.
+phone-orphan intents never release a binding. Erasure of either account detaches
+consumed receipts instead of cascading them: the erased owner's raw id is cleared
+once its tombstone exists and an erased holder's phone digest is blanked, so a spent
+proof stays single-use and the requester can still read the outcome. An erased
+requester's receipts are deleted once they can no longer be replayed (configured
+test-code proofs, or SMS dispatched more than ten minutes earlier); unconsumed
+operations still cascade, and retained receipts prune in bounded batches ninety days
+after expiry. Rollback refuses to drop retained receipts.
 
 Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE
