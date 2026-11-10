@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   sync: vi.fn(),
   savePreferences: vi.fn(),
   getProfile: vi.fn(),
+  vaultLocked: false,
   current: true,
   ready: false,
   resumed: false,
@@ -50,12 +51,15 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
   useFinanceShareContext: () => ({
-    capture: () => ({
-      userId: "owner",
-      vaultKey: "synthetic",
-      vaultOwnerToken: "synthetic",
-      isCurrent: () => state.current,
-    }),
+    capture: () =>
+      state.vaultLocked
+        ? null
+        : {
+            userId: "owner",
+            vaultKey: "synthetic",
+            vaultOwnerToken: "synthetic",
+            isCurrent: () => state.current,
+          },
   }),
 }));
 vi.mock("@/lib/services/kai-profile-service", () => ({
@@ -104,6 +108,7 @@ vi.mock("@/components/kai/kai-flow", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   state.current = true;
+  state.vaultLocked = false;
   state.source = null;
   state.resumed = false;
   state.bootstrap.mockResolvedValue(state.journey);
@@ -189,6 +194,19 @@ it("saves the persona before import and keeps risk comfort separate from near-te
   );
   expect(state.ready).toBe(false);
   expect(screen.getByText("Real source workflow")).toBeVisible();
+});
+
+it("skips unanswered persona questions and continues to import with a locked vault", () => {
+  state.vaultLocked = true;
+  state.bootstrap.mockResolvedValue({ ...state.journey, hasVault: true });
+  render(<FinanceImportOnboardingSetupClient showIntroduction />);
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  fireEvent.click(screen.getByRole("radio", { name: "Less than 3 years" }));
+  fireEvent.click(screen.getByRole("button", { name: "Skip all" }));
+  expect(screen.getByText("Real source workflow")).toBeVisible();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(state.bootstrap).not.toHaveBeenCalled();
+  expect(state.savePreferences).not.toHaveBeenCalled();
 });
 
 it("recovers the explicit completion screen from a verified persisted source callback", () => {
