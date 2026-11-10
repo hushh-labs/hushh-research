@@ -13,6 +13,9 @@ export function isPhoneOwnershipConflict(error: unknown, backendCode: string | n
 export function resolvePhoneFailureMessage(error: unknown, fallback: string, backendCode: string | null = null): string {
   const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
   if (code === "PHONE_TRANSFER_CONFIRMATION_REQUIRED" || code === "PHONE_SESSION_ACCOUNT_CONFLICT") return "This number is linked to another account. Choose how to continue.";
+  if (code === "phone_verification_busy") return "Phone verification is finishing. Wait a moment and try again.";
+  if (code === "phone-link-upgrade-required") return "Update the app to verify a phone number.";
+  if (code === "AUTH_INDEPENDENT_SIGN_IN_REQUIRED") return "Sign in again with your existing email or sign-in provider, then retry phone verification.";
   if (code === "PHONE_TRANSFER_IN_PROGRESS") return "Finishing phone transfer. Check progress again.";
   // Nonproduction lanes on the shared production sign-in can never move a number; recovery needs that account's sign-in.
   if (code === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE") return "Moving a number isn't available in this environment. Delete your previous account or use a different number.";

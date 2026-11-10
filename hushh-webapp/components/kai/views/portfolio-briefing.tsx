@@ -1,136 +1,100 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
-import { SectionLabel } from "@/components/app-ui/typography";
-import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { useEffect, useMemo, useState } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { formatCurrency } from "@/lib/kai/market-value-format";
-import type { LinkedNetWorthScore } from "@/lib/kai/plaid-vault/types";
-import { useState } from "react";
+import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
+import type { FinanceSource } from "@/lib/finance-sharing/contract";
+import { readSavedPortfolioReview, type PortfolioReviewResponse } from "@/lib/finance-sharing/portfolio-review-cache";
+import { readPortfolioReviewInput } from "@/lib/finance-sharing/portfolio-review-input";
+import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
+import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import type { DashboardViewModel } from "./dashboard-data-mapper";
-import type { PortfolioData } from "@/components/kai/types/portfolio";
-import { overviewFacts } from "./portfolio-display-facts";
 
-/** The linked net worth score and the active portfolio’s cash share. */
 export function PortfolioBriefing({
-  model,
-  portfolio,
-  linkedNetWorthScore,
+  review,
   onOpen,
-  advisorAction,
 }: {
-  model?: DashboardViewModel;
-  portfolio?: PortfolioData | null;
-  linkedNetWorthScore?: LinkedNetWorthScore | null;
-  onOpen?: () => void;
-  advisorAction?: ReactNode;
+  review?: Pick<PortfolioReviewResponse, "score" | "next_step">;
+  onOpen: () => void;
 }) {
-  const score = linkedNetWorthScore?.score ?? null;
-  const cash = model ? overviewFacts(model, portfolio).cash : null;
-  const cashShare = cash !== null && model && model.hero.totalValue > 0
-    ? `${(cash / model.hero.totalValue * 100).toFixed(1)}%`
-    : "Unavailable";
-
-  return <SurfaceCard className={model ? undefined : styles.importEntry} data-testid="portfolio-briefing">
-    <SurfaceCardContent className={styles.insightCard}>
-      <SectionLabel role="heading" aria-level={2}>Agent One’s briefing</SectionLabel>
-      {model ? (
-        <div className={styles.scoreSummary}>
-          <div
-            className={styles.scoreRing}
-            style={{ "--nws-progress": `${(score ?? 0) / 10}%` } as CSSProperties}
-            role={score === null ? "img" : "meter"}
-            aria-label={score === null ? "Net Worth Score unavailable" : "Net Worth Score"}
-            aria-valuemin={score === null ? undefined : 0}
-            aria-valuemax={score === null ? undefined : 1000}
-            aria-valuenow={score ?? undefined}
-          >
-            <span aria-hidden="true">{score ?? "—"}</span>
-          </div>
-          <div>
-            <p className="ui-text-section-label">NWS score</p>
-            <dl className={styles.scoreCashShare}>
-              <dt>Cash share</dt>
-              <dd>{cashShare}</dd>
-            </dl>
-          </div>
-        </div>
-      ) : <p className={styles.description}>Add a portfolio to see your analysis.</p>}
-      <div className={`${styles.cardFooter} items-center`}>
-        {model ? (
-          <p className={`${styles.description} me-auto`}>Tracked holdings · {model.hero.holdingsCount}</p>
-        ) : null}
-        {onOpen ? (
-          <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={onOpen}>
-            {model ? "View analysis" : "Import portfolio"}
-          </ShellActionSurface>
-        ) : null}
-        {advisorAction}
-      </div>
-    </SurfaceCardContent>
-  </SurfaceCard>;
-}
-
-function netWorthScoreLabel(score: number | null) {
-  return score === null ? "Unavailable" : `${score} / 1,000`;
-}
-
-export type NetWorthRecovery = {
-  description: string;
-  action?: { label: string; run: () => void; disabled?: boolean };
-};
-
-export function PortfolioNetWorthCard({
-  result,
-  recovery,
-}: {
-  result?: LinkedNetWorthScore | null;
-  recovery?: NetWorthRecovery;
-}) {
-  const score = result?.score ?? null;
-  const linkedNetWorth = result?.linked_net_worth_usd ?? null;
-  const refreshTime = Date.parse(result?.balances_refreshed_at ?? "");
-  const refreshDate = Number.isFinite(refreshTime)
-    ? new Date(refreshTime).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-    : null;
+  const score = review?.score ?? null;
   return (
-    <SurfaceCard data-testid="portfolio-net-worth-score">
-      <SurfaceCardContent className="space-y-2.5 p-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="ui-text-section-label">Net Worth Score</h2>
-          <p className="shrink-0 ui-text-row-label-emphasized tabular-nums">
-            {netWorthScoreLabel(score)}
-          </p>
-        </div>
-        {score !== null ? (
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-            <div className="h-full rounded-full bg-[var(--app-accent)]" style={{ width: `${score / 10}%` }} />
+    <SurfaceCard data-testid="portfolio-briefing">
+      <SurfaceCardContent className={styles.insightCard}>
+        <h2 className="ui-text-section-label">Portfolio review</h2>
+        <dl className="flex items-baseline justify-between gap-3">
+          <dt className="ui-text-row-description">Snapshot score</dt>
+          <dd className="shrink-0 ui-text-row-description tabular-nums">
+            {score === null ? "Unavailable" : (
+              <><strong className="ui-text-row-label-emphasized">{score}</strong> / 100</>
+            )}
+          </dd>
+        </dl>
+        {review?.next_step ? (
+          <div className="space-y-1">
+            <h3 className="ui-text-row-description font-semibold text-[var(--app-accent)]">Next step</h3>
+            <p className="line-clamp-2 ui-text-row-label">{review.next_step}</p>
           </div>
         ) : null}
-        {linkedNetWorth !== null ? (
-          <p className={styles.description}>
-            {formatCurrency(linkedNetWorth)} across linked Plaid accounts
-            {refreshDate ? <> · As of <time dateTime={result?.balances_refreshed_at}>{refreshDate}</time></> : null}
-          </p>
-        ) : null}
-        {score === null ? (
-          <>
-            <p className={styles.description}>
-              {recovery?.description ?? "A score requires current Plaid balances and a U.S. country on file."}
-            </p>
-            {recovery?.action ? (
-              <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" disabled={recovery.action.disabled}
-                onClick={recovery.action.run}>
-                {recovery.action.label}
-              </ShellActionSurface>
-            ) : null}
-          </>
-        ) : null}
+        <div className={styles.cardFooter}>
+          <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={onOpen}>
+            View analysis
+          </ShellActionSurface>
+        </div>
       </SurfaceCardContent>
     </SurfaceCard>
   );
+}
+
+export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSource; onOpen: () => void }) {
+  const { capture, ready, session } = useFinanceShareContext();
+  const { kind, snapshotId, representation } = source;
+  const [revision, setRevision] = useState(0);
+  const key = useMemo(() => ({
+    source: { kind, snapshotId, representation }, ready, session, revision,
+  }), [kind, snapshotId, representation, ready, session, revision]);
+  const [saved, setSaved] = useState<{
+    key: typeof key;
+    review: PortfolioReviewResponse;
+    isCurrent: () => boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!key.ready) return;
+    const context = capture();
+    if (!context) return;
+
+    const invalidate = () => {
+      setSaved(null);
+      setRevision((value) => value + 1);
+    };
+    const unsubscribe = subscribeToPkmDomainChanges(({ userId, domain }) => {
+      if (userId === context.userId && domain === "financial") invalidate();
+    });
+    document.addEventListener("visibilitychange", invalidate);
+    let disposed = false;
+
+    if (context.isCurrent()) {
+      void (async () => {
+        const stored = await readSavedPortfolioReview(context);
+        if (!stored || disposed || !context.isCurrent()) return;
+        const { digest } = await readPortfolioReviewInput(context, key.source);
+        if (digest === stored.digest && !disposed && context.isCurrent()) {
+          setSaved({ key, review: stored.review, isCurrent: context.isCurrent });
+        }
+      })().catch(() => { /* Leave the score unavailable if the saved review cannot be opened. */ });
+    }
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+      document.removeEventListener("visibilitychange", invalidate);
+    };
+  }, [capture, key]);
+
+  return <PortfolioBriefing review={saved?.key === key && saved.isCurrent() ? saved.review : undefined} onOpen={onOpen} />;
 }
 
 /** Charts use saved holdings and balance history, never model estimates. */

@@ -144,7 +144,7 @@ describe("Profile pane: Personal World Model", () => {
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
     window.history.replaceState(null, "", `/one?${nav.query}`);
     const close = vi.fn();
-    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(new ApiError("Review transfer", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }));
+    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(Object.assign(new ApiError("Review transfer", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }), { phoneProofAvailable: true }));
     vi.spyOn(auth, "confirmPhoneTransfer").mockRejectedValueOnce(new ApiError("Check progress", 409, { code: "PHONE_TRANSFER_IN_PROGRESS" })).mockResolvedValueOnce(auth.user);
     render(<StepProgressProvider><ProfilePage presentation="native-page" nativeMenuOpen
       onNativeMenuClose={close} paneLocation={{ panel: "account", detail: "phone" }} /></StepProgressProvider>);

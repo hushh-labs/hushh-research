@@ -24,6 +24,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
+import * as locationNotifications from "@/lib/one-location/notifications";
 import {
   OneLocationContactSyncError,
   type OneLocationContactSignalResult,
@@ -426,6 +427,8 @@ vi.mock("@/lib/one-location/location-bus", () => ({
     request: vi.fn(),
     invalidate: vi.fn(),
     getLastCaptureError: vi.fn(() => null),
+    getRecentMeasuredFix: vi.fn(() => null),
+    getAccountGeneration: vi.fn(() => 0),
     __resetForTests: vi.fn(),
   },
 }));
@@ -3317,6 +3320,39 @@ describe("OneLocationAgentPage", () => {
     });
   });
 
+  it("keeps a restored local Pause when Nearby still reports an active visit and checkout fails", async () => {
+    const { readOneLocationControlState, updateOneLocationControlState } =
+      await import("@/lib/one-location/location-control-state");
+    updateOneLocationControlState("user_a", (current) => ({ ...current, paused: true }));
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: "2026-07-31T00:00:00.000Z",
+        expiresAt: "2026-07-31T01:00:00.000Z",
+        placeLabel: "Event venue",
+      },
+      attendees: [],
+    });
+    mockCheckoutNearby.mockRejectedValueOnce(new Error("Checkout unavailable"));
+    const view = render(<OneLocationAgentPage />);
+    try {
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+        "Location is paused on this device. Nearby checkout did not complete.",
+      ));
+      expect(readOneLocationControlState("user_a").paused).toBe(true);
+      expect(screen.getByRole("switch", { name: "Turn location on" })).not.toBeChecked();
+    } finally {
+      view.unmount();
+      updateOneLocationControlState("user_a", (current) => ({ ...current, paused: false }));
+    }
+  });
+
   it("separates people who can already see you from people who cannot", async () => {
     // Reported from UAT: "3 logon ko location share kiya… phir revisit kiya
     // share location page par toh abhi bhi yeh same hi list dekha rha… long
@@ -4651,14 +4687,34 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it.each(["full", "partial", "unknown", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {
+  it.each(["full", "partial", "unknown", "email", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {
     mockGetSmsContacts.mockResolvedValue(outcome === "partial" ? ["user_b", "user_d"] : ["user_b"]);
     let publicationCount = 0;
     mockStoreEnvelope.mockImplementation(async () => {
       if (outcome === "none") throw new Error("publish unavailable");
       if (outcome === "unknown") return { recipientAlerted: null };
+      if (outcome === "email") return { recipientAlerted: false };
       return { recipientAlerted: outcome === "full" || publicationCount++ === 0 };
     });
+    if (outcome === "email") {
+      const baseState = locationState();
+      const smsGrant = {
+        ...baseState.ownerGrants[0]!,
+        id: "grant_email_only",
+        shareKind: "sos",
+        expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      };
+      let active = false;
+      mockCreateGrant.mockImplementation(async () => {
+        active = true;
+        return smsGrant;
+      });
+      mockGetState.mockImplementation(async () => ({
+        ...baseState,
+        ownerGrants: active ? [smsGrant] : baseState.ownerGrants,
+      }));
+      mockSendSosEmails.mockResolvedValueOnce({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] });
+    }
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
@@ -4666,7 +4722,11 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(hold).not.toBeDisabled());
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     if (outcome === "none") {
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The alert could not be sent. Call for help directly."), { timeout: 4000 });
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Delivery could not be confirmed. Call for help directly."), { timeout: 4000 });
+    } else if (outcome === "email") {
+      expect(await screen.findByText("Alert sent by email", {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(toast.success).not.toHaveBeenCalledWith("SMS alert sent.", expect.anything());
+      expect(screen.getByRole("button", { name: "Stop SMS alert" })).toBeEnabled();
     } else {
       await waitFor(() => expect(outcome === "partial" ? toast.warning : toast.success).toHaveBeenCalledWith(
         outcome === "full" ? "SMS alert sent." : outcome === "unknown" ? "SMS location shared." : "Some contacts may miss this alert.",
@@ -4695,12 +4755,12 @@ describe("OneLocationAgentPage", () => {
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     await waitFor(() => expect(mockSendSosEmails).toHaveBeenCalled(), { timeout: 4000 });
     expect(toast.success).toHaveBeenCalledWith("SMS alert sent.", expect.anything());
-    const stop = screen.getByRole("button", { name: "Stop Save My Soul alert" });
+    const stop = screen.getByRole("button", { name: "Stop SMS alert" });
     expect(stop).toBeEnabled();
     fireEvent.click(stop);
-    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop SMS alert?" })).getByRole("button", { name: "Stop alert" }));
     await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop SMS alert" })).toBeNull());
     const calls = vi.mocked(toast.success).mock.calls.length;
     await act(async () => finishEmail({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] }));
     expect(vi.mocked(toast.success).mock.calls).toHaveLength(calls);
@@ -4787,14 +4847,14 @@ describe("OneLocationAgentPage", () => {
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1), { timeout: 3500 });
     await waitFor(() => expect(mockStoreEnvelope.mock.calls.length).toBeGreaterThan(writesBefore));
-    await screen.findByRole("button", { name: "Stop Save My Soul alert" });
+    await screen.findByRole("button", { name: "Stop SMS alert" });
     const grantsAfter = mockCreateGrant.mock.calls.length;
     await act(async () => { releasePassive({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true }); });
     expect(mockCreateGrant).toHaveBeenCalledTimes(grantsAfter);
-    fireEvent.click(screen.getByRole("button", { name: "Stop Save My Soul alert" }));
-    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop SMS alert" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop SMS alert?" })).getByRole("button", { name: "Stop alert" }));
     await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop SMS alert" })).toBeNull());
   });
 
   it("resolves a fresh local emergency number as Save My Soul opens", async () => {
@@ -6924,6 +6984,7 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
     expect(screen.queryByPlaceholderText("What should they know?")).toBeNull();
+    const playSound = vi.spyOn(locationNotifications, "playOneLocationNotificationSound");
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
@@ -6959,6 +7020,8 @@ describe("OneLocationAgentPage", () => {
         expect.stringContaining("Request sent."),
       ),
     );
+    expect(playSound).not.toHaveBeenCalled();
+    playSound.mockRestore();
     expect(screen.queryByText("Request sent.")).toBeNull();
   });
 

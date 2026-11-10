@@ -94,6 +94,8 @@ RESTORATION_FIXTURE_OWNER_TESTS = (
     "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_phone_schema_origin.py",
     "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+    "consent-protocol/tests/test_phone_schema_job_history.py",
+    "consent-protocol/tests/test_phone_schema_qualification.py",
 )
 
 
@@ -199,6 +201,8 @@ def _governance_plan(paths: tuple[str, ...]) -> dict:
         "CI_CHANGED_FILES": "\n".join(paths),
     }
     env.pop("CI_CHANGED_FILES_FILE", None)
+    # These fixtures check standalone Governance ownership without the hosted Protocol lane.
+    env.pop("CI_PROTOCOL_CONTROLLER_OWNER", None)
     result = subprocess.run(  # noqa: S603 - invokes the repository's fixed governance selector
         [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--plan"],
         cwd=ROOT,
@@ -442,7 +446,21 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
     assert schema["auth_health_only"] == "false"
 
     backend_output = jobs["preflight-gate"]["outputs"]["backend"]
-    assert "needs.paths.outputs.auth_health_only == 'true'" in backend_output
+    assert backend_output == "${{ needs.paths.outputs.backend_required }}"
+    required = jobs["paths"]["outputs"]["backend_required"]
+    assert (
+        required
+        == "${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || steps.resolve.outputs.auth_health_only == 'true') && 'false' || steps.resolve.outputs.backend }}"
+    )
+    governance_step = next(
+        step
+        for step in jobs["repo-governance"]["steps"]
+        if step.get("name") == "Run repo governance checks"
+    )
+    assert (
+        governance_step["env"]["CI_PROTOCOL_CONTROLLER_OWNER"]
+        == "${{ inputs.production_recovery_sha == '' && needs.paths.outputs.backend_required || 'false' }}"
+    )
     assert jobs["preflight-gate"]["needs"] == [
         "ui-contracts",
         "secret-scan",
@@ -903,6 +921,7 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
         "consent-protocol/tests/test_drive_worker_release_rollback.py",
         "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+        "consent-protocol/tests/test_protected_document_release_contract.py",
         "consent-protocol/tests/test_database_connection_ceiling.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",
@@ -966,6 +985,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "scripts/ops/sync_backend_runtime_secrets.py",
         "scripts/ops/runtime_config_retention.py",
         "deploy/plg/bind_secrets.sh",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
     ):
         assert not backend.match_file(source)
         source_plan = _governance_plan((source,))
@@ -981,6 +1002,16 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
 
     # Every consumer of this inert fixture belongs to the same focused owner;
     # adding a consumer cannot silently leave fixture-only changes uncovered.
+    calendar_fixture = "consent-protocol/tests/helpers/calendar_followup_scheduler.py"
+    assert not backend.match_file(calendar_fixture)
+    calendar_plan = _governance_plan((calendar_fixture,))
+    assert calendar_plan["selection_error"] is None
+    calendar_commands = {row["id"]: row["argv"] for row in calendar_plan["commands"]}
+    assert (
+        "consent-protocol/tests/test_calendar_followup_scheduler_contract.py"
+        in calendar_commands["release-controller-contracts"]
+    )
+
     fixture = "consent-protocol/tests/helpers/plg_qualification.py"
     assert not backend.match_file(fixture)
     fixture_plan = _governance_plan((fixture,))

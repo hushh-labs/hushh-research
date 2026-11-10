@@ -211,7 +211,12 @@ def pin_image(context: Context, workspace: Path) -> dict:
 
 
 def collect_image(
-    context: Context, backend_image: str, legacy_exception: bool, deadline: float
+    context: Context,
+    backend_image: str,
+    legacy_exception: bool,
+    deadline: float,
+    *,
+    qualification_mode: str = "full",
 ) -> tuple[dict, dict]:
     require(
         bool(
@@ -238,6 +243,7 @@ def collect_image(
             "environment": "uat",
             "region": "us-central1",
             "legacy_exception": legacy_exception,
+            "qualification_mode": qualification_mode,
         },
     )
     pins = [
@@ -372,6 +378,9 @@ def main() -> int:
     parser.add_argument(
         "--legacy-exception", choices=["true", "false"], default="false"
     )
+    parser.add_argument(
+        "--qualification-mode", choices=["full", "core"], default="full"
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--proof-output", type=Path)
     parser.add_argument("--manifest-output", type=Path)
@@ -406,6 +415,7 @@ def main() -> int:
                 args.backend_image,
                 args.legacy_exception == "true",
                 deadline,
+                qualification_mode=args.qualification_mode,
             )
             collect_manifest(image, args.manifest_output, deadline)
             _write(args.output, image)

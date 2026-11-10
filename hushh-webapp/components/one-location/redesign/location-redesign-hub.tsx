@@ -188,7 +188,7 @@ import {
   ShareCountdownText,
   type LiveShareStatus,
 } from "@/components/one-location/redesign/live-share-status-card";
-import { SosPanel } from "@/components/one-location/redesign/sos-panel";
+import { SosPanel, type SosDispatchStatus } from "@/components/one-location/redesign/sos-panel";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
@@ -729,6 +729,7 @@ export type LocationHubViewModel = {
   smsContactsLoading: boolean;
   onRefreshSmsContacts: () => Promise<string[] | null>;
   sosActive: boolean;
+  sosDispatchStatus?: SosDispatchStatus;
   sosBusy: boolean;
   sosStartedAtLabel: string | null;
   sosEmergency: EmergencyInfo | null;
@@ -4863,6 +4864,7 @@ function SosFlow({
         contactCount={vm.smsContactCount}
         recipientsLoading={vm.smsContactsLoading}
         active={vm.sosActive}
+        dispatchStatus={vm.sosDispatchStatus}
         busy={vm.sosBusy}
         onTrigger={vm.onTriggerSos}
         onStopSos={vm.onStopSos}

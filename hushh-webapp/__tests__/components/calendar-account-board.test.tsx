@@ -417,11 +417,11 @@ describe("three-account Calendar board", () => {
     expect(mocks.boardDay).toHaveBeenCalledWith(expect.objectContaining({ durationMinutes: 15 }));
   });
 
-  it("shows a direct Join link and provider on an event without nesting the link in the details button", async () => {
+  it("binds a standalone Meet Join link to the event's calendar account", async () => {
     mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], checked_at: board.checked_at, events: [{ ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }] }] });
     render(page());
     const join = await screen.findByRole("link", { name: "Join meeting: Planning review" });
-    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
     expect(join.closest("button")).toBeNull();
     expect(screen.getByText("Google Meet")).toBeInTheDocument();
     expect(screen.getByText("Connected", { exact: true })).toBeInTheDocument();
@@ -528,7 +528,7 @@ describe("three-account Calendar board", () => {
     expect(within(dialog).getByText("Organized by")).toBeInTheDocument();
     expect(within(dialog).getByText("organizer-one@example.com")).toBeInTheDocument();
     const join = within(dialog).getByRole("link", { name: "Join meeting" });
-    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
     expect(dialog.querySelector('[data-slot="dialog-header"]')).toContainElement(join);
     expect(within(dialog).queryByRole("link", { name: "Open in Google Calendar" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Accept" })).toBeInTheDocument();

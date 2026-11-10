@@ -820,7 +820,7 @@ describe("phone conflict recovery", () => {
   it("requires explicit transfer review and confirmation while preserving the old account", async () => {
     const transfer = vi.fn().mockResolvedValue({ uid: "receiving-user" });
     const flow = renderPhoneVerificationFlow({ confirmTransfer: transfer, confirmVerification: vi.fn().mockRejectedValue(
-      new ApiError("Conflict", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } })) });
+      Object.assign(new ApiError("Conflict", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }), { phoneProofAvailable: true })) });
     const code = await reachCodeStep(flow.startVerification);
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
@@ -836,7 +836,7 @@ describe("phone conflict recovery", () => {
   it("recovery never transfers and provider failure never opens account conflict choices", async () => {
     const recover = vi.fn(); const transfer = vi.fn();
     const flow = renderPhoneVerificationFlow({ confirmTransfer: transfer, recoverPreviousAccount: recover, confirmVerification: vi.fn().mockRejectedValue(
-      new ApiError("Conflict", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } })) });
+      Object.assign(new ApiError("Conflict", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }), { phoneProofAvailable: true })) });
     const code = await reachCodeStep(flow.startVerification);
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     fireEvent.click(await screen.findByRole("button", { name: "Recover my previous account" }));
@@ -891,7 +891,7 @@ describe("phone transfer temporal and Back contracts", () => {
     const transfer = vi.fn().mockRejectedValue(new ApiError("pending", 503, { code: "PHONE_TRANSFER_IN_PROGRESS" }));
     const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",
       startVerification: vi.fn().mockResolvedValue({ autoVerified: false }),
-      confirmVerification: vi.fn().mockRejectedValue(new ApiError("conflict", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" })),
+      confirmVerification: vi.fn().mockRejectedValue(Object.assign(new ApiError("conflict", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }), { phoneProofAvailable: true })),
       confirmTransfer: transfer, onCompleted: vi.fn() }));
     await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
     await act(async () => { await result.current.submitVerificationCode("123456", { notify: false }); });

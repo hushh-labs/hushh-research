@@ -37,10 +37,10 @@ describe("One Location capture-options boundary", () => {
 
     // Declared with the parameter — a zero-arity declaration is the bug.
     expect(source).toContain(
-      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n    }): Promise<PlainLocationPoint> => {",
+      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n      requireMeasurement?: boolean;\n    }): Promise<PlainLocationPoint> => {",
     );
     expect(source).toContain(
-      "async (options?: { maxAgeMs?: number; fresh?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
+      "async (options?: { maxAgeMs?: number; fresh?: boolean; requireMeasurement?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
     );
 
     // And actually forwarded to the service, not dropped.
@@ -52,21 +52,24 @@ describe("One Location capture-options boundary", () => {
     );
   });
 
-  it("an in-flight capture is not handed to a caller demanding a fresh fix", () => {
+  it("bypasses in-flight capture for freshness and measurement requirements", () => {
     const source = read("components/one-location/location-immersive-map.tsx");
 
     // Deduplication is right for cached-eligible callers and wrong for a
     // check-in anchor that must describe where the user is standing now.
     expect(source).toContain(
-      "options?.maxAgeMs !== 0 &&\n        !options?.fresh",
+      "options?.maxAgeMs !== 0 &&\n        !options?.fresh &&\n        !options?.requireMeasurement",
     );
   });
 
-  it("the check-in confirmation anchors on a current fix, not a stale one", () => {
+  it("manual and command check-in both request a current measured fix", () => {
     const source = read(
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
     );
-    expect(source).toContain("captureCurrentPosition({ fresh: true })");
+    const measuredCaptures = source.match(
+      /captureCurrentPosition\(forceNew\s*\?\s*\{ maxAgeMs: 0, requireMeasurement: true \}\s*:\s*\{ fresh: true, requireMeasurement: true \}\)/g,
+    );
+    expect(measuredCaptures).toHaveLength(2);
   });
 
   it("the check-in sheet's prop type accepts options at all", () => {
@@ -74,7 +77,7 @@ describe("One Location capture-options boundary", () => {
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
     );
     expect(source).toContain(
-      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n  }) => Promise<PlainLocationPoint>;",
+      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n    requireMeasurement?: boolean;\n  }) => Promise<PlainLocationPoint>;",
     );
   });
 });

@@ -210,7 +210,6 @@ import {
   ONE_LOCATION_SECTION_PARAM,
   ONE_LOCATION_SUBMISSION_ID_PARAM,
   isSmsTriggeredGrant,
-  playOneLocationNotificationSound,
   type OneLocationNotificationSection,
 } from "@/lib/one-location/notifications";
 import {
@@ -2439,6 +2438,11 @@ export function OneLocationAgentPageContent({
 
   const [sosIncident, updateSosIncident] = useState<SosIncident | null>(null);
   const sosIncidentRef = useRef<SosIncident | null>(null);
+  const [sosDispatch, setSosDispatch] = useState<{
+    owner: string;
+    status: "sending" | "sent" | "email-only" | "failed" | "unconfirmed";
+    incidentStartedAt?: string;
+  } | null>(null);
   const sosOwnerRef = useRef(auth.userId);
   const sosOperations = useRef(new SosOperationGate());
   const smsOperations = useRef(new OwnerOperationGate());
@@ -2831,6 +2835,7 @@ export function OneLocationAgentPageContent({
   // here would be reported as "you may still be visible to people around you" —
   // a false alarm about the one thing this surface must never be wrong about.
   const nearbyCheckoutConfirmedAtRef = useRef(0);
+  const nearbyPauseCheckoutRef = useRef<{ userId: string; intent: number } | null>(null);
   useEffect(() => {
     // Checked back in: whatever we last confirmed no longer describes presence.
     if (locationControl.nearbyPresenceActive) {
@@ -3632,6 +3637,9 @@ export function OneLocationAgentPageContent({
     }
     const userId = auth.userId;
     const ownerToken = vaultOwnerToken;
+    if (locationControl.paused && nearbyPauseCheckoutRef.current?.userId === userId) {
+      return;
+    }
     let cancelled = false;
 
     void OneLocationService.getNearbyPresence({
@@ -3647,15 +3655,9 @@ export function OneLocationAgentPageContent({
             if (cancelled) return;
             next = checkedOut;
           } catch {
-            if (cancelled) return;
-            updateOneLocationControlState(userId, (current) => ({
-              ...current,
-              paused: false,
-              nearbyPresenceActive: true,
-              nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
-            }));
+            if (cancelled || !readOneLocationControlState(userId).paused) return;
             toast.error(
-              "Nearby checkout did not complete. Location is still on; try pausing again.",
+              "Location is paused on this device. Nearby checkout did not complete.",
             );
             return;
           }
@@ -5758,7 +5760,9 @@ export function OneLocationAgentPageContent({
           capturePoint: allowPermissionPrompt,
           requirePoint: true,
           requireMeasurement: true,
-          ...(sending ? { maxAgeMs: 30_000 } : {}),
+          ...(sending && ownerId
+            ? { maxAgeMs: LocationBus.getRecentMeasuredFix(ownerId, 30_000) ? 30_000 : 0 }
+            : {}),
           allowPermissionPrompt: options?.allowPermissionPrompt,
           isStale,
           autoOpenSettings: false,
@@ -5854,12 +5858,14 @@ export function OneLocationAgentPageContent({
       reachedCount,
       unreachableCount,
       emailedCount = 0,
+      dispatchMs,
       note,
     }: {
       selectedCount: number;
       reachedCount: number;
       unreachableCount: number;
       emailedCount?: number;
+      dispatchMs: number;
       note?: string | null;
     }) => {
       trackEvent("one_location_sos_triggered", {
@@ -5872,6 +5878,7 @@ export function OneLocationAgentPageContent({
         reached_count: reachedCount,
         unreachable_count: unreachableCount,
         emailed_count: emailedCount,
+        duration_ms_bucket: toDurationBucket(dispatchMs),
         has_note: Boolean(note && note.trim()),
       });
     },
@@ -5887,8 +5894,14 @@ export function OneLocationAgentPageContent({
       if (!vaultOwnerToken) return;
       let totalSelected = smsContactUserIds.length;
       const owner = auth.userId;
+      const sessionGeneration = LocationBus.getAccountGeneration();
+      const isStale = () => sosOwnerRef.current !== owner ||
+        LocationBus.getAccountGeneration() !== sessionGeneration;
       const operation = sosOperations.current.begin(owner);
       if (!operation) return;
+      const dispatchStartedAt = performance.now();
+      const dispatchElapsed = () => performance.now() - dispatchStartedAt;
+      setSosDispatch({ owner, status: "sending" });
       setBusy("sos");
       try {
         ++smsRosterRevision.current;
@@ -5899,14 +5912,15 @@ export function OneLocationAgentPageContent({
           resolveSosLocation({ sending: true }),
         ]);
         const { point, failure, lastKnown } = location;
-        if (sosOwnerRef.current !== owner) return;
+        if (isStale()) return;
         totalSelected = roster.smsContactUserIds.length;
         setSmsSystemCircleMemberIds(roster.smsContactUserIds);
         setSmsRosterRecipients(roster.recipients);
         const readyRecipients = roster.recipients.filter(isSosShareReadyRecipient);
         if (!readyRecipients.length) {
           trackSosTriggered({ selectedCount: totalSelected, reachedCount: 0,
-            unreachableCount: totalSelected, note });
+            unreachableCount: totalSelected, dispatchMs: dispatchElapsed(), note });
+          setSosDispatch({ owner, status: "failed" });
           toast.error(sosRecipientReadinessMessage(roster.recipients));
           return;
         }
@@ -5915,8 +5929,10 @@ export function OneLocationAgentPageContent({
             selectedCount: totalSelected,
             reachedCount: 0,
             unreachableCount: totalSelected,
+            dispatchMs: dispatchElapsed(),
             note,
           });
+          setSosDispatch({ owner, status: "failed" });
           toast.error(
             failure === "denied" || failure === "blocked"
               ? "Location access is blocked. Check your device or browser settings and try again. Alert not sent."
@@ -5930,8 +5946,9 @@ export function OneLocationAgentPageContent({
           recipients: readyRecipients,
           point,
           note,
+          isStale,
           publish: (grant, recipient, pt) =>
-            publishEnvelopeWithRetry(grant, recipient, "manual", pt),
+            publishEnvelopeWithRetry(grant, recipient, "manual", pt, isStale),
         }).catch((error: unknown) => {
           // The common executor retains its error contract for voice/legacy
           // callers. This screen can show the full per-contact partial result
@@ -5941,7 +5958,7 @@ export function OneLocationAgentPageContent({
           }
           throw error;
         });
-        if (sosOwnerRef.current !== owner) return;
+        if (isStale()) return;
         setSosIncident(incident);
         const skipped = totalSelected - readyRecipients.length;
         // Report per-contact outcomes so missing alerts are visible.
@@ -5950,6 +5967,12 @@ export function OneLocationAgentPageContent({
           .map((outcome) => outcome.displayName);
         const reached = incident.delivery.filter((outcome) => outcome.alerted === true).length;
         const shared = incident.delivery.filter((outcome) => !outcome.failed).length;
+        const primaryDispatchMs = dispatchElapsed();
+        setSosDispatch({
+          owner,
+          incidentStartedAt: incident.startedAt,
+          status: reached > 0 ? "sent" : "sending",
+        });
 
         // Publication is complete; release Stop before awaiting email.
         if (sosOperations.current.finish(owner, operation)) {
@@ -5978,7 +6001,7 @@ export function OneLocationAgentPageContent({
           note,
           emergencyNumber: sosEmergency?.number ?? null,
         });
-        if (sosOwnerRef.current !== owner) return;
+        if (isStale()) return;
 
         // Telemetry includes publication and email outcomes.
         trackSosTriggered({
@@ -5986,6 +6009,7 @@ export function OneLocationAgentPageContent({
           reachedCount: reached,
           unreachableCount: unreachable.length + skipped,
           emailedCount: mail.emailed,
+          dispatchMs: reached > 0 ? primaryDispatchMs : dispatchElapsed(),
           note,
         });
 
@@ -5993,17 +6017,24 @@ export function OneLocationAgentPageContent({
         // the sender has since stopped or replaced.
         if ((sosIncidentRef.current as SosIncident | null)?.startedAt !== incident.startedAt) return;
 
+        setSosDispatch({
+          owner,
+          incidentStartedAt: incident.startedAt,
+          status: reached > 0
+            ? "sent"
+            : mail.emailed > 0 ? "email-only" : "unconfirmed",
+        });
         if (shared === 0 && mail.emailed === 0) {
-          toast.error("The alert could not be sent. Call for help directly.");
-        } else if (shared === 0 && mail.emailed > 0) {
+          toast.error("Delivery could not be confirmed. Call for help directly.");
+        } else if (reached === 0 && mail.emailed > 0) {
           toast.warning(
-            "SMS alert sent by email. In-app delivery could not be confirmed.",
+            "Alert sent by email. In-app delivery could not be confirmed.",
             { classNames: { title: "!line-clamp-1" } },
           );
         }
         void refresh().catch(() => null);
       } catch (error) {
-        if (sosOwnerRef.current !== owner) return;
+        if (isStale()) return;
         // Keep partial grants stoppable even when local storage failed.
         if (error instanceof SosPanicError && error.partialIncident) {
           setSosIncident(error.partialIncident);
@@ -6013,8 +6044,11 @@ export function OneLocationAgentPageContent({
           selectedCount: totalSelected,
           reachedCount: 0,
           unreachableCount: totalSelected,
+          dispatchMs: dispatchElapsed(),
           note,
         });
+        setSosDispatch((current) => current?.owner === owner && current.status === "sent"
+          ? current : { owner, status: "failed" });
         toast.error(
           error instanceof Error ? error.message : "Could not send SMS alert.",
         );
@@ -6484,7 +6518,6 @@ export function OneLocationAgentPageContent({
           ownerUserId,
           message: `Please share your live location again — my secure key was refreshed.`,
         });
-        playOneLocationNotificationSound();
         toast.success(
           `Asked ${receivedGrantOwnerLabel(grant)} to share location again.`,
         );
@@ -7457,7 +7490,8 @@ export function OneLocationAgentPageContent({
         toast.error(`${result.revoked.length} shares stopped; ${result.unresolved.length} still need review.`);
       } else {
         clearSosIncident(); setSosIncident(null);
-        toast.success("SMS ended. Its live location shares stopped. Recipients dismiss their own alarms.");
+        setSosDispatch(null);
+        toast.success("SMS alert stopped.");
       }
       scheduleOneLocationStateRefresh("location_share_revoked");
       return result;
@@ -8237,7 +8271,6 @@ export function OneLocationAgentPageContent({
           has_note: Boolean(requestMessage.trim()),
         });
         resetRequestComposer(sentUserIds);
-        if (!commandContext) playOneLocationNotificationSound();
         toast.success(
           requestOwners.length === 1
             ? "Request sent. We'll notify you here when they respond."
@@ -11227,8 +11260,10 @@ export function OneLocationAgentPageContent({
         };
       }
 
+      const userId = auth.userId;
       const intent = ++locationIntentSeqRef.current;
-      const isStale = () => locationIntentSeqRef.current !== intent;
+      const isStale = () =>
+        locationIntentSeqRef.current !== intent || !readOneLocationControlState(userId).paused;
       // A capture still in flight from an earlier "on" no longer owns the pending
       // state, and its own `finally` will decline to clear it. Clear it here so
       // the control cannot be stranded looking busy.
@@ -11277,21 +11312,28 @@ export function OneLocationAgentPageContent({
         Boolean(vaultOwnerToken) &&
         !checkedOutRecently;
       if (shouldCheckOut && vaultOwnerToken) {
+        nearbyPauseCheckoutRef.current = { userId, intent };
         try {
           await OneLocationService.checkoutNearby({ vaultOwnerToken });
-          nearbyCheckoutConfirmedAtRef.current = Date.now();
+          if (!isStale()) nearbyCheckoutConfirmedAtRef.current = Date.now();
         } catch {
           // Report the local pause and the unfinished remote checkout together.
           // A command stops here because the complete privacy change needs
           // review; the tap flow keeps the device paused.
-          const message =
-            "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
-          toast.error(message);
-          return {
-            status: "blocked",
-            summary: message,
-            data: { reason: "nearby_checkout_failed" },
-          };
+          if (!isStale()) {
+            const message =
+              "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
+            toast.error(message);
+            return {
+              status: "blocked",
+              summary: message,
+              data: { reason: "nearby_checkout_failed" },
+            };
+          }
+        } finally {
+          if (nearbyPauseCheckoutRef.current?.intent === intent) {
+            nearbyPauseCheckoutRef.current = null;
+          }
         }
       }
 
@@ -13545,8 +13587,15 @@ export function OneLocationAgentPageContent({
           autoOpenSettings: false,
           announce: showModal,
         });
-        if (!intentIsCurrent() || !readiness.ready) return false;
-        const point = readiness.point;
+        if (!intentIsCurrent()) return false;
+        // Setup only previews the point until Save & continue. Recover a
+        // recent same-session measurement if the next acquisition timed out.
+        const recent = !activateLocation && readiness.failure === "no-fix"
+          ? LocationBus.getRecentMeasuredFix(userId, 30_000)
+          : null;
+        const point: PlainLocationPoint | null = readiness.point ?? (recent
+          ? { ...recent, sourcePlatform: recent.sourcePlatform ?? "unknown" }
+          : null);
         if (!point) return false;
 
         if (!sessionIsCurrent()) return false;
@@ -14447,6 +14496,10 @@ export function OneLocationAgentPageContent({
     smsContactsLoading: smsRosterLoading,
     onRefreshSmsContacts: refreshSmsRosterForSos,
     sosActive,
+    sosDispatchStatus: sosDispatch && sosDispatch.owner === auth.userId &&
+      (sosActive ? sosDispatch.incidentStartedAt === sosIncident?.startedAt
+        : !sosDispatch.incidentStartedAt)
+      ? sosDispatch.status : undefined,
     sosBusy: busy === "sos",
     sosStartedAtLabel: sosIncident
       ? formatDateTime(sosIncident.startedAt)

@@ -86,9 +86,9 @@ export function registerFinanceScreenChecks(
         expect(await overview.evaluate(el => getComputedStyle(el).getPropertyValue("--font-app-body").trim()))
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
-        await expect(overview.getByText("Cash share")).toBeVisible();
-        await expect(overview.getByRole("img", { name: "Net Worth Score unavailable" })).toBeVisible();
-        await expect(overview.getByText("Cash share").locator("..")).toContainText("8.1%");
+        const review = overview.getByTestId("portfolio-briefing");
+        await expect(review.getByText("Snapshot score").locator("..")).toContainText("72 / 100");
+        await expect(review.getByText("Separate the cash you’ll need from the cash you can invest.")).toBeVisible();
         const performance = overview.getByTestId("portfolio-performance");
         await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();
         await expect(performance.getByText("Investment return", { exact: true }).locator("..")).toContainText("Unavailable");

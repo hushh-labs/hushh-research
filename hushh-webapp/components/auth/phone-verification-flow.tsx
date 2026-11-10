@@ -644,7 +644,7 @@ export function usePhoneVerificationFlow({
         setOperationError(message);
         // Backend refusals and provider ownership errors open the same choices.
         if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
-          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setTransferEligible(false); setConflict("choices"); changeStep("code");
+          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setTransferEligible((error as { phoneProofAvailable?: boolean })?.phoneProofAvailable === true); setConflict("choices"); changeStep("code");
         }
         if (committed) { morphyToast.error(message); return "auto_verified"; }
         trackEvent("phone_verification_started", {
@@ -813,11 +813,10 @@ export function usePhoneVerificationFlow({
           phoneFailureMessage(error, "Couldn't verify the phone number. Please try again.");
         setOperationError(message);
         if (committed) { if (options.notify) morphyToast.error(message); return "verified"; }
-        const conflictCode = apiErrorCode(error);
-        if (isPhoneOwnershipConflict(error, conflictCode)) {
-          // Only a backend claim refusal follows a retained real-SMS proof. A provider
-          // ownership error carries no proof, so it opens the choices without transfer.
-          advanceEntryRevision(); setTransferEligible(conflictCode !== null && conflictCode !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
+        if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
+          // AuthProvider marks whether this attempt's real-SMS proof is retained; only then
+          // can the number move here. Test codes and provider errors carry no proof.
+          advanceEntryRevision(); setTransferEligible((error as { phoneProofAvailable?: boolean })?.phoneProofAvailable === true && apiErrorCode(error) !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
         }
         trackEvent("phone_verification_completed", {
           action: mode,
