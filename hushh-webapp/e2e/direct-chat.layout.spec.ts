@@ -87,7 +87,14 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route(`${origin}/fixture-person-*.webp`, (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
   await page.route(`${origin}/one/messages*`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`${origin}/one/messages${inbox ? (options.paginatedInbox ? "?paginatedInbox=1" : "") : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
+  const params = new URLSearchParams({
+    ...(!inbox ? { conversation: "maya" } : {}),
+    ...(delayInbox ? { delayInbox: "1" } : {}),
+    ...(options.preview ? { preview: "1" } : {}),
+    ...(options.overflowInbox ? { overflowInbox: "1" } : {}),
+    ...(options.paginatedInbox ? { paginatedInbox: "1" } : {}),
+  });
+  await page.goto(`${origin}/one/messages${params.size ? `?${params}` : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   const input = page.getByRole(inbox ? "searchbox" : "textbox", { name: inbox ? "Search conversations" : "Message Maya Rao" });
@@ -234,6 +241,84 @@ for (const lane of ["People", "Circles"] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test.describe("inbox keyboard viewport", () => {
+  test.use({ hasTouch: true });
+  for (const [width, height] of [[320, 720], [393, 844], [844, 390], [768, 500], [768, 1024], [1024, 499], [1024, 500], [1440, 900]] as const) {
+    for (const lane of ["People", "Circles"] as const) {
+      test(`Messages inbox uses the visible keyboard space for ${lane} at ${width}x${height}`, async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        const errors = await mount(page, true, false, true, "idle", { overflowInbox: true });
+        if (lane === "Circles") await page.getByRole("tab", { name: "Circles 33" }).click();
+        const list = page.getByRole("complementary", { name: lane === "People" ? "Conversations" : "Circles" });
+        const search = list.getByRole("searchbox");
+        await search.focus();
+        // Wait for the client-only dock placeholder to release its 52px before
+        // comparing the resting layout with the layout after keyboard dismissal.
+        await expect(page.locator("[data-bottom-shell-agent-slot]")).toHaveCSS("height", "0px");
+        await expect.poll(() => page.evaluate(() =>
+          parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-bottom-shell-height"))
+          - Math.ceil(document.querySelector("[data-app-bottom-shell]")!.getBoundingClientRect().height),
+        )).toBe(0);
+        const resting = (await list.boundingBox())!;
+        const keyboard = height < 500 ? 140 : 280;
+        for (const mode of ["native", "mobile-web", "resized-web"] as const) {
+          const resized = mode === "resized-web";
+          await page.setViewportSize({ width, height: resized ? height - keyboard : height });
+          const pan = mode === "mobile-web" ? 24 : 0;
+          const visibleBottom = height - keyboard + pan;
+          await page.evaluate(({ mode, keyboard, height, pan }) => {
+            const root = document.documentElement;
+            root.classList.add("kb-open");
+            root.classList.toggle("native-keyboard-inset", mode === "native");
+            root.classList.toggle("kb-resizes", mode === "resized-web");
+            root.style.setProperty("--kb-height", `${mode === "resized-web" ? 0 : keyboard - pan}px`);
+            if (mode === "native") {
+              root.style.removeProperty("--kb-visible-height"); root.style.removeProperty("--kb-visible-top");
+            } else {
+              root.style.setProperty("--kb-visible-height", `${height - keyboard}px`);
+              root.style.setProperty("--kb-visible-top", `${pan}px`);
+            }
+            window.dispatchEvent(new Event("resize"));
+          }, { mode, keyboard, height, pan });
+          await expect(page.locator("[data-bottom-shell-agent-slot]")).toBeHidden();
+          await expect.poll(async () => {
+            const bounds = (await list.boundingBox())!;
+            return visibleBottom - bounds.y - bounds.height;
+          }).toBeGreaterThanOrEqual(6);
+          await expect.poll(async () => {
+            const bounds = (await list.boundingBox())!;
+            return visibleBottom - bounds.y - bounds.height;
+          }).toBeLessThanOrEqual(10);
+          expect(parseFloat(await search.evaluate(node => getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16);
+          const header = list.locator("header");
+          expect((await header.boundingBox())!.y + (await header.boundingBox())!.height).toBeLessThanOrEqual((await search.boundingBox())!.y);
+          for (const control of await header.getByRole("button").all()) {
+            const bounds = (await control.boundingBox())!;
+            expect(bounds.y + bounds.height).toBeLessThanOrEqual((await search.boundingBox())!.y);
+          }
+          const rows = list.locator(lane === "People" ? "nav" : '[class*="rows"]');
+          await rows.evaluate(node => { node.scrollTop = node.scrollHeight; });
+          const last = (await list.getByRole("button", { name: lane === "People" ? /^Connection 30/ : /Circle 30/ }).boundingBox())!;
+          expect(last.y + last.height).toBeLessThanOrEqual(visibleBottom + 1);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+          if (width === 393 && mode === "mobile-web") {
+            await page.screenshot({ path: test.info().outputPath(`messages-${lane.toLowerCase()}-search.png`), clip: { x: 0, y: pan, width, height: height - keyboard }, animations: "disabled" });
+          }
+        }
+        await page.setViewportSize({ width, height });
+        await page.evaluate(() => {
+          const root = document.documentElement;
+          root.classList.remove("kb-open", "native-keyboard-inset", "kb-resizes");
+          for (const key of ["--kb-height", "--kb-visible-height", "--kb-visible-top"]) root.style.removeProperty(key);
+          window.dispatchEvent(new Event("resize"));
+        });
+        await expect.poll(async () => (await list.boundingBox())!.height).toBeCloseTo(resting.height, 0);
+        expect(errors).toEqual([]);
+      });
+    }
+  }
+});
 
 for (const width of [768, 820, 1024]) {
   test(`message search controls fit the split conversation at ${width}px`, async ({ page }) => {
@@ -626,6 +711,12 @@ test("inbox search keyboard keeps a completed command visible and dismissible", 
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeHidden();
   const dismiss = page.getByRole("button", { name: "Dismiss result" });
   await expect.poll(async () => (await dismiss.boundingBox())!.y + (await dismiss.boundingBox())!.height).toBeLessThanOrEqual(544);
+  const inbox = page.getByRole("complementary", { name: "Conversations" });
+  const dock = page.locator("[data-bottom-shell-agent-slot]");
+  await expect.poll(async () => {
+    const bounds = (await inbox.boundingBox())!;
+    return (await dock.boundingBox())!.y - bounds.y - bounds.height;
+  }).toBeGreaterThanOrEqual(0);
   await dismiss.click();
   await expect(result).toHaveCount(0);
   await page.evaluate(() => {
