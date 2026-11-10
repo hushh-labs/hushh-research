@@ -7,7 +7,7 @@
  * and the inset are CSS tokens in `app/globals.css`
  * (`--app-bottom-shell-max-width`, `--app-bottom-shell-inline-inset`); these
  * classes are the only way a bar consumes them.
- * Messages centers this column within the conversation pane on split layouts;
+ * Messages uses the same viewport-centered column in split and single panes;
  * its message composer and navigation retain the shared width cap and insets.
  *
  * Widths are container-relative, never `100vw`: `100vw` counts a desktop
