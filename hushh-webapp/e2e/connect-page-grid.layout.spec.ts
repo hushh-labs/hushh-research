@@ -190,7 +190,7 @@ for (const destination of ["mutual-list", "discovery"] as const) {
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.singleMutualSettled)).toBe("1");
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(page.getByTestId("fixture-person-profile")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Explore your network", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Your network", exact: true })).toBeVisible();
   });
 }
 
@@ -783,6 +783,16 @@ for (const width of [393, 1440]) {
       await settle(page, width);
       const tabs = page.getByRole("tablist", { name: "Connection views" });
       const mine = tabs.getByRole("tab", { name: /My connections/ });
+      const find = tabs.getByRole("tab", { name: "Find people", exact: true });
+      const network = page.getByRole("button", { name: "Explore your network", exact: true });
+      await expect(network).toHaveAttribute("aria-haspopup", "dialog");
+      const [findBox, networkBox] = await Promise.all([find.boundingBox(), network.boundingBox()]);
+      expect(networkBox!.x).toBeGreaterThanOrEqual(findBox!.x + findBox!.width);
+      expect(networkBox!.y).toBeCloseTo(findBox!.y, 0);
+      expect(networkBox!.x + networkBox!.width).toBeLessThanOrEqual(width);
+      for (const property of ["font-family", "font-size", "font-weight"]) {
+        await expect(network).toHaveCSS(property, await find.evaluate((node, name) => getComputedStyle(node).getPropertyValue(name), property));
+      }
       const count = mine.locator("span").filter({ hasText: /^\d+$/ }).last();
       // Check the inactive state too: the old undefined fill token was
       // transparent, and an active-only check could never catch that defect.

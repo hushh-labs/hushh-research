@@ -1,0 +1,20 @@
+/* Maps JS uses this programmatically focused region for pointer interactions
+   when keyboard shortcuts are off. Map links and app controls keep their focus styles. */
+.viewport :global([role="region"][tabindex="-1"]:focus) {
+  outline: none;
+}
+
+.avatar {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 40px;
+  height: 40px;
+  max-width: none;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--app-card-surface-default-solid);
+  border-radius: 50%;
+  background: var(--app-card-surface-default-solid);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-accent) 30%, transparent);
+  object-fit: cover;
+  pointer-events: none;
+}

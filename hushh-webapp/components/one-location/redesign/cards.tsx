@@ -603,7 +603,7 @@ export function SharedWithMeCard({
                 aria-hidden="true"
               />
             ) : (
-              <RowDescription data-location-type-role="row-description" className="min-w-0 break-words text-[13px] font-medium leading-5 text-[color:var(--app-label)]">
+              <RowDescription data-location-type-role="row-description" className="min-w-0 break-words [--app-tertiary-label:var(--app-label)]">
                 {address ?? coordinatesFallback}
               </RowDescription>
             )}
