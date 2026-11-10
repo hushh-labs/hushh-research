@@ -903,6 +903,7 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
         "consent-protocol/tests/test_drive_worker_release_rollback.py",
         "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+        "consent-protocol/tests/test_protected_document_release_contract.py",
         "consent-protocol/tests/test_database_connection_ceiling.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",
@@ -966,6 +967,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "scripts/ops/sync_backend_runtime_secrets.py",
         "scripts/ops/runtime_config_retention.py",
         "deploy/plg/bind_secrets.sh",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
     ):
         assert not backend.match_file(source)
         source_plan = _governance_plan((source,))
