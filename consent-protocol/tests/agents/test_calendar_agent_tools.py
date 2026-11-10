@@ -1103,9 +1103,110 @@ def _account_ports(monkeypatch):
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: ports["default"])
     monkeypatch.setattr(
         "hushh_mcp.services.calendar_account_board_service.account_schedule",
-        lambda account_id: SimpleNamespace(calendar=ports[account_id]),
+        lambda account_id, **_: SimpleNamespace(calendar=ports[account_id]),
     )
     return ports
+
+
+async def test_calendar_reads_resolve_the_named_account_and_keep_its_event_reference(monkeypatch):
+    ports = _account_ports(monkeypatch)
+    inventory = AsyncMock(
+        return_value={
+            "accounts": [
+                {
+                    "account_id": "default",
+                    "google_email": "work@example.test",
+                    "status": "connected",
+                },
+                {
+                    "account_id": "account-b",
+                    "google_email": "home@example.test",
+                    "status": "connected",
+                },
+            ]
+        }
+    )
+    ports["default"].connections.calendar_accounts_status = inventory
+    context = _context()
+
+    listed = await tools.calendar_events(
+        context,
+        start_at="2026-11-16T00:00:00+05:30",
+        end_at="2026-11-17T00:00:00+05:30",
+        account_id="Home@example.test",
+        time_zone="Asia/Kolkata",
+    )
+    detailed = await tools.calendar_event_detail(context, ordinal=1, account_id="home@example.test")
+    mismatch = await tools.calendar_event_detail(context, ordinal=1, account_id="work@example.test")
+
+    assert listed["status"] == detailed["status"] == "ok"
+    assert listed["account_id"] == detailed["account_id"] == "account-b"
+    assert detailed["event"]["id"] == "event-1"
+    assert mismatch["reason_code"] == "calendar_account_mismatch"
+    assert ports["default"].last_list is ports["default"].last_detail is None
+    assert (
+        ports["account-b"].last_detail["expected_binding"]
+        == await ports["account-b"]._read_grant_binding()
+    )
+    assert all(
+        call.kwargs == {"user_id": "user-1", "include_pictures": False}
+        for call in inventory.await_args_list
+    )
+
+
+@pytest.mark.parametrize("reference", ["other@example.test", "ome@example.test", []])
+async def test_unknown_or_malformed_calendar_reference_does_not_fall_back(monkeypatch, reference):
+    ports = _account_ports(monkeypatch)
+    ports["default"].connections.calendar_accounts_status = AsyncMock(
+        return_value={
+            "accounts": [
+                {
+                    "account_id": "default",
+                    "google_email": "home@example.test",
+                    "status": "connected",
+                },
+            ]
+        }
+    )
+
+    result = await tools.calendar_summary(_context(), account_id=reference)
+
+    assert result["status"] == "input_required"
+    assert result["reason_code"] == "calendar_account_unavailable"
+    assert "directive" not in result
+    assert all(port.last_list is None for port in ports.values())
+
+
+async def test_stale_calendar_handle_does_not_offer_reconnect(monkeypatch):
+    from hushh_mcp.services.google_calendar_service import GoogleCalendarService
+    from hushh_mcp.services.google_connection_service import GoogleConnectionService
+
+    db = SimpleNamespace(execute_raw=lambda *_: SimpleNamespace(data=[]))
+    owner = GoogleConnectionService(db=db)
+    calendar = GoogleCalendarService(db=db, connections=owner.for_calendar_account("stale"))
+    monkeypatch.setattr(
+        "hushh_mcp.services.calendar_account_board_service.account_schedule",
+        lambda _: SimpleNamespace(calendar=calendar),
+    )
+
+    result = await tools.calendar_summary(_context(), account_id="stale")
+
+    assert result["status"] == "input_required"
+    assert result["reason_code"] == "calendar_account_unavailable"
+    assert "directive" not in result
+
+
+async def test_named_calendar_read_on_private_pod_never_resolves_shared_inventory(monkeypatch):
+    from hushh_mcp.services import pod_owner_cloud
+
+    monkeypatch.setattr(pod_owner_cloud, "private_pod_runtime", lambda: True)
+    service = AsyncMock(side_effect=AssertionError("Shared Calendar access from a private pod"))
+    monkeypatch.setattr(tools, "get_google_calendar_service", service)
+
+    result = await tools.calendar_summary(_context(), account_id="home@example.test")
+
+    assert result["reason_code"] == "calendar_account_unavailable"
+    service.assert_not_called()
 
 
 def test_calendar_account_references_keep_their_own_sources_across_other_reads(monkeypatch):
