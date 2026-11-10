@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
+import { PersonSelectionSurface, PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { DirectoryMutualLine } from "@/components/connect/connect-person-row";
 import { ConnectionsService, type NetworkPerson } from "@/lib/services/connections-service";
@@ -49,17 +49,20 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
     finally { if (current(generation)) { pending.current = false; setBusy(false); } }
   };
   return <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 px-2.5 py-1.5 sm:gap-x-3 sm:px-3">
-    <div className="min-w-0">
-      <button type="button" data-network-person={person.publicPersonRef} aria-label={`Open ${name}'s profile`} className={cn("flex min-h-11 w-full items-center gap-2 rounded-lg py-1 text-left focus-visible:ring-2 focus-visible:ring-ring", PERSON_ROW_FEEDBACK_CLASSNAME)} onClick={event => onOpen(event.currentTarget)}>
-        <ConnectionPersonAvatar label={name} photoUrl={person.photoUrl} size="list" className="size-9" />
-        <span className="min-w-0 text-sm leading-snug font-medium [overflow-wrap:anywhere] sm:text-base">
+    <PersonSelectionSurface
+      data-network-person={person.publicPersonRef}
+      aria-label={`Open ${name}'s profile`}
+      className={cn("flex min-h-11 min-w-0 items-center gap-2 rounded-lg py-1 text-left", PERSON_ROW_FEEDBACK_CLASSNAME)}
+      onClick={event => onOpen(event.currentTarget)}
+    >
+      <ConnectionPersonAvatar label={name} photoUrl={person.photoUrl} size="list" className="size-9" />
+      <div className="min-w-0">
+        <span className="block text-sm leading-snug font-medium [overflow-wrap:anywhere] sm:text-base">
           {name}{person.networkDegree ? <> <span className="whitespace-nowrap text-xs font-normal text-muted-foreground">· {person.networkDegree === 1 ? "1st" : person.networkDegree === 2 ? "2nd" : "3rd"}</span></> : null}
         </span>
-      </button>
-      <div className="pl-11">
-        <DirectoryMutualLine person={person} networkPersonRef={person.publicPersonRef} className="text-xs leading-snug text-muted-foreground [@media(pointer:fine)]:min-h-7" onOpenMutual={element => void openMutual(element)} />
+        <DirectoryMutualLine person={person} networkPersonRef={person.publicPersonRef} className="text-xs leading-snug text-muted-foreground" onOpenMutual={element => void openMutual(element)} />
       </div>
-    </div>
+    </PersonSelectionSurface>
     {status === "none" ? <button type="button" data-network-person={person.publicPersonRef} data-network-focus="connect" aria-label={`Connect with ${name}`} disabled={busy || connecting} className={rowActionClassName} onClick={onConnect}>{connecting ? "Sending…" : "Connect"}</button>
       : status === "pending_incoming" ? <button type="button" data-network-person={person.publicPersonRef} data-network-focus="request" className={rowActionClassName} onClick={event => onOpen(event.currentTarget)}>View request</button>
       : status === "connected" || status === "pending_outgoing" ? <span className="whitespace-nowrap text-right text-xs text-muted-foreground">{status === "connected" ? "Connected" : "Request sent"}</span> : null}

@@ -144,8 +144,8 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
               </> : null}
               {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><ArrowBendUpLeft weight="fill" aria-hidden="true" />Reply</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
-              <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 aria-hidden="true" />Delete for me</DropdownMenuItem>
-              {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}
+              <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 inheritColor aria-hidden="true" />Delete for me</DropdownMenuItem>
+              {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 inheritColor aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu> : null}
         </div>

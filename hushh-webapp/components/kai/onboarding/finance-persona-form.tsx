@@ -177,7 +177,20 @@ export function FinancePersonaForm({
     >
       {onboarding ? (
         <header>
-          <p className="ui-text-helper-text">Finance setup · Step 2 of 2</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="ui-text-helper-text">Finance setup · Step 2 of 2</p>
+            <ShellActionSurface
+              type="button"
+              variant="pill"
+              className="min-h-11 ui-text-compact-button-label"
+              disabled={busy}
+              onClick={() => {
+                if (!saving.current) onDone();
+              }}
+            >
+              Skip all
+            </ShellActionSurface>
+          </div>
           <h1 className="ui-text-page-title">
             Let’s build your financial persona
           </h1>

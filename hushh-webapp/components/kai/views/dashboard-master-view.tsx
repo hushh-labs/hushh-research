@@ -32,7 +32,7 @@ import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sh
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
-import { PortfolioBriefing, PortfolioNetWorthCard, type NetWorthRecovery } from "@/components/kai/views/portfolio-briefing";
+import { SavedPortfolioBriefing } from "@/components/kai/views/portfolio-briefing";
 import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
 import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
 import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
@@ -378,7 +378,6 @@ export function DashboardMasterView({
     isLoading: isSourcesLoading,
     error: sourcesError,
     plaidStatus,
-    linkedNetWorthScore,
     statementPortfolio,
     statementSnapshots,
     activeStatementSnapshotId,
@@ -1567,45 +1566,6 @@ export function DashboardMasterView({
 
   const sourceDisplayLabel =
     activeSource === "statement" ? "Statement" : "Plaid";
-  const relinkItem = plaidStatus?.items.find((item) => item.status === "needs_relink");
-  const plaidBusy = isLinkingPlaid || isPlaidRefreshing;
-  let netWorthRecovery: NetWorthRecovery;
-  if (!vaultKey || !vaultOwnerToken) {
-    netWorthRecovery = { description: "Unlock your vault to see your score." };
-  } else if (isSourcesLoading) {
-    netWorthRecovery = { description: "Checking your bank connections…" };
-  } else if (sourcesError) {
-    netWorthRecovery = {
-      description: "Your bank connections could not be checked.",
-      action: { label: "Try again", run: () => void reload() },
-    };
-  } else if (!hasPlaidConnections) {
-    netWorthRecovery = plaidConfigured ? {
-      description: "Connect a bank with Plaid to calculate your score.",
-      action: { label: "Connect a bank", run: () => void openPlaidLinkFlow(), disabled: plaidBusy },
-    } : { description: "Plaid connection is unavailable right now." };
-  } else if (relinkItem) {
-    netWorthRecovery = {
-      description: "A linked bank needs you to sign in again before your score can be updated.",
-      action: {
-        label: relinkItem.institution_name ? `Reconnect ${relinkItem.institution_name}` : "Reconnect bank",
-        run: () => void openPlaidLinkFlow(relinkItem.item_id),
-        disabled: plaidBusy,
-      },
-    };
-  } else if (linkedNetWorthScore?.unavailable_reason === "unsupported_account_or_currency" ||
-      (linkedNetWorthScore?.country_on_file && linkedNetWorthScore.country_on_file !== "US")) {
-    netWorthRecovery = { description: "This score currently supports eligible U.S. accounts in USD." };
-  } else if (linkedNetWorthScore?.unavailable_reason === "no_eligible_accounts") {
-    netWorthRecovery = { description: "Plaid did not return any eligible personal accounts." };
-  } else {
-    netWorthRecovery = {
-      description: linkedNetWorthScore?.unavailable_reason === "balance_unavailable"
-        ? "Plaid did not return all required balances. Refresh your linked accounts to try again."
-        : "Refresh your linked accounts to check balances and the country on file.",
-      action: { label: "Refresh accounts", run: handleRefreshPlaid, disabled: plaidBusy },
-    };
-  }
   const dashboardVoiceSurfaceMetadata = useMemo(() => {
     const sections = [
       {
@@ -1958,7 +1918,6 @@ export function DashboardMasterView({
       <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader workspace="portfolio" title="Portfolio analysis" />
         <AppPageContentRegion className="space-y-3">
-          <PortfolioNetWorthCard result={linkedNetWorthScore} recovery={netWorthRecovery} />
           <p className={financeStyles.description}>Add investment holdings to see portfolio charts.</p>
         </AppPageContentRegion>
       </div>
@@ -2034,7 +1993,10 @@ export function DashboardMasterView({
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
           <PortfolioOverview model={model} portfolio={workingPortfolioData} source={sourceDisplayLabel} onImport={onReupload}
             valuationKind={activeSource === "statement" ? "statement" : "linked"} loadHistory={loadHoldingHistory}
-            briefing={<PortfolioBriefing model={model} portfolio={displayedPortfolio} linkedNetWorthScore={linkedNetWorthScore} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
+            briefing={<SavedPortfolioBriefing
+              source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
+              onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))}
+            />}
             sharing={<FinancePortfolioSharing model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
             period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
@@ -2121,13 +2083,10 @@ export function DashboardMasterView({
         ) : null}
 
         {section === "analysis" ? (
-          <>
-            <PortfolioNetWorthCard result={linkedNetWorthScore} recovery={netWorthRecovery} />
-            <AdvisorReviewHub
-              model={model}
-              source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
-            />
-          </>
+          <AdvisorReviewHub
+            model={model}
+            source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
+          />
         ) : null}
 
         {section === "performance" ? (

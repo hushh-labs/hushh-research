@@ -720,7 +720,7 @@ function ReadyScreen({
         className={READY_PANEL_CLASSNAME}
         data-testid="one-location-onboarding-ready-panel"
       >
-        <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-hidden [@media(max-height:560px)]:justify-start [@media(max-height:560px)]:overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-px py-1">
           <div
             className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
             data-testid="one-location-onboarding-invite-card"
@@ -818,7 +818,7 @@ function ReadyScreen({
                 <span data-location-type-role="utility-action" className="min-w-0 flex-1">Join with a code</span>
                 <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
               </button>
-              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "join"} onClose={() => onCloseDisclosure("join")} title="Join with a code" busy={joinBusy}>
+              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "join"} onClose={() => onCloseDisclosure("join")} title="Join with a code" busy={joinBusy} centered>
                 <div
                   id="onboarding-join-circle-panel"
                   className="mt-3"
@@ -1462,7 +1462,7 @@ export function OneLocationOnboardingFlow({
         locationPreparingRef.current = false;
         setLocationPreparing(false);
       }
-      setLocationError("Couldn't find your location. Allow location access in your browser or device settings, make sure Location is on, then try again.");
+      setLocationError("Couldn't find your location. Try again, or check that location access is enabled.");
     })();
   }, [leaving, onPrepareLocation]);
 
