@@ -943,3 +943,30 @@ def test_lost_child_release_admission_refuses_before_native_mutation(worker, mon
             session.delete(resource_url(worker.project, worker.region, session.resource))
     send.assert_not_called()
     assert not worker.journal.read()["events"]
+
+
+@pytest.mark.parametrize("worker_process", [False, True])
+def test_retired_cleanup_closes_connection_when_session_setup_fails(monkeypatch, worker_process):
+    from hushh_mcp.services import account_cloud_retirement_worker as cloud_worker
+
+    class LostSession:
+        @property
+        def autocommit(self):
+            return False
+
+        @autocommit.setter
+        def autocommit(self, value):
+            raise ConnectionError("session initialization lost")
+
+    raw = SimpleNamespace(driver_connection=LostSession(), close=Mock(), invalidate=Mock())
+    monkeypatch.setattr(
+        cloud_worker, "get_db_engine", lambda: SimpleNamespace(raw_connection=lambda: raw)
+    )
+    operation = {"user_id": "retired-owner", "attempt_id": "original-attempt", "digest": "a" * 64}
+    with pytest.raises(ConnectionError, match="session initialization lost"):
+        if worker_process:
+            cloud_worker._worker({"operation": operation}, io.StringIO())
+        else:
+            cloud_worker._run_one(operation, "b" * 40)
+    raw.close.assert_called_once()
+    raw.invalidate.assert_called_once()

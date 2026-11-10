@@ -1247,6 +1247,7 @@ def test_retired_account_state_erases_while_original_cleanup_remains_executable(
 ):
     """Real current account guards, worker checkpoints and scrubbed tombstone status."""
     import asyncio
+    from unittest.mock import Mock
 
     from sqlalchemy import create_engine
 
@@ -1313,8 +1314,6 @@ def test_retired_account_state_erases_while_original_cleanup_remains_executable(
         )
         monkeypatch.setattr(firebase, "get_db_connection", engine.begin)
         monkeypatch.setattr(journal, "get_db_connection", engine.begin)
-        from unittest.mock import Mock
-
         from db import db_client
 
         monkeypatch.setattr(db_client, "get_db_connection", engine.begin)
@@ -1405,6 +1404,23 @@ def test_retired_account_state_erases_while_original_cleanup_remains_executable(
 
         monkeypatch.setattr(cloud_worker, "get_db_connection", engine.begin)
         assert cloud_worker.due_operations() == []
+        request_pool = create_engine(engine.url, pool_size=1, max_overflow=0)
+        try:
+            with monkeypatch.context() as patch:
+                patch.setattr(cloud_worker, "get_db_engine", lambda: request_pool)
+                refused_journal = Mock()
+                refused_journal.return_value.read.side_effect = RuntimeError(
+                    "journal setup refused"
+                )
+                patch.setattr(cloud_worker, "LegacyRemovalJournal", refused_journal)
+                with pytest.raises(RuntimeError, match="journal setup refused"):
+                    cloud_worker._run_one(
+                        {"user_id": owner, "attempt_id": "original-attempt"}, "a" * 40
+                    )
+            with request_pool.connect() as ordinary_request:
+                assert ordinary_request.connection.driver_connection.autocommit is False
+        finally:
+            request_pool.dispose()
         lease_connection = psycopg2.connect(
             host=pg.dir, port=pg.port, user="hushh", dbname=database
         )

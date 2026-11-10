@@ -7,6 +7,9 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import text
@@ -61,13 +64,24 @@ def due_operations() -> list[dict]:
         ]
 
 
+@contextmanager
+def _journal_connection() -> Iterator[Any]:
+    # Journal sessions own autocommit and session locks; never return that state
+    # to an ordinary request. Keep the pool slot until physical termination.
+    with closing(get_db_engine().raw_connection()) as raw:
+        try:
+            connection = raw.driver_connection
+            if connection is None:
+                raise RuntimeError("Cloud cleanup database session unavailable")
+            connection.autocommit = True
+            yield connection
+        finally:
+            raw.invalidate()
+
+
 def _run_one(operation: dict, source: str) -> bool:
-    raw = get_db_engine().raw_connection()
-    raw.driver_connection.autocommit = True
-    try:
-        journal = LegacyRemovalJournal(
-            raw.driver_connection, operation["user_id"], operation["attempt_id"]
-        )
+    with _journal_connection() as connection:
+        journal = LegacyRemovalJournal(connection, operation["user_id"], operation["attempt_id"])
         recovery = journal.read()
         _require(recovery["planSha256"] == operation["digest"])
         # Source adoption is an append against the original plan, after fresh
@@ -132,8 +146,6 @@ def _run_one(operation: dict, source: str) -> bool:
                 ).scalar_one()
                 is True
             )
-    finally:
-        raw.close()
 
 
 async def drain() -> None:
@@ -187,49 +199,45 @@ def _worker(payload: dict, started_pipe) -> int:
     from hushh_mcp.services.legacy_cloud_removal_teardown import delete_remaining
 
     operation = payload["operation"]
-    raw = get_db_engine().raw_connection()
-    raw.driver_connection.autocommit = True
-    journal = LegacyRemovalJournal(
-        raw.driver_connection, operation["user_id"], operation["attempt_id"]
-    )
-    try:
-        release_guard = bind_release_session(raw.driver_connection)
-        _require(
-            payload["source"] == os.environ.get("HUSHH_DEPLOY_SHA"), "CLOUD_REMOVAL_SOURCE_CHANGED"
-        )
-        started = journal.start(payload["args"]["execution_id"], payload["source"])
-        print(json.dumps(started), file=started_pipe, flush=True)
-        recovery = journal.read()
-        with get_db_connection() as conn:
-            _require(available(conn))
-            row = conn.execute(
-                text("""SELECT retirement_handoff->'reservation' FROM personal_agent_cloud_removals
+    with _journal_connection() as connection:
+        journal = LegacyRemovalJournal(connection, operation["user_id"], operation["attempt_id"])
+        try:
+            release_guard = bind_release_session(connection)
+            _require(
+                payload["source"] == os.environ.get("HUSHH_DEPLOY_SHA"),
+                "CLOUD_REMOVAL_SOURCE_CHANGED",
+            )
+            started = journal.start(payload["args"]["execution_id"], payload["source"])
+            print(json.dumps(started), file=started_pipe, flush=True)
+            recovery = journal.read()
+            with get_db_connection() as conn:
+                _require(available(conn))
+                row = conn.execute(
+                    text("""SELECT retirement_handoff->'reservation' FROM personal_agent_cloud_removals
               WHERE user_id=:owner AND attempt_id=:attempt AND public.account_cloud_retirement_handoff_valid(user_id,retirement_handoff)"""),
-                {"owner": operation["user_id"], "attempt": operation["attempt_id"]},
-            ).scalar_one()
-        # The handoff already proves terminal compute/Memory and fenced writers.
-        # This port continues only the remaining original resources.
-        token = cleanup_credential(recovery)
-        with RecoverySession(
-            token=token,
-            project=recovery["plan"]["project"]["projectId"],
-            journal=journal,
-            dispatch_guard=release_guard,
-        ) as session:
-            worker = LegacyGcpRemoval(session=session, journal=journal)
-            delete_remaining(worker, token=token, reservation=row)
-        return 0
-    except Exception as exc:
-        code = (
-            str(exc)
-            if str(exc).isupper() and len(str(exc)) <= 64
-            else "CLOUD_REMOVAL_RECOVERY_INTERRUPTED"
-        )
-        journal.append("$executor", "attention", {"code": code, "uncertain": True})
-        logger.warning("account_cloud_retirement.worker_failed code=%s", code)
-        return 1
-    finally:
-        raw.close()
+                    {"owner": operation["user_id"], "attempt": operation["attempt_id"]},
+                ).scalar_one()
+            # The handoff already proves terminal compute/Memory and fenced writers.
+            # This port continues only the remaining original resources.
+            token = cleanup_credential(recovery)
+            with RecoverySession(
+                token=token,
+                project=recovery["plan"]["project"]["projectId"],
+                journal=journal,
+                dispatch_guard=release_guard,
+            ) as session:
+                worker = LegacyGcpRemoval(session=session, journal=journal)
+                delete_remaining(worker, token=token, reservation=row)
+            return 0
+        except Exception as exc:
+            code = (
+                str(exc)
+                if str(exc).isupper() and len(str(exc)) <= 64
+                else "CLOUD_REMOVAL_RECOVERY_INTERRUPTED"
+            )
+            journal.append("$executor", "attention", {"code": code, "uncertain": True})
+            logger.warning("account_cloud_retirement.worker_failed code=%s", code)
+            return 1
 
 
 if __name__ == "__main__":
