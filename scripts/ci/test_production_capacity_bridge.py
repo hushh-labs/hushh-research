@@ -170,7 +170,11 @@ class BridgeTests(unittest.TestCase):
                 mock.patch.object(bridge.retention, "run_command", side_effect=replace) as provider,
             ):
                 bridge.maintain(release, checkpoint, create=True)
-                bridge.maintain(release, checkpoint, create=True)
+                bridge.maintain(release, checkpoint, create=False)
+                service["spec"]["traffic"].append({"revisionName": recorded.REVISION, "tag": "debug"})
+                with self.assertRaisesRegex(bridge.retention.MutationUncertain, "unchanged traffic"):
+                    bridge.maintain(release, checkpoint, create=False)
+                service["spec"]["traffic"].pop()
             self.assertEqual(json.loads(checkpoint.read_text())["capacity_bridge"]["status"], "verified")
             provider.assert_called_once()
             verify.assert_called_once()
