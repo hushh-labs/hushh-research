@@ -121,7 +121,7 @@ For production-backed TestFlight, use the upload and resume path above.
 - **Runner:** GitHub-hosted `macos-15`, Xcode 26.3 — GCP has no macOS instances and local builds
   hang inside iCloud Drive, so only the *dispatch* runs on your machine; the Apple build runs in CI.
 - **Target:** bundle `com.hushh.app`, marketing version from `MARKETING_VERSION` in the pbxproj
-  (`1.4.0` on 2026-09-29), `backend_target` backend (default **UAT**) + Firebase (`hushh-pda`),
+  `backend_target` backend (default **production**) + that target's verified Firebase identity,
   ASC app id `6757718917`.
 
 ## The final command
@@ -181,7 +181,7 @@ For a public submit it demands you type `submit`, not just `yes`.
 | `sha` (required) | Exact green `main` SHA to release. |
 | `marketing_version` | Optional packaging version such as `1.4.1`; empty uses the exact source project's committed version. |
 | `dry_run` | Archive + sign only; no upload, no ASC changes. |
-| `backend_target` | `uat` (default) or `production`; prove the matching deployed backend before dispatch. |
+| `backend_target` | `production` (default); explicit `uat` is legacy diagnostic mode. Prove the matching deployed backend before dispatch. |
 | `whats_new` | "What's New in This Version" (defaults to a generic note). |
 | `submit_for_review` | **IRREVERSIBLE.** Upload, set What's New, attach, and **SUBMIT** for public review. Unchecked = stop after attaching the build. |
 | `release_after_approval` | Publish automatically after Apple approval; requires an explicitly authorized review submission. Default keeps manual release. |
