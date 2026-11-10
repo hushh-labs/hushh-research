@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ShellActionSurface, SHELL_PILL_TRIGGER_CLASSNAME } from "@/components/app-ui/shell-action-surface";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -42,6 +42,7 @@ function joinHref(value: string | null | undefined) {
 export function AdvisorMeetingPanel({ review, context, busy, run }: {
   review: AdvisorReview; context: FinanceShareContext; busy: boolean; run: Run;
 }) {
+  const formId = useId();
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState("30");
@@ -119,81 +120,96 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
   const showCheck = advisor && ["booking", "unknown", "retryable", "confirmed"].includes(meeting?.status ?? "");
 
   return (
-    <section className={cn(styles.card, "space-y-3")}>
-      <h3 className="ui-text-section-label">{past.some((entry) => entry.status === "confirmed" || entry.status === "completed") ? "Your meetings" : "Your introduction"}</h3>
-      {meeting?.startAt ? (
-        <div className={styles.notice}>
+    <section className={styles.meetingLayout}>
+      <div className={cn(styles.meetingContent, "space-y-3")}>
+        <h3 className="ui-text-section-label">{showForm ? "When can you meet?" : "Meeting details"}</h3>
+        {meeting?.startAt ? (
+          <div className={styles.notice}>
+            <div className={styles.row}>
+              <strong className="text-foreground">{meetingTime(meeting, meetingZone)}</strong>
+              <span className={cn("ui-text-helper-text", confirmed && !finished && styles.meetingConfirmed)}>
+                {confirmed && finished ? "Meeting ended" : statuses[meeting.status]}
+              </span>
+            </div>
+            <p className="ui-text-helper-text">{durationLabel} · {meetingZone.split("/").at(-1)?.replaceAll("_", " ")} · {calendarTimeZoneOffset(meetingZone, meeting.startAt)}</p>
+            {deviceZone !== meetingZone ? <p className="ui-text-helper-text">Your time · {meetingTime(meeting, deviceZone)}</p> : null}
+            {advisor && meeting.status === "review_ready" && meeting.invitationEmail
+              ? <p className="ui-text-helper-text break-all">Invite to {meeting.invitationEmail}</p> : null}
+          </div>
+        ) : null}
+        {meeting?.status === "proposed" && meeting.proposedBy !== context.userId && !editing ? (
           <div className={styles.row}>
-            <strong className="text-foreground">{meetingTime(meeting, meetingZone)}</strong>
-            <span className={cn("ui-text-helper-text", confirmed && !finished && styles.meetingConfirmed)}>
-              {confirmed && finished ? "Meeting ended" : statuses[meeting.status]}
-            </span>
+            <ShellActionSurface variant="pill" className={styles.handshakePrimary} disabled={busy} onClick={() => void act(autoOffer ? "accept_booking" : "agree")}>
+              {autoOffer ? "Accept & book" : "Accept time"}
+            </ShellActionSurface>
           </div>
-          <p className="ui-text-helper-text">{durationLabel} · {meetingZone.split("/").at(-1)?.replaceAll("_", " ")} · {calendarTimeZoneOffset(meetingZone, meeting.startAt)}</p>
-          {deviceZone !== meetingZone ? <p className="ui-text-helper-text">Your time · {meetingTime(meeting, deviceZone)}</p> : null}
-          {advisor && meeting.status === "review_ready" && meeting.invitationEmail
-            ? <p className="ui-text-helper-text break-all">Invite to {meeting.invitationEmail}</p> : null}
-        </div>
-      ) : null}
-      {meeting?.status === "proposed" && meeting.proposedBy !== context.userId && !editing ? (
-        <div className={styles.row}>
-          <ShellActionSurface variant="pill" className={styles.primary} disabled={busy} onClick={() => void act(autoOffer ? "accept_booking" : "agree")}>
-            {autoOffer ? "Accept & book" : "Accept time"}
+        ) : null}
+        {advisor && !editing && ["agreed", "review_ready", "retryable"].includes(meeting?.status ?? "") ? (
+          <ShellActionSurface variant="pill" className={styles.handshakePrimary} disabled={busy}
+            onClick={() => void act(meeting?.status === "review_ready" ? "confirm" : "prepare")}>
+            {meeting?.status === "review_ready" ? "Confirm meeting" : "Review Calendar booking"}
           </ShellActionSurface>
-        </div>
-      ) : null}
-      {advisor && !editing && ["agreed", "review_ready", "retryable"].includes(meeting?.status ?? "") ? (
-        <ShellActionSurface variant="pill" className={styles.primary} disabled={busy}
-          onClick={() => void act(meeting?.status === "review_ready" ? "confirm" : "prepare")}>
-          {meeting?.status === "review_ready" ? "Confirm meeting" : "Review Calendar booking"}
-        </ShellActionSurface>
-      ) : null}
-      {safeJoin || showCheck ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {safeJoin ? <a href={safeJoin} target="_blank" rel="noreferrer"
-            className={cn(SHELL_PILL_TRIGGER_CLASSNAME, styles.primary, "ui-text-compact-button-label inline-flex min-h-11 items-center px-4")}>Join Google Meet</a> : null}
-          {showCheck ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <ShellActionSurface variant="pill" aria-label="More meeting actions" disabled={busy}>More</ShellActionSurface>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="rounded-[var(--app-card-radius-compact)]" align="start">
-                <DropdownMenuItem onSelect={() => void checkCalendar()}>Check Calendar status</DropdownMenuItem>
-                {confirmed && !finished && meeting?.id ? <DropdownMenuItem variant="destructive" onSelect={() => setConfirmCancel(meeting.id)}>Cancel meeting</DropdownMenuItem> : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-      ) : null}
-      {check && check.id === meeting?.id ? <p role="status" className="ui-text-helper-text">{check.label}</p> : null}
-      {canComplete ? <ShellActionSurface variant="pill" disabled={busy} onClick={() => void act("complete", introduction)}>Mark introduction complete</ShellActionSurface> : null}
-      {canSuggest && !editing ? <ShellActionSurface variant="pill" disabled={busy} onClick={openForm}>
-        {canFollowUp ? "Schedule another meeting" : "Suggest a different time"}
-      </ShellActionSurface> : null}
-      {showForm ? (
-        <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void choose(); }}>
-          <div className="grid grid-cols-2 gap-2">
-            <div className={styles.field}><span className="ui-text-form-label">Date</span><AdvisorDatePicker value={date} zone={zone} onChange={setDate} disabled={busy} /></div>
-            <div className={styles.field}><span className="ui-text-form-label">Time</span><AdvisorTimePicker value={time} onChange={setTime} disabled={busy} /></div>
+        ) : null}
+        {safeJoin || showCheck ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {safeJoin ? <a href={safeJoin} target="_blank" rel="noreferrer"
+              className={cn(SHELL_PILL_TRIGGER_CLASSNAME, styles.handshakePrimary, "ui-text-compact-button-label inline-flex min-h-11 items-center px-4")}>Join Google Meet</a> : null}
+            {showCheck ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <ShellActionSurface variant="pill" aria-label="More meeting actions" disabled={busy}>More</ShellActionSurface>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="rounded-[var(--app-card-radius-compact)]" align="start">
+                  <DropdownMenuItem onSelect={() => void checkCalendar()}>Check Calendar status</DropdownMenuItem>
+                  {confirmed && !finished && meeting?.id ? <DropdownMenuItem variant="destructive" onSelect={() => setConfirmCancel(meeting.id)}>Cancel meeting</DropdownMenuItem> : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
           </div>
-          <div className={styles.field}><span className="ui-text-form-label">Duration</span><AdvisorDurationPicker value={duration} onChange={setDuration} disabled={busy} /></div>
-          <div className={styles.field}><span className="ui-text-form-label">Time zone</span><AdvisorTimeZonePicker value={zone} deviceZone={deviceZone} date={date} time={time} onChange={setZone} disabled={busy} /></div>
-          {automatic ? <p className="ui-text-helper-text">If the client accepts this exact time within 24 hours, Calendar sends the invite.</p> : null}
-          <div className="flex flex-wrap justify-end gap-2">
-            {editing ? <ShellActionSurface variant="pill" onClick={() => setEditId(undefined)} disabled={busy}>Back</ShellActionSurface> : null}
-            <ShellActionSurface variant="pill" type="submit" className={styles.primary} disabled={busy || !date || !time}>
+        ) : null}
+        {check && check.id === meeting?.id ? <p role="status" className="ui-text-helper-text">{check.label}</p> : null}
+        {canComplete ? <ShellActionSurface variant="pill" disabled={busy} onClick={() => void act("complete", introduction)}>Mark introduction complete</ShellActionSurface> : null}
+        {canSuggest && !editing ? <ShellActionSurface variant="pill" disabled={busy} onClick={openForm}>
+          {canFollowUp ? "Schedule another meeting" : "Suggest a different time"}
+        </ShellActionSurface> : null}
+        {showForm ? (
+          <form id={formId} className="space-y-3" onSubmit={(event) => { event.preventDefault(); void choose(); }}>
+            <div className="grid grid-cols-2 gap-2">
+              <div className={styles.field}><span className="ui-text-form-label">Date</span><AdvisorDatePicker value={date} zone={zone} onChange={setDate} disabled={busy} /></div>
+              <div className={styles.field}><span className="ui-text-form-label">Time</span><AdvisorTimePicker value={time} onChange={setTime} disabled={busy} /></div>
+            </div>
+            <details>
+              <summary className="ui-text-button-label min-h-11 cursor-pointer py-3">
+                Meeting options · {duration} min · {zone.split("/").at(-1)?.replaceAll("_", " ")}
+              </summary>
+              <div className="grid grid-cols-2 gap-2 pb-2">
+                <div className={styles.field}><span className="ui-text-form-label">Duration</span><AdvisorDurationPicker value={duration} onChange={setDuration} disabled={busy} /></div>
+                <div className={styles.field}><span className="ui-text-form-label">Time zone</span><AdvisorTimeZonePicker value={zone} deviceZone={deviceZone} date={date} time={time} onChange={setZone} disabled={busy} /></div>
+              </div>
+            </details>
+            {automatic ? <p className="ui-text-helper-text">If the client accepts this exact time within 24 hours, Calendar sends the invite.</p> : null}
+          </form>
+        ) : null}
+        {past.length ? <details className="ui-text-helper-text">
+          <summary>Past meetings · {past.length}</summary>
+          <ul>{[...past].reverse().map((entry) => <li key={entry.id}>
+            {entry.startAt ? `${meetingTime(entry, calendarTimeZone(entry.timeZone))} · ` : ""}{statuses[entry.status]}
+          </li>)}</ul>
+        </details> : null}
+      </div>
+      <div className={styles.meetingDock}>
+        <AdvisorCalendarConnection calendar={calendar} advisor={advisor} />
+        {showForm ? (
+          <div className={styles.meetingDockActions}>
+            {editing ? <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label"
+              onClick={() => setEditId(undefined)} disabled={busy}>Discard changes</ShellActionSurface> : null}
+            <ShellActionSurface variant="pill" type="submit" form={formId}
+              className={cn(styles.handshakePrimary, "min-h-11 ui-text-compact-button-label")} disabled={busy || !date || !time}>
               {automatic ? "Propose & allow booking" : "Propose a time"}
             </ShellActionSurface>
           </div>
-        </form>
-      ) : null}
-      {past.length ? <details className="ui-text-helper-text">
-        <summary>Past meetings · {past.length}</summary>
-        <ul>{[...past].reverse().map((entry) => <li key={entry.id}>
-          {entry.startAt ? `${meetingTime(entry, calendarTimeZone(entry.timeZone))} · ` : ""}{statuses[entry.status]}
-        </li>)}</ul>
-      </details> : null}
-      <AdvisorCalendarConnection calendar={calendar} advisor={advisor} />
+        ) : null}
+      </div>
       <AlertDialog open={Boolean(confirmCancel && confirmCancel === meeting?.id)} onOpenChange={(open) => { if (!open) setConfirmCancel(undefined); }}>
         <AlertDialogContent>
           <AlertDialogHeader>

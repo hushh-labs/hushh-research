@@ -11,7 +11,13 @@ from .stripe_mode import stripe_environment
 
 
 async def create_consumer_account(
-    *, stripe_api: Any, api_key: str, mode: str, owner: str, database: Any
+    *,
+    stripe_api: Any,
+    api_key: str,
+    mode: str,
+    owner: str,
+    database: Any,
+    prepare_profile: bool = True,
 ) -> dict[str, Any]:
     """Keep the original create intent while preparing only a verified new consumer."""
     intent = f"pkm-payout-account:{stripe_environment()}:{mode}:{owner}"
@@ -30,6 +36,8 @@ async def create_consumer_account(
     account_id = created.get("id")
     foreign_ids.update(await scope_account_ids(database, owner, mode, account_id))
     require_separate_payout_account(account_id, foreign_ids)
+    if not prepare_profile:
+        return created
     prepared = await prepare_consumer_profile(
         created,
         stripe_api=stripe_api,

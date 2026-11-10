@@ -15,7 +15,9 @@ import { PORTFOLIO_REVIEW_CLIENT_TIMEOUT_MS } from "@/lib/utils/request-timeouts
 import {
   advisorSnapshotContext,
   advisorSnapshotSchema,
+  advisorBillingSchema,
   advisorReviewSchema,
+  advisorSandboxPayoutSchema,
   type AdvisorCandidate,
   type AdvisorMeeting,
   type AdvisorPlan,
@@ -56,9 +58,13 @@ export class AdvisorReviewError extends Error {
           ADVISOR_TIME_AGREEMENT_REQUIRED:
             "Both people must agree to the time before it can be booked.",
           ADVISOR_INTRODUCTION_REQUIRED:
-            "Complete the introduction before offering a monthly plan.",
+            "Complete the introduction before offering a plan.",
           ADVISOR_CHECK_BILLING_STATUS:
             "Check payment status before opening another checkout.",
+          ADVISOR_PAYMENT_ALREADY_PAID:
+            "This offer is already paid. Check payment status for the receipt.",
+          ADVISOR_BILLING_IN_PROGRESS:
+            "The current checkout needs to finish or expire before you can send a new offer.",
           ADVISOR_PLAN_CHANGED:
             "The plan changed. Refresh and review its current price and terms.",
           ADVISOR_REQUEST_CHANGED:
@@ -218,17 +224,21 @@ export const AdvisorReviewService = {
     ),
   offer: (c: FinanceShareContext, id: string, body: AdvisorPlan) =>
     advisorRequest(c, `/${id}/plan`, "POST", body),
-  billing: (c: FinanceShareContext, id: string) =>
-    advisorRequest<{ status: string; mode: "test" }>(c, `/${id}/billing`),
+  billing: async (c: FinanceShareContext, id: string, signal?: AbortSignal) =>
+    advisorBillingSchema.parse(await advisorRequest(c, `/${id}/billing`, "GET", undefined, signal)),
   checkout: (c: FinanceShareContext, id: string, planRevision: number) =>
     advisorRequest<{ url: string; mode: "test" }>(
       c,
       `/${id}/checkout`,
       "POST",
-      { planRevision, acceptRecurringPayment: true },
+      { planRevision, acceptPayment: true },
     ),
   cancelBilling: (c: FinanceShareContext, id: string) =>
     advisorRequest(c, `/${id}/billing`, "DELETE"),
+  sandboxPayout: async (c: FinanceShareContext, id: string, signal?: AbortSignal) =>
+    advisorSandboxPayoutSchema.parse(await advisorRequest(c, `/${id}/sandbox-payout`, "GET", undefined, signal)),
+  sandboxPayoutLink: (c: FinanceShareContext, id: string, action: "onboarding" | "dashboard") =>
+    advisorRequest<{ url: string; mode: "test" }>(c, `/${id}/sandbox-payout/${action}`, "POST"),
   async decrypt(
     context: FinanceShareContext,
     review: AdvisorReview,

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 455,
+  "expected_migration_version": 456,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -347,6 +347,7 @@
     "fence_one_attempt_email_preference",
     "reset_one_attempt_email",
     "erase_one_attempt_email",
+    "retire_advisor_payment_checkout",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -569,6 +570,19 @@
       "ria_profile_id",
       "status",
       "updated_at"
+    ],
+    "advisor_review_payments": [
+      "request_id",
+      "plan_revision",
+      "plan_hash",
+      "amount_cents",
+      "payee_account",
+      "attempt",
+      "attempt_started_at",
+      "checkout_session_id",
+      "payment_intent_id",
+      "status",
+      "paid_at"
     ],
     "advisor_review_requests": [
       "id",
@@ -4962,5 +4976,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 455
+  "expected_schema_head": 456
 }

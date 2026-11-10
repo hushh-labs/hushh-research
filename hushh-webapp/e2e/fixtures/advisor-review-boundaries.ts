@@ -36,6 +36,7 @@ export async function advisorRequest(
   return { items: [{ userId: "synthetic-advisor", personRef: "11111111-1111-4111-8111-111111111111", name, bio: "Verified synthetic advisor", crd: "123456", verified: true, keyId: "synthetic-key", publicKeyJwk: { kty: "EC" }, ready: true }], directory: null, hasMore: false };
 }
 export const AdvisorReviewService = {
+  sandboxPayout: async () => ({ mode: "test", setup: "setup_required", latest: null }),
   history: async (context: { userId: string }) => ({ items: [sampleReview(context.userId)] }),
   view: async (context: { userId: string }) => sampleReview(context.userId),
   decrypt: async () => { document.body.dataset.advisorDecrypts = String(Number(document.body.dataset.advisorDecrypts || 0) + 1); if (document.body.dataset.advisorStage !== "accepted") throw new Error("Snapshot locked"); return sampleAdvisorSnapshot; },

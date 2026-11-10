@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { ShellActionSurface, SHELL_PILL_TRIGGER_CLASSNAME } from "@/components/app-ui/shell-action-surface";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { buildDirectMessageRoute } from "@/lib/navigation/routes";
 import { AdvisorReviewService } from "@/lib/advisor-review/service";
 import type {
@@ -23,28 +26,56 @@ import { AdvisorPlanPanel } from "./advisor-plan-panel";
 import finance from "@/components/kai/shared/finance-workspace.module.css";
 import styles from "./advisor-review.module.css";
 
+type ReviewPage = "meeting" | "portfolio" | "plan";
+
+const reviewPages: { value: ReviewPage; label: string }[] = [
+  { value: "meeting", label: "Meeting" },
+  { value: "portfolio", label: "Portfolio" },
+  { value: "plan", label: "Plan" },
+];
+
+const closedReviewTitles = {
+  declined: "Request declined",
+  withdrawn: "Request cancelled",
+  stopped: "Portfolio sharing stopped",
+  expired: "Request expired",
+} as const;
+
 export function AdvisorWorkspace({
   id,
   context,
   onClose,
+  openPlan = false,
 }: {
   id: string;
   context: FinanceShareContext;
   onClose: () => void;
+  openPlan?: boolean;
 }) {
   const [review, setReview] = useState<AdvisorReview | null>(null);
   const [snapshot, setSnapshot] = useState<AdvisorSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [detail, setDetail] = useState<ReviewPage | null>(openPlan ? "plan" : null);
+  const tabSetId = `advisor-review-${useId()}`;
   const [endAction, setEndAction] = useState<"withdraw" | "stop" | null>(null);
   const live = useRef(true);
   const work = useRef(false);
   const reading = useRef(false);
   const openedHash = useRef<string | null>(null);
   const deadline = useRef<number | null>(null);
+  const accepted = review?.status === "accepted";
+  const pending = review?.status === "pending";
+  const page = detail ?? "meeting";
+  const closedPlan = !accepted && !pending && Boolean(review?.plan) && detail === "plan";
   const pathname = usePathname();
-  useBackLayer(pathname, 2, () => {
-    if (!work.current) onClose();
+  const back = () => {
+    if (work.current) return;
+    if (closedPlan) setDetail(null);
+    else onClose();
+  };
+  useBackLayer(pathname, closedPlan ? 3 : 2, () => {
+    back();
     return true;
   });
   const load = async () => {
@@ -129,26 +160,60 @@ export function AdvisorWorkspace({
     }
   };
   const incoming = review?.direction === "received";
+  const person = incoming ? review?.ownerName : review?.advisorName;
+  const selectPage = (value: string) => {
+    if (work.current || endAction !== null) return;
+    const next = reviewPages.find((option) => option.value === value);
+    if (next) setDetail(next.value);
+  };
+  const navigationDisabled = busy || endAction !== null;
   return (
     <KaiControlSurface
       open
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
-      title={
-        review
-          ? `${incoming ? review.ownerName : review.advisorName} · Advisor review`
-          : "Advisor review"
-      }
-      description={
-        review?.status === "pending"
-          ? review.alreadyConnected
-            ? "Already connected"
-            : "One request to connect and review a Finance snapshot."
-          : "Your introduction, meeting and plan."
-      }
-      surfaceClassName={finance.detail}
-      desktopMaxWidthClassName="sm:!max-w-[min(1040px,calc(100vw-4.5rem))]"
+      title={closedPlan ? "Advisor plan" : "Advisor review"}
+      description={person}
+      presentation="sheet"
+      surfaceClassName={`${finance.detail} ${styles.handshakeSheet}${accepted ? ` ${styles.handshakeTabbedSheet}` : ""}`}
+      bodyClassName={accepted ? styles.handshakeTabbedBody : undefined}
+      footer={review && (closedPlan || pending || accepted) ? (
+        <div className={styles.handshakeFooter}>
+          {closedPlan ? (
+            <ShellActionSurface variant="pill" disabled={busy} onClick={back}>Back</ShellActionSurface>
+          ) : pending ? incoming ? (
+            <>
+              <ShellActionSurface variant="pill" disabled={busy} onClick={() => void run(() =>
+                AdvisorReviewService.decide(context, id, "decline"),
+              )}>Decline</ShellActionSurface>
+              <ShellActionSurface
+                variant="pill" rippleEffect="fill" disabled={busy}
+                wrapperClassName={styles.handshakeForward} className={styles.handshakePrimary}
+                onClick={() => void run(() => AdvisorReviewService.decide(context, id, "accept", review.alreadyConnected))}
+              >{review.alreadyConnected ? "Accept" : "Accept & connect"}</ShellActionSurface>
+            </>
+          ) : (
+            <ShellActionSurface variant="pill" disabled={busy} onClick={() => setEndAction("withdraw")}>
+              Cancel request
+            </ShellActionSurface>
+          ) : (
+            <>
+              <Link className={`${SHELL_PILL_TRIGGER_CLASSNAME} min-h-11 ui-text-compact-button-label`}
+                href={buildDirectMessageRoute({ personRef: incoming ? review.ownerPersonRef : review.advisorPersonRef })}>
+                Messages
+              </Link>
+              {!incoming ? (
+                <ShellActionSurface variant="pill" wrapperClassName={styles.handshakeForward}
+                  className="app-critical-action-outline min-h-11 ui-text-compact-button-label"
+                  aria-label="Stop advisor review" disabled={busy} onClick={() => setEndAction("stop")}>
+                  Stop
+                </ShellActionSurface>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : undefined}
     >
       {error ? (
         <div className={styles.notice}>
@@ -163,148 +228,57 @@ export function AdvisorWorkspace({
         </div>
       ) : null}
       {review ? (
-        <div className={styles.stack}>
-          <div className={styles.row}>
-            <strong className="ui-text-status">
-              {review.status === "accepted" ? "Connected" : review.status}
-            </strong>
-            <span className="ui-text-helper-text">
-              Snapshot access ends {new Date(review.expiresAt).toLocaleString()}
-            </span>
-          </div>
-          {review.status === "pending" ? (
-            <section className={styles.card}>
-              <h3 className="ui-text-section-label">
-                {incoming
-                  ? "A Finance review request"
-                  : "Waiting for the advisor"}
-              </h3>
-              <p>
-                {review.introduction || "A portfolio introduction and review."}
-              </p>
-              <div className={styles.notice}>
-                The full Finance snapshot is sealed.{" "}
-                {incoming
-                  ? review.alreadyConnected
-                    ? "Accept to open the snapshot."
-                    : "Accepting connects you and opens it."
-                  : "Only this advisor can open it after accepting."}{" "}
-                No subscription or payment is included.
-              </div>
-              <div className={styles.actions}>
-                {incoming ? (
-                  <>
-                    <ShellActionSurface
-                      variant="pill"
-                      disabled={busy}
-                      onClick={() =>
-                        void run(() =>
-                          AdvisorReviewService.decide(context, id, "decline"),
-                        )
-                      }
-                    >
-                      Decline
-                    </ShellActionSurface>
-                    <ShellActionSurface
-                      variant="pill"
-                      className={styles.primary}
-                      disabled={busy}
-                      onClick={() =>
-                        void run(() =>
-                          AdvisorReviewService.decide(context, id, "accept", review.alreadyConnected),
-                        )
-                      }
-                    >
-                      {review.alreadyConnected ? "Accept" : "Accept & connect"}
-                    </ShellActionSurface>
-                  </>
-                ) : (
-                  <ShellActionSurface
-                    variant="pill"
-                    disabled={busy}
-                    onClick={() => setEndAction("withdraw")}
-                  >
-                    Cancel request
-                  </ShellActionSurface>
-                )}
-              </div>
-            </section>
-          ) : null}
-          {review.status === "accepted" ? (
+        <div className={`${styles.stack}${accepted ? ` ${styles.handshakeTabLayout}` : ""}`}>
+          {closedPlan ? (
+             <AdvisorPlanPanel key={review.planRevision} review={review} context={context} busy={busy} run={run}
+               refreshPaymentOnOpen={openPlan} />
+          ) : review.status === "pending" ? (
             <>
-              <div className={styles.row}>
-                <p className="ui-text-helper-text">
-                  You’re connected. Message each other or arrange an
-                  introduction.
-                </p>
-                <Link
-                  className="ui-text-button-label"
-                  href={buildDirectMessageRoute({
-                    personRef: incoming
-                      ? review.ownerPersonRef
-                      : review.advisorPersonRef,
-                  })}
-                >
-                  Open messages
-                </Link>
-              </div>
-              <div className={styles.columns}>
+              <h3 className="ui-text-section-label">{incoming ? "Review this request" : "Waiting for the advisor"}</h3>
+              {review.introduction ? <p className="whitespace-pre-wrap break-words">{review.introduction}</p> : null}
+              <p className="ui-text-helper-text">
+                The portfolio snapshot stays sealed until the advisor accepts.
+                {incoming && !review.alreadyConnected ? " Accepting also adds this person to your connections." : ""}
+                {" "}There’s no charge for accepting.
+              </p>
+              <p className="ui-text-helper-text">Request expires {new Date(review.expiresAt).toLocaleDateString()}</p>
+            </>
+          ) : review.status === "accepted" ? (
+            <>
+              <SegmentedTabs value={page} options={reviewPages} tabSetId={tabSetId}
+                className="shrink-0" ariaLabel="Advisor review sections" disabled={navigationDisabled} onValueChange={selectPage} />
+              <SwipeViews activeValue={page} options={reviewPages} tabSetId={tabSetId}
+                disabled={navigationDisabled} onSelectionChange={selectPage}
+                viewportMinHeight="0px" className={styles.handshakePager}
+                preserveControlActivationAfterSwipe>
+                <AdvisorMeetingPanel review={review} context={context} busy={busy} run={run} />
                 <div className={styles.stack}>
-                  {snapshot ? (
+                  {review.snapshotAvailable ? (
+                    <p className="ui-text-helper-text">Shared until {new Date(review.expiresAt).toLocaleString()}</p>
+                  ) : null}
+                  {review.snapshotAvailable && snapshot ? (
                     <AdvisorSnapshotView snapshot={snapshot} />
                   ) : (
-                    <div className={styles.notice}>
-                      Snapshot access has ended or is unavailable. Your
-                      connection and billing are managed separately.
-                    </div>
+                    <p role="status">
+                      {review.snapshotAvailable && !error ? "Opening the shared portfolio…" : "Portfolio details are unavailable."}
+                    </p>
                   )}
                 </div>
-                <div className={styles.stack}>
-                  <AdvisorMeetingPanel
-                    review={review}
-                    context={context}
-                    busy={busy}
-                    run={run}
-                  />
-                  <AdvisorPlanPanel
-                    key={review.planRevision}
-                    review={review}
-                    context={context}
-                    busy={busy}
-                    run={run}
-                  />
-                </div>
-              </div>
-              {!incoming ? (
-                <div className={styles.actions}>
-                  <ShellActionSurface
-                    variant="pill"
-                    disabled={busy}
-                    onClick={() => setEndAction("stop")}
-                  >
-                    End advisor review
-                  </ShellActionSurface>
-                </div>
+                <AdvisorPlanPanel key={review.planRevision} review={review} context={context} busy={busy} run={run}
+                  active={page === "plan"} refreshPaymentOnOpen={openPlan} />
+              </SwipeViews>
+            </>
+          ) : (
+            <>
+              <h3 className="ui-text-section-label">{closedReviewTitles[review.status]}</h3>
+              <p className="ui-text-helper-text">The advisor can’t open the portfolio.</p>
+              {review.plan ? (
+                <SettingsGroup embedded rowSizing="uniform">
+                  <SettingsRow title="Plan and payments" chevron onClick={() => setDetail("plan")} />
+                </SettingsGroup>
               ) : null}
             </>
-          ) : null}
-          {!["pending", "accepted"].includes(review.status) ? (
-            <section className={styles.notice}>
-              <p>
-                This request is {review.status}. The snapshot cannot be opened.
-              </p>
-              <p>
-                Any existing connection is unchanged. Billing can still be
-                checked or cancelled below.
-              </p>
-              <AdvisorPlanPanel
-                review={review}
-                context={context}
-                busy={busy}
-                run={run}
-              />
-            </section>
-          ) : null}
+          )}
         </div>
       ) : (
         <p role="status">Checking this request…</p>
@@ -312,10 +286,10 @@ export function AdvisorWorkspace({
       <AlertDialog open={endAction !== null} onOpenChange={(open) => { if (!open) setEndAction(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{endAction === "stop" ? "End advisor review?" : "Cancel advisor request?"}</AlertDialogTitle>
+            <AlertDialogTitle>{endAction === "stop" ? "Stop sharing your portfolio?" : "Cancel advisor request?"}</AlertDialogTitle>
             <AlertDialogDescription>
               {endAction === "stop"
-                ? "This ends the advisor’s snapshot access. Meetings, subscriptions and your connection are managed separately."
+                ? "This ends the review and the advisor’s portfolio access. Existing meetings, payments and your connection are managed separately."
                 : "The advisor will no longer be able to accept this request or open your snapshot."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -324,7 +298,7 @@ export function AdvisorWorkspace({
             <AlertDialogAction disabled={busy} onClick={() => {
               if (endAction) void run(() => AdvisorReviewService.decide(context, id, endAction));
             }}>
-              {endAction === "stop" ? "End review" : "Cancel request"}
+              {endAction === "stop" ? "Stop sharing" : "Cancel request"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

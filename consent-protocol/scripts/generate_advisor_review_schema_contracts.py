@@ -1,4 +1,4 @@
-"""Derive the advisor handshake's schema projection from migration 447."""
+"""Derive the advisor handshake's schema projection from its migrations."""
 
 import argparse
 import json
@@ -7,14 +7,25 @@ from pathlib import Path
 from generate_location_onboarding_runtime_schema_contracts import table_columns
 
 ROOT = Path(__file__).resolve().parents[1]
-TABLES = ("advisor_review_requests", "advisor_review_subscriptions", "advisor_billing_cleanup")
+TABLES = (
+    "advisor_review_requests",
+    "advisor_review_subscriptions",
+    "advisor_billing_cleanup",
+    "advisor_review_payments",
+)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    sql = (ROOT / "db/migrations/447_finance_advisor_handshake.sql").read_text()
+    sql = "\n".join(
+        (ROOT / "db/migrations" / name).read_text()
+        for name in (
+            "447_finance_advisor_handshake.sql",
+            "456_finance_advisor_one_time_payment.sql",
+        )
+    )
     projection = table_columns(sql, table_names=TABLES)
     stale = []
     for name in ("dev_minimum_schema.json", "uat_integrated_schema.json", "prod_core_schema.json"):
@@ -25,6 +36,7 @@ def main():
             "guard_advisor_review",
             "end_advisor_reviews",
             "advisor_subscription_retirement",
+            "retire_advisor_payment_checkout",
         ):
             if function not in value["required_functions"]:
                 value["required_functions"].append(function)
