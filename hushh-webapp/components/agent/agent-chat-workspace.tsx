@@ -643,13 +643,14 @@ export function settleAssistantMessageError<T extends AgentMessage>(
   };
 }
 
-export type LostTurnRetryPlan = "rerun" | "restore" | "reattach";
+export type LostTurnRetryPlan = "rerun" | "restore" | "reattach" | "unknown";
 
 /**
  * Before a lost turn is sent again, ask history where it stands: an answer the
  * server already saved is shown ("restore"), a turn still running is waited on
  * ("reattach"), and only a turn that never finished is sent again ("rerun").
- * An unreadable history falls back to today's resend.
+ * History that cannot be read leaves the state "unknown": nothing is resent,
+ * because the server may already have run the turn, and the message stays put.
  */
 export async function planLostTurnRetry(input: {
   lostTurn: AgentLostTurn | undefined;
@@ -667,7 +668,7 @@ export async function planLostTurnRetry(input: {
     });
     return outcome === "answered" ? "restore" : outcome === "pending" ? "reattach" : "rerun";
   } catch {
-    return "rerun";
+    return "unknown";
   }
 }
 
@@ -9018,6 +9019,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           lostTurn, retryText, vaultOwnerToken: token, vaultKey: vaultKeyRef.current,
         });
         if (!stillInSameChat() || !canRetry()) return;
+        if (plan === "unknown") {
+          // Nothing is resent and nothing is claimed saved: the turn may have finished.
+          toast.info("Can't confirm that answer yet. Your message is still here; try again in a moment.");
+          return;
+        }
         if (plan === "restore" && lostTurn && token && applicationOwnerId) {
           const expectedMessages = retryPresentationRef.current.messages;
           dispatchAgentChatHistoryInvalidated(applicationOwnerId);

@@ -39,11 +39,13 @@ ACTIONS = [
 ]
 
 
-async def sdk_turn(monkeypatch, prompt, steps, port, actions=(), restored=False):
+async def sdk_turn(
+    monkeypatch, prompt, steps, port, actions=(), restored=False, model_factory=CalendarModel
+):
     """Restore ordinary SDK session state/history, then admit a fresh owner turn."""
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: port)
-    model = CalendarModel(
+    model = model_factory(
         [*steps, [types.Part(text="Verified calendar read remains available.")]], prompt, actions
     )
     root = agent_tree.build_one_text_agent(model=model)
@@ -513,3 +515,80 @@ async def test_summary_whole_days_reads_exact_local_days_and_logs_content_free_t
         r"calendar\.read\.latency total_ms=\d+ provider_ms=\d+ status=ok", lines[0]
     ), lines[0]
     assert "Planning" not in lines[0] and "example" not in lines[0]
+
+
+class RequestSpyModel(CalendarModel):
+    """Records what the model is actually given: tool declarations and instruction."""
+
+    def __init__(self, steps, text, actions=()):
+        super().__init__(steps, text, actions)
+        self.__dict__["seen"] = []
+
+    async def generate_content_async(self, llm_request, stream=False):
+        if not llm_request.config.response_schema:
+            declarations = {
+                declaration.name: declaration
+                for tool in llm_request.config.tools or []
+                for declaration in tool.function_declarations or []
+            }
+            self.__dict__["seen"].append((declarations, str(llm_request.config.system_instruction)))
+        async for response in super().generate_content_async(llm_request, stream=stream):
+            yield response
+
+
+TODAY_TOMORROW = (
+    "For the same account, show my meetings today and tomorrow in Asia/Kolkata. "
+    "Write the exact date for each day."
+)
+
+
+async def test_today_and_tomorrow_prompt_gets_whole_local_days_through_the_model_schema(
+    monkeypatch,
+):
+    port = port_with_event(monkeypatch)
+    responses, _, _ = await sdk_turn(
+        monkeypatch,
+        TODAY_TOMORROW,
+        [[call("calendar_summary", days=2, time_zone="Asia/Kolkata", whole_days=True)]],
+        port,
+        model_factory=RequestSpyModel,
+    )
+    assert responses[0].name == "calendar_summary" and responses[0].response["status"] == "ok"
+    assert port.list_events.await_args.kwargs["start_at"] == "2030-11-05T18:30:00Z"
+    assert port.list_events.await_args.kwargs["end_at"] == "2030-11-07T18:30:00Z"
+    assert responses[0].response["events"][0]["local_start_at"] == "2030-11-06T23:00:00+05:30"
+
+
+async def test_model_receives_the_whole_days_option_and_the_local_dates(monkeypatch):
+    port = port_with_event(monkeypatch)
+    captured = []
+
+    class Capture(RequestSpyModel):
+        def __init__(self, steps, text, actions=()):
+            super().__init__(steps, text, actions)
+            captured.append(self)
+
+    await sdk_turn(
+        monkeypatch,
+        TODAY_TOMORROW,
+        [[call("calendar_summary", days=2, time_zone="Asia/Kolkata", whole_days=True)]],
+        port,
+        model_factory=Capture,
+    )
+    declarations, instruction = captured[0].__dict__["seen"][0]
+    summary = declarations["calendar_summary"]
+    # ADK exposes the Python signature as JSON schema; this is what the provider receives.
+    schema = summary.parameters_json_schema or summary.parameters.model_dump()
+    properties = schema["properties"]
+    assert str(properties["whole_days"]["type"]).lower() == "boolean"
+    assert "whole_days" not in schema.get("required", [])
+    assert "today and tomorrow" in summary.description.lower()
+    assert "midnight" in summary.description.lower()
+    # The same step also carries the admitted turn's local dates the model must name.
+    assert "Today=2030-11-06; tomorrow=2030-11-07 [Asia/Kolkata]" in instruction
+
+
+def test_production_agent_registers_the_model_facing_summary_tool():
+    agent = agent_tree.build_one_text_agent(model=CalendarModel([], "x"))
+    names = {getattr(t, "__name__", getattr(t, "name", None)) for t in agent.tools}
+    assert "calendar_summary" in names and "calendar_events" in names
