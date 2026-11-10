@@ -204,6 +204,30 @@ image. Recorded recovery/activation operations keep their original source and
 checkpoint contracts. Normal direct Main deployment does not grant emergency
 source authority. Merges and downstream source syncs deploy nothing.
 
+### Qualify the recorded production recovery source
+
+The sealed cold-proof application is `84b80bcab6b5b7a4de21a5a992d3c969dacba5b9`.
+Its landed Main smoke already ran on that SHA. Functional CI for the original
+PR ran on a different commit. Dispatching the historical workflow would still
+require a receipt from the retired `ci-security.yml` alert observer.
+
+After the validation workflow is reviewed and lands on Main, a production
+operator can dispatch **Validate Production Recovery Source** on `main` with
+`sha=84b80bcab6b5b7a4de21a5a992d3c969dacba5b9`. A new dispatch is required if
+the attempt fails. Each functional job checks out the recorded application
+without a source overlay. The full release scope uses that checkout's test
+inventory, the current Main CI job graph, DCO and Gitleaks policy, and the
+protected Deployment Security job. Recovery also requires the snapshot’s selected
+Chromium and WebKit contracts and its native WebKit document check. The run
+records the application SHA, its
+tree and comparison SHA, and the separate Main tooling SHA.
+
+Production's existing Main-source verifier requires the newest successful
+recovery validation dispatch and the separate smoke for the exact application.
+It verifies the run and job identities and rereads them during admission. This
+workflow uses no cloud identity or production environment. Worker staging,
+rollout, and activation each retain their own admission and explicit dispatch.
+
 ### Branded sign-in repair of the restored frontend
 
 The explicit `frontend_auth_domain_refresh=true` incident input is restricted to

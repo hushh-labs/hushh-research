@@ -27,6 +27,7 @@ CALLERS = {
     "deploy-production.yml",
     "deploy-personal-backend.yml",
     "validate-plg-frontend-source.yml",
+    "validate-production-recovery-source.yml",
     "release-ios-appstore.yml",
     "ship-ios-testflight.yml",
     "ship-android-playstore-v1.yml",
@@ -254,6 +255,7 @@ def release_authorization_binding(read, source: dict, *, producer=None) -> dict:
         "ship-android-playstore-v1.yml": ("production", "native"),
         "publish-hushh-mcp.yml": ("production", "package"),
         "validate-plg-frontend-source.yml": ("production", "validation"),
+        "validate-production-recovery-source.yml": ("production", "validation"),
         "rollback.yml": (source["environment"], source["environment"]),
     }.get(caller, (None, None))
     if (

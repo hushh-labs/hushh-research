@@ -466,6 +466,7 @@ jobs:
             consent-protocol/api/routes/document_delivery.py \
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/production_recovery_ci.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/verify-protected-pipeline-edits.py "${RUNNER_TEMP}/release-tools/"
           cp config/ci-governance.json "${RUNNER_TEMP}/release-tools/ci-governance.json"
@@ -581,7 +582,7 @@ jobs:
           mkdir -p deploy/phone deploy/sso
           cp "${RUNNER_TEMP}/release-tools/phone/"*.py deploy/phone/
           cp "${RUNNER_TEMP}/release-tools/sso/"* deploy/sso/
-          for tool in verify-predecessor-acceptance.py release_acceptance_provenance.py; do
+          for tool in verify-predecessor-acceptance.py release_acceptance_provenance.py production_recovery_ci.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
           done
           cp "${RUNNER_TEMP}/release-tools/verify-cloudrun-revision-provenance.py" scripts/ci/
