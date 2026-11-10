@@ -636,6 +636,10 @@ describe("NearbyCheckInSheet", () => {
       routeId: "one_location_check_in",
     });
     expect(capture).toHaveBeenCalledTimes(2);
+    expect(capture).toHaveBeenLastCalledWith({
+      fresh: true,
+      requireMeasurement: true,
+    });
   });
 
   it("blocks check-in when the final confirmation point is too approximate", async () => {
