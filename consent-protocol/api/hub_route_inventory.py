@@ -305,6 +305,7 @@ POST /api/one/location/requests/{request_id}/approve
 POST /api/one/location/requests/{request_id}/deny
 POST /api/one/location/requests/{request_id}/withdraw
 POST /api/one/location/retention/purge
+GET /api/one/location/sms-alerts/recent
 GET,POST /api/one/location/sms-contacts
 DELETE /api/one/location/sms-contacts/{recipient_user_id}
 POST /api/one/location/sos-email-recipients

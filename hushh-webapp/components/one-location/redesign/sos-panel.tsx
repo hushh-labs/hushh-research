@@ -67,6 +67,7 @@ export type SosPanelProps = {
    * release the fired latch instead of sitting on a dead progress ring.
    */
   onTrigger: (message?: string | null) => void | Promise<void>;
+  onPrepareSend?: (signal: AbortSignal) => void;
   /**
    * Stop a live SMS session: revokes the location grants created by the
    * alert AND clears the incident, so "SENT · Live now" resets. Kept separate
@@ -93,6 +94,7 @@ export function SosPanel({
   dispatchStatus,
   busy,
   onTrigger,
+  onPrepareSend,
   onStopSos,
   stopBusy,
   onEditContacts,
@@ -114,6 +116,7 @@ export function SosPanel({
 
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendPreparationRef = useRef<AbortController | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef<number | null>(null);
   const holdTargetRef = useRef<"sms" | "composer" | null>(null);
@@ -170,6 +173,8 @@ export function SosPanel({
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     timeoutRef.current = null;
     frameRef.current = null;
+    sendPreparationRef.current?.abort();
+    sendPreparationRef.current = null;
     holdStartedAtRef.current = null;
     holdTargetRef.current = null;
     countdownModeRef.current = null;
@@ -226,6 +231,13 @@ export function SosPanel({
     }
   }, []);
 
+  const prepareSend = useCallback(() => {
+    if (!onPrepareSend) return;
+    const preparation = new AbortController();
+    sendPreparationRef.current = preparation;
+    onPrepareSend(preparation.signal);
+  }, [onPrepareSend]);
+
   const startHold = useCallback((target: "sms" | "composer") => {
     if (disabled || holdStartedAtRef.current !== null || firedRef.current || tapCountdownRef.current) return;
     suppressSendClickRef.current = false;
@@ -236,7 +248,8 @@ export function SosPanel({
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, disabled, updateProgress]);
+    prepareSend();
+  }, [completeHold, disabled, prepareSend, updateProgress]);
 
   const startTapCountdown = useCallback(() => {
     if (disabled || !customMessage.trim() || holdStartedAtRef.current !== null || firedRef.current) return;
@@ -249,7 +262,8 @@ export function SosPanel({
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, customMessage, disabled, updateProgress]);
+    prepareSend();
+  }, [completeHold, customMessage, disabled, prepareSend, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
 
