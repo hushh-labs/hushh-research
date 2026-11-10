@@ -42,7 +42,7 @@ def legacy_recovery_pg(monkeypatch):
         server.stop()
 
 
-def _seed_legacy_recovery(server, *, hushh_id=None):
+def _seed_legacy_recovery(server, *, hushh_id=None, shared_repository=False):
     from tests.standby_postgres_support import seed_primary
 
     owner, project = "legacy-owner", "owner-project"
@@ -52,6 +52,8 @@ def _seed_legacy_recovery(server, *, hushh_id=None):
         {"type": "service_account", "id": "runtime@owner-project.iam.gserviceaccount.com"},
         {"type": "pubsub_topic", "id": "projects/hushh-pda/topics/legacy-gone"},
     ]
+    if shared_repository:
+        resources.append({"type": "artifact_repository", "id": "shared-pod-images"})
     image = "registry.example/pod@sha256:" + "a" * 64
     seed_primary(
         server,
@@ -150,7 +152,9 @@ def _seed_legacy_recovery(server, *, hushh_id=None):
             {
                 **item,
                 "identity": {"name": item["id"]},
-                "authority": "observe_only"
+                "authority": "retain_shared"
+                if item["type"] == "artifact_repository"
+                else "observe_only"
                 if item["id"].startswith("projects/hushh-pda/")
                 else "owner_reviewed",
             }
@@ -1289,7 +1293,7 @@ def test_retired_account_state_erases_while_original_cleanup_remains_executable(
 
         fixture_phone = "+12025550123"
         pg, owner, reservation, plan = _seed_legacy_recovery(
-            replay_pg, hushh_id=mint_hushh_id(fixture_phone)
+            replay_pg, hushh_id=mint_hushh_id(fixture_phone), shared_repository=True
         )
         _, recovery = _retained_data_cleanup(pg, owner, reservation, plan)
         monkeypatch.setattr(retirement, "_selected_dev", lambda: True)
@@ -1323,6 +1327,12 @@ def test_retired_account_state_erases_while_original_cleanup_remains_executable(
             with pytest.raises(retirement.CloudRetirementReviewRequired):
                 retirement.verify_reviewed_authority(owner, recovery["planSha256"])
         assert not pg.execute("SELECT 1 FROM account_deletion_tombstones")
+        with engine.begin() as conn:
+            review = retirement.review_in_transaction(conn, owner)
+            assert review["resource_count"] == len(plan["resources"]) - 1
+            from hushh_mcp.services.legacy_cloud_removal import recovery_view
+
+            assert review["resource_count"] == recovery_view(recovery)["total"]
         with engine.begin() as conn:
             prepared = AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
                 conn,

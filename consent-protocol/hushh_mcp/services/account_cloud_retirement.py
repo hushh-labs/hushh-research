@@ -84,7 +84,8 @@ def review_in_transaction(conn, owner: str) -> dict | None:
         conn.execute(
             text("""SELECT attempt_id,recovery->>'planSha256' AS plan_sha256,
           recovery->'plan'->'project' AS project,
-          jsonb_array_length(recovery->'plan'->'resources') AS resource_count
+          (SELECT count(*) FROM jsonb_array_elements(recovery->'plan'->'resources') item
+            WHERE item->>'authority' IS DISTINCT FROM 'retain_shared') AS resource_count
         FROM personal_agent_cloud_removals WHERE user_id=:owner
          AND completed_at IS NULL AND cancelled_at IS NULL
          AND public.account_cloud_retirement_ready(user_id,attempt_id)
