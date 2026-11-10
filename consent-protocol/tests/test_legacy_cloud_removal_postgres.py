@@ -1412,6 +1412,20 @@ def test_retired_account_state_erases_while_original_cleanup_remains_executable(
         try:
             release_guard = cloud_worker.bind_release_session(lease_connection)
             release_guard()
+            pg.execute("""
+                CREATE FUNCTION fixture_cloud_retirement_release_fence() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN RETURN OLD; END; $$;
+                CREATE TRIGGER trg_block_account_deletion_during_release
+                BEFORE DELETE ON public.actor_profiles FOR EACH ROW
+                EXECUTE FUNCTION fixture_cloud_retirement_release_fence();
+            """)
+            with pytest.raises(AzureTeardownRefused, match="CLOUD_REMOVAL_RELEASE_ADMISSION_LOST"):
+                release_guard()
+            pg.execute("""
+                DROP TRIGGER trg_block_account_deletion_during_release ON public.actor_profiles;
+                DROP FUNCTION fixture_cloud_retirement_release_fence();
+            """)
+            release_guard()
             assert (
                 _value(
                     pg,

@@ -164,12 +164,13 @@ def bind_release_session(connection):
                 """SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=pg_backend_pid()
                 AND locktype='advisory' AND mode='ShareLock' AND granted AND objsubid=1
                 AND classid=((hashtextextended(%s,0)>>32)&4294967295)::oid
-                AND objid=(hashtextextended(%s,0)&4294967295)::oid) AND NOT ("""
-                + _FENCED
-                + ")",
+                AND objid=(hashtextextended(%s,0)&4294967295)::oid)""",
                 (_KEY, _KEY),
             )
-            _require(cursor.fetchone()[0] is True, "CLOUD_REMOVAL_RELEASE_ADMISSION_LOST")
+            held = cursor.fetchone()[0]
+            cursor.execute(_FENCED)
+            fenced = cursor.fetchone()[0]
+            _require(held is True and fenced is False, "CLOUD_REMOVAL_RELEASE_ADMISSION_LOST")
 
     with connection.cursor() as cursor:
         cursor.execute("SET statement_timeout='10000ms'; SET lock_timeout='3000ms'")
