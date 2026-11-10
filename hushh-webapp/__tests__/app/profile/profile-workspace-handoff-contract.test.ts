@@ -95,6 +95,14 @@ describe("profile workspace duplication contract", () => {
     expect(payoutsPanel).toContain("<PaymentsAndEarnings key={applicationOwnerId} answer={nativePayout.answer} />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
     expect(paymentsSource).not.toContain("ScopeCommerceAccountPanel");
+    const payoutsAction = (JSON.parse(readFileSync(join(process.cwd(), "app/one/profile/page.voice-action-contract.json"), "utf8")) as {
+      actions: { action_id: string; aliases: string[] }[];
+    }).actions.find(action => action.action_id === "route.profile_payouts");
+    expect(payoutsAction?.aliases).toContain("document earnings");
+    for (const alias of ["add funds", "purchase balance", "information-access earnings"]) {
+      expect(payoutsAction?.aliases).not.toContain(alias);
+    }
+
     expect(paymentsSource.match(/<DocumentHashcoinPayouts\b/g)).toEqual(["<DocumentHashcoinPayouts"]);
     expect(paymentsSource).toMatch(/arrival\?\.source === "answers" \? <section[^>]*><AnswerPayoutAccount model={answer} \/><\/section> : null/);
     expect(payoutsSource.match(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b/g)).toEqual(["<PayoutBankRows"]);

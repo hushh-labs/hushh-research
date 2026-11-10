@@ -4589,7 +4589,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.payouts",
-        "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
+        "purpose": "Help the person manage payout setup, earnings and transaction history without changing consent or financial authority.",
         "screen": "profile_payouts",
         "entry_cue": "",
         "proactivity": "ambient",

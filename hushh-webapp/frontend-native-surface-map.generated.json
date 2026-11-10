@@ -6525,7 +6525,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.payouts",
-          "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
+          "purpose": "Help the person manage payout setup, earnings and transaction history without changing consent or financial authority.",
           "screen": "profile_payouts",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -11068,5 +11068,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1bb8ea6ad8d7890f9104e4c2cfe4d9edcb48670c9b024e0d4f3a69ae7338fe34"
+  "content_sha256": "022d23bed818ef8cadf7328ba46679181af5ebd3160fc6f5c00163c548f9edd9"
 }
