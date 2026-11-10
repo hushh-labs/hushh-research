@@ -255,11 +255,12 @@ function recordFix(point: {
   });
 }
 
-async function capture(generation: number): Promise<LocationSnapshot | null> {
+async function capture(generation: number, fastNetworkFallback?: boolean): Promise<LocationSnapshot | null> {
   try {
     const point = await HushhLocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeoutMs: 15_000,
+      ...(fastNetworkFallback ? { fastNetworkFallback: true } : {}),
     });
     if (generation !== accountGeneration) return null;
     const snapshot = toSnapshot(point);
@@ -420,7 +421,11 @@ export const LocationBus = {
    * Return a position, prompting only if the OS has not decided yet.
    * Reuses a fix younger than `maxAgeMs` and coalesces concurrent callers.
    */
-  async ensure(options?: { maxAgeMs?: number; requireMeasurement?: boolean }): Promise<LocationSnapshot | null> {
+  async ensure(options?: {
+    maxAgeMs?: number;
+    requireMeasurement?: boolean;
+    fastNetworkFallback?: boolean;
+  }): Promise<LocationSnapshot | null> {
     const maxAgeMs = options?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
     // Only a fix measured this session short-circuits the GPS. A restored one
     // is there to fill the screen, not to end the attempt — reusing it would
@@ -445,7 +450,7 @@ export const LocationBus = {
       });
     }
 
-    const captureTask = capture(accountGeneration).finally(() => {
+    const captureTask = capture(accountGeneration, options?.fastNetworkFallback).finally(() => {
       if (pendingCapture === captureTask) pendingCapture = null;
     });
     pendingCapture = captureTask;
