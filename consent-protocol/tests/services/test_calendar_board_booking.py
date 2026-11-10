@@ -32,10 +32,11 @@ class Owner:
         self.manage_denied: set[str] = set()
         self.roles: dict[str, str] = {}
         self.reads: list[tuple[str, list[str]]] = []
+        self.picture_requests: list[bool] = []
 
-    async def calendar_accounts_status(self, *, user_id: str, include_pictures: bool):
+    async def calendar_accounts_status(self, *, user_id: str, include_pictures: bool = True):
         assert user_id == "owner"
-        assert include_pictures is False
+        self.picture_requests.append(include_pictures)
         return {"accounts": copy.deepcopy(self.accounts)}
 
 
@@ -182,6 +183,7 @@ async def test_review_rechecks_every_account_and_writes_once_to_selected_account
     assert len(owner.reads) == count
     await service.execute(user_id="owner", proposal_id=review["proposal_id"], account_id=target)
     assert len(owner.reads) == 2 * count
+    assert owner.picture_requests == [False, False, False, False]
     assert len(writes) == 1
     assert writes[0]["method"] == "POST" and writes[0]["path"] == "/calendars/primary/events"
     assert service.connections.account_id == target
