@@ -64,10 +64,12 @@ vi.mock("@/lib/vault/vault-context", () => ({
   }),
 }));
 
-vi.mock("@/lib/services/person-profile-service", () => ({
+vi.mock("@/lib/services/person-profile-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/person-profile-service")>(),
   PersonProfileService: {
     getPublic: mocks.getPublic,
     peekPublic: mocks.peekPublic,
+    invalidatePublicProfiles: vi.fn(),
     getViewer: mocks.getViewer,
     getRelationship: mocks.getRelationship,
     createInformationRequest: vi.fn(),

@@ -501,6 +501,8 @@ async def document_feed_event_generator(
                 and item.get("share_kind") == "sos"
             ):
                 yield _json_frame("feed_changed", {"emergency_sms": True})
+            elif version >= PROTOCOL_V2 and event_type == "connection_graph_changed":
+                yield _json_frame("feed_changed", {"connection_graph": True})
             elif event_type == GENERAL_FEED_EVENT_TYPE:
                 # Installed v1 builds ignore it; it never shortens their long-poll.
                 yield _general_feed_frame(item)

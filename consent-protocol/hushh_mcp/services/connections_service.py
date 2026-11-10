@@ -3551,6 +3551,13 @@ class ConnectionsService:
               ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
             WHERE c.status = 'active'
               AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
+              AND NOT EXISTS (
+                SELECT 1 FROM account_deletion_tombstones deletion
+                WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                  CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END,
+                  'UTF8'
+                )), 'hex')
+              )
             ORDER BY c.created_at DESC
             """,
             {"user_id": user_id},
@@ -3622,6 +3629,14 @@ class ConnectionsService:
                 AND (
                   connection.user_a_id = :user_id
                   OR connection.user_b_id = :user_id
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM account_deletion_tombstones deletion
+                  WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                    CASE WHEN connection.user_a_id = :user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END,
+                    'UTF8'
+                  )), 'hex')
                 )
                 AND (
                   :query = ''
