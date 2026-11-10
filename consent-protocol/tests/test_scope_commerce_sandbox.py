@@ -77,6 +77,7 @@ def provider(monkeypatch):
 
     def endpoint(**parameters):
         facts["created"] += 1
+        facts["webhook_request"] = parameters
         value = {
             "id": "we_fixture",
             "object": "webhook_endpoint",
@@ -87,7 +88,7 @@ def provider(monkeypatch):
             "api_version": parameters["api_version"],
             "enabled_events": parameters["enabled_events"],
             "secret": "whsec_synthetic_setup_fixture",
-            "application": "ca_fixture" if parameters["connect"] else None,
+            "application": None,
         }
         facts["endpoints"].append(value)
         return value
@@ -208,11 +209,14 @@ async def test_capital_enumeration_failure_never_creates_provider_credit(provide
 
 
 @pytest.mark.asyncio
-async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_private_sink(provider):
+@pytest.mark.parametrize("scope", ["platform", "connect"])
+async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_private_sink(
+    provider, scope
+):
     service, facts = provider
     secrets, commits = [], []
     result = await WebhookProvisioner(service).provision(
-        scope="connect",
+        scope=scope,
         url="https://api.example.test/api/payments/scope-commerce/webhook",
         api_version="2025-02-24.acacia",
         operation_id=str(uuid4()),
@@ -220,15 +224,13 @@ async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_privat
         persist=lambda state: commits.append(copy.deepcopy(state)),
         write_secret=secrets.append,
     )
-    assert result["scope"] == "connect" and result["secretStored"] is True
+    assert result["scope"] == scope and result["secretStored"] is True
+    assert facts["webhook_request"]["connect"] is (scope == "connect")
     assert "secret" not in result and "whsec_" not in str(commits)
     assert secrets == ["whsec_synthetic_setup_fixture"]
-    assert set(facts["endpoints"][0]["enabled_events"]) == {
-        "account.updated",
-        "payout.paid",
-        "payout.failed",
-        "payout.canceled",
-    }
+    assert set(facts["endpoints"][0]["enabled_events"]) == set(
+        _provider.CONNECT_EVENTS if scope == "connect" else _provider.PLATFORM_EVENTS
+    )
     with pytest.raises(CommerceProviderError, match="sandbox_webhook_configuration_invalid"):
         await WebhookProvisioner(service).provision(
             scope="platform",
@@ -240,6 +242,37 @@ async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_privat
             write_secret=secrets.append,
         )
     assert facts["created"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["platform", "connect"])
+async def test_webhook_wrong_scope_receipt_never_reaches_secret_sink(provider, scope):
+    service, facts = provider
+    original = service.adapter.stripe_api.WebhookEndpoint.create
+
+    def wrong_scope(**parameters):
+        receipt = original(**parameters)
+        receipt["metadata"] = {
+            **receipt["metadata"],
+            "scope": "platform" if scope == "connect" else "connect",
+        }
+        return receipt
+
+    service.adapter.stripe_api.WebhookEndpoint.create = wrong_scope
+    secrets, state = [], {}
+    with pytest.raises(CommerceProviderError, match="sandbox_webhook_receipt_mismatch"):
+        await WebhookProvisioner(service).provision(
+            scope=scope,
+            url="https://api.example.test/api/payments/scope-commerce/webhook",
+            api_version="2025-02-24.acacia",
+            operation_id=str(uuid4()),
+            state=state,
+            persist=lambda _state: None,
+            write_secret=secrets.append,
+        )
+    assert not secrets
+    assert facts["created"] == 1
+    assert all("provider_id" not in attempt for attempt in state["webhook_attempts"].values())
 
 
 def test_isolation_is_account_bound_operator_evidence_and_reviewers_are_distinct():
