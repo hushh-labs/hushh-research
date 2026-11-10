@@ -152,6 +152,9 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 
 vi.mock("@/components/app-ui/settings-ui", () => ({
   SettingsGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SettingsRow: ({ title, description, trailing }: { title: ReactNode; description?: ReactNode; trailing?: ReactNode }) => (
+    <div>{title}{description}{trailing}</div>
+  ),
 }));
 
 vi.mock("@/components/onboarding/setup/capability-setup-tile", () => ({
