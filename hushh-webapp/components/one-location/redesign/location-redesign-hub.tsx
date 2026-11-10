@@ -3965,11 +3965,12 @@ function CircleInvitationsDialog({
                   <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-1">
                     <Button data-location-type-role="utility-action"
                       type="button"
-                      variant="ghost"
+                      variant="link"
+                      disableHoverRipple
                       size="compact"
                       disabled={responding || inviteBusy}
                       onClick={() => void respondToInvite(invite.id, "decline")}
-                      className="h-11 rounded-full px-3 text-[15px] text-[color:var(--app-secondary-label)] hover:bg-transparent"
+                      className="h-11 rounded-full px-3 text-[15px] text-[color:var(--app-secondary-label)]"
                     >
                       {responding && inviteBusy ? "Declining…" : "Decline"}
                     </Button>
@@ -6645,7 +6646,8 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
         </div>
         {invite ? (
           <Button
-            variant="ghost"
+            variant="link"
+            disableHoverRipple
             onClick={() => vm.onRevokeCircleInvite(invite)}
             isLoading={vm.busy === "circleRevoke"}
             className="h-11 w-full rounded-full text-sm text-red-600 hover:text-red-700 dark:text-red-300"

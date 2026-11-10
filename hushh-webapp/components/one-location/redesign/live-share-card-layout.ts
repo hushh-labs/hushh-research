@@ -53,17 +53,16 @@ export const LIVE_SHARE_PROGRESS_FILL_CLASSNAME =
 export const LIVE_SHARE_FOOTER_CLASSNAME = "min-w-0 [overflow-wrap:anywhere]";
 
 /**
- * The live-share actions stay compact and centered once both labels fit.
- * At the narrowest supported phone width they stack so neither label wraps and
- * both controls retain a comfortable touch target.
+ * Paired actions center on phones and align to the content edge on desktop.
+ * They stack on narrow phones so both keep their full touch target.
  */
 export const LIVE_SHARE_FOOTER_ROW_CLASSNAME =
-  "mt-4 flex flex-col items-stretch justify-center gap-2.5 min-[360px]:flex-row min-[360px]:items-center sm:gap-3";
+  "mt-4 flex flex-col flex-wrap items-stretch justify-center gap-2.5 min-[360px]:flex-row min-[360px]:items-center sm:gap-3 lg:justify-start";
 
 /** Primary CTA: full width only when the 320px layout needs to stack. */
 export const LIVE_SHARE_PRIMARY_ACTION_CLASSNAME =
-  "h-11 min-h-11 w-full rounded-full bg-[color:var(--app-accent)] px-4 font-[family-name:var(--font-app-body)] text-[15px] font-semibold leading-5 tracking-[-0.01em] text-[color:var(--app-accent-fg)] transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 min-[360px]:w-auto sm:px-5";
+  "h-11 min-h-11 w-full rounded-full bg-[color:var(--app-accent)] px-2.5 font-[family-name:var(--font-app-body)] text-[15px] font-semibold leading-5 tracking-[-0.01em] text-[color:var(--app-accent-fg)] transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 min-[360px]:w-auto sm:px-5";
 
 /** Secondary CTA follows the same responsive width without competing visually. */
 export const LIVE_SHARE_SECONDARY_ACTION_CLASSNAME =
-  "w-full justify-center bg-[color:var(--app-neutral-fill)] hover:bg-[color:var(--app-neutral-fill-strong)] min-[360px]:w-auto";
+  "w-full justify-center bg-[color:var(--app-neutral-fill)] hover:bg-[color:var(--app-neutral-fill-strong)] min-[360px]:w-auto max-sm:px-2.5";

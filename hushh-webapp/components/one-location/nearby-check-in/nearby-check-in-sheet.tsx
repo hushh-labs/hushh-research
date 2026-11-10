@@ -2846,9 +2846,10 @@ export function NearbyCheckInSheet({
                     secondary={
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="link"
+                        disableHoverRipple
                         size="standard"
-                        className="text-muted-foreground"
+                        className="rounded-full text-muted-foreground"
                         onClick={finishCompletedCheckIn}
                       >
                         Not now
@@ -2879,9 +2880,10 @@ export function NearbyCheckInSheet({
                     secondary={
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="link"
+                        disableHoverRipple
                         size="standard"
-                        className="text-muted-foreground"
+                        className="rounded-full text-muted-foreground"
                         onClick={finishCompletedCheckIn}
                       >
                         Done
@@ -2913,9 +2915,10 @@ export function NearbyCheckInSheet({
                 {savePlaceCandidateState && !completedCheckIn?.saved ? (
                   <Button data-location-type-role="utility-action"
                     type="button"
-                    variant="ghost"
+                    variant="link"
+                    disableHoverRipple
                     size="standard"
-                    className="w-full text-muted-foreground"
+                    className="w-full rounded-full text-muted-foreground"
                     isLoading={savingPlace}
                     onClick={() => void saveCheckedOutPlace()}
                   >
@@ -2987,9 +2990,10 @@ export function NearbyCheckInSheet({
                   secondary={
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="link"
+                      disableHoverRipple
                       size="standard"
-                      className="text-[color:var(--app-accent)]"
+                      className="rounded-full text-[color:var(--app-accent)]"
                       disabled={busy !== null}
                       onClick={() => setAddTimeOpen(true)}
                     >
