@@ -1,5 +1,7 @@
 "use client";
 
+import { useId } from "react";
+
 import { CONNECTION_BADGE_DESCRIPTIONS, ConnectionStatusBadge } from "./connection-status-badges";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -102,6 +104,7 @@ export function ConnectionPersonAvatar({
   /** Use for passive avatars in rows that support separate badge controls. */
   showBadgeDetails?: boolean;
 }) {
+  const profileDescriptionId = useId();
   const interactive = Boolean(personRef?.trim() || userId?.trim());
   const badgeControls = showBadgeDetails && !interactive;
   const verifiedBadgeClassName = cn(
@@ -115,6 +118,9 @@ export function ConnectionPersonAvatar({
     verified ? CONNECTION_BADGE_DESCRIPTIONS.advisor : null,
     fromContacts ? CONNECTION_BADGE_DESCRIPTIONS.contacts : null,
   ].filter(Boolean).join(" ") || undefined;
+  const description = profileDescription ? (
+    <span id={profileDescriptionId} hidden>{profileDescription}</span>
+  ) : null;
   const content = <>
 
       {photoUrl?.trim() ? (
@@ -167,15 +173,15 @@ export function ConnectionPersonAvatar({
       data-avatar-size={size}
       data-testid={testId}
     >
-      {interactive && !expandedHitArea ? <button type="button" aria-label={`View ${label}'s profile`} aria-description={profileDescription} onClick={event => {
+      {interactive && !expandedHitArea ? <button type="button" aria-label={`View ${label}'s profile`} aria-describedby={description ? profileDescriptionId : undefined} onClick={event => {
         event.preventDefault();
         event.stopPropagation();
         openPersonProfilePreview({ personRef, userId }, event.currentTarget);
-      }}>{content}</button> : content}
+      }}>{content}{description}</button> : content}
     </Avatar>
   );
   if (!expandedHitArea) return avatar;
-  return <span className="relative inline-flex shrink-0">{avatar}<button type="button" aria-label={`View ${label}'s profile`} aria-description={profileDescription}
+  return <span className="relative inline-flex shrink-0">{avatar}<button type="button" aria-label={`View ${label}'s profile`} aria-describedby={description ? profileDescriptionId : undefined}
     className="absolute left-1/2 top-1/2 z-10 size-11 -translate-x-1/2 -translate-y-1/2 cursor-pointer appearance-none rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    onClick={event => { event.preventDefault(); event.stopPropagation(); openPersonProfilePreview({ personRef, userId }, event.currentTarget); }} /></span>;
+    onClick={event => { event.preventDefault(); event.stopPropagation(); openPersonProfilePreview({ personRef, userId }, event.currentTarget); }}>{description}</button></span>;
 }

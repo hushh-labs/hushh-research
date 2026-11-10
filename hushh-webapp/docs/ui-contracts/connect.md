@@ -895,8 +895,9 @@ Source: [Messages](../../components/direct-messages/direct-messages-page.tsx),
 
 ## Network discovery and profile journeys
 
-Find people includes **Explore your network**, a shared list with exact viewer-relative
-1st, 2nd and 3rd degree filters and paginated name search. A missing degree is not
+In Find people, **Explore your network** is a separate text action below the
+directory search. It opens a shared list with exact viewer-relative 1st, 2nd and
+3rd degree filters and paginated name search. A missing degree is not
 proof that someone is outside the network. Mutuals always mean active direct
 neighbors shared by the viewer and the target: zero has no control, one opens the
 available profile (resolving a missing preview through one mutual page), and more
