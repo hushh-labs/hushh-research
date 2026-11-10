@@ -21,12 +21,26 @@ describe("occupied phone verification", () => {
     expect(start).toHaveBeenCalledOnce(); expect(transfer).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
     expect(flow.confirmVerification).not.toHaveBeenCalled(); expect(flow.onCompleted).not.toHaveBeenCalled();
   });
+  it.each(["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_ALREADY_VERIFIED"])("requires retained proof rather than the conflict code alone: %s", async code => {
+    const prepare = vi.fn(); const remove = vi.fn();
+    const flow = renderPhoneVerificationFlow({
+      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Occupied", 409, { detail: { code } })),
+      prepareLinkedDeletion: prepare, confirmLinkedDeletion: remove,
+    });
+    const input = await reachCodeStep(flow.startVerification);
+    fireEvent.change(input, { target: { value: "123456" } }); fireEvent.submit(input.closest("form")!);
+    const review = await screen.findByRole("button", { name: "Delete my previous account" });
+    expect(review).toBeDisabled();
+    fireEvent.click(review);
+    expect(prepare).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
+    expect(flow.onCompleted).not.toHaveBeenCalled();
+  });
   it("returns an unsent review to the choices and cancels its prepared operation", async () => {
     const prepare = vi.fn().mockResolvedValue({ operation_id: "prepared-op", state: "prepared", expires_at: "2099-01-01T00:00:00Z", transport: "sms", phone_hint: "••01" });
     const cancel = vi.fn().mockResolvedValue({ operation_id: "prepared-op", state: "cancelled" });
     const remove = vi.fn();
     const flow = renderPhoneVerificationFlow({
-      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Occupied", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } })),
+      confirmVerification: vi.fn().mockRejectedValue(Object.assign(new ApiError("Occupied", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }), { phoneProofAvailable: true })),
       prepareLinkedDeletion: prepare, confirmLinkedDeletion: remove, cancelLinkedDeletion: cancel, deletePreviousAccount: vi.fn(),
     });
     const input = await reachCodeStep(flow.startVerification);
@@ -47,7 +61,7 @@ describe("occupied phone verification", () => {
     const handoff = vi.fn();
     const back: { current: (() => boolean) | null } = { current: null };
     const flow = renderPhoneVerificationFlow({
-      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Occupied", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } })),
+      confirmVerification: vi.fn().mockRejectedValue(Object.assign(new ApiError("Occupied", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }), { phoneProofAvailable: true })),
       prepareLinkedDeletion: prepare, confirmLinkedDeletion: remove, cancelLinkedDeletion: cancel, deletePreviousAccount: handoff,
       onBackStepChange: handler => { back.current = handler; },
     });
@@ -97,7 +111,7 @@ describe("occupied phone verification", () => {
     const remove = vi.fn().mockRejectedValue(new ApiError("Deletion requested.", 409, { code: "PHONE_LINKED_CLAIM_REQUIRED" }));
     const back: { current: (() => boolean) | null } = { current: null };
     const flow = renderPhoneVerificationFlow({
-      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Occupied", 409, { detail: { code: "PHONE_ALREADY_VERIFIED" } })),
+      confirmVerification: vi.fn().mockRejectedValue(Object.assign(new ApiError("Occupied", 409, { detail: { code: "PHONE_ALREADY_VERIFIED" } }), { phoneProofAvailable: true })),
       prepareLinkedDeletion: prepare, confirmLinkedDeletion: remove, cancelLinkedDeletion: vi.fn().mockResolvedValue({}),
       deletePreviousAccount: vi.fn(), onBackStepChange: handler => { back.current = handler; },
     });
@@ -120,7 +134,7 @@ describe("occupied phone verification", () => {
     const prepare = vi.fn().mockRejectedValue(new ApiError("Unavailable", 503, { detail: { code: "PHONE_LINKED_DELETION_UNAVAILABLE" } }));
     const remove = vi.fn(); const handoff = vi.fn().mockResolvedValue(undefined);
     const flow = renderPhoneVerificationFlow({
-      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Occupied", 409, { detail: { code: "PHONE_ALREADY_VERIFIED" } })),
+      confirmVerification: vi.fn().mockRejectedValue(Object.assign(new ApiError("Occupied", 409, { detail: { code: "PHONE_ALREADY_VERIFIED" } }), { phoneProofAvailable: true })),
       prepareLinkedDeletion: prepare, confirmLinkedDeletion: remove, deletePreviousAccount: handoff,
     });
     const input = await reachCodeStep(flow.startVerification);
