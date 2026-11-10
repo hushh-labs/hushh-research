@@ -1128,7 +1128,7 @@ There is no scheduled editor/performance workflow. Safari layout and web
 performance checks are developer-local diagnostics.
 
 - **Application lanes** use the authored `ci.yml` filters and existing affected-test selectors. Known CI-controller fixtures and scripts have explicit Governance owners; they do not automatically select all application or database tests. Unknown runtime impact remains conservative.
-- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Package resolution runs sequentially after `cap sync`, using the job-local package cache. `scripts/ci/resolve-ios-packages.sh` retries once only for exit 74 with the known cold binary-download cache collision; it retains verified cache entries and both attempt logs. Other failures and a second failure block the lane. Native compilation and tests are never retried by this helper. This is a bounded workaround for the [upstream SwiftPM race](https://github.com/swiftlang/swift-package-manager/pull/10203), not evidence that native checks passed. The simulator boots after the web export so it does not compete with `next build` for memory. Swift package clones may restore only under the verified graph key; a failed partial restore is cleared before resolution.
+- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Package resolution runs sequentially after `cap sync`, using the job-local package cache. `scripts/ci/resolve-ios-packages.sh` retries once only for exit 74 with the known cold binary-download cache collision; it retains verified cache entries and both attempt logs. Other failures and a second failure block the lane. Native compilation and tests are never retried by this helper. This is a bounded workaround for the [upstream SwiftPM race](https://github.com/swiftlang/swift-package-manager/pull/10203), not evidence that native checks passed. The simulator boots after the web export so it does not compete with `next build` for memory. Only compressed Swift binary downloads restore under the exact graph/toolchain key; a failed partial archive restore is cleared before resolution. Git/workspace state is rebuilt by the resolver. Native compilation emits its build timing summary.
 - **Web Safari layout and performance diagnostics** are local-only. Run
   `cd hushh-webapp && npm run test:layout-editor-performance` when a change
   affects editor/drawer timing or Safari-specific geometry. Use focused browser diagnostics when browser interaction needs investigation.
@@ -1352,6 +1352,10 @@ source, attempt and immutable artifact checks. They do not authorize a new branc
 dispatch. Current Main execution uses the protected job inline; the isolated Main broker
 also serves explicit queue/manual-operation permission requests without exporting its App
 credential or roster. No workflow-run observer or automatic PR authority worker runs.
+Queue requests check live membership at admission and immediately before landing;
+the run label identifies the phase and source queue. Operation labels identify the
+surface. Distinct phases are not duplicate polls: polling reads the same dispatched
+run and does not launch another.
 A dispatch intent is recorded before a broker request; an uncertain response stops rather
 than automatically dispatching again. `ci-security` stays Main-only.
 
@@ -1690,7 +1694,7 @@ restores them with `actions/cache/restore`:
 | Cache | Saved by | Restored by | Key |
 |---|---|---|---|
 | Next.js build cache, the web app's `.next/cache` (~380-460 MB) | `Main Post-Merge Smoke`, on the first green push of each UTC day | `Web Core (Next.js)` | Node version, hash of `package-lock.json` and `next.config.ts`, and the UTC day. A miss falls back to the newest entry for the same lockfile. |
-| Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`Warm CI Dependency Caches`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch. On Sundays it also resolves from an empty directory when the entry exists, and saves nothing. | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
+| Compressed Swift binary downloads, `$RUNNER_TEMP/spm-cache/artifacts` (producer reports actual bytes) | [`Warm CI Dependency Caches`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch. On Sundays it also resolves from an empty directory when the entry exists, and saves nothing. | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
 
 Each day's Next.js entry stops being read once the next day's is saved, but it
 stays until it has gone 7 days unread, so up to a week of them (about 3 GB) can
@@ -1705,14 +1709,24 @@ workflow to re-seed sooner. The job's `setup-node` also saves the macOS npm
 cache on `main`, so the macOS pull-request lanes restore that entry instead of
 saving their own copies while their lockfile matches `main`.
 
-A pull request that restores the Swift package clones fetches nothing, so it
-no longer proves that every pin in `Package.resolved`, and every binary
-artifact those packages download, can still be fetched. Every Sunday, and on a
+A pull request restores only binary download archives; SwiftPM still resolves the
+package graph and verifies artifact checksums. It does not restore Git repositories,
+expanded frameworks or workspace state. Cached archives can hide an upstream
+download failure, so a warm PR does not prove their current availability. Every Sunday, and on a
 dispatch with `cold` ticked, the job therefore resolves from an empty directory
 even when the entry exists. When a run fails, the workflow opens or comments on
 one issue, `iOS Swift Package Cache failed on main`. Pull requests that restore the
 entry stay green, but a pin that can no longer be fetched would fail every iOS
 pull request at the next graph change or eviction.
+
+In PR run [`42792960565`](https://github.com/hushh-labs/hushh-research/actions/runs/42792960565),
+the full Swift clone cache took **293 seconds** to restore, followed by **77 seconds**
+of resolution. The replacement versioned key stores only compressed downloads.
+The Main producer refuses a changed graph or an empty cache publication. Measure
+restore, resolution and compilation separately on the next necessary native run;
+this source change alone does not prove a speedup. That run's **28m57s** total was
+also constrained by web export/native compilation and a parallel **23m15s**
+Protocol lane; caching alone cannot establish a 15-minute whole-PR result.
 
 `scripts/ci/test_ci_cache_scopes.py`, in the governance check, fails when a
 `PR Validation` job saves any of these caches, when Main cache-key paths drift,
@@ -2165,6 +2179,9 @@ mandatory app-browser execution. Global CSS changes require the normal compile
 path without expanding the unit suite. Authored route contracts and generated
 route/cache manifests feed the unit dependency graph. JSON under
 `__tests__/fixtures/` remains a related-test input; it is never discarded.
+Native Swift sources under `ios/` and Kotlin/Java sources under `android/` stay
+with their native jobs; they do not force Vitest to run every unit test. Shared
+authentication and unknown application dependencies remain conservative.
 Colocated tests have unit ownership. Explicit browser diagnostics retain the
 existing pack selector and conservative unknown-impact fallback. The historical
 Calendar run `41801308569` expanded to 1,535 unit files because its JSON fixture
