@@ -35,8 +35,11 @@ file registers MCP servers or subagents automatically.
 
 Run independent work in bounded parallel lanes under the canonical
 [delegation contract](.agents/skills/agent-orchestration-governance/references/delegation-contract.md).
-After handoff, verify owned-process and temporary-resource cleanup; close child
-sessions when the host supports it. Never claim disposal from completion alone.
+After handoff, verify owned-process and temporary-resource cleanup and close child
+sessions when supported. Permanently remove task-created temporary worktrees,
+including worktrees branched from a base branch, after successful verification and
+handoff under the [local resource and process lifecycle gate](.agents/instructions.md#project-wide-local-resource-and-process-lifecycle-gate);
+completion alone is not proof of cleanup.
 
 Start with [the development-system map](.agents/README.md), then the existing
 `./bin/hushh codex route-task <workflow-id>` command for the owning workflow.

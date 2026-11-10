@@ -1,3 +1,21 @@
 [agents]
 max_threads = 6
 max_depth = 1
+
+[mcp_servers.cloudflare]
+url = "https://mcp.cloudflare.com/mcp"
+enabled_tools = ["search", "execute"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+
+[mcp_servers.namecheap]
+url = "https://mcp.namecheap.com/mcp"
+enabled_tools = ["dns_records_get", "dns_records_save", "dns_records_delete"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+
+[mcp_servers.hostinger]
+url = "https://mcp.hostinger.com"
+enabled_tools = ["search", "execute", "multi-execute"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60

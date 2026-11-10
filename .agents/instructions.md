@@ -164,8 +164,32 @@ These rules apply to parent sessions, subagents, verification workers and local 
 5. Treat repeated process names or idle CPU as investigation signals, not proof of abandonment. Separate legitimate clients for active sessions from retained or orphaned processes using parentage, start time and available session/transport evidence. Stop another session's work only with user authorization or an explicit ownership handoff; never apply blanket `pkill` or keep only one global instance regardless of active clients.
 6. Use graceful shutdown first and a bounded wait. If authorized cleanup requires escalation, recheck process identity before forcing only the selected process tree to exit. Preserve unrelated apps, project servers and databases; verify temporary resources were reconciled. Record uncertain external action outcomes before any retry.
 7. Inspect startup, transport and shutdown failures separately from resource pressure. Keep credentials and full environments/request payloads out of diagnostics. If retention is in the IDE/MCP host, record the evidence and use supported configuration or a checkpointed reload; do not patch vendor caches or add a recurring process killer.
-8. Track temporary checkouts from creation. Reuse a suitable existing checkout first. Record its canonical path, base/head revision, owning task/session, purpose, owned process IDs and ports, and completion or handoff condition in the existing task handoff. A finished verification run is not a reason to retain a duplicate checkout indefinitely.
-9. Close finished temporary checkouts before task completion. Immediately before removal, verify commit or patch preservation on the primary branch or an explicitly retained active branch, dirty/untracked source, and required ignored evidence. Preserve unique work and necessary sanitized evidence outside the checkout, then apply the graceful shutdown and descendant/listener checks above. Remove registered checkouts with `git worktree remove` and apply the branch-preservation gate before deleting temporary refs. Never follow dependency symlinks into a retained checkout or remove active peer work. Report any retained checkout's owner, reason and next cleanup condition; report reclaimed disk separately from verified process or memory changes.
+8. Track every task-created temporary worktree from creation in the existing task
+   handoff, which is its ownership register. Reuse a suitable existing checkout
+   first. Record its canonical path, base/head revision, owning task/session,
+   purpose, owned process IDs and ports, and completion or handoff condition. A
+   finished verification run is not a reason to retain a duplicate checkout.
+9. Permanently remove registered temporary worktrees after successful verification
+   and handoff. Before removal, verify final changes are integrated or durably
+   recoverable in another explicitly retained branch; inspect tracked, untracked,
+   and ignored paths for unique work and required evidence without opening
+   credential or `.env` contents; preserve needed work and sanitized evidence
+   outside the checkout; and confirm no active task or peer process has its cwd in
+   the checkout or holds files there open. Gracefully stop only task-owned
+   processes, then remove only the exact registered path with
+   `git worktree remove <path>` without `--force`. Only after actual checkout
+   removal, preview `git worktree prune --dry-run --verbose` and prune only if its
+   output is limited to this task's stale metadata. Do not remove preexisting or
+   active peer worktrees, unique uncommitted work, or required evidence. Delete
+   task-owned branch refs only when the branch-preservation gate permits it;
+   remove residual generated directories only when task-owned, safe, and
+   authorized. Never use broad recursive deletion or follow dependency symlinks
+   into retained checkouts. For failed or
+   interrupted runs, remove only proven-disposable resources; otherwise retain
+   and report the owner, reason, and next cleanup condition. If safe removal
+   cannot be established, retain the checkout and report the blocker. Verify
+   removed paths and metadata are gone, and report reclaimed checkout disk
+   separately from process or memory changes.
 10. Make agent-authored runtime and verification code release its resources on success, failure and cancellation: use context managers or `try/finally`, close files, sockets and database pools, cancel timers/subscriptions, and settle owned workers and temporary resources. Bound buffered results and retained artifacts. Verify the actual terminal state; returning a result, dropping a reference or deleting a cache does not prove that descendants exited or RAM was reclaimed.
 
 ## Project-Wide Agent Architecture Doctrine
