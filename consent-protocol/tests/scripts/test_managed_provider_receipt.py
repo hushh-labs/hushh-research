@@ -571,3 +571,151 @@ def test_core_receipt_requires_actual_image_mode_acknowledgement(
             "execution_identity_or_terminal_mismatch",
             "producer_qualification_mode_mismatch",
         }
+
+
+@pytest.mark.parametrize("environment", ["dev", "production"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "wrong_environment",
+        "wrong_model",
+        "wrong_image",
+        "old_producer",
+        "failed_chat",
+        "duplicate_terminal",
+    ],
+)
+def test_common_core_collects_bound_actual_chat_without_provider_selection(
+    monkeypatch, environment, defect
+):
+    collector, expected, document, label, _, build = _provider_capture_fixture(monkeypatch)
+    gate = importlib.import_module("managed_provider_readiness")
+    project = "hushh-pda-dev" if environment == "dev" else "hushh-pda"
+    expected.update(
+        environment=environment,
+        project=project,
+        qualification_mode="core",
+        runtime_account=f"consent-protocol-runtime@{project}.iam.gserviceaccount.com",
+        image=f"gcr.io/{project}/consent-protocol@sha256:" + "b" * 64,
+    )
+    profile = document["environments"][environment]
+    report = dict(
+        check="managed_vertex_runtime",
+        core_contract_version=2,
+        qualification_mode="core",
+        environment=environment,
+        provider="vertex",
+        config_hash=gate.fingerprint(profile),
+        ok=True,
+        classification="dependency_ok",
+        advisory=False,
+        core_models_exercised=True,
+        one_chat_probe_ok=True,
+        one_chat_project=profile["project"],
+        models=[profile["text_model"]],
+        locations=profile["text_locations"],
+        probes=[],
+    )
+    if defect == "wrong_environment":
+        report["environment"] = "uat"
+    elif defect == "wrong_model":
+        report["models"] = ["unapproved-model"]
+    elif defect == "old_producer":
+        report.pop("core_contract_version")
+    elif defect == "failed_chat":
+        report.update(ok=False, one_chat_probe_ok=False)
+    job = "genai-ready-" + expected["build_id"]
+    execution = job + "-abc12"
+    container = dict(
+        image=expected["image"],
+        command=["python3"],
+        args=["scripts/verify_managed_vertex_runtime.py"],
+        env=[
+            dict(name=k, value=v)
+            for k, v in dict(
+                ENVIRONMENT=environment,
+                MANAGED_READINESS_MODE="core",
+                GENAI_GOOGLE_CLOUD_PROJECT=profile["project"],
+                HUSHH_GENAI_AUTH_MODE="vertex_adc",
+            ).items()
+        ],
+    )
+    if defect == "wrong_image":
+        container["image"] = "foreign-image"
+
+    def cloud(args):
+        if args[:4] == ["run", "jobs", "executions", "list"]:
+            return [{"metadata": {"name": execution}}]
+        if args[:4] == ["run", "jobs", "executions", "describe"]:
+            return dict(
+                metadata=dict(ownerReferences=[dict(name=job)]),
+                spec=dict(
+                    template=dict(
+                        spec=dict(
+                            serviceAccountName=expected["runtime_account"], containers=[container]
+                        )
+                    )
+                ),
+                status=dict(conditions=[dict(type="Completed", status="True")]),
+            )
+        assert args[:2] == ["logging", "read"]
+        return [dict(jsonPayload=report)] * (2 if defect == "duplicate_terminal" else 1)
+
+    monkeypatch.setattr(gate, "run_json", cloud)
+    monkeypatch.setattr(gate.time, "sleep", lambda _: None)
+    observed = gate.collect("vertex", expected, 0, job)
+    aggregate = gate.evaluate({"vertex": observed}, expected, document=document)
+    assert aggregate["ready"] is (defect is None)
+    if defect is not None:
+        return
+    assert aggregate["required_scopes"] == ["one_text_chat"]
+    build["projectId"] = project
+    for key, value in dict(
+        _DEPLOY_ENV=environment,
+        _MANAGED_READINESS_MODE="core",
+        _RUNTIME_SERVICE_ACCOUNT=expected["runtime_account"],
+        _IMAGE_REFERENCE=expected["image"],
+        _CLOUD_RUN_TAG="" if environment == "dev" else "account-deletion-" + expected["github_run"],
+    ).items():
+        build["substitutions"][key] = value
+    entry = dict(
+        resource=dict(type="build", labels=dict(build_id=expected["build_id"], project_id=project)),
+        labels=dict(build_step=label),
+        jsonPayload=dict(managed_provider_readiness=aggregate),
+        insertId="core",
+        timestamp="2026-11-10T00:00:00Z",
+    )
+    result = collector.collect(
+        expected,
+        document,
+        read=lambda args, deadline: build if args[:2] == ["builds", "describe"] else [entry],
+    )
+    assert result["readiness_verified"] is True
+    assert result["selection_verified"] is False
+    assert "selection" not in result
+    # A non-UAT receipt must never accept provider-selection mutation evidence.
+    foreign = dict(
+        entry,
+        jsonPayload=dict(context=expected, managed_provider_selection={}),
+        insertId="mutation",
+    )
+    with pytest.raises(collector.ReceiptError, match="unexpected_provider_mutation"):
+        collector.from_entries([entry, foreign], expected, document, label)
+
+
+def test_common_core_requires_an_unambiguous_candidate_capability(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
+    gate = importlib.import_module("managed_provider_readiness")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    path = tmp_path / "consent-protocol/scripts/verify_managed_vertex_runtime.py"
+    path.parent.mkdir(parents=True)
+    assert gate.candidate_qualification_mode() == "full"
+    for source, mode in [
+        ("CORE_READINESS_CONTRACT_VERSION = 2", "core"),
+        ("CORE_READINESS_CONTRACT_VERSION = 1", "full"),
+        ("CORE_READINESS_CONTRACT_VERSION = 2\nCORE_READINESS_CONTRACT_VERSION = 1", "full"),
+        ("raise Exception('must not execute candidate')", "full"),
+    ]:
+        path.write_text(source)
+        assert gate.candidate_qualification_mode() == mode

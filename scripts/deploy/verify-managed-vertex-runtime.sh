@@ -155,7 +155,7 @@ fi
 # A successful release must prove that production's enabled One Voice
 # can open its pinned Live session before the candidate gets traffic.
 # The general provider-outage advisory still applies to other probes.
-if [[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
+if [[ "${_MANAGED_READINESS_MODE:-full}" == "full" && "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
   printf '%s\n' "${probe_line}" | python3 scripts/ci/assert_one_voice_live_probe.py \
     --model "${_VERTEX_LIVE_MODEL_ID}" \
     --location "${_VERTEX_LIVE_LOCATION}"
@@ -178,7 +178,7 @@ if verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"] or ver
     raise SystemExit("Vertex target did not pass its scoped runtime-identity probe")
 PY
 fi
-if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" && ( "${_DEPLOY_ENV}" != "uat" || "${_MANAGED_READINESS_MODE:-full}" == "full" ) ]]; then
+if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" && "${_MANAGED_READINESS_MODE:-full}" == "full" ]]; then
   PROBE_LINE="${probe_line}" EXPECTED_VOICE_PROJECT="${_GENAI_PROJECT_ID}" EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" python3 - <<'PY'
 import json
 import os
@@ -232,6 +232,32 @@ if (
            or probe.get("classification") != "dependency_ok" for probe in probes)
 ):
     raise SystemExit("Required UAT runtime probe did not fully pass")
+PY
+fi
+if [[ "${_DEPLOY_ENV}" != "uat" && "${_MANAGED_READINESS_MODE:-full}" == "core" ]]; then
+  if [[ "${execute_status}" -ne 0 ]]; then
+    echo "Active-model core probe failed; provider outages do not qualify chat." >&2
+    exit 1
+  fi
+  PROBE_LINE="${probe_line}" DEPLOY_ENV="${_DEPLOY_ENV}" python3 - <<'PY'
+import json
+import os
+
+try:
+    verdict = json.loads(os.environ["PROBE_LINE"].split("managed_vertex_probe_result", 1)[1])
+except (IndexError, ValueError):
+    raise SystemExit("Core readiness acknowledgement is missing") from None
+if not (
+    verdict.get("check") == "managed_vertex_runtime"
+    and verdict.get("environment") == os.environ["DEPLOY_ENV"]
+    and verdict.get("core_contract_version") == 2
+    and verdict.get("qualification_mode") == "core"
+    and verdict.get("ok") is True
+    and verdict.get("one_chat_probe_ok") is True
+    and verdict.get("core_models_exercised") is True
+    and verdict.get("classification") == "dependency_ok"
+):
+    raise SystemExit("Candidate image did not prove the common core readiness contract")
 PY
 fi
 if [[ "${execute_status}" -eq 0 ]]; then

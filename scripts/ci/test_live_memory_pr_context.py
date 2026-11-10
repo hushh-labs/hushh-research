@@ -13,6 +13,25 @@ from live_memory_pr_context import impact_body
 
 
 class PullRequestContextTest(unittest.TestCase):
+    def test_source_integrity_does_not_require_pr_prose(self):
+        spec = importlib.util.spec_from_file_location(
+            "live_memory_gate", Path(__file__).with_name("live-memory-source-gate.py")
+        )
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with (
+            patch("sys.argv", ["live-memory-source-gate.py"]),
+            patch.object(gate, "validate_pr_event") as review,
+        ):
+            gate.main()
+            review.assert_not_called()
+        with (
+            patch("sys.argv", ["live-memory-source-gate.py", "--review-pr-description"]),
+            patch.object(gate, "validate_pr_event") as review,
+        ):
+            gate.main()
+            review.assert_called_once()
+
     def setUp(self):
         self.repo = {"id": 12, "full_name": "hushh-labs/hushh-research"}
         self.pr = {
@@ -88,7 +107,7 @@ class PullRequestContextTest(unittest.TestCase):
         spec.loader.exec_module(gate)
         body = "\n".join(
             (
-                "- Live Memory source impact (every feature):",
+                "- Live Memory source impact (when changing durable owner information):",
                 "  - [x] No durable owner data is created, changed, or deleted; reason listed below",
                 "  - Live Memory evidence (source kind and test, or no-impact reason): This change modifies CI metadata only and does not write owner data.",
                 "- Mobile parity impacts:",
