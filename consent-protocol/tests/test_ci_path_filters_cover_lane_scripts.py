@@ -201,7 +201,7 @@ def _governance_plan(paths: tuple[str, ...]) -> dict:
         "CI_CHANGED_FILES": "\n".join(paths),
     }
     env.pop("CI_CHANGED_FILES_FILE", None)
-    # Synthetic path cases must not inherit the outer job's Protocol delegation.
+    # These fixtures check standalone Governance ownership without the hosted Protocol lane.
     env.pop("CI_PROTOCOL_CONTROLLER_OWNER", None)
     result = subprocess.run(  # noqa: S603 - invokes the repository's fixed governance selector
         [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--plan"],
@@ -860,7 +860,7 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
                 or isinstance(node, ast.Import)
                 and any(item.name == "tests.helpers.drive_worker_gcloud" for item in node.names)
             ):
-                observed.add(path.relative_to(ROOT).as_posix())
+                observed.add(str(path.relative_to(ROOT)))
 
     assert observed == consumers
     filters = _filters()
@@ -879,14 +879,7 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
     assert "consent-protocol/tests/test_database_connection_ceiling.py" in controller["argv"]
 
 
-def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # A mixed hosted PR delegates whole modules; this fixture still proves its
-    # own complete controller closure independently of that enclosing job.
-    monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
-    monkeypatch.setenv("CI_PROTOCOL_CONTROLLER_OWNER", "true")
+def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
         "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
         "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
