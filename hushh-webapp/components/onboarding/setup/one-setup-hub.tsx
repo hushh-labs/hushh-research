@@ -989,7 +989,9 @@ export function OneSetupHub() {
             </div>
             <div className="mt-6 space-y-4">
               <PwmResearchDisclosure className="mb-4" />
-              <MarketingPreferencePanel model={emailPreference} />
+              <SettingsGroup title="Email preferences">
+                <MarketingPreferencePanel model={emailPreference} />
+              </SettingsGroup>
             </div>
             <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
               <Button

@@ -1,7 +1,7 @@
 "use client";
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
-import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { EMAIL_UPDATES_DESCRIPTION, MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { NetworkVisibilitySetting } from "./network-visibility-setting";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
@@ -3672,8 +3672,6 @@ function ProfilePageContent({
       )}
     >
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
-      <MarketingPreferencePanel model={emailPreference} />
-      <AttemptEmailPanel owner={activePanel === "account" ? applicationOwnerId ?? null : null} />
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={PROFILE_ICONS.name}
@@ -3758,6 +3756,10 @@ function ProfilePageContent({
           voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
           voiceLabel="Payouts" voicePurpose="Opens payout setup and transaction history."
           chevron onClick={() => openVaultBackedPanel("payouts")} />
+      </SettingsGroup>
+      <SettingsGroup title="Email preferences">
+        <MarketingPreferencePanel model={emailPreference} />
+        <AttemptEmailPanel owner={activePanel === "account" ? applicationOwnerId ?? null : null} />
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
@@ -5085,17 +5087,18 @@ function ProfilePageContent({
     { id: "account-payments", title: "Payments", rows: [
       { id: "account-payments-open", label: "Payments and earnings", enabled: true, artworkId: "account-wallet", chevron: true },
     ] },
-    { id: "account-email-updates", title: "Optional One email updates", rows: emailPreference.value ? [
-      { id: "email-updates-choice", label: "One tips and product updates", detail: emailPreference.error ?? "Useful tips, demos and news. Unsubscribe anytime.",
+    { id: "account-email-updates", title: "Email preferences", rows: emailPreference.value ? [
+      { id: "email-updates-choice", label: "Email updates", detail: emailPreference.error ?? EMAIL_UPDATES_DESCRIPTION,
         enabled: !!emailPreference.value && !emailPreference.busy, pending: emailPreference.loading || emailPreference.busy, toggle: true,
         options: [{ id: "email-updates-on", label: "On", selected: emailPreference.enabledDraft },
           { id: "email-updates-off", label: "Off", selected: !emailPreference.enabledDraft }] },
-      { id: "email-updates-frequency", label: "Email frequency", enabled: !!emailPreference.value && !emailPreference.busy,
+      ...(emailPreference.showFrequency ? [{ id: "email-updates-frequency", label: "Email frequency", enabled: !emailPreference.busy,
         options: [{ id: "email-updates-weekly", label: "Weekly digest", selected: emailPreference.frequencyDraft === "weekly" },
           { id: "email-updates-daily", label: "Daily tips", selected: emailPreference.frequencyDraft === "daily" },
-          { id: "email-updates-news", label: "Product updates only", selected: emailPreference.frequencyDraft === "updates" }] },
-      { id: "email-updates-save", label: emailPreference.busy ? "Saving…" : emailPreference.saved ? "Email preference saved" : "Save email preference", enabled: !emailPreference.busy &&
-        (emailPreference.enabledDraft !== emailPreference.value.enabled || emailPreference.frequencyDraft !== emailPreference.value.frequency), pending: emailPreference.busy },
+          { id: "email-updates-news", label: "Product updates only", selected: emailPreference.frequencyDraft === "updates" }] }] : []),
+      ...(emailPreference.hasChanges || emailPreference.busy ? [
+        { id: "email-updates-save", label: emailPreference.busy ? "Saving…" : "Save email preference", enabled: !emailPreference.busy, pending: emailPreference.busy },
+      ] : []),
     ] : [{ id: "email-updates-retry", label: emailPreference.loading ? "Loading email preference…" : "Retry email preference",
       detail: emailPreference.error ?? undefined, enabled: !emailPreference.loading, pending: emailPreference.loading }] },
     { id: "account-operations", title: "Account actions", rows: [
@@ -5253,7 +5256,9 @@ function ProfilePageContent({
         ["email-updates-weekly", () => emailPreference.edit(emailPreference.enabledDraft, "weekly")],
         ["email-updates-daily", () => emailPreference.edit(emailPreference.enabledDraft, "daily")],
         ["email-updates-news", () => emailPreference.edit(emailPreference.enabledDraft, "updates")],
-        ["email-updates-save", () => { void emailPreference.save(emailPreference.enabledDraft, emailPreference.frequencyDraft); }],
+        ["email-updates-save", () => {
+          if (emailPreference.hasChanges) void emailPreference.save(emailPreference.enabledDraft, emailPreference.frequencyToSave);
+        }],
         ["email-updates-retry", () => { void emailPreference.refresh(); }],
         ["account-reset", handleResetClick],
         ["account-delete", handleDeleteClick],
