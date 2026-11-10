@@ -20,12 +20,17 @@ def job_block(workflow, name):
 
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
-    depth = "fetch-depth: ${{ inputs.uat_candidate_sha && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
+    depth = "fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
     if (depth not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
             or "UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}" not in ui):
         raise ValueError("UI review inheritance requires the verified tested merge base and its history")
     if depth not in job_block(workflow, "web-core-check"):
         raise ValueError("Web Core must retain the target base for the same UI check")
+    if (
+        "- *prepare_recovery" not in ui
+        or 'if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then\n            base="$UAT_CI_BASE"\n          else' not in ui
+    ):
+        raise ValueError("Recovery UI checks require the verified application and comparison base")
     if re.search(r"^\s+(if|needs|continue-on-error):", ui, re.M):
         raise ValueError("UI contracts must run independently with failures enforced")
     if not re.search(r"^\s+- run: npm run verify:ui-back-contracts\s*$", ui, re.M):

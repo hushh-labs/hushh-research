@@ -313,7 +313,7 @@ jobs:
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
           # silently resolves zero files and passes (fails open). The job
@@ -995,7 +995,7 @@ jobs:
           WEB_TARGETED_PART: node
           WEB_TARGETED_FULL_SUITE_OWNED: "0"
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          CAPABILITY_GRAPH_BASE_REF: &application_capability_graph_base ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || inputs.production_recovery_sha || github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
@@ -1052,7 +1052,7 @@ jobs:
         env:
           WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
 
       - name: Verify unit shard (1/1)
@@ -1482,7 +1482,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           PROTOCOL_TEST_PARTITION: parallel
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1547,7 +1547,7 @@ jobs:
           # The pinned recovery runner predates sharding and runs this entire partition.
           PROTOCOL_DATABASE_SHARD_COUNT: "2"
           PROTOCOL_DATABASE_SHARD_INDEX: "${{ env.CI_DATABASE_SHARD }}"
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1667,13 +1667,9 @@ jobs:
             --json-output "$RUNNER_TEMP/ci-verification-plan.json"
 
       - name: Run integration check script (single source of truth)
-        run: |
-          if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
-            bash scripts/ci/integration-check.sh --ci-linux-document
-          else
-            bash scripts/ci/integration-check.sh --ci-core
-          fi
-        env:
+        if: inputs.production_recovery_sha == ''
+        run: bash scripts/ci/integration-check.sh --ci-core
+        env: &integration_env
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
           CI_DOCUMENT_CONTRACT_REQUIRED: ${{ needs['preflight-gate'].outputs.document }}
@@ -1681,6 +1677,11 @@ jobs:
           CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
           CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/ci-verification-plan.json
         continue-on-error: false  # Route contracts must pass; fail CI if missing/out of sync
+
+      - name: Run integration checks on the recorded recovery application
+        if: inputs.production_recovery_sha != ''
+        run: bash scripts/ci/integration-check.sh --ci-linux-document
+        env: *integration_env
 
       - name: Upload verification-plan artifact
         if: always()
@@ -1948,8 +1949,9 @@ jobs:
             echo "This gate knows pull_request, workflow_dispatch and merge_group; ${EVENT_NAME} fails closed."
             fail=1
           fi
-          if [ "$BACKEND_SELECTED" = true ] && [ -z "$PRODUCTION_RECOVERY_SHA" ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
-          if [ -n "$PRODUCTION_RECOVERY_SHA" ] && [[ "$SCOPE:$FRONTEND_SELECTED:$BACKEND_SELECTED:$DOCUMENT_SELECTED:$PROTOCOL_DATABASE_TWO" != all:true:true:true:skipped ]]; then
+          if [ -z "$PRODUCTION_RECOVERY_SHA" ]; then
+            if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
+          elif [[ "$SCOPE:$FRONTEND_SELECTED:$BACKEND_SELECTED:$DOCUMENT_SELECTED:$PROTOCOL_DATABASE_TWO" != all:true:true:true:skipped ]]; then
             echo "Recovery requires full application checks and the complete historical database partition."
             fail=1
           fi
