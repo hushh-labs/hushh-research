@@ -413,6 +413,24 @@ export class AgentChatStreamLostError extends Error {
   }
 }
 
+/**
+ * A request or stream the network ended: the browser's own timeout, or a
+ * network, DNS or QUIC failure surfaced as a fetch or body-read rejection.
+ * Nothing proves whether the server ran the turn, so it recovers like a lost
+ * stream: Retry asks history first. A refused request carries its HTTP status,
+ * and an unrelated code error is neither, so neither is treated as an outage.
+ */
+const FETCH_REJECTION =
+  /failed to fetch|load failed|network error|networkerror when attempting to fetch|network request failed/i;
+
+export function isTransportFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const { name, message, status } = error as { name?: unknown; message?: unknown; status?: unknown };
+  if (typeof status === "number") return false;
+  if (name === "TimeoutError") return true;
+  return name === "TypeError" && typeof message === "string" && FETCH_REJECTION.test(message);
+}
+
 export { AGENT_CHAT_STREAM_IDLE_MS } from "./agent-chat-liveness";
 
 type ParkedAppActionDirective = {
@@ -1244,7 +1262,7 @@ async function streamAgentChatAttempt(input: {
   // Secrets and left only its placeholder (lib/pkm/secret-span-guard.ts);
   // a turn that still carries a raw one is refused before any request exists.
   assertNoUnguardedSecrets([input.message, ...(input.attachments ?? []).map((attachment) => attachment.text)]);
-  const timingPhases = ["wire-start", "response-headers", "first-text"] as const;
+  const timingPhases = ["wire-start", "response-headers", "first-text", "complete"] as const;
   for (const phase of timingPhases) performance.clearMarks(`hushh:agent-chat:${phase}`);
   const recordedTimings = new Set<typeof timingPhases[number]>();
   const markTiming = (phase: typeof timingPhases[number]) => {
@@ -2105,6 +2123,7 @@ async function streamAgentChatAttempt(input: {
         return;
       }
       activityAttempt?.settled("returned");
+      markTiming("complete");
       handlers.onComplete?.({ conversationId: threadId });
       finishTerminalRun();
     },
@@ -2131,6 +2150,12 @@ async function streamAgentChatAttempt(input: {
       // was reported once; its abort must not replace that with a second error.
       if (runTerminal || failure || intentionallyStoppedAtConfirmation || detached || streamLost || input.signal?.aborted) {
         finishTerminalRun();
+        return;
+      }
+      // The network ended the request or stream (timeout, DNS or QUIC failure): the server
+      // may still have run and saved this turn, so Retry reconciles history first.
+      if (isTransportFailure(error)) {
+        loseStream();
         return;
       }
       const refusal = chatKeyRefusalCode((error as Error & { payload?: unknown }).payload)

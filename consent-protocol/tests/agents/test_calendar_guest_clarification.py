@@ -477,3 +477,55 @@ async def test_guest_reply_keeps_origin_browser_zone_when_request_has_no_zone(
         assert result["directive"]["payload"]["startAt"] == "2030-11-06T09:00:00Z"
         assert result["directive"]["payload"]["timeZone"] == "UTC"
     port.execute.assert_not_awaited()
+
+
+async def test_guest_reply_that_reads_first_still_completes_one_review(monkeypatch):
+    store, port, _, _ = await setup_question(monkeypatch)
+    model = GuestModel(
+        [
+            [
+                call(
+                    "calendar_events",
+                    start_at="2030-11-06T00:00:00+05:30",
+                    end_at="2030-11-07T00:00:00+05:30",
+                )
+            ],
+            [call("propose_calendar_event", **TERMS, attendees=[GUEST])],
+            [types.Part(text="Review prepared.")],
+        ],
+        [scope(GUEST, allowed=True, continuation=True)],
+    )
+    results = await run_turn(
+        store, agent(model), GUEST, clock="2030-11-05T18:30:01Z", browser_zone="Asia/Kolkata"
+    )
+    assert results[-1]["status"] == "confirmation_required"
+    # The read spent no assessment; the one review assessed the admitted guest question.
+    assert len(model._inputs) == 1
+    assert model._inputs[0]["pending_clarification"]["original_user_messages"] == [REQUEST]
+    port.propose.assert_awaited_once()
+    port.execute.assert_not_awaited()
+
+
+async def test_read_only_turn_between_question_and_reply_defeats_continuation(monkeypatch):
+    store, port, _, _ = await setup_question(monkeypatch)
+    between = GuestModel(
+        [
+            [
+                call(
+                    "calendar_events",
+                    start_at="2030-11-06T00:00:00+05:30",
+                    end_at="2030-11-07T00:00:00+05:30",
+                )
+            ],
+            [types.Part(text="Nothing else today.")],
+        ],
+        [],  # A read-only turn must not reach the assessor at all.
+    )
+    await run_turn(store, agent(between), READ_ONLY, clock="2030-11-05T18:30:00Z")
+    assert between._inputs == []
+    # The earlier question is no longer the immediate predecessor of this reply.
+    result, model = await reply(monkeypatch, store, port)
+    assert result["reason_code"] == "calendar_request_read_only"
+    assert not result.get("directive")
+    port.propose.assert_not_awaited()
+    port.execute.assert_not_awaited()

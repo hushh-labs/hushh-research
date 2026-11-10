@@ -36,6 +36,7 @@ _EPHEMERAL = frozenset(
         "temp:hussh:drive_search_selection",
         "temp:hussh:mcp_approval",
         "temp:hussh:calendar_request_scope",
+        "temp:hussh:calendar_frozen_input",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.

@@ -385,7 +385,7 @@ describe("One chat key transport", () => {
 });
 
 describe("AG-UI Agent One client", () => {
-  it("marks wire dispatch, response headers and first text without private timing details", async () => {
+  it("marks wire dispatch, response headers, first text and completion without private timing details", async () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.readBody = true;
     const marks = vi.spyOn(performance, "mark");
@@ -410,6 +410,7 @@ describe("AG-UI Agent One client", () => {
         ["hushh:agent-chat:wire-start"],
         ["hushh:agent-chat:response-headers"],
         ["hushh:agent-chat:first-text"],
+        ["hushh:agent-chat:complete"],
       ]);
     } finally {
       mockTransport.readBody = false;
@@ -2112,6 +2113,56 @@ describe("a chat turn never waits forever", () => {
     await expect(streamAgentIntro({ message: "hello", handlers: { onError: introError } }))
       .rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
     expect(introError).toHaveBeenCalledTimes(1);
+  });
+
+  // Incident 2026-11-10: the server finished and saved a Calendar turn in 7.7 s, but
+  // the browser's QUIC connection died, so the request ended with no response. The
+  // person saw a generic failure and Retry would have asked the question again.
+  it.each([
+    ["the browser's own timeout", () => new DOMException("Request timed out after 60000ms", "TimeoutError")],
+    ["a fetch rejection (DNS or QUIC)", () => new TypeError("Failed to fetch")],
+    ["a body read cut mid-stream", () => new TypeError("network error")],
+  ])("recovers %s as a lost turn so Retry reconciles history before resending", async (_name, make) => {
+    mockTransport.failWith = make();
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+
+    const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Show my meetings",
+      conversationId: "thread-no-response", vaultOwnerToken: "owner-token", handlers: { onError, onComplete } });
+    await expect(turn).rejects.toBeInstanceOf(AgentChatStreamLostError);
+    await expect(turn).rejects.toMatchObject({
+      conversationId: "thread-no-response", message: AGENT_CHAT_STREAM_LOST_ERROR,
+    });
+    expect(onError).toHaveBeenCalledExactlyOnceWith(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a refused request", () => Object.assign(new Error("HTTP 401: unauthorized"), { status: 401 })],
+    ["a validation refusal", () => Object.assign(new TypeError("Failed to fetch"), { status: 400 })],
+    ["a code error", () => new TypeError("Cannot read properties of undefined")],
+    ["a plain failure", () => new Error("Network unavailable")],
+  ])("does not treat %s as a connection outage", async (_name, make) => {
+    mockTransport.failWith = make();
+    const onError = vi.fn();
+
+    const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Show my meetings",
+      conversationId: "thread-refused", vaultOwnerToken: "owner-token", handlers: { onError } });
+    await expect(turn).rejects.not.toBeInstanceOf(AgentChatStreamLostError);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalledWith(AGENT_CHAT_STREAM_LOST_ERROR);
+  });
+
+  it("does not report a cancelled turn as a lost connection", async () => {
+    mockTransport.failWith = new DOMException("Request timed out after 60000ms", "TimeoutError");
+    const controller = new AbortController();
+    controller.abort();
+    const onError = vi.fn();
+
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Show my meetings",
+      conversationId: "thread-cancelled", vaultOwnerToken: "owner-token", signal: controller.signal,
+      handlers: { onError } })).rejects.not.toBeInstanceOf(AgentChatStreamLostError);
+    expect(onError).not.toHaveBeenCalledWith(AGENT_CHAT_STREAM_LOST_ERROR);
   });
 
   it("settles a clean EOF even when the transport waits for a missing terminal event", async () => {

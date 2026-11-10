@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -435,3 +436,80 @@ def test_all_day_dates_are_not_shifted_by_display_conversion():
     )
     assert result["events"][0]["local_start_date"] == "2030-11-06"
     assert result["events"][0]["local_end_date"] == "2030-11-07"
+
+
+def _window_context(zone, utc):
+    return SimpleNamespace(
+        invocation_id="new",
+        state={"hussh:timezone": zone, "temp:hussh:turn_started_at": instant(utc).timestamp()},
+        session=SimpleNamespace(events=[]),
+    )
+
+
+@pytest.mark.parametrize(
+    "zone,now,days,start,end",
+    [
+        # Today and tomorrow in Asia/Kolkata: local midnight to the midnight after tomorrow.
+        ("Asia/Kolkata", "2030-11-05T11:05:00Z", 2, "2030-11-04T18:30:00Z", "2030-11-06T18:30:00Z"),
+        # One second before and exactly at local midnight: the civil day changes with the turn clock.
+        ("Asia/Kolkata", "2030-11-05T18:29:59Z", 2, "2030-11-04T18:30:00Z", "2030-11-06T18:30:00Z"),
+        ("Asia/Kolkata", "2030-11-05T18:30:00Z", 2, "2030-11-05T18:30:00Z", "2030-11-07T18:30:00Z"),
+        # Spring forward: Sunday 10 March is a 23-hour local day, never a fixed 24-hour step.
+        (
+            "America/New_York",
+            "2030-03-09T17:00:00Z",
+            2,
+            "2030-03-09T05:00:00Z",
+            "2030-03-11T04:00:00Z",
+        ),
+        # Fall back: Sunday 3 November is a 25-hour local day.
+        (
+            "America/New_York",
+            "2030-11-02T17:00:00Z",
+            2,
+            "2030-11-02T04:00:00Z",
+            "2030-11-04T05:00:00Z",
+        ),
+        ("Asia/Kolkata", "2030-11-05T11:05:00Z", 1, "2030-11-04T18:30:00Z", "2030-11-05T18:30:00Z"),
+    ],
+)
+def test_whole_days_cover_the_local_calendar_days(zone, now, days, start, end):
+    window = tools._iso_window(_window_context(zone, now), days, zone, whole_days=True)
+    assert window == (start, end)
+    # Every instant of the last local day is inside the half-open interval; the next midnight is not.
+    assert instant(window[1]) - instant(window[0]) in {
+        timedelta(hours=24 * days - 1),
+        timedelta(hours=24 * days),
+        timedelta(hours=24 * days + 1),
+    }
+
+
+def test_rolling_window_keeps_its_documented_next_n_days_semantics():
+    context = _window_context("Asia/Kolkata", "2030-11-05T11:05:30Z")
+    assert tools._iso_window(context, 2, "Asia/Kolkata") == (
+        "2030-11-05T11:05:00Z",
+        "2030-11-07T11:05:00Z",
+    )
+
+
+async def test_summary_whole_days_reads_exact_local_days_and_logs_content_free_timing(
+    monkeypatch, caplog
+):
+    port = port_with_event(monkeypatch)
+    with caplog.at_level("INFO", logger=tools.logger.name):
+        responses, _, _ = await sdk_turn(
+            monkeypatch,
+            "Show my meetings today and tomorrow in Asia/Kolkata.",
+            [[call("calendar_summary", days=2, time_zone="Asia/Kolkata", whole_days=True)]],
+            port,
+        )
+    assert responses[-1].response["status"] == "ok"
+    # The admitted turn clock is 2030-11-06 00:00 Asia/Kolkata.
+    assert port.list_events.await_args.kwargs["start_at"] == "2030-11-05T18:30:00Z"
+    assert port.list_events.await_args.kwargs["end_at"] == "2030-11-07T18:30:00Z"
+    lines = [r.getMessage() for r in caplog.records if "calendar.read.latency" in r.getMessage()]
+    assert len(lines) == 1
+    assert re.fullmatch(
+        r"calendar\.read\.latency total_ms=\d+ provider_ms=\d+ status=ok", lines[0]
+    ), lines[0]
+    assert "Planning" not in lines[0] and "example" not in lines[0]
