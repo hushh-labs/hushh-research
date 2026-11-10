@@ -4334,7 +4334,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />
+          <PaymentsAndEarnings key={applicationOwnerId} answer={nativePayout.answer} />
         </div>
       ),
     });
