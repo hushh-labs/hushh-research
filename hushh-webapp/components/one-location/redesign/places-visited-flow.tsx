@@ -279,7 +279,8 @@ export function PlacesVisitedFlow() {
                   {place.googleReviewUrl ? (
                     <Button
                       asChild
-                      variant="ghost"
+                      variant="link"
+                      disableHoverRipple
                       size="sm"
                       className="h-9 min-h-9 rounded-full px-3 text-[color:var(--app-accent)]"
                     >
