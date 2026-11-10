@@ -3854,8 +3854,12 @@ export default function ConnectPageClient() {
                                         fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
                                         photoUrl={connection.photoUrl ?? null}
                                         label={connectionName}
+                                        verified={connection.isRia === true}
+                                        fromContacts={connection.connectedFromContacts === true}
+                                        showBadgeDetails
                                       />
                                     }
+                                    leadingInteractive={connection.isRia === true || connection.connectedFromContacts === true}
                                     title={connectionName}
                                     description={
                                       connection.createdAt &&
@@ -3866,12 +3870,6 @@ export default function ConnectPageClient() {
                                         : "Connected"
                                     }
                                     voiceLabel={connectionName}
-                                    titleSupplement={connection.isRia === true || connection.connectedFromContacts === true ? (
-                                      <ConnectionStatusBadges
-                                        riaVerified={connection.isRia === true}
-                                        fromContacts={connection.connectedFromContacts === true}
-                                      />
-                                    ) : undefined}
                                     openLabel={`Open ${connectionName}'s profile`}
                                     onOpen={
                                       connection.publicPersonRef

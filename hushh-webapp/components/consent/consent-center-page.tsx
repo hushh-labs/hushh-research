@@ -681,6 +681,8 @@ function buildConnectionEntries(
       counterpart_label: connection.displayName || "Someone",
       counterpart_email: connection.email || null,
       counterpart_image_url: connection.photoUrl || null,
+      counterpart_is_ria: connection.isRia,
+      counterpart_connected_from_contacts: connection.connectedFromContacts,
       issued_at: connection.createdAt,
     }),
   );

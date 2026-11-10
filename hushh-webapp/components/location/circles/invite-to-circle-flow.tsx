@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Search, UserRoundPlus } from "@/components/icons";
 
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { INPUT_CLASSNAME } from "@/components/ui/input";
@@ -491,10 +492,14 @@ export function InviteToCircleFlow({
                           onCheckedChange={() => toggle(connection.userId)}
                           aria-label={`Add ${connection.displayName}`}
                         />
-                        <AvatarBubble userId={connection.userId}
-                          initials={initialsFor(connection.displayName)}
-                          imageUrl={connection.photoUrl}
-                          size={32}
+                        <ConnectionPersonAvatar
+                          userId={connection.userId}
+                          label={connection.displayName}
+                          photoUrl={connection.photoUrl}
+                          verified={connection.isRia}
+                          fromContacts={connection.connectedFromContacts}
+                          size="compact"
+                          className="!size-8"
                         />
                         <span className="ui-text-row-label-emphasized min-w-0 flex-1 truncate">
                           {connection.displayName}
