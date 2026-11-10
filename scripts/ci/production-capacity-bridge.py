@@ -529,7 +529,12 @@ def verify_superseded_predecessor(previous, source, inventory, service, profile)
 def maintain(release, checkpoint_path: Path, *, create: bool):
     state = json.loads(checkpoint_path.read_text())
     previous = receipt_state(state.get("capacity_bridge"))
-    if not create and (previous is None or previous["status"] == "verified"):
+    recorded_recovery = release.get("_maintenance_recorded_recovery") is True
+    recheck_recorded = (
+        recorded_recovery and previous is not None
+        and previous.get("profile") == recorded.PROFILE
+    )
+    if not create and (previous is None or previous["status"] == "verified" and not recheck_recorded):
         return
     if create and (
         os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch"
@@ -547,7 +552,6 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
     existing_names = {
         row["metadata"]["name"] for row in inventory["services"][SERVICE]["revisions"]
     }
-    recorded_recovery = release.get("_maintenance_recorded_recovery") is True
     if recorded_recovery:
         previous, retired_predecessor = retired_recorded_transition(
             previous, service, existing_names, create
@@ -600,7 +604,7 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         and not supersede
         and previous["status"] == "verified"
         and not reuse
-        and previous["revision"] in existing_names
+        and (recheck_recorded or previous["revision"] in existing_names)
     ):
         raise retention.UnsafeState(
             "Retire the previous bridge through ordinary drain maintenance before another bridge"
