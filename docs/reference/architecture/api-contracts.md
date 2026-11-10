@@ -2730,6 +2730,9 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/conflicts/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Preflight account grants and event versions, accept the kept pending invitation if needed, then claim each selected decline and reviewed organizer note. Provider operations are not atomic; child ledgers prevent duplicate effects, and separate outcomes disclose partial or unknown results. |
 | POST | `/api/one/calendar/conflicts/workspace/review` | Firebase Bearer + each selected owner-bound Calendar and Gmail OAuth grant | Prepare the exact first-party keep/decline and organizer-Mail plan under complete conflict coverage. |
 | POST | `/api/one/calendar/conflicts/workspace/confirm` | Firebase Bearer + each selected owner-bound Google grant | Confirm the sealed conflict plan with preflight and child ledgers; disclose partial or unknown provider outcomes. |
+| POST | `/api/one/calendar/followups/list` and `/detail` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Return the assessed Calendar action, verified timing and status at the current assessment version. Detail omits historical siblings. Raw evidence fields remain empty for older clients. |
+| POST | `/api/one/calendar/followups/source/link` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Return an exact Gmail message reference after account and grant checks. The link lookup reads no message body. |
+| POST | `/api/one/calendar/followups/request` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Apply a revision-checked, idempotent action to one request. Remove maps to `dismiss`. |
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
@@ -2743,9 +2746,10 @@ checks the full selected local day. A Board Free time row opens a compact
 review dialog with a bounded duration and editable date, time, zone, guests and
 meeting place. Per-account rows bind their destination to the clicked account;
 shared openings require an explicit writable account and use its primary
-calendar. The existing short-lived proposal and one-time confirmation ledger
-own the write. Review and execution recheck every connected account and its
-included calendars, and the destination's management grant. Changed accounts,
+calendar. Schedule meeting confirms the visible form and uses the existing short-lived
+proposal and one-time confirmation ledger. Preparation and execution check every
+connected account and its included calendars and the destination's management
+grant. Independent account checks run concurrently. Changed accounts,
 selection, grants, or availability require a new review. Discord uses a valid
 existing link and creates no Meet conference; no guests sends no invitations.
 Only a confirmed Google event publishes the Board refresh. Slot taps,

@@ -29,19 +29,40 @@ class _RequestRead:
         offset: int = 0,
         view: str = "upcoming",
         now: datetime | None = None,
+        calendar_only: bool = False,
     ) -> dict[str, Any]:
         if not 1 <= limit <= 50 or not 0 <= offset <= 100000:
             raise FollowupStateError("invalid_limit")
 
         def read() -> dict[str, Any]:
             with self.db.engine.begin() as conn:
-                page = read_page(conn, monitor, limit=limit, offset=offset, view=view, now=now)
-            return page_view(self._open, monitor, page=page, offset=offset, view=view)
+                page = read_page(
+                    conn,
+                    monitor,
+                    limit=limit,
+                    offset=offset,
+                    view=view,
+                    now=now,
+                    calendar_only=calendar_only,
+                )
+            return page_view(
+                self._open,
+                monitor,
+                page=page,
+                offset=offset,
+                view=view,
+                calendar_only=calendar_only,
+            )
 
         return await asyncio.to_thread(read)
 
     async def detail(
-        self, monitor: Monitor, conversation_id: str, *, now: datetime | None = None
+        self,
+        monitor: Monitor,
+        conversation_id: str,
+        *,
+        now: datetime | None = None,
+        calendar_only: bool = False,
     ) -> dict[str, Any]:
         def read() -> dict[str, Any]:
             with self.db.engine.begin() as conn:
@@ -60,8 +81,20 @@ class _RequestRead:
                 )
                 if not conversation:
                     raise FollowupStateError("conversation_unavailable")
-                rows = read_detail(conn, monitor, conversation_id, now=now)
-            return conversation_view(self._open, monitor, dict(conversation), list(rows))
+                rows = read_detail(
+                    conn,
+                    monitor,
+                    conversation_id,
+                    now=now,
+                    calendar_only=calendar_only,
+                )
+            return conversation_view(
+                self._open,
+                monitor,
+                dict(conversation),
+                rows,
+                calendar_only=calendar_only,
+            )
 
         return await asyncio.to_thread(read)
 
@@ -151,7 +184,9 @@ class _RequestMutate:
                 active = conn.execute(
                     text("""SELECT 1 FROM calendar_email_followup_monitors
                     WHERE user_id=:user_id AND account_id=:account_id AND enabled=TRUE
-                    AND generation=CAST(:generation AS UUID) AND grant_epoch_digest=:grant FOR UPDATE"""),
+                    AND generation=CAST(:generation AS UUID) AND grant_epoch_digest=:grant
+                    AND calendar_email_followup_grant_current(calendar_email_followup_monitors)
+                    FOR UPDATE"""),
                     {
                         "user_id": monitor.user_id,
                         "account_id": monitor.account_id,
@@ -194,7 +229,9 @@ class _RequestMutate:
                     }
                 if row["revision"] != expected_revision:
                     raise FollowupStateError("request_changed")
-                if row["state"] in {"cancelled", "source_unavailable"}:
+                if row["state"] not in {"needs_review", "pending", "snoozed"} or (
+                    row["suppressed_at"] is not None or row["merged_into"] is not None
+                ):
                     raise FollowupStateError("request_unavailable")
                 state = {
                     "done": "done",

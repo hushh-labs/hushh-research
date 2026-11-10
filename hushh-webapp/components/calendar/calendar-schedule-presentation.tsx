@@ -1,5 +1,6 @@
 "use client";
 
+import presentationStyles from "./calendar-presentation.module.css";
 import { useRef, type MouseEvent } from "react";
 import Image from "next/image";
 import { CalendarDays, ChevronRight, MapPin, MoreHorizontal } from "@/components/icons";
@@ -167,7 +168,7 @@ export function CalendarTimelineRow({ event, accountEmail, zone, active, ongoing
     </div>
     <div className={styles.rowActions}>
       {join && !ended ? <CalendarJoinLink ariaLabel={`Join meeting: ${event.title}`} url={join} accountEmail={accountEmail} className={styles.joinButton} label="Join" /> : null}
-      <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className={styles.overflowButton} aria-label={`More options: ${event.title}`}><MoreHorizontal aria-hidden /></button></DropdownMenuTrigger><DropdownMenuContent align="end">
+      <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className={styles.overflowButton} aria-label={`More options: ${event.title}`}><MoreHorizontal aria-hidden /></button></DropdownMenuTrigger><DropdownMenuContent align="end" className={presentationStyles.scope} data-connect-type-scale="page">
         <DropdownMenuItem onSelect={() => { if (detailsTrigger.current) onOpen(event, detailsTrigger.current); }}>View details</DropdownMenuItem>
         {safeMeetingUrl(event.html_link) ? <DropdownMenuItem asChild><a href={safeMeetingUrl(event.html_link)!} target="_blank" rel="noopener noreferrer">Open in Google Calendar</a></DropdownMenuItem> : null}
       </DropdownMenuContent></DropdownMenu>

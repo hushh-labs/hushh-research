@@ -1,5 +1,6 @@
 "use client";
 
+import presentationStyles from "./calendar-presentation.module.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, ChevronDown, Clock, MoreHorizontal, Plus, RefreshCw } from "@/components/icons";
 import { Cake, Confetti } from "@/components/icons/ui/calendar-occasion-icons";
@@ -135,7 +136,7 @@ function CalendarAccountPicker({ accounts, value, onChange, people }: {
         {selected ? <CalendarPersonAvatar name={selectedEmail} photoUrl={verifiedCalendarAccountPhoto(selected, selectedEmail, people)} size="sm" source="hussh" /> : null}
         <span className={styles.accountPickerEmail}>{selectedEmail}</span><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} />
       </button></DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className={styles.accountPickerMenu}>
+      <DropdownMenuContent align="start" className={`${styles.accountPickerMenu} ${presentationStyles.scope}`} data-connect-type-scale="page">
         <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
           {accounts.map(account => {
             const email = accountLabel(account.google_email);
@@ -302,7 +303,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     else setRevision(value => value + 1);
   };
 
-  return <AppPageShell width="agent" headerContentSpacing="compact" className={styles.shell} data-profile-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
+  return <AppPageShell width="agent" headerContentSpacing="compact" className={`${styles.shell} ${presentationStyles.scope}`} data-profile-type-scale="page" data-connect-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
     <div className={styles.content} data-calendar-account-board data-calendar-presentation>
       <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile className={styles.accountSummary}
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
@@ -360,7 +361,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                 <div className={styles.accountHeader}>
                   <CalendarPersonAvatar name={accountName} photoUrl={husshPhoto} className={styles.accountAvatar} fallbackText={connectionAvatarInitials(accountName)} source="hussh" />
                   <div className={styles.accountIdentity} title={account.google_email}><span className={styles.accountName}>{accountName}</span></div>
-                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className={presentationStyles.scope} data-connect-type-scale="page">
                     <DropdownMenuItem variant="destructive" onSelect={() => onDisconnectAccount(account.account_id)}>Disconnect</DropdownMenuItem>
                   </DropdownMenuContent></DropdownMenu>
                 </div>
@@ -414,7 +415,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`);
       }} /> : null}
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
-        <DialogContent className={styles.occasionDialog} data-profile-type-scale="calendar">
+        <DialogContent className={`${styles.occasionDialog} ${presentationStyles.portal}`} data-connect-type-scale="page">
           {occasionAccount ? <>
             <DialogHeader className={styles.occasionHeader}><DialogTitle>Occasions</DialogTitle><DialogDescription>{accountLabel(occasionAccount.google_email)}</DialogDescription></DialogHeader>
             <ul className={styles.occasionList}>{occasionEvents.map(event => {
@@ -429,7 +430,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         </DialogContent>
       </Dialog>
       <Dialog modal open={Boolean(selected && selectedEvent)} onOpenChange={isOpen => { if (!isOpen) close(); }}>
-        <DialogContent className={styles.detail} data-profile-type-scale="calendar" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
+        <DialogContent className={`${styles.detail} ${presentationStyles.portal}`} data-connect-type-scale="page" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
             <DialogHeader className={styles.detailHeader}>
               <div className={styles.detailTitleRow}>

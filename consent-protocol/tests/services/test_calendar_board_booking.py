@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -32,8 +33,9 @@ class Owner:
         self.roles: dict[str, str] = {}
         self.reads: list[tuple[str, list[str]]] = []
 
-    async def calendar_accounts_status(self, *, user_id: str):
+    async def calendar_accounts_status(self, *, user_id: str, include_pictures: bool):
         assert user_id == "owner"
+        assert include_pictures is False
         return {"accounts": copy.deepcopy(self.accounts)}
 
 
@@ -186,6 +188,38 @@ async def test_review_rechecks_every_account_and_writes_once_to_selected_account
     assert store.finished == [True]
     with pytest.raises(GoogleConnectionError, match="already used"):
         await service.execute(user_id="owner", proposal_id=review["proposal_id"], account_id=target)
+    assert len(writes) == 1
+
+
+@pytest.mark.asyncio
+async def test_booking_checks_connected_accounts_in_parallel(monkeypatch):
+    owner, _store, service, writes = setup(monkeypatch, 3, "third")
+    original = Schedule._busy_intervals
+    all_started = asyncio.Event()
+    active = set()
+
+    async def wait_for_peer_reads(self, **params):
+        active.add(self.account_id)
+        if len(active) == 3:
+            all_started.set()
+        await asyncio.wait_for(all_started.wait(), timeout=2)
+        try:
+            return await original(self, **params)
+        finally:
+            active.remove(self.account_id)
+
+    monkeypatch.setattr(Schedule, "_busy_intervals", wait_for_peer_reads)
+    review = await service.propose(
+        user_id="owner", action="create", payload=payload(owner, "third")
+    )
+    assert [item["account_id"] for item in review["plan"]["board_accounts"]] == [
+        "default",
+        "second",
+        "third",
+    ]
+    assert not writes
+    all_started.clear()
+    await service.execute(user_id="owner", proposal_id=review["proposal_id"], account_id="third")
     assert len(writes) == 1
 
 

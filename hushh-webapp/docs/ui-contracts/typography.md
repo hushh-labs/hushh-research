@@ -219,8 +219,7 @@ Nearby Check in and Add time use the shared anchored task-sheet context: titles
 active Checked in status uses the 17/22 headline role; long place labels wrap.
 The map keeps its non-modal panel and 416px desktop rail.
 
-At the checked revision **Connect owns `data-connect-type-scale="page"`** and
-workspace tokens. **The whole Feed AppPageShell has
+At the checked revision **Connect defines the v14 workspace roles**. Calendar reuses the shared type tokens in its workspace and portals, which also carry `data-connect-type-scale="page"`. **The whole Feed AppPageShell has
 `data-profile-type-scale="page"`**. Older CSS comments naming Connect and only
 Feed Needs you lag these executable callers. Follow imports and winning CSS,
 not those comments or an isolated fixture's absent context.
