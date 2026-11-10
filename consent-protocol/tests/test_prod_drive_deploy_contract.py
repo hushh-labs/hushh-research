@@ -465,7 +465,6 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         ["bash", "-c", checkout], cwd=repo, env=env, capture_output=True, text=True, check=True
     )
     for companion in (
-        "await-prebuilt-image.sh",
         "resolve-deploy-scope.py",
         "release_acceptance_provenance.py",
         "production_emergency.py",
@@ -480,7 +479,6 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         # Main-owned helpers are consumed directly from RUNNER_TEMP.
         if path.endswith(
             (
-                "await-prebuilt-image.sh",
                 "tag-last-known-good.sh",
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",

@@ -1015,8 +1015,9 @@ report must acknowledge the mode/version, environment, configuration and active 
 result. The collector binds those results to the exact build, immutable image and runtime
 identity. It does not select or change providers outside UAT. The isolated Dev commerce
 target retains its existing full checks until separately qualified. Build failure still
-blocks deployment; asynchronous build submission preserves the exact failed build ID
-for diagnosis and receipt collection.
+blocks deployment. Dev records its build ID before waiting; production preserves
+synchronous submission because its schema-recovery history requires an acknowledged
+terminal build. Successful builds publish the exact ID for receipt collection.
 
 For a policy-changing release candidate, run the retained functional/core set once
 on the completed candidate, plus affected security and release contracts. Do not
