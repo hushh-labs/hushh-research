@@ -546,6 +546,11 @@ for (const width of [320, 393, 1440]) {
     expect(await page.evaluate(() => (window as any).chatFixture.read.length)).toBe(before);
     await page.getByRole("button", { name: "Close", exact: true }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+  });
+
+  test(`circle photo saves a chosen image and removes it at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 1440 ? 1000 : 852 });
+    await mount(page, false, true);
     await page.getByRole("button", { name: "Change circle photo" }).click();
     const chooser = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Choose photo", exact: true }).click();
@@ -553,10 +558,12 @@ for (const width of [320, 393, 1440]) {
     await expect(page.getByRole("button", { name: "Save photo", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Save photo", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Circle photo" })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Change circle photo" }).locator("img")).toBeVisible();
     await page.getByRole("button", { name: "Change circle photo" }).click();
     await page.getByRole("button", { name: "Remove photo", exact: true }).click();
     await page.getByRole("button", { name: "Save photo", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Circle photo" })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Change circle photo" }).locator("img")).toHaveCount(0);
   });
 }
 
