@@ -2835,6 +2835,7 @@ export function OneLocationAgentPageContent({
   // here would be reported as "you may still be visible to people around you" —
   // a false alarm about the one thing this surface must never be wrong about.
   const nearbyCheckoutConfirmedAtRef = useRef(0);
+  const nearbyPauseCheckoutRef = useRef<{ userId: string; intent: number } | null>(null);
   useEffect(() => {
     // Checked back in: whatever we last confirmed no longer describes presence.
     if (locationControl.nearbyPresenceActive) {
@@ -3636,6 +3637,9 @@ export function OneLocationAgentPageContent({
     }
     const userId = auth.userId;
     const ownerToken = vaultOwnerToken;
+    if (locationControl.paused && nearbyPauseCheckoutRef.current?.userId === userId) {
+      return;
+    }
     let cancelled = false;
 
     void OneLocationService.getNearbyPresence({
@@ -3651,15 +3655,9 @@ export function OneLocationAgentPageContent({
             if (cancelled) return;
             next = checkedOut;
           } catch {
-            if (cancelled) return;
-            updateOneLocationControlState(userId, (current) => ({
-              ...current,
-              paused: false,
-              nearbyPresenceActive: true,
-              nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
-            }));
+            if (cancelled || !readOneLocationControlState(userId).paused) return;
             toast.error(
-              "Nearby checkout did not complete. Location is still on; try pausing again.",
+              "Location is paused on this device. Nearby checkout did not complete.",
             );
             return;
           }
@@ -6022,15 +6020,15 @@ export function OneLocationAgentPageContent({
         setSosDispatch({
           owner,
           incidentStartedAt: incident.startedAt,
-          status: reached > 0 || (shared > 0 && mail.emailed > 0)
+          status: reached > 0
             ? "sent"
             : mail.emailed > 0 ? "email-only" : "unconfirmed",
         });
         if (shared === 0 && mail.emailed === 0) {
           toast.error("Delivery could not be confirmed. Call for help directly.");
-        } else if (shared === 0 && mail.emailed > 0) {
+        } else if (reached === 0 && mail.emailed > 0) {
           toast.warning(
-            "SMS alert sent by email. In-app delivery could not be confirmed.",
+            "Alert sent by email. In-app delivery could not be confirmed.",
             { classNames: { title: "!line-clamp-1" } },
           );
         }
@@ -11262,8 +11260,10 @@ export function OneLocationAgentPageContent({
         };
       }
 
+      const userId = auth.userId;
       const intent = ++locationIntentSeqRef.current;
-      const isStale = () => locationIntentSeqRef.current !== intent;
+      const isStale = () =>
+        locationIntentSeqRef.current !== intent || !readOneLocationControlState(userId).paused;
       // A capture still in flight from an earlier "on" no longer owns the pending
       // state, and its own `finally` will decline to clear it. Clear it here so
       // the control cannot be stranded looking busy.
@@ -11312,21 +11312,28 @@ export function OneLocationAgentPageContent({
         Boolean(vaultOwnerToken) &&
         !checkedOutRecently;
       if (shouldCheckOut && vaultOwnerToken) {
+        nearbyPauseCheckoutRef.current = { userId, intent };
         try {
           await OneLocationService.checkoutNearby({ vaultOwnerToken });
-          nearbyCheckoutConfirmedAtRef.current = Date.now();
+          if (!isStale()) nearbyCheckoutConfirmedAtRef.current = Date.now();
         } catch {
           // Report the local pause and the unfinished remote checkout together.
           // A command stops here because the complete privacy change needs
           // review; the tap flow keeps the device paused.
-          const message =
-            "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
-          toast.error(message);
-          return {
-            status: "blocked",
-            summary: message,
-            data: { reason: "nearby_checkout_failed" },
-          };
+          if (!isStale()) {
+            const message =
+              "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
+            toast.error(message);
+            return {
+              status: "blocked",
+              summary: message,
+              data: { reason: "nearby_checkout_failed" },
+            };
+          }
+        } finally {
+          if (nearbyPauseCheckoutRef.current?.intent === intent) {
+            nearbyPauseCheckoutRef.current = null;
+          }
         }
       }
 

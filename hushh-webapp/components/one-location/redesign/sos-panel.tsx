@@ -143,7 +143,7 @@ export function SosPanel({
   const activeStatus = dispatchStatus === "sending" ? "Sending alert…"
     : dispatchStatus === "failed" ? "Alert could not be sent"
     : dispatchStatus === "unconfirmed" ? "Delivery not confirmed"
-    : dispatchStatus === "email-only" ? "SMS alert sent by email"
+    : dispatchStatus === "email-only" ? "Alert sent by email"
     : dispatchStatus === "sent" ? "SMS alert sent" : "Alert active";
   const alertedSummary = dispatchStatus === "failed"
     ? "Call for help directly. Stop the pending alert before trying again."
