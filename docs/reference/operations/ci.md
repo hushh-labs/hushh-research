@@ -204,6 +204,30 @@ image. Recorded recovery/activation operations keep their original source and
 checkpoint contracts. Normal direct Main deployment does not grant emergency
 source authority. Merges and downstream source syncs deploy nothing.
 
+### Qualify the recorded production recovery source
+
+The sealed cold-proof application is `84b80bcab6b5b7a4de21a5a992d3c969dacba5b9`.
+Its landed Main smoke already ran on that SHA. Functional CI for the original
+PR ran on a different commit. Dispatching the historical workflow would still
+require a receipt from the retired `ci-security.yml` alert observer.
+
+After the validation workflow is reviewed and lands on Main, a production
+operator can dispatch **Validate Production Recovery Source** on `main` with
+`sha=84b80bcab6b5b7a4de21a5a992d3c969dacba5b9`. A new dispatch is required if
+the attempt fails. Each functional job checks out the recorded application
+without a source overlay. The full release scope uses that checkout's test
+inventory, the current Main CI job graph, DCO and Gitleaks policy, and the
+protected Deployment Security job. Recovery also requires the snapshot’s selected
+Chromium and WebKit contracts and its native WebKit document check. The run
+records the application SHA, its
+tree and comparison SHA, and the separate Main tooling SHA.
+
+Production's existing Main-source verifier requires the newest successful
+recovery validation dispatch and the separate smoke for the exact application.
+It verifies the run and job identities and rereads them during admission. This
+workflow uses no cloud identity or production environment. Worker staging,
+rollout, and activation each retain their own admission and explicit dispatch.
+
 ### Branded sign-in repair of the restored frontend
 
 The explicit `frontend_auth_domain_refresh=true` incident input is restricted to
@@ -987,7 +1011,7 @@ rehearsal; it does not change the existing advisory rollback policy.
 
 ### Managed-provider readiness policy
 
-Ordinary UAT deployment requires the configured provider's **core** proof: One chat
+Ordinary deployment requires the configured provider's **core** proof. UAT verifies One chat
 and Drive text scopes, current authority, structured output, attribution/schema,
 candidate health, compatibility and rollback. The exact candidate image, runtime
 identity, run/attempt and configuration bind that proof. Trust failures always block;
@@ -1005,7 +1029,19 @@ uses core when the candidate recipe supports it; older approved candidates retai
 full qualification. Full provider diagnostics remain explicit, using the existing
 probe producers with `MANAGED_READINESS_MODE=full` under their admitted runtime
 identity; they do not replace core release evidence. `run_live_model_checks` retains
-its separate PKM/RIA meaning. Dev and production behavior is unchanged by this correction.
+its separate PKM/RIA meaning.
+
+Dev and production keep their own configured Vertex ADC model and project. Candidates
+with common-core contract version 2 prove a real, nonempty ADK chat response at that
+exact target; secondary modalities are not run. Older images retain full qualification.
+A source declaration permits requesting core but cannot certify the image: its terminal
+report must acknowledge the mode/version, environment, configuration and active chat
+result. The collector binds those results to the exact build, immutable image and runtime
+identity. It does not select or change providers outside UAT. The isolated Dev commerce
+target retains its existing full checks until separately qualified. Build failure still
+blocks deployment. Dev records its build ID before waiting; production preserves
+synchronous submission because its schema-recovery history requires an acknowledged
+terminal build. Successful builds publish the exact ID for receipt collection.
 
 For a policy-changing release candidate, run the retained functional/core set once
 on the completed candidate, plus affected security and release contracts. Do not

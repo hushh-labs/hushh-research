@@ -36,7 +36,8 @@ class OneChatRetentionTest(unittest.TestCase):
             "head_branch": "main",
             "head_sha": "c" * 40,  # a replay's dispatch ref differs from target
             "event": "workflow_dispatch",
-            "actor": {"login": "ankitkumarsingh1702"},
+            "actor": {"login": "historical-operator", "id": 55, "type": "User"},
+            "triggering_actor": {"login": "historical-operator", "id": 55, "type": "User"},
             "status": "completed",
             "conclusion": "success",
             "repository": {"full_name": "org/repo"},
