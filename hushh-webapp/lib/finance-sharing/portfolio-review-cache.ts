@@ -15,9 +15,13 @@ export type PortfolioReviewResponse = {
 export type SavedPortfolioReview = { digest: string; review: PortfolioReviewResponse };
 const RESOURCE_KEY = "finance-portfolio-review-v1";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const pendingWrites = new Map<string, Promise<unknown>>();
 
 /** An encrypted result for this device only. It carries no approval for another model call. */
-export function readSavedPortfolioReview({ userId, vaultKey }: FinanceShareContext) {
+export async function readSavedPortfolioReview(context: FinanceShareContext) {
+  const { userId, vaultKey } = context;
+  await pendingWrites.get(userId);
+  if (!context.isCurrent()) return null;
   return SecureResourceCacheService.read<SavedPortfolioReview>({
     userId, vaultKey, resourceKey: RESOURCE_KEY,
   });
@@ -34,7 +38,11 @@ export function savePortfolioReviewOnDevice(
 ) {
   if (!context.isCurrent()) return;
   const { userId, vaultKey } = context;
-  return SecureResourceCacheService.writeRequired({
+  const write = SecureResourceCacheService.writeRequired({
     userId, vaultKey, resourceKey: RESOURCE_KEY, value, ttlMs: TTL_MS, ownerGeneration,
-  }).catch(() => undefined);
+  }).catch(() => undefined).finally(() => {
+    if (pendingWrites.get(userId) === write) pendingWrites.delete(userId);
+  });
+  pendingWrites.set(userId, write);
+  return write;
 }

@@ -127,7 +127,6 @@ type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 // retains a proof, but its phone sign-in is itself an account the server only lets
 // its owner delete, so it keeps the previous-account sign-in handoff. Test codes
 // and native links never retain a proof and keep the handoff too.
-const RETAINED_PROOF_CONFLICTS = new Set(["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_ALREADY_VERIFIED"]);
 
 function phoneFailureMessage(error: unknown, fallback: string): string {
   return resolvePhoneFailureMessage(error, fallback, apiErrorCode(error));
@@ -834,7 +833,7 @@ export function usePhoneVerificationFlow({
         if (committed) { if (options.notify) morphyToast.error(message); return "verified"; }
         if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
           advanceEntryRevision(); setVerificationCode("");
-          setLinkedProof(!Capacitor.isNativePlatform() && RETAINED_PROOF_CONFLICTS.has(apiErrorCode(error) ?? ""));
+          setLinkedProof((error as { phoneProofAvailable?: unknown })?.phoneProofAvailable === true);
           setConflict("choices");
         }
         trackEvent("phone_verification_completed", {
