@@ -6,6 +6,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 function ConnectionStatusBadge({ verified }: { verified?: boolean }) {
   const label = verified ? "Verified Advisor" : "Via contacts";
+  const explanation = verified
+    ? "RIA verified (registered investment adviser)"
+    : "Connected through a contact from your address book";
   const Icon = verified ? BadgeCheck : ContactsBookIcon;
   const [open, setOpen] = useState(false);
 
@@ -22,7 +25,9 @@ function ConnectionStatusBadge({ verified }: { verified?: boolean }) {
           <Icon aria-hidden="true" className={verified ? "size-4 text-[color:var(--app-success)]" : "size-4"} />
         </button>
       </TooltipTrigger>
-      <TooltipContent sideOffset={4} collisionPadding={12}>{label}</TooltipContent>
+      <TooltipContent sideOffset={4} collisionPadding={12} className="max-w-56">
+        {label} · {explanation}
+      </TooltipContent>
     </Tooltip>
   );
 }
