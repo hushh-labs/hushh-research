@@ -202,6 +202,14 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
         assert "web-lane-partition" in selected.check_ids
 
 
+def test_hyphenated_memory_gate_has_the_same_controller_owner_as_its_tests() -> None:
+    for path in ("scripts/ci/live-memory-source-gate.py", "scripts/ci/test_live_memory_pr_context.py"):
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+        assert selected.groups == ("controller",)
+        assert "live-memory-source" in selected.check_ids
+
+
 def test_affected_unit_selector_test_is_a_controller_owner() -> None:
     path = "hushh-webapp/scripts/testing/affected-tests.test.mjs"
     selection = build_selection(
@@ -425,6 +433,7 @@ def main() -> int:
         test_production_emergency_authority_test_selects_controller_owner,
         test_restoration_fixture_paths_select_controller_owner_and_history_consumers,
         test_known_product_path_does_not_expand_critical_groups,
+        test_hyphenated_memory_gate_has_the_same_controller_owner_as_its_tests,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
         test_bad_or_missing_change_list_fails_conservatively,

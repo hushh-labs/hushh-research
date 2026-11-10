@@ -375,7 +375,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         # The Dev recovery CLI is tested by the backend owner, never executed here.
         if path == "scripts/ops/recover_dev_cloud_removal.py":
             return frozenset(), None
-        lower = path.lower()
+        # Authored CI filenames use both hyphens and underscores. Treat the
+        # same owner token consistently instead of rejecting registered tools.
+        lower = path.lower().replace("-", "_")
         if parts[1] == "release":
             return frozenset({"controller"}), None
         if parts[1] == "ops" and "runtime_topology" in lower:
