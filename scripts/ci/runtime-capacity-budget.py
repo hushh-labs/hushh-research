@@ -38,6 +38,13 @@ assert _CLI_SPEC and _CLI_SPEC.loader
 _cli = importlib.util.module_from_spec(_CLI_SPEC)
 _CLI_SPEC.loader.exec_module(_cli)
 
+_RECOVERY_SPEC = importlib.util.spec_from_file_location(
+    "production_recovery_capacity", Path(__file__).with_name("production_recovery_capacity.py")
+)
+assert _RECOVERY_SPEC and _RECOVERY_SPEC.loader
+_recovery = importlib.util.module_from_spec(_RECOVERY_SPEC)
+_RECOVERY_SPEC.loader.exec_module(_recovery)
+
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 CAPACITY_PHASES = ("pre-deploy", "post-release")
 CapacityPhase = Literal["pre-deploy", "post-release"]
@@ -432,10 +439,23 @@ def service_budget(
         # Deferred UAT retirement allows several old generations to drain at
         # once. Until they are deleted, reserve each one's full connection cap.
         referenced.update(by_name)
-    return [
-        revision_connections(by_name[name], service, settings, database_connection_name)
-        for name in sorted(referenced)
-    ]
+    rows = []
+    for name in sorted(referenced):
+        revision = by_name[name]
+        if _recovery.has_inert_identity(revision):
+            if (
+                service != _recovery.BACKEND
+                or database_connection_name != f"{_recovery.PROJECT}:{_recovery.REGION}:hushh-vault-db"
+                or not _recovery.verified_inert(service_doc, revision)
+            ):
+                raise BudgetError(f"{name}: inert recovery revision is unverified or routable")
+            rows.append({
+                "name": name, "max_instances": 1, "workers_per_instance": 0,
+                "connections_per_worker": 0, "connections": 0,
+            })
+        else:
+            rows.append(revision_connections(revision, service, settings, database_connection_name))
+    return rows
 
 
 def job_budget(

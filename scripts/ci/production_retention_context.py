@@ -13,6 +13,7 @@ from runpy import run_path
 from typing import Literal, TypedDict
 
 import production_phone_receipt
+import production_recovery_capacity as recovery
 import retention_admission
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +61,12 @@ def check_inputs(args, parser) -> None:
 def load_operational(owner, args):
     requested = getattr(args, "operational_backend_proof_run_id", "")
     if not requested:
+        if (
+            args.environment == "production"
+            and not args.verify_source_only
+            and getattr(args, "release_run_id", "") == str(recovery.FRONTEND_RUN)
+        ):
+            return active(owner, recovery.ROLLBACK_RUN, recovery.ROLLBACK_ATTEMPT)
         return None
     if args.verify_source_only:
         return source_operational(owner, args)
@@ -109,6 +116,9 @@ def services(owner, args) -> dict:
     result = owner.LANES[args.environment]["services"].copy()
     if args.environment == "production" and args.worker_anchor is None:
         result.pop("consent-protocol-drive-worker")
+    if getattr(args, "recorded_recovery", False):
+        # The capacity plan leaves both frontend generations intact.
+        result.pop("hushh-webapp")
     return result
 
 
@@ -131,7 +141,62 @@ def find_source(owner, args, repository, *, require_live=None):
             ),
         )
     args.phone_anchor = anchors[-1] if anchors else None
+    if (
+        found is not None
+        and args.environment == "production"
+        and args.operational_anchor is not None
+        and found[0] == recovery.FRONTEND_RUN
+    ):
+        found = found[0], rotated_frontend(owner, found[1], args.operational_anchor)
+        args.recorded_recovery = True
     return found
+
+
+def rotated_frontend(owner, release, anchor):
+    # find_release has already checked the frozen attempt, archive, immutable
+    # publication tag and operational tag. Keep the original receipt intact.
+    provenance = (release.get("_maintenance_lane_provenance") or {}).get("frontend")
+    if (
+        release.get("sha") != recovery.FRONTEND_SOURCE
+        or release.get("scope") != "frontend"
+        or release.get("final", {}).get("frontend_revision") != recovery.FRONTEND_OLD
+        or release["final"].get("backend_revision") != recovery.SERVING_BACKEND
+        or anchor["revision"] != recovery.ROLLBACK
+        or anchor["origin"]["run_id"] != recovery.ROLLBACK_RUN
+        or anchor["origin"]["run_attempt"] != recovery.ROLLBACK_ATTEMPT
+        or provenance != {
+            "sha": recovery.FRONTEND_SOURCE, "run_id": recovery.FRONTEND_RUN,
+            "source": "deploy-production",
+        }
+    ):
+        raise owner.retention.UnsafeState("Recorded frontend release or backend rollback changed")
+    state = owner.retention.service_state("hushh-webapp", recovery.PROJECT, recovery.REGION)
+    revisions = owner.retention.revision_state("hushh-webapp", recovery.PROJECT, recovery.REGION)
+    if (
+        not recovery.reconciled(state)
+        or serving(owner, state) != {recovery.FRONTEND_NEW}
+        or state.get("spec", {}).get("traffic") != [
+            {"revisionName": recovery.FRONTEND_NEW, "percent": 100}
+        ]
+        or not recovery.unrouted(state, recovery.FRONTEND_OLD)
+        or not all(
+            len(matches := [r for r in revisions if r["metadata"]["name"] == name]) == 1
+            and selected_revision_matches(
+                state, matches[0], provenance, identity=recovery.frontend_identity(name)
+            )
+            for name in recovery.FRONTEND_IDENTITIES
+        )
+    ):
+        raise owner.retention.UnsafeState("Recorded frontend rotation is unverified")
+    return {
+        **release,
+        "final": {**release["final"], "frontend_revision": recovery.FRONTEND_NEW},
+        "_maintenance_recorded_recovery": True,
+        "_maintenance_restoration_runtime": {
+            **release.get("_maintenance_restoration_runtime", {}),
+            "frontend": recovery.frontend_identity(recovery.FRONTEND_NEW),
+        },
+    }
 
 
 def _receipt_ports(owner):
@@ -388,6 +453,12 @@ def selected_revision_matches(state, revision, provenance, *, identity=None) -> 
         state.get("metadata", {}).get("uid") != identity["service_uid"]
         or revision.get("metadata", {}).get("uid") != identity["uid"]
         or revision.get("status", {}).get("imageDigest") != identity["image"]
+    ):
+        return False
+    if identity is not None and "spec_sha256" in identity and (
+        recovery.fingerprint(revision.get("spec")) != identity["spec_sha256"]
+        or recovery.runtime_annotations(revision) != identity["annotations"]
+        or not recovery.reconciled(state)
     ):
         return False
     labels = revision.get("metadata", {}).get("labels") or {}
