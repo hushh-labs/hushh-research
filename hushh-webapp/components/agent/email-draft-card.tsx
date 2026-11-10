@@ -317,7 +317,7 @@ function EmailDraftCardView({
                   : "opacity-50 cursor-not-allowed"
               }`}
             >
-              <ConnectionPersonAvatar userId={conn.userId} personRef={conn.publicPersonRef} label={conn.displayName || "Connection"} photoUrl={conn.photoUrl} className="!size-7" />
+              <ConnectionPersonAvatar userId={conn.userId} personRef={conn.publicPersonRef} label={conn.displayName || "Connection"} photoUrl={conn.photoUrl} verified={conn.isRia} fromContacts={conn.connectedFromContacts} size="compact" />
               <div className="flex-1 min-w-0">
                 <div className="truncate font-medium text-foreground text-xs">
                   {conn.displayName || "Connected User"}

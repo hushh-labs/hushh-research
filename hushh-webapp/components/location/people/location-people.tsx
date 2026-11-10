@@ -439,7 +439,8 @@ export function LocationPeople({
                     name={recipient.displayName}
                     photoUrl={recipient.photoUrl}
                     relationship={relationshipLabel(recipient)}
-                    verified={recipient.phoneVerified}
+                    verified={recipient.isRia}
+                    fromContacts={recipient.connectedFromContacts}
                     canReceiveLocation={recipient.canReceiveLocation}
                     status={rowStatusFor(
                       recipient,
