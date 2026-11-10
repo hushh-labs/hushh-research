@@ -123,12 +123,6 @@
   color: var(--primary-foreground) !important;
   border-color: transparent !important;
 }
-.columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 1.25rem;
-  align-items: start;
-}
 .field {
   display: flex;
   flex-direction: column;
@@ -155,9 +149,6 @@
   transition: width 0.2s ease;
 }
 @media (max-width: 700px) {
-  .columns {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .person {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -299,3 +290,45 @@
   background: color-mix(in srgb, var(--app-accent) 10%, var(--card));
   border-color: transparent;
 }
+.handshakeSheet.handshakeSheet {
+  width: min(100%, 728px);
+  margin-inline: auto;
+  max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important;
+}
+
+@media (min-width: 640px) {
+  .handshakeSheet.handshakeSheet:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; }
+  .handshakeSheet.handshakeSheet:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 20px; }
+}
+
+.handshakeFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.handshakeForward { margin-inline-start: auto; }
+
+.handshakePrimary {
+  background: var(--app-accent) !important;
+  color: var(--app-accent-fg) !important;
+  border-color: transparent !important;
+}
+
+.handshakePrimary:hover { background: var(--app-accent-hover) !important; }
+
+.handshakeProgress {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.375rem;
+}
+
+.handshakeProgress > span {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.handshakeProgress > [data-reached] { background: var(--app-secondary-label); }

@@ -119,8 +119,8 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
   const showCheck = advisor && ["booking", "unknown", "retryable", "confirmed"].includes(meeting?.status ?? "");
 
   return (
-    <section className={cn(styles.card, "space-y-3")}>
-      <h3 className="ui-text-section-label">{past.some((entry) => entry.status === "confirmed" || entry.status === "completed") ? "Your meetings" : "Your introduction"}</h3>
+    <section className="space-y-3">
+      <h3 className="ui-text-section-label">{showForm ? "When can you meet?" : "Meeting details"}</h3>
       {meeting?.startAt ? (
         <div className={styles.notice}>
           <div className={styles.row}>
@@ -137,13 +137,13 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
       ) : null}
       {meeting?.status === "proposed" && meeting.proposedBy !== context.userId && !editing ? (
         <div className={styles.row}>
-          <ShellActionSurface variant="pill" className={styles.primary} disabled={busy} onClick={() => void act(autoOffer ? "accept_booking" : "agree")}>
+          <ShellActionSurface variant="pill" className={styles.handshakePrimary} disabled={busy} onClick={() => void act(autoOffer ? "accept_booking" : "agree")}>
             {autoOffer ? "Accept & book" : "Accept time"}
           </ShellActionSurface>
         </div>
       ) : null}
       {advisor && !editing && ["agreed", "review_ready", "retryable"].includes(meeting?.status ?? "") ? (
-        <ShellActionSurface variant="pill" className={styles.primary} disabled={busy}
+        <ShellActionSurface variant="pill" className={styles.handshakePrimary} disabled={busy}
           onClick={() => void act(meeting?.status === "review_ready" ? "confirm" : "prepare")}>
           {meeting?.status === "review_ready" ? "Confirm meeting" : "Review Calendar booking"}
         </ShellActionSurface>
@@ -151,7 +151,7 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
       {safeJoin || showCheck ? (
         <div className="flex flex-wrap items-center gap-2">
           {safeJoin ? <a href={safeJoin} target="_blank" rel="noreferrer"
-            className={cn(SHELL_PILL_TRIGGER_CLASSNAME, styles.primary, "ui-text-compact-button-label inline-flex min-h-11 items-center px-4")}>Join Google Meet</a> : null}
+            className={cn(SHELL_PILL_TRIGGER_CLASSNAME, styles.handshakePrimary, "ui-text-compact-button-label inline-flex min-h-11 items-center px-4")}>Join Google Meet</a> : null}
           {showCheck ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -176,12 +176,19 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
             <div className={styles.field}><span className="ui-text-form-label">Date</span><AdvisorDatePicker value={date} zone={zone} onChange={setDate} disabled={busy} /></div>
             <div className={styles.field}><span className="ui-text-form-label">Time</span><AdvisorTimePicker value={time} onChange={setTime} disabled={busy} /></div>
           </div>
-          <div className={styles.field}><span className="ui-text-form-label">Duration</span><AdvisorDurationPicker value={duration} onChange={setDuration} disabled={busy} /></div>
-          <div className={styles.field}><span className="ui-text-form-label">Time zone</span><AdvisorTimeZonePicker value={zone} deviceZone={deviceZone} date={date} time={time} onChange={setZone} disabled={busy} /></div>
+          <details>
+            <summary className="ui-text-button-label min-h-11 cursor-pointer py-3">
+              Meeting options · {duration} min · {zone.split("/").at(-1)?.replaceAll("_", " ")}
+            </summary>
+            <div className="space-y-3 pb-2">
+              <div className={styles.field}><span className="ui-text-form-label">Duration</span><AdvisorDurationPicker value={duration} onChange={setDuration} disabled={busy} /></div>
+              <div className={styles.field}><span className="ui-text-form-label">Time zone</span><AdvisorTimeZonePicker value={zone} deviceZone={deviceZone} date={date} time={time} onChange={setZone} disabled={busy} /></div>
+            </div>
+          </details>
           {automatic ? <p className="ui-text-helper-text">If the client accepts this exact time within 24 hours, Calendar sends the invite.</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
-            {editing ? <ShellActionSurface variant="pill" onClick={() => setEditId(undefined)} disabled={busy}>Back</ShellActionSurface> : null}
-            <ShellActionSurface variant="pill" type="submit" className={styles.primary} disabled={busy || !date || !time}>
+            {editing ? <ShellActionSurface variant="pill" onClick={() => setEditId(undefined)} disabled={busy}>Discard changes</ShellActionSurface> : null}
+            <ShellActionSurface variant="pill" type="submit" className={styles.handshakePrimary} disabled={busy || !date || !time}>
               {automatic ? "Propose & allow booking" : "Propose a time"}
             </ShellActionSurface>
           </div>

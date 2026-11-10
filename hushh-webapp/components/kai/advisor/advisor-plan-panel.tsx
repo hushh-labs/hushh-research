@@ -22,6 +22,7 @@ export function AdvisorPlanPanel({
   run: (work: () => Promise<unknown>) => Promise<void>;
 }) {
   const advisor = context.userId === review.advisorUserId;
+  const canStartPlan = review.status === "accepted";
   const introductionComplete = review.meeting?.status === "completed" ||
     review.pastMeetings?.some((meeting) => meeting.status === "completed");
   const [price, setPrice] = useState("");
@@ -78,7 +79,7 @@ export function AdvisorPlanPanel({
               {review.plan.cancellationTerms}
             </p>
           </div>
-          {!advisor ? (
+          {!advisor && canStartPlan ? (
             <>
               <label className={styles.row}>
                 <input
@@ -150,7 +151,7 @@ export function AdvisorPlanPanel({
             : "Available after the introduction."}
         </p>
       )}
-      {advisor && introductionComplete ? (
+      {advisor && introductionComplete && canStartPlan ? (
         <details>
           <summary className="ui-text-button-label">
             Offer or update a plan
@@ -200,7 +201,7 @@ export function AdvisorPlanPanel({
           </form>
         </details>
       ) : null}
-      {advisor ? (
+      {advisor && canStartPlan ? (
         <div className={styles.notice}>
           <p className="ui-text-helper-text">
             Set up payouts to offer a plan.

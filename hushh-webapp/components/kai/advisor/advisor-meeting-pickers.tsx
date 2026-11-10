@@ -15,7 +15,7 @@ const hours = Array.from({ length: 12 }, (_, value) => String(value + 1).padStar
 const minutes = Array.from({ length: 60 }, (_, value) => String(value).padStart(2, "0"));
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const menuClass = "rounded-[var(--app-card-radius-compact)] max-h-[min(11rem,var(--radix-select-content-available-height))]";
-const fieldClass = "min-h-11 w-full min-w-0";
+const fieldClass = "min-h-11 w-full min-w-0 ui-text-compact-button-label";
 
 export function AdvisorDatePicker({ value, zone, onChange, disabled }: {
   value: string; zone: string; onChange: (value: string) => void; disabled: boolean;
@@ -112,8 +112,9 @@ export function AdvisorTimePicker({ value, onChange, disabled }: {
     <Popover modal onOpenChange={(open) => { if (open) setDraft(clockParts(value)); }}>
       <PopoverTrigger asChild>
         <ShellActionSurface type="button" variant="pill" aria-label={value ? `Time, ${label}` : label}
-          disabled={disabled} className={`${fieldClass} justify-between ui-text-compact-button-label`}>
-          {label}<Clock aria-hidden className="size-4 shrink-0" />
+          disabled={disabled} className={fieldClass}>
+          <Clock aria-hidden className="size-4 shrink-0" />
+          {label}
         </ShellActionSurface>
       </PopoverTrigger>
       <PopoverContent align="end" withBackdrop={false} aria-label="Choose meeting time"
@@ -172,7 +173,7 @@ export function AdvisorTimeZonePicker({ value, deviceZone, date, time, onChange,
     <Popover modal open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <ShellActionSurface type="button" variant="pill" aria-label={`Time zone, ${selected.city}, ${selected.offset}`}
-          disabled={disabled} className={`${fieldClass} justify-between ui-text-compact-button-label`}>
+          disabled={disabled} className={`${fieldClass} justify-between`}>
           <span className="min-w-0 flex-1 truncate text-left">{selected.city}</span>
           <span className="shrink-0 ui-text-row-description">{selected.offset}</span>
           <ChevronDown aria-hidden className="size-4 shrink-0" />
@@ -188,8 +189,8 @@ export function AdvisorTimeZonePicker({ value, deviceZone, date, time, onChange,
               <CommandItem key={zone} value={zone}
                 keywords={[city, zone.replaceAll("_", " "), ...(zone === "Asia/Kolkata" ? ["Calcutta"] : [])]}
                 onSelect={() => { onChange(zone); setOpen(false); }}
-                className="min-h-9 rounded-lg">
-                {zone === value ? <Check aria-hidden className="size-3 shrink-0" /> : null}
+                className="min-h-9 rounded-lg data-[selected=true]:bg-[color:var(--app-accent-surface)] data-[selected=true]:text-foreground">
+                {zone === value ? <Check aria-hidden className="size-3 shrink-0 text-[color:var(--app-accent-deep)]" /> : null}
                 <span className="min-w-0 flex-1">
                   {city}
                   {zone === deviceZone ? <span className="block ui-text-helper-text">Device time zone</span> : null}

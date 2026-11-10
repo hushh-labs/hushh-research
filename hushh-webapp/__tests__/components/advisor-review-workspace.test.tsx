@@ -26,13 +26,16 @@ vi.mock("@/components/app-ui/kai-control-surface", () => ({
   KaiControlSurface: ({
     title,
     children,
+    footer,
   }: {
     title: ReactNode;
     children: ReactNode;
+    footer?: ReactNode;
   }) => (
     <section role="dialog" aria-label="Advisor review">
       <h1>{title}</h1>
       {children}
+      {footer}
     </section>
   ),
 }));
@@ -153,6 +156,7 @@ it("offers a Calendar recovery path without marking a failed booking as confirme
   render(
     <AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "View meeting" }));
   fireEvent.click(
     await screen.findByRole("button", { name: "Review Calendar booking" }),
   );
@@ -182,6 +186,7 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
   render(
     <AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "Advisor plan" }));
   await screen.findByRole("button", { name: "Check payment status" });
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
   expect(
@@ -202,10 +207,26 @@ it.each(["owner", "advisor"])("reads and refreshes the %s’s own connected Cale
     accounts: [{ account_id: "default", google_email: `${userId}@example.test`, status: "connected", connected: true, access_level: "manage" }],
   });
   render(<AdvisorWorkspace id={value.id} context={{ ...context, userId }} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Choose a time" }));
   expect(await screen.findByText(`${userId}@example.test`)).toBeVisible();
   expect(mocks.calendarStatus).toHaveBeenCalledWith("synthetic", userId);
   expect(screen.getByRole("link", { name: "Manage Calendar" })).toBeVisible();
   fireEvent.focus(window);
   expect(await screen.findByRole("link", { name: "Connect Calendar" })).toBeVisible();
   expect(screen.queryByText(`${userId}@example.test`)).toBeNull();
+});
+
+it("returns from meeting details to the review before closing the workspace", async () => {
+  const close = vi.fn();
+  mocks.view.mockResolvedValue({ ...value, status: "accepted", direction: "outgoing" });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }} onClose={close} />);
+  expect(await screen.findByRole("button", { name: "End advisor review" })).toBeVisible();
+  expect(screen.queryByRole("link", { name: "Connect Calendar" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Choose a time" }));
+  expect(await screen.findByRole("link", { name: "Connect Calendar" })).toBeVisible();
+  expect(unwindBackLayer("/ria/clients")).toBe(true);
+  expect(await screen.findByRole("button", { name: "Choose a time" })).toBeVisible();
+  expect(close).not.toHaveBeenCalled();
+  expect(unwindBackLayer("/ria/clients")).toBe(true);
+  expect(close).toHaveBeenCalledOnce();
 });
