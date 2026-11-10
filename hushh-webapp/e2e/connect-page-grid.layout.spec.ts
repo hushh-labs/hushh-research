@@ -191,6 +191,12 @@ for (const destination of ["mutual-list", "discovery"] as const) {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(page.getByTestId("fixture-person-profile")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Explore your network", exact: true })).toBeVisible();
+    if (destination === "discovery") {
+      const preview = page.locator("[data-person-profile-preview]");
+      await preview.getByRole("button", { name: "Back to previous screen", exact: true }).click();
+      await expect(preview).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Explore your network", exact: true })).toBeFocused();
+    }
   });
 }
 
@@ -310,11 +316,26 @@ for (const dark of [false, true]) {
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
       await settle(page, width);
+      const directory = page.getByTestId("connect-directory-group");
+      const explore = directory.getByRole("button", { name: "Explore your network", exact: true });
+      await expect(explore).toBeVisible();
+      await expect(page.getByRole("tablist", { name: "Connection views" }).getByText("Explore your network")).toHaveCount(0);
+      const [searchBox, exploreBox, firstResult] = await Promise.all([
+        directory.getByRole("textbox", { name: "Search people" }).boundingBox(),
+        explore.boundingBox(),
+        directory.getByText("Avery Stone", { exact: true }).boundingBox(),
+      ]);
+      expect(exploreBox!.height).toBeGreaterThanOrEqual(44);
+      expect(exploreBox!.y).toBeGreaterThanOrEqual(searchBox!.y + searchBox!.height);
+      expect(exploreBox!.y + exploreBox!.height).toBeLessThanOrEqual(firstResult!.y);
+      expect(exploreBox!.x).toBeGreaterThanOrEqual(searchBox!.x - 1);
+      expect(exploreBox!.x + exploreBox!.width).toBeLessThanOrEqual(searchBox!.x + searchBox!.width + 1);
       const workspaceBox = await page.locator("[data-connect-page]").boundingBox();
       expect(workspaceBox).not.toBeNull();
       expect(workspaceBox!.width).toBeLessThanOrEqual(728);
       if (width >= 768) expect(workspaceBox!.width).toBe(728);
       await page.getByRole("tab", { name: /My connections/ }).click();
+      await expect(explore).toBeHidden();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
       await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(0);
       const contactBadge = connectionGroup.getByRole("button", { name: "Via contacts" });

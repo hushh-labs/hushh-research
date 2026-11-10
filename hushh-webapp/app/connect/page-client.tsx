@@ -9,6 +9,7 @@ import {
   ContactsBookIcon,
   Check,
   ChevronDown,
+  ChevronRight,
   Loader2,
   RefreshCw,
   MoreHorizontal,
@@ -3115,6 +3116,27 @@ export default function ConnectPageClient() {
     </div>
   );
 
+  const exploreNetworkAction = (
+    <div className="flex justify-start sm:justify-end">
+      <Button
+        type="button"
+        variant="none"
+        effect="fade"
+        size="compact"
+        data-voice-control-id="connect-explore-network"
+        className={cn(
+          CONNECT_INLINE_BUTTON_CLASSNAME,
+          CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+          "!text-[color:var(--app-accent)]",
+        )}
+        onClick={(event) => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}
+      >
+        Explore your network
+        <ChevronRight aria-hidden="true" className="ml-1 size-4 shrink-0" />
+      </Button>
+    </div>
+  );
+
   if (mutualPersonRef) return <MutualConnectionsList key={`${userId}:${mutualPersonRef}`} personRef={mutualPersonRef} href={`${ROUTES.CONNECT}?${searchParams.toString()}`} />;
 
   const rememberDirectory = () => saveConnectListMemory(userId, "directory", {
@@ -3233,8 +3255,13 @@ export default function ConnectPageClient() {
                           <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
                         </TabsList>
                         <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
-                          <button type="button" data-voice-control-id="connect-explore-network" className="mb-3 min-h-11 rounded-full border px-4 text-sm font-medium" onClick={event => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}>Explore your network</button>
-                          {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
+                          {tab === "nearby" ? (
+                            <div className="space-y-3">
+                              <div>{directorySelector}</div>
+                              {exploreNetworkAction}
+                              <NearbyDirectories getIdToken={getIdToken} />
+                            </div>
+                          ) : (
                             <SettingsGroup
                               testId="connect-directory-group"
                               headingClassName={cn(
@@ -3393,6 +3420,7 @@ export default function ConnectPageClient() {
                                 </div>
                               }
                             >
+                              {exploreNetworkAction}
                               {loading && people.length === 0 ? (
                                 <SettingsRow
                                   title="Finding people…"
