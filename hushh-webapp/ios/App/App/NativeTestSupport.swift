@@ -107,6 +107,8 @@ enum NativeTestArtifactSanitizer {
 
 struct NativeTestConfiguration {
     let enabled: Bool
+    let inventoryReadOnlyMode: Bool
+    let inventoryReadOnlySessionKind: String
     let initialRoute: String?
     let expectedMarker: String?
     let expectedRoute: String?
@@ -127,28 +129,51 @@ struct NativeTestConfiguration {
         #else
         let testModeEnabled = false
         #endif
+        let readOnlyInventoryEnabled = testModeEnabled && NativeTestConfiguration.boolValue(
+            for: "-UITestInventoryReadOnly",
+            in: arguments
+        )
         enabled = testModeEnabled
-        initialRoute = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestInitialRoute", in: arguments) : nil
-        expectedMarker = NativeTestConfiguration.value(for: "-UITestExpectedMarker", in: arguments)
-        expectedRoute =
-            NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
-            ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
-        autoReviewerLogin = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
-        vaultPassphrase = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] : nil
-        expectedUserId = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_UID"] : nil
-        resetAppState = NativeTestConfiguration.boolValue(
+        inventoryReadOnlyMode = readOnlyInventoryEnabled
+        inventoryReadOnlySessionKind = readOnlyInventoryEnabled ? "authenticated-vault" : "none"
+        initialRoute = testModeEnabled && !readOnlyInventoryEnabled
+            ? NativeTestConfiguration.value(for: "-UITestInitialRoute", in: arguments)
+            : nil
+        expectedMarker = readOnlyInventoryEnabled
+            ? nil
+            : NativeTestConfiguration.value(for: "-UITestExpectedMarker", in: arguments)
+        expectedRoute = readOnlyInventoryEnabled
+            ? nil
+            : NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
+                ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
+        autoReviewerLogin = testModeEnabled && !readOnlyInventoryEnabled &&
+            NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
+        vaultPassphrase = testModeEnabled && !readOnlyInventoryEnabled
+            ? environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"]
+            : nil
+        expectedUserId = testModeEnabled && !readOnlyInventoryEnabled
+            ? environment["HUSHH_UI_TEST_REVIEWER_UID"]
+            : nil
+        resetAppState = !readOnlyInventoryEnabled && NativeTestConfiguration.boolValue(
             for: "-UITestResetAppState",
             in: arguments,
             defaultValue: true
         )
-        runUiFlows = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestRunUiFlows", in: arguments)
-        uiFlowRunId = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestUiFlowRunId", in: arguments) : nil
-        showStatusOverlay = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestShowStatusOverlay", in: arguments)
+        runUiFlows = testModeEnabled && !readOnlyInventoryEnabled &&
+            NativeTestConfiguration.boolValue(for: "-UITestRunUiFlows", in: arguments)
+        uiFlowRunId = testModeEnabled && !readOnlyInventoryEnabled
+            ? NativeTestConfiguration.value(for: "-UITestUiFlowRunId", in: arguments)
+            : nil
+        showStatusOverlay = testModeEnabled && !readOnlyInventoryEnabled &&
+            NativeTestConfiguration.boolValue(for: "-UITestShowStatusOverlay", in: arguments)
     }
 
     var injectedScript: String {
         let payload: [String: Any] = [
             "enabled": enabled,
+            "inventoryReadOnlyMode": inventoryReadOnlyMode,
+            "inventoryReadOnlySessionKind": inventoryReadOnlySessionKind,
+            "resetAppState": resetAppState,
             "initialRoute": initialRoute ?? "",
             "expectedMarker": expectedMarker ?? "",
             "expectedRoute": expectedRoute ?? "",
@@ -185,19 +210,36 @@ struct NativeTestConfiguration {
               return false;
             }
           }
+          var inventoryReadOnlyMode = config.inventoryReadOnlyMode === true;
           var uiFlowsOwnRouting =
+            !inventoryReadOnlyMode &&
             (bridge.runUiFlows === true || config.runUiFlows === true) &&
             (bridge._uiFlowsStarted === true ||
               bridge._uiFlowsRoutingOwned === true ||
               hasIncompleteUiFlowSession(config.uiFlowRunId));
           bridge.enabled = config.enabled === true;
-          bridge.autoReviewerLogin = config.autoReviewerLogin === true;
-          bridge.vaultPassphrase = config.vaultPassphrase || "";
-          bridge.expectedUserId = config.expectedUserId || "";
-          bridge.runUiFlows = bridge.runUiFlows === true || config.runUiFlows === true;
-          bridge.uiFlowRunId = config.uiFlowRunId || "";
+          bridge.inventoryReadOnlyMode = inventoryReadOnlyMode;
+          bridge.inventoryReadOnlySessionKind = config.inventoryReadOnlySessionKind || "none";
+          bridge.resetAppState = config.resetAppState === true;
+          bridge.autoReviewerLogin = !inventoryReadOnlyMode && config.autoReviewerLogin === true;
+          bridge.vaultPassphrase = inventoryReadOnlyMode ? "" : (config.vaultPassphrase || "");
+          bridge.expectedUserId = inventoryReadOnlyMode ? "" : (config.expectedUserId || "");
+          bridge.runUiFlows = !inventoryReadOnlyMode &&
+            (bridge.runUiFlows === true || config.runUiFlows === true);
+          bridge.uiFlowRunId = inventoryReadOnlyMode ? "" : (config.uiFlowRunId || "");
           bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting;
-          if (!uiFlowsOwnRouting) {
+          if (inventoryReadOnlyMode) {
+            if (bridge._reviewerTimer) window.clearInterval(bridge._reviewerTimer);
+            if (bridge._vaultTimer) window.clearInterval(bridge._vaultTimer);
+            if (bridge._uiFlowBootstrapTimer) window.clearInterval(bridge._uiFlowBootstrapTimer);
+            bridge._reviewerTimer = null;
+            bridge._vaultTimer = null;
+            bridge._uiFlowBootstrapTimer = null;
+            bridge.initialRoute = null;
+            bridge.expectedMarker = null;
+            bridge.expectedRoute = null;
+            bridge._uiFlowsRoutingOwned = false;
+          } else if (!uiFlowsOwnRouting) {
             bridge.initialRoute = config.initialRoute || null;
             bridge.expectedMarker = config.expectedMarker || null;
             bridge.expectedRoute = config.expectedRoute || null;
@@ -492,6 +534,7 @@ struct NativeTestConfiguration {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         let autoReviewerLogin = self.autoReviewerLogin ? "true" : "false"
+        let inventoryReadOnlyMode = self.inventoryReadOnlyMode ? "true" : "false"
 
         return """
         (function() {
@@ -499,6 +542,7 @@ struct NativeTestConfiguration {
           var expectedRoute = "\(expectedRoute)";
           var initialRoute = "\(initialRoute)";
           var autoReviewerLogin = \(autoReviewerLogin);
+          var inventoryReadOnlyMode = \(inventoryReadOnlyMode);
           var bridge = window.__HUSHH_NATIVE_TEST__ || {};
           var previousInitialRoute = bridge.initialRoute || "";
           function hasIncompleteUiFlowSession(runId) {
@@ -515,12 +559,33 @@ struct NativeTestConfiguration {
             }
           }
           var uiFlowsOwnRouting =
+            !inventoryReadOnlyMode &&
             bridge.runUiFlows === true &&
             (bridge._uiFlowsStarted === true ||
               bridge._uiFlowsRoutingOwned === true ||
               hasIncompleteUiFlowSession(bridge.uiFlowRunId));
+          if (inventoryReadOnlyMode) {
+            bridge.inventoryReadOnlyMode = true;
+            bridge.inventoryReadOnlySessionKind = "authenticated-vault";
+            bridge.resetAppState = false;
+            bridge.autoReviewerLogin = false;
+            bridge.vaultPassphrase = "";
+            bridge.expectedUserId = "";
+            bridge.runUiFlows = false;
+            bridge.uiFlowRunId = "";
+            if (bridge._reviewerTimer) window.clearInterval(bridge._reviewerTimer);
+            if (bridge._vaultTimer) window.clearInterval(bridge._vaultTimer);
+            if (bridge._uiFlowBootstrapTimer) window.clearInterval(bridge._uiFlowBootstrapTimer);
+            bridge._reviewerTimer = null;
+            bridge._vaultTimer = null;
+            bridge._uiFlowBootstrapTimer = null;
+          }
           bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting;
-          if (!uiFlowsOwnRouting) {
+          if (inventoryReadOnlyMode) {
+            bridge.expectedMarker = null;
+            bridge.expectedRoute = null;
+            bridge.initialRoute = null;
+          } else if (!uiFlowsOwnRouting) {
             bridge.expectedMarker = marker;
             bridge.expectedRoute = expectedRoute;
             bridge.initialRoute = initialRoute || null;
@@ -810,6 +875,7 @@ final class NativeVaultLayoutProbe {
                             "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
                             "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
+                            "vaultPasswordFocused", "vaultPasswordEditable",
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
                             "profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden",
                             "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
@@ -818,6 +884,8 @@ final class NativeVaultLayoutProbe {
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
                             "routeKind", "globalErrorKind", "phoneGate", "nativeChoiceBootstrap", "nativeChoiceReady", "nativeChoicePresented", "nativeChoiceBlocked",
                             "nativeChoiceCount", "nativeChoiceViewportWidth", "walletNativeMode", "walletWeb", "walletIntro",
+                            "nativeTestBridgePresent", "nativeTestEnabled", "nativeTestInventoryReadOnlyMode",
+                            "nativeTestInventorySessionKind", "nativeTestResetAppState", "nativeTestAutoReviewerLogin",
                             "nativeChoice0X", "nativeChoice0Y", "nativeChoice0Width", "nativeChoice0Height", "nativeChoice0Hit", "nativeChoice0Mode",
                             "nativeChoice1X", "nativeChoice1Y", "nativeChoice1Width", "nativeChoice1Height", "nativeChoice1Hit", "nativeChoice1Mode"])
             var payload = [String: Any]()
@@ -929,7 +997,18 @@ final class NativeVaultLayoutProbe {
           }
         } catch { /* Malformed public diagnostics grant no authority. */ }
       }
+      const surface = surfaces.length === 1 ? surfaces[0] : null;
+      const vaultPassword = surface?.querySelector('#unlock-passphrase') || null;
+      const nativeTest = window.__HUSHH_NATIVE_TEST__ || null;
       const result = {
+        nativeTestBridgePresent: !!nativeTest,
+        nativeTestEnabled: nativeTest?.enabled === true,
+        nativeTestInventoryReadOnlyMode: nativeTest?.inventoryReadOnlyMode === true,
+        nativeTestInventorySessionKind: ({ none: 1, 'authenticated-vault': 2 })[
+          nativeTest?.inventoryReadOnlySessionKind
+        ] || 0,
+        nativeTestResetAppState: nativeTest?.resetAppState === true,
+        nativeTestAutoReviewerLogin: nativeTest?.autoReviewerLogin === true,
         walletNativeMode: Math.max(0, ['checking', 'native', 'web', 'blocked'].indexOf(document.querySelector('[data-native-wallet-workspace]')?.getAttribute('data-native-wallet-workspace')) + 1),
         walletWeb: !!document.querySelector('[data-testid="wallet-card-browser"]'),
         walletIntro: !!document.querySelector('[data-testid="wallet-introduction"]'),
@@ -956,6 +1035,10 @@ final class NativeVaultLayoutProbe {
         unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted,
         methodClicks: receipt.methodClicks, methodPointerUps: receipt.methodPointerUps,
         passphraseFields: document.querySelectorAll('#unlock-passphrase').length,
+        // Boolean-only focus/editability diagnostics for the authored public
+        // Vault field. Never inspect or return its value or other field content.
+        vaultPasswordFocused: Boolean(vaultPassword && document.activeElement === vaultPassword),
+        vaultPasswordEditable: Boolean(vaultPassword && !vaultPassword.disabled && !vaultPassword.readOnly && !vaultPassword.closest('[inert]')),
         dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]')),
         dockFailureStage: finite(dockFailure?.dataset.nativeDockFailureStage),
         dockFailureCode: finite(dockFailure?.dataset.nativeDockFailureCode)
@@ -1011,7 +1094,6 @@ final class NativeVaultLayoutProbe {
           chatWidth: rect.width, chatHeight: rect.height
         });
       }
-      const surface = surfaces.length === 1 ? surfaces[0] : null;
       const scroll = surface?.querySelector('[data-vault-flow-content]');
       const recovery = scroll?.querySelector('[data-testid="vault-use-recovery-key-escape"]');
       if (surface && scroll) {

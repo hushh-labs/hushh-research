@@ -14,19 +14,51 @@ struct NativeWalletTile: Decodable, Identifiable {
         holder.utf16.count <= 120 && expiry.utf16.count <= 7 && (last4.isEmpty || last4.range(of: "^[0-9]{4}$", options: .regularExpression) != nil)
     }
 }
+struct NativeWalletVisitor: Decodable {
+    let name: String; let headline: String; let organisation: String; let location: String; let summary: String
+    let skills: [String]; var portraitData: String?
+    var valid: Bool {
+        [name, headline, organisation, location].allSatisfy { $0.utf16.count <= 512 } && summary.utf16.count <= 4096 &&
+            skills.count <= 64 && skills.allSatisfy { NativeDrawerProjection.text($0, 256) } &&
+            (portraitData == nil || portraitData!.utf16.count <= 100_000 && portraitData!.range(of: "^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$", options: .regularExpression) != nil)
+    }
+}
+struct NativeWalletDetailNavigation: Decodable {
+    let sectionId: String; let allId: String; let previousId: String; let nextId: String; let addId: String
+    let position: Int; let total: Int
+    var actionIds: [String] { [allId, previousId, nextId, addId] }
+    var valid: Bool {
+        let ids = [sectionId] + actionIds
+        return ids.allSatisfy(NativeDrawerIdentity.identifier) && Set(ids).count == ids.count &&
+            position > 0 && position <= total && total <= 100
+    }
+}
 struct NativeWalletCollection: Decodable {
     let cards: [NativeWalletTile]; let addId: String; let addEnabled: Bool
-    var accessId: String?
+    var accessId: String?; var sharedTabId: String?; var view: String?
     let selectedId: String?; let detailVisitId: String?; let closeId: String; let detailTitle: String; let detailBusy: Bool
     var detailQrData: String?; var detailImageData: String?
+    var navigation: NativeWalletDetailNavigation?
+    var visitor: NativeWalletVisitor?
     var valid: Bool {
         let ids = cards.map(\.id) + [addId, closeId] + (accessId.map { [$0] } ?? [])
-        return [detailQrData, detailImageData].allSatisfy { $0 == nil || Self.imageSource($0!) != nil } && cards.count <= 100 && cards.allSatisfy(\.valid) && ids.allSatisfy(NativeDrawerIdentity.identifier) &&
+        return (visitor == nil || visitor!.valid && navigation == nil && cards.contains(where: { $0.id == selectedId && ["profile", "nws"].contains($0.kind) })) &&
+            (navigation == nil || navigation!.valid && navigation!.total == cards.count && selectedId != nil && selectedId != accessId &&
+            !([navigation!.sectionId] + navigation!.actionIds).contains(where: { ids.contains($0) })) &&
+            (sharedTabId == nil || NativeDrawerIdentity.identifier(sharedTabId!)) && (view == nil || ["cards", "sharing"].contains(view!)) &&
+            (view != "sharing" || selectedId == nil && detailVisitId == nil) &&
+            [detailQrData, detailImageData].allSatisfy { $0 == nil || Self.imageSource($0!) != nil } && cards.count <= 100 && cards.allSatisfy(\.valid) && ids.allSatisfy(NativeDrawerIdentity.identifier) &&
             Set(ids).count == ids.count && detailTitle.utf16.count <= 256 && (selectedId == nil ? detailVisitId == nil : detailVisitId.map(NativeDrawerIdentity.identifier) == true && (selectedId == accessId || cards.contains { $0.id == selectedId }))
     }
     static func closed(_ value: [String: Any]) -> Bool {
-        guard Set(value.keys).isSubset(of: ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "accessId"]),
+        guard Set(value.keys).isSubset(of: ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "accessId", "sharedTabId", "view", "navigation", "visitor"]),
               let cards = value["cards"] as? [[String: Any]] else { return false }
+        if let raw = value["navigation"] {
+            guard let nav = raw as? [String: Any], Set(nav.keys) == ["sectionId", "allId", "previousId", "nextId", "addId", "position", "total"] else { return false }
+        }
+        if let raw = value["visitor"] {
+            guard let visitor = raw as? [String: Any], Set(visitor.keys).isSubset(of: ["name", "headline", "organisation", "location", "summary", "skills", "portraitData"]) else { return false }
+        }
         return cards.allSatisfy { Set($0.keys).isSubset(of: ["id", "kind", "title", "subtitle", "network", "last4", "holder", "expiry", "imageData", "overlayDetails"]) }
     }
     static func imageSource(_ value: String) -> CGImageSource? {
@@ -55,6 +87,7 @@ struct NativeWalletWorkspaceBody: View {
     @State private var scrollingFromPerson = false
     var body: some View {
         if let wallet = model.state.wallet {
+            let isSharing = wallet.view == "sharing"
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     HStack {
@@ -72,6 +105,7 @@ struct NativeWalletWorkspaceBody: View {
                                 destructive: nil, selected: nil, pending: nil, artworkId: "security", chevron: true), accentHex: model.state.accentHex)
                         }.buttonStyle(.plain).disabled(model.pending != nil || wallet.selectedId != nil).accessibilityIdentifier("native-wallet-access")
                     }
+                    if !isSharing {
                     ForEach(model.state.wallet?.selectedId == nil ? model.state.sections : []) { section in
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(section.rows) { row in
@@ -80,19 +114,41 @@ struct NativeWalletWorkspaceBody: View {
                             }
                         }
                     }
-                    if let tabs = model.state.tabs {
-                        Picker(tabs.label, selection: Binding(get: { tabs.options.first(where: \.selected)?.id ?? "" }, set: { model.choice("row", row: $0) })) {
-                            ForEach(tabs.options, id: \.id) { Text($0.label).tag($0.id) }
-                        }.pickerStyle(.segmented)
                     }
+                    if let tabs = model.state.tabs {
+                        NativeWorkspaceTabStrip(tabs: tabs, model: model, identifier: "segmented-tabs:wallet")
+                    }
+                    if isSharing {
+                        VStack(alignment: .leading, spacing: 18) {
+                            ForEach(model.state.sections) { section in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
+                                    VStack(spacing: 0) {
+                                        ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
+                                            if row.readOnly == true { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex).accessibilityElement(children: .combine) }
+                                            else {
+                                                Button { model.choice("row", row: row.id) } label: { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex) }
+                                                    .buttonStyle(.plain).disabled(!row.enabled || row.pending == true || model.pending != nil)
+                                                    .accessibilityLabel(row.label).accessibilityValue([row.detail, row.trailing].compactMap { $0 }.joined(separator: ", "))
+                                                    .accessibilityIdentifier("native-wallet-shared-row-\(row.id)")
+                                            }
+                                            if index < section.rows.count - 1 { Divider().padding(.horizontal, 16) }
+                                        }
+                                    }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                                }
+                            }
+                        }.accessibilityIdentifier("native-wallet-shared-history")
+                    } else {
                     if wallet.cards.filter({ $0.kind == "payment" }).isEmpty {
                         Text("No payment cards yet").foregroundStyle(.secondary)
                     }
                     collection(wallet.cards.filter { $0.kind == "payment" })
                     Text("Your One cards").font(.headline).accessibilityAddTraits(.isHeader)
                     collection(wallet.cards.filter { $0.kind != "payment" })
-                }.padding(.horizontal, model.state.frame.gutter).padding(.vertical, 16)
-            }.accessibilityIdentifier("native-wallet-collection")
+                    }
+                }.padding(.horizontal, model.state.frame.gutter).padding(.top, 16).padding(.bottom, 16 + model.state.frame.bottomClearance)
+            }.background(Color(uiColor: model.canvasColor)).accessibilityIdentifier(isSharing ? "native-wallet-shared-history-scroll" : "native-wallet-collection")
+                .contentMargins(.bottom, model.state.frame.bottomClearance, for: .scrollIndicators)
                 .onScrollPhaseChange { _, phase in scrollingFromPerson = phase == .interacting || phase == .decelerating }
                 .onScrollGeometryChange(for: CGFloat.self, of: { max(0, $0.contentOffset.y + $0.contentInsets.top) }) { _, value in model.scrolled?(value, scrollingFromPerson) }
         }
@@ -129,8 +185,11 @@ struct NativeWalletWorkspaceBody: View {
     let closeId: String
     @Published var card: NativeWalletTile?
     @Published var sections: [NativeDrawerSection] = []
+    @Published var navigation: NativeWalletDetailNavigation?
+    @Published var visitor: NativeWalletVisitor?
     @Published var feedback: NativePresentationFeedback?
     var dismissFeedback: ((String, String) -> Void)?
+    var activateFeedback: ((String, String, String) -> Void)?
     @Published var qr: UIImage?
     @Published var image: UIImage?
     private var qrSource: String?
@@ -141,26 +200,34 @@ struct NativeWalletWorkspaceBody: View {
     @Published var busy = false
     @Published var enabled = false
     @Published var accentHex = ""
+    @Published var canvasHex = ""
     @Published var appearance = "light"
+    @Published var gutter: CGFloat = 16
+    var canvasColor: UIColor { HushhNativeControlAppearance.color(canvasHex) ?? .systemGroupedBackground }
     var action: ((String, String?) -> Void)?
     init(_ state: NativeWorkspaceProjection, wallet: NativeWalletCollection, visit: String) {
         self.visit = visit; closeId = wallet.closeId; update(state, wallet: wallet)
     }
     func update(_ state: NativeWorkspaceProjection, wallet: NativeWalletCollection) {
         guard let nextVisit = wallet.detailVisitId else { return }; visit = nextVisit
-        card = wallet.cards.first { $0.id == wallet.selectedId }; sections = state.sections
+        card = wallet.cards.first { $0.id == wallet.selectedId }; sections = state.sections; navigation = wallet.navigation; visitor = wallet.visitor
         if qrSource != wallet.detailQrData { qrSource = wallet.detailQrData; qr = qrSource.flatMap(NativeWalletCollection.image) }
         if imageSource != wallet.detailImageData { imageSource = wallet.detailImageData; image = imageSource.flatMap(NativeWalletCollection.image) }
-        feedback = state.feedback; search = state.search; title = wallet.detailTitle; busy = wallet.detailBusy; accentHex = state.accentHex; appearance = state.appearance
+        feedback = state.feedback; search = state.search; title = wallet.detailTitle; busy = wallet.detailBusy
+        accentHex = state.accentHex; canvasHex = state.canvasHex ?? ""; appearance = state.appearance; gutter = state.frame.gutter
     }
     func choose(_ id: String, from origin: String, text: String? = nil) { guard origin == visit, enabled, !busy else { return }; action?(id, text) }
-    func clear() { enabled = false; card = nil; sections = []; search = nil; editor = nil; feedback = nil; dismissFeedback = nil; qr = nil; image = nil; qrSource = nil; imageSource = nil; title = ""; action = nil }
+    func navigationEnabled(_ id: String) -> Bool {
+        enabled && !busy && sections.first(where: { $0.id == navigation?.sectionId })?.rows.contains(where: { $0.id == id && $0.enabled && $0.pending != true }) == true
+    }
+    func clear() { enabled = false; card = nil; sections = []; navigation = nil; visitor = nil; search = nil; editor = nil; feedback = nil; dismissFeedback = nil; activateFeedback = nil; qr = nil; image = nil; qrSource = nil; imageSource = nil; title = ""; action = nil }
 }
 
 @available(iOS 26.0, *)
 struct NativeWalletCardDetailBody: View {
     @ObservedObject var model: NativeWalletDetailModel
     @State private var query = ""
+    @State private var showingQR = false
     @FocusState private var searching: Bool
     var body: some View {
         let origin = model.visit
@@ -174,12 +241,18 @@ struct NativeWalletCardDetailBody: View {
                         .disabled(!model.enabled || model.busy).accessibilityIdentifier("native-wallet-detail-search")
                         .onAppear { query = search.query }
                 }
-                if let image = model.image { Image(uiImage: image).resizable().scaledToFit().listRowBackground(Color.clear).accessibilityLabel("Your card") }
+                if let visitor = model.visitor {
+                    NativeWalletVisitorBody(visitor: visitor).listRowBackground(Color.clear)
+                } else if let image = model.image { Image(uiImage: image).resizable().scaledToFit().listRowBackground(Color.clear).accessibilityLabel("Your card") }
                 else if let card = model.card {
                     NativeWalletCardArtwork(card: card).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 12, trailing: 0))
                 }
-                if let qr = model.qr { Image(uiImage: qr).interpolation(.none).resizable().scaledToFit().frame(maxWidth: 240).frame(maxWidth: .infinity).accessibilityLabel("Your card QR code") }
-                ForEach(model.sections) { section in
+                if let qr = model.qr {
+                    DisclosureGroup("QR code", isExpanded: $showingQR) {
+                        Image(uiImage: qr).interpolation(.none).resizable().scaledToFit().frame(maxWidth: 240).frame(maxWidth: .infinity).accessibilityLabel("Your card QR code")
+                    }.accessibilityIdentifier("native-wallet-detail-qr")
+                }
+                ForEach(model.sections.filter { $0.id != model.navigation?.sectionId }) { section in
                     Section {
                         ForEach(section.rows) { row in
                             if row.readOnly == true { NativeSettingsRowLabel(row: row, accentHex: model.accentHex) }
@@ -191,27 +264,100 @@ struct NativeWalletCardDetailBody: View {
                         }.listRowInsets(EdgeInsets())
                     } header: { if let title = section.title { Text(title) } }
                 }
-            }.listStyle(.insetGrouped).accessibilityIdentifier("native-wallet-detail-content")
+            }.listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(Color(uiColor: model.canvasColor))
+                .accessibilityIdentifier("native-wallet-detail-content")
             }
-            }.overlay(alignment: .top) {
+            // Reserve space below the navigation bar so feedback never sits
+            // on top of native Wallet detail controls.
+            }.safeAreaInset(edge: .top, spacing: 8) {
                 if let feedback = model.feedback {
-                    NativeTextFeedbackBanner(message: feedback.message, tone: feedback.tone, dismissible: feedback.dismissible) { model.dismissFeedback?(feedback.id, origin) }
-                        .padding(.horizontal, 16).padding(.top, 8)
+                    NativeTextFeedbackBanner(message: feedback.message, tone: feedback.tone, dismissible: feedback.dismissible,
+                        actionLabel: feedback.actionLabel, dismiss: { model.dismissFeedback?(feedback.id, origin) },
+                        activate: { if let token = feedback.actionToken { model.activateFeedback?(feedback.id, origin, token) } })
+                        .padding(.horizontal, model.gutter).padding(.top, 8)
                 }
             }.navigationTitle(model.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { model.choose(model.closeId, from: origin) }
-                            .disabled(model.busy || !model.enabled)
-                            .accessibilityIdentifier("native-wallet-detail-close")
+                    if let editor = model.editor {
+                        NativeWalletProfileActions(model: editor)
+                    } else {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { model.choose(model.closeId, from: origin) }
+                                .disabled(model.busy || !model.enabled)
+                                .accessibilityIdentifier("native-wallet-detail-close")
+                        }
+                        if let nav = model.navigation {
+                            ToolbarItemGroup(placement: .bottomBar) {
+                                Button("All cards") { model.choose(nav.allId, from: origin) }
+                                    .disabled(!model.navigationEnabled(nav.allId)).accessibilityIdentifier("native-wallet-detail-all")
+                                Spacer()
+                                Button("Previous card", systemImage: "chevron.left") { model.choose(nav.previousId, from: origin) }
+                                    .labelStyle(.iconOnly).disabled(!model.navigationEnabled(nav.previousId)).accessibilityIdentifier("native-wallet-detail-previous")
+                                Text("\(nav.position) / \(nav.total)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    .accessibilityLabel("Card \(nav.position) of \(nav.total)").accessibilityIdentifier("native-wallet-detail-position")
+                                Button("Next card", systemImage: "chevron.right") { model.choose(nav.nextId, from: origin) }
+                                    .labelStyle(.iconOnly).disabled(!model.navigationEnabled(nav.nextId)).accessibilityIdentifier("native-wallet-detail-next")
+                                Spacer()
+                                Button("Add a card", systemImage: "plus") { model.choose(nav.addId, from: origin) }
+                                    .labelStyle(.iconOnly).disabled(!model.navigationEnabled(nav.addId)).accessibilityIdentifier("native-wallet-detail-add")
+                            }
+                        }
                     }
                 }
-        }.tint(Color(uiColor: HushhNativeControlAppearance.color(model.accentHex) ?? .label))
+        }.background(Color(uiColor: model.canvasColor))
+            .tint(Color(uiColor: HushhNativeControlAppearance.color(model.accentHex) ?? .label))
             .preferredColorScheme(model.appearance == "dark" ? .dark : .light)
             .accessibilityIdentifier("native-wallet-card-detail")
             .onChange(of: model.search?.id) { _, _ in searching = false; query = model.search?.query ?? "" }
+            .onChange(of: model.visit) { _, _ in showingQR = false }
             .onChange(of: model.search?.query) { _, value in if !searching { query = value ?? "" } }
+    }
+}
+
+private struct NativeWalletVisitorBody: View {
+    let visitor: NativeWalletVisitor
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if !visitor.name.isEmpty || !visitor.headline.isEmpty {
+                HStack(alignment: .top, spacing: 16) {
+                    NativeProfilePortraitImage(data: visitor.portraitData,
+                        initials: visitor.name.split(whereSeparator: \.isWhitespace).prefix(2).compactMap(\.first).map(String.init).joined().uppercased())
+                        .frame(width: 64, height: 64).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !visitor.name.isEmpty {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(visitor.name).font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                                Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(.tint)
+                                    .accessibilityLabel("Hushh profile badge, not identity verification")
+                            }
+                        }
+                        if !visitor.headline.isEmpty { Text(visitor.headline).font(.subheadline).foregroundStyle(.secondary) }
+                    }
+                }
+            }
+            if !visitor.organisation.isEmpty || !visitor.location.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !visitor.organisation.isEmpty { Label(visitor.organisation, systemImage: "briefcase") }
+                    if !visitor.location.isEmpty { Label(visitor.location, systemImage: "mappin.and.ellipse") }
+                }.font(.subheadline).foregroundStyle(.secondary)
+            }
+            if !visitor.summary.isEmpty { Text(visitor.summary).font(.body).lineSpacing(3).fixedSize(horizontal: false, vertical: true) }
+            if !visitor.skills.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Skills").font(.headline).accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), alignment: .leading)], alignment: .leading, spacing: 8) {
+                        ForEach(Array(visitor.skills.enumerated()), id: \.offset) { _, skill in
+                            Text(skill).font(.footnote).padding(.horizontal, 10).padding(.vertical, 7)
+                                .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+                        }
+                    }
+                }
+            }
+        }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("native-wallet-visitor-profile")
     }
 }
 

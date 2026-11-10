@@ -19,7 +19,7 @@ import {
   liveMirrorStatus,
   type LiveMirrorPreviewRow,
 } from "@/lib/pkm/live-mirror-presentation";
-import { useLiveMirrorView } from "@/lib/pkm/use-live-mirror-view";
+import { useLiveMirrorView, type LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
 
 const HIDDEN_PREDICATES = new Set<string>(LIVE_MIRROR_HIDDEN_PREDICATES);
 
@@ -74,16 +74,25 @@ function ConflictRow({ conflict, now }: { conflict: LiveMirrorConflict; now: str
  * presentation module, so a value, state or status reads the same on each and
  * a lock or account switch clears it everywhere. Locked shows only a status line.
  */
-export function LiveMirrorPreview({
-  onNavigate,
-  showOpenMemory = true,
-}: {
+type LiveMirrorPreviewProps = {
   /** Runs before a link navigates, so a sheet can close first. */
   onNavigate?: () => void;
   /** Off where the preview already sits inside Memory. */
   showOpenMemory?: boolean;
-}) {
+  /** A retained owner can supply its already subscribed view. */
+  mirror?: LiveMirrorViewState;
+};
+
+export function LiveMirrorPreview(props: LiveMirrorPreviewProps) {
+  return props.mirror ? <LiveMirrorPreviewBody {...props} mirror={props.mirror} /> : <ConnectedLiveMirrorPreview {...props} />;
+}
+
+function ConnectedLiveMirrorPreview(props: LiveMirrorPreviewProps) {
   const mirror = useLiveMirrorView();
+  return <LiveMirrorPreviewBody {...props} mirror={mirror} />;
+}
+
+function LiveMirrorPreviewBody({ onNavigate, showOpenMemory = true, mirror }: LiveMirrorPreviewProps & { mirror: LiveMirrorViewState }) {
   const locked = mirror.status === "locked";
   const view = mirror.status === "ready" ? mirror.view : null;
   const status = view ? liveMirrorStatus(view.overall, view) : liveMirrorStatus(locked ? "locked" : "loading");

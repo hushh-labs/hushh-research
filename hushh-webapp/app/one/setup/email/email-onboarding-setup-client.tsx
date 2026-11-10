@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import {
   AppPageContentRegion,
@@ -34,7 +36,8 @@ import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profil
 
 export function EmailOnboardingSetupClient() {
   const { user, userId } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const nativeFrame = useRef<HTMLDivElement | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [loadState, setLoadState] = useState<PreferenceLoadState>("loading");
   const [saving, setSaving] = useState(false);
@@ -212,8 +215,8 @@ export function EmailOnboardingSetupClient() {
 
   if (!coordinator.isReady) return <SetupCapabilityLoading label="One moment…" />;
 
-  return (
-    <AppPageShell
+  const content = (
+    <AppPageShell ref={nativeFrame}
       as="main"
       width="reading"
       headerContentSpacing="compact"
@@ -283,4 +286,18 @@ export function EmailOnboardingSetupClient() {
       />
     </AppPageShell>
   );
+  if (!isVaultUnlocked || !customNativePresentationEnabled()) return content;
+  const ready = loadState === "ready" || coordinator.operationallyReady;
+  const sections: NativeWorkspaceSurfaceSection[] = [
+    { key: "identity-context", rows: [{ key: "identity-sender", label: "Identity checks", detail: `Requests must come from ${user.email || "your verified mail"}.` }] },
+    { key: "preparation", title: "Response preparation", rows: [
+      { key: "preparation-description", label: "One finds requests. You approve every reply." },
+      { key: "preparation-preference", label: "Prepare automatically", detail: loadState === "error" ? "Preference unavailable. Retry before finishing." : enabled ? "Enabled for one@hushh.ai" : isApplePrivateRelayEmail(user.email) ? "Private Relay needs a verified non-relay sending address" : "No mail requests will trigger One",
+        enabled: !saving && loadState === "ready", pending: saving || loadState === "loading", toggle: { value: enabled, change: handleToggle } },
+      ...(loadState === "error" ? [{ key: "retry-preference", label: "Retry preference", detail: "Load the authoritative account preference again.", run: loadPreference }] : []),
+    ] },
+    { key: "setup-terminal", rows: [{ key: "setup-complete", label: ready ? "Finish KYC setup" : "Skip KYC setup", enabled: !saving && !coordinator.isSettling, pending: saving || coordinator.isSettling,
+      detail: ready ? "This capability is ready. You can return to setup." : "You can return to this setup any time.", run: () => ready ? coordinator.finish() : coordinator.skip() }] },
+  ];
+  return <NativeWorkspaceRoute owner={userId} workspace="setup" path="/one/setup/email" title="Identity checks" active frame={nativeFrame} sections={sections}>{content}</NativeWorkspaceRoute>;
 }

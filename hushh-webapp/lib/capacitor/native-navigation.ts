@@ -187,7 +187,7 @@ export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRe
   }, [enabled, forwardedRef, release, owningLayer]);
 }
 
-export function useNativeNavigation({ enabled, visible, interactionEnabled = true, selected, feedAttention, appearance, accentHex, foregroundHex, column, onSelect }: NativeControlAppearance & {
+export function useNativeNavigation({ enabled: requestedEnabled, visible, interactionEnabled = true, selected, feedAttention, appearance, accentHex, foregroundHex, column, onSelect }: NativeControlAppearance & {
   enabled: boolean;
   visible: boolean;
   interactionEnabled?: boolean;
@@ -196,10 +196,16 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   column: NativeNavigationColumn | null;
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
+  // The native tab bar and native route renderer are one presentation mode.
+  // When the coherent renderer is disabled, leave the complete React bar in
+  // the slot instead of installing a native control over a different shell.
+  const [nativeAdmissionFailed, setNativeAdmissionFailed] = useState(false);
+  const enabled = requestedEnabled && customNativePresentationEnabled() && !nativeAdmissionFailed;
   const [supported, setSupported] = useState(false);
   const [interactionIsolation, setInteractionIsolation] = useState(false);
   const [ready, setReady] = useState(false);
   const [discovering, setDiscovering] = useState(() => enabled && isNativeIOS());
+  const [statePending, setStatePending] = useState(false);
   const [height, setHeight] = useState(52);
   const [scrollFailed, setScrollFailed] = useState(false);
   const [privacyAdmissionRevision, setPrivacyAdmissionRevision] = useState(0);
@@ -228,6 +234,15 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     }
     setNativeBaseAperture("bottom-navigation", state.revision, frame);
     apertureRevision.current = state.revision;
+  }, []);
+  const fallBackToReact = useCallback(() => {
+    setNativeAdmissionFailed(true);
+    setSupported(false);
+    setReady(false);
+    setDiscovering(false);
+    setStatePending(false);
+    nativeScrollFollowing = false;
+    setInstalled(false);
   }, []);
   select.current = onSelect;
 
@@ -368,9 +383,22 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     };
   }, [enabled, applyAperture]);
 
+  useEffect(() => {
+    if (enabled) return;
+    setDiscovering(false);
+    setSupported(false);
+    setReady(false);
+    setStatePending(false);
+    setInstalled(false);
+  }, [enabled]);
+
   useLayoutEffect(() => {
     const retainedColumn = column ?? current.current?.column;
-    if (!supported || !documentId || !retainedColumn || !/^#[\da-f]{6}$/i.test(accentHex) || !/^#[\da-f]{6}$/i.test(foregroundHex)) return;
+    if (!supported || !documentId || !retainedColumn || !/^#[\da-f]{6}$/i.test(accentHex) || !/^#[\da-f]{6}$/i.test(foregroundHex)) {
+      if (!ready) setStatePending(false);
+      return;
+    }
+    if (!ready) setStatePending(true);
     const nextInteractionEnabled = visible && column !== null && interactionEnabled && !overlayBlocked;
     // Legacy wrappers lack a separate interaction fence: retain their safe hide
     // behavior. Negotiated wrappers retain presentation during overlay isolation.
@@ -389,13 +417,18 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       if (!confirmed || cancelled || current.current !== state) return undefined;
       return sendState({ ...state, ...nativePresentationAdmission() }, () => !cancelled && current.current === state);
     }).then((result) => {
-      if (!result || result.presentationApplied === false) return;
-      if (cancelled || current.current !== state || !result.supported) return;
+      if (cancelled || current.current !== state) return;
+      if (!result || result.presentationApplied === false || result.supported !== true) {
+        if (ready) console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
+        else fallBackToReact();
+        return;
+      }
       setHeight(checkedHeight(result.contentHeight));
       nativeBottomContentHeight = checkedHeight(result.contentHeight);
       nativeBottomInset = checkedHeight(result.bottomInset);
       applyAperture(result, state);
       setReady(true);
+      setStatePending(false);
       setInstalled(true);
       nativeScrollFollowing = !!scrollDelivery.current && !scrollFailed && result.scrollFollowing === true;
       if (nativeScrollFollowing && scrollDelivery.current && Number.isSafeInteger(result.scrollGeneration) &&
@@ -409,12 +442,16 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       }
       publish();
     }).catch(() => {
-      // Never expose duplicate DOM tabs after a previously accepted native installation.
-      // No provider/session content enters this diagnostic.
+      if (cancelled) return;
+      // A failed initial acknowledgement must restore the live React bar. The
+      // effect cleanup retires any partially installed native state. Once a
+      // native bar is accepted, keep its slot reserved on uncertain updates
+      // instead of exposing a duplicate React bar over it.
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
+      if (!ready) fallBackToReact();
     });
     return () => { cancelled = true; };
-  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision, column, scrollFailed, privacyAdmissionRevision]);
+  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, fallBackToReact, regionRevision, column, scrollFailed, privacyAdmissionRevision]);
 
-  return { ready, height, reserved: ready || discovering || supported };
+  return { ready, height, reserved: ready || discovering || statePending };
 }

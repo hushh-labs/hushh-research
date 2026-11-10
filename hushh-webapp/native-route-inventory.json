@@ -45,7 +45,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/circle/join?code=native-invitation-fixture",
       "expectedMarker": "native-route-circle-join",
-      "expectedRoute": "/circle/join",
+      "expectedRoute": "/circle/join?code=native-invitation-fixture",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
       "allowedDataStates": [
@@ -1418,14 +1418,15 @@
       "route": "/ria",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria",
-      "expectedMarker": "native-route-ria-home",
-      "expectedRoute": "/ria",
+      "expectedMarker": "ria-profile-page",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded",
         "unavailable-valid"
-      ]
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/ria/claim",

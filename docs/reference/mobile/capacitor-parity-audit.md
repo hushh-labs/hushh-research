@@ -23,7 +23,7 @@ Founder-language note: this audit is one of the concrete proofs behind the platf
 - Route governance reference: `docs/reference/architecture/route-contracts.md`
 - Frontend/native surface map: `hushh-webapp/frontend-native-surface-map.generated.json`
 - Native route inventory: `hushh-webapp/native-route-inventory.json`
-- Native route evidence:
+- Native route evidence (generated, ignored local files or sanitized CI artifacts; never commit run reports):
   - `hushh-webapp/native-ios-parity-report.json`
   - `hushh-webapp/native-android-parity-report.json`
 - Mobile parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
@@ -59,10 +59,12 @@ Current policy keeps the full visible app surface in scope, including:
 - `/developers`
 - public/auth content routes
 
-Calendar is intentionally web-only until the app has a native browser/deep-link
-OAuth return handoff. `/one/calendar` and `/one/setup/calendar` must remain
-explicit exclusions rather than presenting a native Google authorization flow
-that cannot complete.
+Calendar is native-required in `native-route-inventory.json`. Its iOS and
+Android Google authorization uses the registered `HushhAuth.connectCalendar`
+bridge, so the provider flow does not depend on an embedded WebView or a
+browser/deep-link return. The Calendar workspace content remains React-owned;
+native controls, nested states, operation outcomes and return paths still need
+current-candidate qualification under the adoption guide.
 
 Files is also initially web-only: `/one/files` requires native acceptance for
 streaming transfers, file-picker behavior, owner key continuity, and direct-pod
@@ -73,10 +75,10 @@ Current inventory policy:
 - Route counts and the complete exclusions list are owned by
   `native-route-inventory.json`; `/circle/join` is now native-required.
 - Explicit exclusions include `/blog`, `/blog/[slug]`,
-  `/developers`, `/kai/optimize`, `/oauth/authorize`, `/one/calendar`,
+  `/developers`, `/kai/optimize`, `/oauth/authorize`,
   `/one/kai/optimize`, `/one/location/check-in/hotel`, `/one/profile/google/oauth/return`,
   `/one/profile/integrations`, `/one/profile/pkm-agent-lab`, `/one/puppy`,
-  `/one/setup/calendar`, `/research`, `/research/protocol`, and `/welcome`.
+  `/research`, `/research/protocol`, and `/welcome`.
 - New parity exceptions are not accepted unless this document and the route inventory change in the same PR.
 
 Nested route families are classified explicitly even when they render through a shared web workspace. The profile family uses `/one/profile/<panel>` routes with the shared `native-route-profile` marker; dynamic detail identifiers remain query-backed fixtures in `native-route-inventory.json` so Capacitor static export does not require unbounded dynamic paths.

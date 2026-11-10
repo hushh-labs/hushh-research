@@ -11,6 +11,16 @@
     "route_docs": "../docs/reference/architecture/route-contracts.md",
     "mobile_docs": "../docs/reference/mobile/capacitor-parity-audit.md"
   },
+  "shared_native_plugin_dependencies": [
+    {
+      "js_name": "HushhNativeVaultGate",
+      "scope": "VaultLockGuard hard-gate presentation",
+      "platforms": [
+        "ios"
+      ],
+      "integration": "The shared shell qualification policy controls device admission for the full-screen create, passphrase-unlock and recovery presentation above guarded routes; VaultFlow retains operation ownership and React handles unsupported or native-authenticator handoffs."
+    }
+  ],
   "nextjs_api_routes": [
     {
       "template": "/api/account/{path*}",
@@ -894,7 +904,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/circle/join?code=native-invitation-fixture",
         "expectedMarker": "native-route-circle-join",
-        "expectedRoute": "/circle/join",
+        "expectedRoute": "/circle/join?code=native-invitation-fixture",
         "autoReviewerLogin": false,
         "expectedAuth": "anonymous",
         "allowedDataStates": [
@@ -2734,7 +2744,7 @@
         "page_header": true,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -10242,14 +10252,15 @@
         "route": "/ria",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria",
-        "expectedMarker": "native-route-ria-home",
-        "expectedRoute": "/ria",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded",
           "unavailable-valid"
-        ]
+        ],
+        "legacyAlias": true
       },
       "shell": {
         "app_page_shell": false,
@@ -11252,5 +11263,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "443934bc16bae54e7c31ed69a593aaff8b3bddd6b3796461390ab643581de89c"
+  "content_sha256": "0713dd79294159244ceac110ab38e7e44484e9232d09e09c62f43b4e7acc295d"
 }

@@ -895,7 +895,7 @@ export function SwipeViews({
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
     }
-    if (newValue) {
+    if (!programmatic && newValue) {
       onSelectionCommit?.(newValue);
     }
   }, [

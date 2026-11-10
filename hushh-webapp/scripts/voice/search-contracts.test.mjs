@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -6,9 +6,14 @@ import path from 'node:path';
 import { collectSources, sourceRevision, syncSearchContracts, validateControlCoverage } from './sync-search-contracts.mjs';
 import { runUiChecks } from '../architecture/verify-ui-contracts.mjs';
 import { execFileSync } from 'node:child_process';
-import { syncReviewReceipt } from '../architecture/ui-review-receipts.mjs';
+import { syncReviewReceipt, appendReviewTrailers, reviewTrailer } from '../architecture/ui-review-receipts.mjs';
 
 const fixtureGitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+
+const originalCi = process.env.CI;
+const originalActions = process.env.GITHUB_ACTIONS;
+beforeEach(() => { delete process.env.CI; delete process.env.GITHUB_ACTIONS; });
+afterEach(() => { if (originalCi === undefined) delete process.env.CI; else process.env.CI = originalCi; if (originalActions === undefined) delete process.env.GITHUB_ACTIONS; else process.env.GITHUB_ACTIONS = originalActions; });
 
 test('source drift includes imported components and dynamic imports, independent of line endings', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'search-contract-'));
@@ -73,7 +78,12 @@ test('combined UI check runs both owners and fails when either owner fails', asy
 test('independent reviewed UI branches merge without stamp conflicts, but combined drift still fails', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-merge-'));
   const git = (...args) => execFileSync('git', args, {cwd:root, env:fixtureGitEnv, stdio:'pipe'});
-  const commit = () => { git('add', '.'); git('commit', '-m', 'review fixture'); };
+  const commit = async () => {
+    const message = path.join(root, '.git/review-message');
+    await fs.writeFile(message, 'review fixture\n');
+    await appendReviewTrailers(root, message);
+    git('add', '.'); git('commit', '-F', message);
+  };
   try {
     await fs.mkdir(path.join(root, 'app'), {recursive:true});
     await fs.mkdir(path.join(root, 'components'));
@@ -87,24 +97,26 @@ test('independent reviewed UI branches merge without stamp conflicts, but combin
     await fs.writeFile(path.join(root, 'lib/navigation/app-route-layout.contract.json'), JSON.stringify([{route:'/',shellVerification:{file:'app/page.tsx'}}]));
     await syncSearchContracts(root);
     git('init', '-b', 'baseline');
+    await fs.writeFile(path.join(root,'.gitignore'), 'tmp/\n');
     git('config', 'user.name', 'UI fixture');
     git('config', 'user.email', 'ui-fixture@example.test');
     git('config', 'commit.gpgsign', 'false');
-    commit();
+    await commit();
     for (const branch of ['a','b']) {
       git('checkout', '-b', branch, 'baseline');
       await fs.writeFile(path.join(root, `components/${branch}.tsx`), `export const ${branch} = 1;`);
       await syncSearchContracts(root);
       assert.equal(await fs.readFile(contract,'utf8'), authored);
-      commit();
+      await commit();
     }
     git('checkout', 'a');
     git('merge', '--no-edit', 'b');
     assert.equal(git('diff', '--name-only', '--diff-filter=U').toString(), '');
-    const receipts = await fs.readdir(path.join(root,'contracts/ui-review/search'));
-    assert.equal(receipts.length, 3);
+    const receiptFile = path.join(root,'tmp/ui-review/search.json');
+    const receipts = await fs.readFile(receiptFile, 'utf8');
+    assert.equal(git('ls-files','tmp').toString(), '');
     await assert.rejects(syncSearchContracts(root,true), /stale/);
-    assert.deepEqual(await fs.readdir(path.join(root,'contracts/ui-review/search')), receipts);
+    assert.equal(await fs.readFile(receiptFile, 'utf8'), receipts);
     await syncSearchContracts(root);
     await syncSearchContracts(root,true);
     assert.equal(await fs.readFile(contract,'utf8'), authored);
@@ -120,7 +132,7 @@ test('review receipts are immutable, fail closed, and never repair evidence duri
       await syncReviewReceipt(root,kind,revision,{source_module_count:2});
       await syncReviewReceipt(root,kind,revision,{source_module_count:2});
       await syncReviewReceipt(root,kind,revision,{source_module_count:2},true);
-      const receipt = path.join(root,'contracts/ui-review',kind,`${revision}.json`);
+      const receipt = path.join(root,'tmp/ui-review',`${kind}.json`);
       const original = await fs.readFile(receipt,'utf8');
       await fs.writeFile(receipt,original.replaceAll('\n','\r\n'));
       await syncReviewReceipt(root,kind,revision,{source_module_count:2},true);
@@ -130,6 +142,75 @@ test('review receipts are immutable, fail closed, and never repair evidence duri
     }
     await assert.rejects(syncReviewReceipt(root,'back','../invalid',{}), /Invalid UI/);
   } finally { await fs.rm(root,{recursive:true,force:true}); }
+});
+
+test('CI requires exact reachable commit fingerprints, never ignored cache or unrelated history', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-commit-'));
+  const git = (...args) => execFileSync('git', args, { cwd: root, env: fixtureGitEnv, encoding: 'utf8', stdio: 'pipe' });
+  const revision = 'c'.repeat(64);
+  const details = { source_module_count: 2 };
+  try {
+    git('init', '-b', 'main');
+    git('config', 'user.name', 'UI fixture');
+    git('config', 'user.email', 'ui-fixture@example.test');
+    git('config', 'commit.gpgsign', 'false');
+    await fs.writeFile(path.join(root, '.gitignore'), 'tmp/\n');
+    git('add', '.'); git('commit', '-m', 'initial source');
+    for (const kind of ['back', 'search']) await syncReviewReceipt(root, kind, revision, details);
+    for (const mode of ['true', '1']) {
+      process.env.CI = mode;
+      for (const kind of ['back', 'search']) {
+        await assert.rejects(syncReviewReceipt(root, kind, revision, details, true), /stale/);
+      }
+    }
+    delete process.env.CI;
+    process.env.GITHUB_ACTIONS = 'true';
+    await assert.rejects(syncReviewReceipt(root, 'back', revision, details, true), /stale/);
+    delete process.env.GITHUB_ACTIONS;
+    process.env.CI = 'true';
+    git('checkout', '-b', 'reviewed');
+    const message = path.join(root, '.git/review-message');
+    await fs.writeFile(message, 'source review\n\nUnrelated-Key: preserved\n');
+    await appendReviewTrailers(root, message);
+    await appendReviewTrailers(root, message);
+    assert.equal((await fs.readFile(message, 'utf8')).match(/UI-Review-Back:/g).length, 1);
+    assert.match(await fs.readFile(message, 'utf8'), /Unrelated-Key: preserved/);
+    git('commit', '--allow-empty', '-F', message);
+    assert.equal(git('ls-files', 'tmp'), '');
+    for (const kind of ['back', 'search']) {
+      await syncReviewReceipt(root, kind, revision, details, true);
+      await assert.rejects(syncReviewReceipt(root, kind, revision, { source_module_count: 3 }, true), /stale/);
+      await assert.rejects(syncReviewReceipt(root, kind, 'd'.repeat(64), details, true), /stale/);
+    }
+    git('checkout', 'main');
+    for (const kind of ['back', 'search']) await assert.rejects(syncReviewReceipt(root, kind, revision, details, true), /stale/);
+    git('commit', '--allow-empty', '-m', `example body\n\n${reviewTrailer('back', revision, details)}\n\nThis is not a trailer.`);
+    await assert.rejects(syncReviewReceipt(root, 'back', revision, details, true), /stale/);
+    git('commit', '--allow-empty', '-m', `malformed\n\nUI-Review-Back: ${revision} wrong-digest`);
+    await assert.rejects(syncReviewReceipt(root, 'back', revision, details, true), /stale/);
+    git('merge', '--no-edit', 'reviewed');
+    for (const kind of ['back', 'search']) await syncReviewReceipt(root, kind, revision, details, true);
+    const shallow = path.join(root, 'tmp/shallow');
+    git('clone', '--depth=1', '--no-local', `file://${root}`, shallow);
+    for (const kind of ['back', 'search']) await assert.rejects(syncReviewReceipt(shallow, kind, revision, details, true), /stale/);
+    await fs.rm(path.join(root, 'tmp/ui-review'), { recursive: true });
+    for (const kind of ['back', 'search']) await syncReviewReceipt(root, kind, revision, details, true);
+    await assert.rejects(fs.access(path.join(root, 'tmp/ui-review')));
+    await fs.writeFile(message, 'later unrelated edit\n');
+    await appendReviewTrailers(root, message);
+    git('commit', '--allow-empty', '-F', message);
+    assert.match(git('show', '-s', '--format=%B', 'HEAD'), /UI-Review-Back: c{64} [a-f0-9]{64}/);
+    for (const kind of ['back', 'search']) await syncReviewReceipt(root, kind, revision, details, true);
+    // GitHub's depth-two synthetic merge sees the reviewed PR-tip parent,
+    // without needing to fetch every historical source-review record.
+    git('checkout', '-b', 'target', git('rev-list', '--max-parents=0', 'HEAD').trim());
+    await fs.writeFile(path.join(root, 'README.md'), 'unrelated target documentation');
+    git('add', 'README.md'); git('commit', '-m', 'unrelated target change');
+    git('checkout', 'main'); git('merge', '--no-ff', '--no-edit', 'target');
+    const mergeCheckout = path.join(root, 'tmp/merge-checkout');
+    git('clone', '--depth=2', '--no-local', `file://${root}`, mergeCheckout);
+    for (const kind of ['back', 'search']) await syncReviewReceipt(mergeCheckout, kind, revision, details, true);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
 test('unrelated PRs inherit a merged baseline without receipts; relevant and untracked drift still blocks', async () => {

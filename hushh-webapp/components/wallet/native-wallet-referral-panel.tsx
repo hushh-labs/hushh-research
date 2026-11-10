@@ -13,13 +13,13 @@ import type { WalletPanelProjection } from "./native-wallet-payment-panel";
 export function NativeWalletReferralPanel({ handle, publish, onClose, ...props }: WalletReferralDetailsProps & {
   handle: (key: string) => string; publish: (value: WalletPanelProjection) => void; onClose: () => void;
 }) {
-  const model = useWalletReferralOwner(props);
-  const sharing = useWalletCardImageShare({ cardId: "agent-one-referral", profile: { ...props.profile, displayName: props.profile?.displayName ?? null, shareUrl: props.profile?.shareUrl ?? null, referralUrl: props.summary?.link ?? null }, disabled: !props.profile || !props.summary || !!model.busy });
+  const model = useWalletReferralOwner(props, true);
+  const sharing = useWalletCardImageShare({ cardId: "agent-one-referral", profile: { ...props.profile, displayName: props.profile?.displayName ?? null, shareUrl: props.profile?.shareUrl ?? null, referralUrl: props.summary?.link ?? null }, disabled: !props.profile || !props.summary || !!model.busy, nativePresentation: true });
   const images = useNativeWalletImages(props.summary?.link, sharing.ready);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const sections: NativeDrawerSection[] = [];
   const busy = !!model.busy || sharing.sharing;
-  const row = (key: string, label: string, action?: () => void | Promise<unknown>, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
+  const row = (key: string, label: string, action?: (choice: NativeWorkspaceChoice) => void | Promise<unknown>, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
     const id = handle(key); if (action) actions.set(id, action);
     return { id, label, enabled: !busy, ...(!action ? { readOnly: true } : {}), ...extra };
   };
@@ -43,6 +43,6 @@ export function NativeWalletReferralPanel({ handle, publish, onClose, ...props }
       row("review", "Under review", undefined, { trailing: summary.under_review_count.toLocaleString() })], "Referral activity");
     if (summary.referrals.length) group("recent", summary.referrals.map((referral, index) => row(`recent-${index}`, referral.status, undefined, { detail: referral.step, trailing: referral.started_on })), "Recent referrals");
   }
-  useLayoutEffect(() => publish({ title, busy, sections, actions, back: () => { if (model.confirmRevoke) model.setConfirmRevoke(false); else onClose(); }, ...(!model.confirmRevoke ? images : {}) }));
+  useLayoutEffect(() => publish({ title, busy, sections, actions, collectionNavigation: !model.confirmRevoke, back: () => { if (model.confirmRevoke) model.setConfirmRevoke(false); else onClose(); }, ...(!model.confirmRevoke ? images : {}) }));
   return null;
 }

@@ -23,8 +23,26 @@ describe("card image share readiness", () => {
     expect(shareFile).not.toHaveBeenCalled();
     await act(async () => resolveSecond(second));
     fireEvent.click(screen.getByRole("button", { name: "Share card" }));
-    await waitFor(() => expect(shareFile).toHaveBeenCalledWith({ file: second, title: "Agent One Profile" }));
+    await waitFor(() => expect(shareFile).toHaveBeenCalledWith(expect.objectContaining({ file: second, title: "Agent One Profile", isEffectCurrent: expect.any(Function) })));
     rerender(<WalletCardImageShareButton cardId="agent-one-profile" profile={profile} disabled />);
     expect(screen.getByRole("button", { name: "Share card" })).toBeDisabled();
   });
+  it("does not deliver a late share or feedback after its owner changes", async () => {
+    const file = new File(["card"], "card.png", { type: "image/png" });
+    let rejectShare!: (error: Error) => void;
+    vi.mocked(createWalletCardImageFile).mockResolvedValue(file);
+    vi.mocked(shareFile).mockImplementationOnce(() => new Promise((_, reject) => { rejectShare = reject; }));
+    const profile = { ownerId: "first", displayName: "First", shareUrl: "https://example.test/c/first" };
+    const { rerender } = render(<WalletCardImageShareButton cardId="agent-one-profile" profile={profile} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Share card" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Share card" }));
+    const current = vi.mocked(shareFile).mock.lastCall?.[0].isEffectCurrent;
+    expect(current?.()).toBe(true);
+    rerender(<WalletCardImageShareButton cardId="agent-one-profile" profile={{ ...profile, ownerId: "second" }} />);
+    expect(current?.()).toBe(false);
+    await act(async () => rejectShare(new Error("late failure")));
+    const { morphyToast } = await import("@/lib/morphy-ux/morphy");
+    expect(morphyToast.error).not.toHaveBeenCalled();
+  });
+
 });

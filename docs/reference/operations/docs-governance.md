@@ -260,3 +260,16 @@ Brand review gate:
 1. Product + platform docs in `docs/`: repository maintainers.
 2. Backend docs in `consent-protocol/docs/`: backend owners.
 3. Frontend/native docs in `hushh-webapp/docs/`: frontend/native owners.
+
+## Generated evidence and source contracts
+
+Keep audit/run reports, UI review caches, benchmark measurements, screenshots,
+traces and evaluation ledgers in ignored local storage or sanitized CI artifacts.
+Do not commit one file per execution. Keep maintained human summaries and authored
+runtime contracts, dependency locks, fixtures and app asset manifests in Git.
+The UI owner checks use bounded local caches plus technical commit fingerprints;
+see the [UI contract guide](../architecture/ui-contract-contributor-guide.md).
+The architecture fitness baseline retains only the exact reviewed key/value
+multiset and budgets used by the ratchet; generated report/history fields belong
+outside the baseline. Compaction must preserve all duplicate allowances and must
+not accept new debt or weaken comparisons.

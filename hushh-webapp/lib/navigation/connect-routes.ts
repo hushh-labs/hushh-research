@@ -5,6 +5,8 @@ export const CONNECT_SURFACE_PARAM = "tab";
 export const CONNECT_SEARCH_QUERY_PARAM = "q";
 /** Entry intent only; switching the two local views does not write history. */
 export const CONNECT_CONNECTION_VIEW_PARAM = "view";
+/** Directory context retained by authored profile return URLs. */
+export const CONNECT_DIRECTORY_PARAM = "directory";
 export const CONNECT_CONNECTIONS_LIST_HREF = `${ROUTES.CONNECT}?tab=all&${CONNECT_CONNECTION_VIEW_PARAM}=connections`;
 /** Exact directory person; opens the owning scope review, never sends a request. */
 export const CONNECT_REVIEW_PERSON_PARAM = "reviewPerson";

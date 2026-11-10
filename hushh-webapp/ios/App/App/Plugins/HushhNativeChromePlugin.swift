@@ -5,7 +5,7 @@ import UIKit
 /// Recovery default. The standard UITabBar and privacy shield are independent.
 /// Legacy Debug flags are not qualification of a complete overlapping family.
 enum HushhNativePresentationPolicy {
-    static var customControlsEnabled: Bool { NativeDrawerQualificationPolicy.coherentShell }
+    static var customControlsEnabled: Bool { NativeDrawerQualificationPolicy.coherentPresentationEnabled }
 }
 
 /// Strict public presentation metadata, shared by UIKit and SwiftUI controls.
@@ -803,7 +803,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard self.canMirrorPresentation || preparing else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
             guard self.acceptDocument(identity.document) else { call.reject("NATIVE_CONTENT_PANE_DOCUMENT_STALE"); return }
             let retained = self.compositor?.contentPane?.sameLifetime(as: identity) == true
-            guard retained || !self.paneHandoffObstructed else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
+            // Stage the incoming WK plane behind its still-owned native drawer.
+            // Isolation keeps it inert; the pane receipt never transfers the
+            // drawer's separate interaction or presentation ownership.
+            guard retained || !self.paneAcquisitionObstructed else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
             if !preparing { self.compositor?.revealUnderlay() }
             guard let compositor = self.compositor,
                   compositor.acquireContentPane(identity, viewport: viewport, preparing: preparing) else {
@@ -917,7 +920,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         let installed = compositor?.contentPane?.sameLifetime(as: identity) == true
         let canceled = paneCancellations.isCanceled(identity)
         let retired = canceled && !installed
-        let handoffReady = retired && compositor != nil && compositor?.contentPane == nil && compositor?.contentPaneRetiring == false && !paneHandoffObstructed
+        // A restored native drawer is a current owner, not an unretired WK
+        // pane. Requiring its absence here strands the next covered admission.
+        let handoffReady = retired && compositor != nil && compositor?.contentPane == nil && compositor?.contentPaneRetiring == false && !paneAcquisitionObstructed
         return paneReceipt(identity, phase: retired ? "retired" : installed ? (canceled ? "retiring" : "active") : "unknown")
             .merging(["settled": retired, "handoffReady": handoffReady]) { _, new in new }
     }
@@ -943,13 +948,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         notifyPaneHandoffChanged()
         return rolledBack
     }
-    private var paneHandoffObstructed: Bool {
-        guard let compositor, bridge?.viewController != nil else { return true }
-        // External system presentations retain UIKit's own modal input and
-        // accessibility isolation. Only shell-owned presentations are part of
-        // this handoff and provide the corresponding settlement signals.
-        return !retiringPanePresenters.isEmpty || slots.values.contains { $0.presenter != nil } ||
-            compositor.ownedPresentationIsolated
+    private var paneAcquisitionObstructed: Bool {
+        guard compositor != nil, bridge?.viewController != nil else { return true }
+        return !retiringPanePresenters.isEmpty || slots.values.contains { $0.presenter != nil }
     }
 
     @objc func setPresentationRegions(_ call: CAPPluginCall) {
@@ -1607,11 +1608,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private var backAdmitted: Bool {
         guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
-        // Debug pilot only; release and iPad retain accepted controls until
-        // their physical visual/accessibility acceptance has been recorded.
-        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         if #available(iOS 26.0, *) { return NativeDrawerQualificationPolicy.deviceEligible }
-        #endif
         return false
     }
     private var canPresent: Bool {
@@ -1622,12 +1619,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         return privacy.appIsActive && !privacy.shielded
     }
     private var chatControlsAdmitted: Bool {
-        // Explicit Debug rehearsal opt-in; this is not promotion of an audited family.
-        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        // Same launch-latched experimental preference as the host and tabs.
         return backAdmitted && NativeDrawerQualificationPolicy.coherentShell
-        #else
-        return false
-        #endif
     }
     // Capability discovery and preparation share the same stationary admission
     // policy. Moving drawer controls deliberately keep their React renderer.
@@ -1636,6 +1629,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         "map-close": "map-close", "map-locate": "map-locate", "map-check-in": "map-check-in",
         "more": "stationary-more", "add": "stationary-add", "selection": "bounded-selection", "date": "bounded-date"
     ]
+    static func recognizesControlId(_ controlId: String) -> Bool {
+        stationaryChatControlIds.values.contains(controlId) ||
+            ["top-shell-back", "profile-back", "chat-history-close", "profile-close", "profile-appearance", "profile-accent"].contains(controlId)
+    }
     private func admits(_ kind: String, controlId: String) -> Bool {
         if compositor?.contentBackedPresentation == true {
             if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
@@ -1866,7 +1863,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
         guard let controlId = call.getString("controlId"),
-              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-history-close", "chat-agent-surface", "stationary-more", "stationary-add", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
+              Self.recognizesControlId(controlId),
               let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
               isCommittedMainFrameDocument(document),
               let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,

@@ -666,6 +666,15 @@ function buildSurfaceMap() {
       route_docs: "../docs/reference/architecture/route-contracts.md",
       mobile_docs: "../docs/reference/mobile/capacitor-parity-audit.md",
     },
+    shared_native_plugin_dependencies: [
+      {
+        js_name: "HushhNativeVaultGate",
+        scope: "VaultLockGuard hard-gate presentation",
+        platforms: ["ios"],
+        integration:
+          "The shared shell qualification policy controls device admission for the full-screen create, passphrase-unlock and recovery presentation above guarded routes; VaultFlow retains operation ownership and React handles unsupported or native-authenticator handoffs.",
+      },
+    ],
     nextjs_api_routes: apiRoutes,
     semantic_views: semanticViews,
     routes: routes.map((route) => {

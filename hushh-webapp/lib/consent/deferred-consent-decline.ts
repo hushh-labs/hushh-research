@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 /** How long the Undo toast holds a decline before it is sent. */
 export const CONSENT_DECLINE_UNDO_MS = 5000;

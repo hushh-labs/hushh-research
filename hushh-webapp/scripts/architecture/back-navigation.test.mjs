@@ -1,9 +1,14 @@
-import test from 'node:test';
+import test, { beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { backSourceRevision, validateHistoryBypasses, verifyBackNavigation } from './verify-back-navigation.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+const originalCi = process.env.CI;
+const originalActions = process.env.GITHUB_ACTIONS;
+beforeEach(() => { delete process.env.CI; delete process.env.GITHUB_ACTIONS; });
+afterEach(() => { if (originalCi === undefined) delete process.env.CI; else process.env.CI = originalCi; if (originalActions === undefined) delete process.env.GITHUB_ACTIONS; else process.env.GITHUB_ACTIONS = originalActions; });
 
 test('new router/history Back bypasses fail even when a reviewed owner already exists', () => {
   for (const call of ['router.back()', 'window.history.back()', 'history.go(-1)', 'history.go(delta)', 'const {go} = history; go(delta)', 'const nav = useRouter(); nav.back()', 'const h = window.history; h["back"]()', 'const {back} = history; back()', 'history.back.bind(history)()']) {

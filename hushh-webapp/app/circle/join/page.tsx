@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Loader2, Users } from "@/components/icons";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";

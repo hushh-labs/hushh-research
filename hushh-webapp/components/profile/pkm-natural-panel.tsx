@@ -26,6 +26,7 @@ import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { usePathname } from "next/navigation";
 import {
   describeAgentPkmCardDestination,
   formatAgentPkmCardDestination,
@@ -34,7 +35,7 @@ import {
 } from "@/lib/agent/agent-pkm-memory";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { describePkmCaptureSection } from "@/lib/pkm/pkm-capture-sections";
 import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 
@@ -47,6 +48,8 @@ import {
   type PkmNaturalModel,
   type PkmNaturalModelOptions,
 } from "./use-pkm-natural-model";
+import { NativeMemoryWorkspace, type NativeMemoryRetainedOwners } from "./native-memory-workspace";
+import { MemoryCommerceSummaryView } from "./memory-commerce-summary";
 
 function CaptureCardDescription({
   card,
@@ -81,6 +84,11 @@ export function PkmNaturalPanel(
   options: PkmNaturalModelOptions & { onOpenExplorer?: () => void } = {},
 ) {
   const model = usePkmNaturalModel(options);
+  const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
+  if (pathname === ROUTES.PKM && (options.view ?? "home") === "home") {
+    return <NativeMemoryWorkspace model={model} renderFallback={owners =>
+      <PkmNaturalPanelBody model={model} view="home" locationMemoryId={null} retainedOwners={owners} />} />;
+  }
   return (
     <PkmNaturalPanelBody
       model={model}
@@ -95,10 +103,14 @@ export function PkmNaturalPanelBody({
   model,
   view,
   locationMemoryId,
+  retainedOwners,
+  locationSearch,
 }: {
   model: PkmNaturalModel;
   view: NonNullable<PkmNaturalModelOptions["view"]>;
   locationMemoryId: string | null;
+  retainedOwners?: NativeMemoryRetainedOwners;
+  locationSearch?: { query: string; setQuery: (value: string) => void };
 }) {
   const {
     authLoading,
@@ -312,6 +324,7 @@ export function PkmNaturalPanelBody({
         ) : (
           <LocationMemoryView
             presentation={locationPresentation}
+            search={locationSearch}
             loading={locationLoading}
             error={bootstrapError || domainDetail.error}
             onRetry={() => {
@@ -465,7 +478,7 @@ export function PkmNaturalPanelBody({
           heightMode="active"
         >
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
-            <SoulMemoryPanelBody model={soul} />
+            <SoulMemoryPanelBody model={soul} liveMirror={retainedOwners?.mirror} />
             <div className="relative">
               <Input
                 type="search"
@@ -485,7 +498,7 @@ export function PkmNaturalPanelBody({
               />
             </div>
 
-            {workspaceTab === "browse" ? <MemoryCommerceSummary /> : null}
+            {workspaceTab === "browse" ? retainedOwners ? <MemoryCommerceSummaryView model={retainedOwners.commerce} /> : <MemoryCommerceSummary /> : null}
             {(bootstrapLoading ||
               (!metadata && !bootstrapError) ||
               memoryCardsLoading) &&
@@ -617,7 +630,7 @@ export function PkmNaturalPanelBody({
                 ) : null}
               </>
             )}
-          <PkmSavedSharing userId={ownerId} active={workspaceTab === "browse"}
+          <PkmSavedSharing userId={ownerId} active={workspaceTab === "browse"} owner={retainedOwners?.sharing}
             domains={visibleMetadataDomains} sharingManifests={sharingManifests}
             sharingManifestsLoading={sharingManifestsLoading} sharingActionKey={sharingActionKey}
             retrySharing={() => setRefreshNonce(value => value + 1)}

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
 import { usePkmNaturalModel } from "@/components/profile/use-pkm-natural-model";
+import { PkmSavedSharing, usePkmSharingExpansion } from "@/components/profile/pkm-saved-sharing";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -58,6 +59,7 @@ const vaultState = {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
   usePathname: () => "/one/pkm",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -70,6 +72,63 @@ vi.mock("@/lib/vault/vault-context", () => ({
 
 const NOW = new Date().toISOString();
 const WEEK_AGO = new Date(Date.now() - 8 * 86_400_000).toISOString();
+
+it("retains the sharing expansion through a renderer handoff with one Back owner", () => {
+  function RetainedSharing({ show }: { show: boolean }) {
+    const owner = usePkmSharingExpansion("reviewer", true);
+    return <>
+      <button onClick={() => owner.setSection("sharing")}>Open sharing</button>
+      <output data-testid="sharing-state">{owner.section || "closed"}</output>
+      {show && <PkmSavedSharing owner={owner} userId="reviewer" active domains={[]} sharingManifests={{}}
+        sharingManifestsLoading={false} retrySharing={() => {}} sharingActionKey={null} isVaultUnlocked
+        exportBusy={false} exportStatus={null} exportError={null} handleExportMemory={async () => {}}
+        updateSharingBundles={async () => {}} />}
+    </>;
+  }
+  const view = render(<RetainedSharing show={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "Open sharing" }));
+  view.rerender(<RetainedSharing show />);
+  expect(screen.getByRole("button", { name: "Sharing settings" }).getAttribute("aria-expanded")).toBe("true");
+  const navigate = vi.fn();
+  act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
+  expect(screen.getByTestId("sharing-state").textContent).toBe("closed");
+  expect(navigate).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+it("ignores a prior owner's delayed sharing expansion callback", () => {
+  const view = renderHook(({ userId }) => usePkmSharingExpansion(userId, true), { initialProps: { userId: "owner-a" } });
+  const oldOwnerSetSection = view.result.current.setSection;
+  view.rerender({ userId: "owner-b" });
+  act(() => view.result.current.setSection("sharing"));
+  act(() => oldOwnerSetSection(""));
+  expect(view.result.current.section).toBe("sharing");
+  view.unmount();
+});
+
+it("does not revive sharing expansion when an owner returns", () => {
+  const view = renderHook(({ userId }) => usePkmSharingExpansion(userId, true), { initialProps: { userId: "owner-a" } });
+  act(() => view.result.current.setSection("sharing"));
+  view.rerender({ userId: "owner-b" });
+  view.rerender({ userId: "owner-a" });
+  expect(view.result.current.section).toBe("");
+  view.unmount();
+});
+
+it("clears sharing expansion and fences old callbacks when the vault session changes", () => {
+  const first = Symbol("first-unlock");
+  const locked = Symbol("locked");
+  const next = Symbol("next-unlock");
+  const view = renderHook(({ session }) => usePkmSharingExpansion("owner-a", true, session), { initialProps: { session: first } });
+  const oldSetSection = view.result.current.setSection;
+  act(() => oldSetSection("sharing"));
+  view.rerender({ session: locked });
+  expect(view.result.current.section).toBe("");
+  view.rerender({ session: next });
+  act(() => oldSetSection("sharing"));
+  expect(view.result.current.section).toBe("");
+  view.unmount();
+});
 
 function baseMetadata() {
   return {
@@ -1089,6 +1148,49 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.change(note, { target: { value: "A different note" } });
     expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
     expect(addToPKM).not.toHaveBeenCalled();
+  });
+
+  it("keeps the input revision stable while a review runs, but advances it on edits", async () => {
+    let finish!: (value: unknown) => void;
+    previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("First synthetic note"));
+    await waitFor(() => expect(view.result.current.captureText).toBe("First synthetic note"));
+    const revision = view.result.current.captureInputRevision();
+    let review!: Promise<void>;
+    act(() => { review = view.result.current.previewMemoryCapture(); });
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(view.result.current.captureInputRevision()).toBe(revision);
+    act(() => view.result.current.changeCaptureText("Second synthetic note"));
+    expect(view.result.current.captureInputRevision()).toBeGreaterThan(revision);
+    await act(async () => { finish({ cards: [] }); await review; });
+    view.unmount();
+  });
+
+  it("invalidates the native draft when a reviewed note is saved", async () => {
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("A synthetic preference"));
+    await act(async () => { await view.result.current.previewMemoryCapture(); });
+    const revision = view.result.current.captureInputRevision();
+    await act(async () => { await view.result.current.saveMemoryCapture(); });
+    expect(addToPKM).toHaveBeenCalledTimes(1);
+    expect(view.result.current.captureText).toBe("");
+    expect(view.result.current.captureInputRevision()).toBeGreaterThan(revision);
+    view.unmount();
+  });
+
+  it("starts only one review for simultaneous taps on the same draft", async () => {
+    let finish!: (value: unknown) => void;
+    previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "A synthetic note" } });
+    const review = screen.getByRole("button", { name: "Review memory" });
+    act(() => { review.click(); review.click(); });
+    await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenCalledTimes(1));
+    await act(async () => finish({ cards: [] }));
   });
 
   it("ignores an old review response after the draft is edited", async () => {

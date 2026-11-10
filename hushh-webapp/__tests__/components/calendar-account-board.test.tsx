@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   onChat: vi.fn(), onMailConnect: vi.fn(),
 }));
 
+vi.mock("next/navigation", async importOriginal => ({
+  ...await importOriginal<typeof import("next/navigation")>(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
 vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
@@ -73,7 +78,7 @@ describe("three-account Calendar board", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(`${date}T08:00:00Z`));
     vi.clearAllMocks();
-    mocks.boardDay.mockResolvedValue(board);
+    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone }));
     mocks.reviewBoardBooking.mockImplementation(async (input: { accountId: string; title: string; startAt: string; endAt: string; timeZone: string; attendees: string[]; meetingType: string }) => ({
       proposal_id: "gcal_reviewed_booking", expires_at: "2999-01-01T00:00:00Z", confirmation_required: true,
       plan: { account_id: input.accountId, title: input.title, start_at: input.startAt, end_at: input.endAt, time_zone: input.timeZone, attendees: input.attendees, meeting_type: input.meetingType, description: "", location: "", board_conflicts: [], board_accounts: status.accounts.map(account => ({ account_id: account.account_id, account_email: account.google_email, binding: [account.account_id], calendar_ids: ["primary"] })) },
@@ -148,7 +153,7 @@ describe("three-account Calendar board", () => {
   });
 
   it("reviews a 60-minute booking within a single-account opening before creating it", async () => {
-    mocks.boardDay.mockResolvedValue({ ...board, accounts: [board.accounts[0]], conflicts: [] });
+    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone, accounts: [board.accounts[0]], conflicts: [] }));
     render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
     fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
     const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });

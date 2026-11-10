@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -60,6 +61,24 @@ class UiGateTests(unittest.TestCase):
         validate(self.workflow)
         self.assertNotIn("  back-navigation-contracts:", self.workflow)
         self.assertNotIn("  search-web-contracts:", self.workflow)
+
+    def test_generated_review_artifacts_cannot_be_forced_back_into_git(self):
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        index = subprocess.check_output(["git", "rev-parse", "--git-path", "index"], cwd=ROOT, env=env, text=True).strip()
+        index = Path(index) if Path(index).is_absolute() else ROOT / index
+        with tempfile.TemporaryDirectory(prefix="ui-artifact-index-") as directory:
+            selected = Path(directory) / "index"
+            shutil.copyfile(index, selected)
+            env["GIT_INDEX_FILE"] = str(selected)
+            check = ["node", "scripts/verify-doc-runtime-parity.cjs"]
+            result = subprocess.run(check, cwd=ROOT, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            blob = subprocess.check_output(["git", "rev-parse", "HEAD:hushh-webapp/package.json"], cwd=ROOT, env=env, text=True).strip()
+            generated = "hushh-webapp/contracts/ui-review/back/" + "a" * 64 + ".json"
+            subprocess.run(["git", "update-index", "--add", "--cacheinfo", f"100644,{blob},{generated}"], cwd=ROOT, env=env, check=True)
+            result = subprocess.run(check, cwd=ROOT, env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Generated evidence/report artifacts must not be tracked", result.stdout + result.stderr)
 
     def test_skip_and_failure_suppression_are_rejected(self):
         for old, new in (("fetch-depth: 2", "fetch-depth: 1"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):

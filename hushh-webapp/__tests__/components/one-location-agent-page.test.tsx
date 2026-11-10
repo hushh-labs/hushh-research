@@ -1871,6 +1871,13 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(mockEnsureSmsSystemCircle).toHaveBeenCalledTimes(Number(!bounded));
+    if (bounded) {
+      expect(mockSyncCurrentUser).not.toHaveBeenCalled();
+      expect(mockBootstrapKey).not.toHaveBeenCalled();
+    } else {
+      expect(mockSyncCurrentUser).toHaveBeenCalled();
+      expect(mockBootstrapKey).toHaveBeenCalled();
+    }
     mockGetSmsContacts.mockClear();
     mockGetSmsContacts.mockResolvedValue(["user_d"]);
     act(() => {

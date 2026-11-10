@@ -52,7 +52,7 @@ import {
   UsersRound,
   X,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import {
   AppPageContentRegion,
@@ -2234,6 +2234,7 @@ export function OneLocationAgentPageContent({
       transitionMode: "full",
     });
   }, []);
+  const locationNativeFrame = useRef<HTMLDivElement | null>(null);
   const auth = useRequireAuth();
   // Viewer avatar for the SELF location preview only, so the marker is the
   // owner's face (photo or initials fallback) and never the stock pin.
@@ -4110,7 +4111,7 @@ export function OneLocationAgentPageContent({
               "Refresh your session before loading location sharing.",
             );
           }
-          if (workspaceBootstrapUserRef.current !== activeUserId) {
+          if (workspaceBootstrapUserRef.current !== activeUserId && !shouldSkipReviewerBackgroundWritesForAutomation()) {
             await AccountIdentityService.syncCurrentUser(activeUser).catch(
               (error) => {
                 console.warn(
@@ -6351,7 +6352,7 @@ export function OneLocationAgentPageContent({
           // current (now durable) key so future shares work, and surface an
           // actionable inline state prompting the owner to share again — instead
           // of a raw crypto error toast (manual) or a silent console.warn.
-          void bootstrapCurrentUserLocationRecipientKey({
+          if (!shouldSkipReviewerBackgroundWritesForAutomation()) void bootstrapCurrentUserLocationRecipientKey({
             userId: activeUserId,
             vaultOwnerToken,
             vaultKey: vaultKey ?? undefined,
@@ -14197,6 +14198,8 @@ export function OneLocationAgentPageContent({
   // ---------------------------------------------------------------------------
 
   const locationHubVm: LocationHubViewModel = {
+    loadError: !state ? loadError : null,
+    onRetryLoad: () => refresh(),
     userId: auth.userId ?? null,
     canShare,
     savedPlacesBanner: {
@@ -14206,7 +14209,7 @@ export function OneLocationAgentPageContent({
         savedPlacesAvailability.empty &&
         placesBannerEntry.key === placesBannerKey && !placesBannerEntry.dismissed),
       busy: savedPlaceCaptureBusy,
-      onSave: () => void openSavedPlaceFromBanner(),
+      onSave: () => openSavedPlaceFromBanner(),
       onDismiss: () => {
         savedLocationSessionEpochRef.current += 1;
         savedLocationPromptInFlightRef.current = null;
@@ -14484,6 +14487,7 @@ export function OneLocationAgentPageContent({
     }
     return (
       <AppPageShell
+        ref={locationNativeFrame}
         width="agent"
         data-location-type-scale="connect"
         headerContentSpacing="compact"
@@ -14540,7 +14544,7 @@ export function OneLocationAgentPageContent({
               <HushhLoader variant="page" label="Loading location..." />
             </>
           ) : (
-            <LocationRedesignHub vm={locationHubVm} />
+            <LocationRedesignHub vm={locationHubVm} nativeFrame={locationNativeFrame} />
           )}
         </AppPageContentRegion>
         <SaveLocationModal

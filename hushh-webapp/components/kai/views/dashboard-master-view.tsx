@@ -1,5 +1,8 @@
 "use client";
 
+import { NativeFinanceLayer, NativeFinanceReactOnly, useNativeFinancePaneActive, useFinancePaneSelected } from "../native-finance-workspace";
+import type { NativeWorkspaceSurfaceSection, NativeWorkspaceSurfaceRow, NativeWorkspaceSurfaceConfirmation } from "@/lib/capacitor/native-workspace-surface";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
@@ -16,7 +19,7 @@ import {
   Loader2,
   FileUp,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -27,7 +30,7 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
-import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
+import { FinancePortfolioSharing, type FinancePortfolioPresentation } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sharing-history-action";
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
@@ -375,8 +378,15 @@ export function DashboardMasterView({
   onReupload,
   section = "overview",
 }: DashboardMasterViewProps) {
+  const nativeActive = useNativeFinancePaneActive("portfolio");
+  const portfolioPaneSelected = useFinancePaneSelected("portfolio");
+  const [presentationView, setPresentationView] = useState<FinancePortfolioPresentation["view"]>(null);
+  const [chartsOpen, setChartsOpen] = useState(false);
+  const [nativePage, setNativePage] = useState({ key: "", page: 0 });
+  const presentation = { view: presentationView, change: setPresentationView };
+  useEffect(() => { setPresentationView(null); setChartsOpen(false); }, [userId, section, portfolioPaneSelected]);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = normalizeStaticExportPathname(usePathname() ?? "/one/kai");
   const { vaultKey } = useVault();
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const baselineBySourceRef = useRef<Map<string, ComparableHolding>>(new Map());
@@ -1043,7 +1053,8 @@ export function DashboardMasterView({
     setIsHoldingsEditing(false);
   }, [closeHoldingModal, statementEditablePortfolio]);
 
-  useBackLayer(pathname || "/one/kai", isHoldingsEditing ? 1 : 0, () => {
+  useBackLayer(pathname || "/one/kai", isHoldingsEditing || chartsOpen ? 1 : 0, () => {
+    if (chartsOpen) { setChartsOpen(false); return true; }
     if (isSavingHoldings) return true;
     cancelHoldingsEdit();
     return true;
@@ -1799,7 +1810,7 @@ export function DashboardMasterView({
   usePublishVoiceSurfaceMetadata(dashboardVoiceSurfaceMetadata);
 
   const deletePortfolioDialog = (
-    <AlertDialog
+    <NativeFinanceReactOnly><AlertDialog
       open={deleteImportedDialogOpen}
       onOpenChange={(open) => {
         if (isDeletingImportedData) return;
@@ -1842,14 +1853,14 @@ export function DashboardMasterView({
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
-    </AlertDialog>
+    </AlertDialog></NativeFinanceReactOnly>
   );
   const statementSnapshotToDelete =
     statementSnapshots.find(
       (snapshot) => snapshot.id === statementSnapshotDeleteId,
     ) ?? null;
   const deleteStatementSnapshotDialog = (
-    <AlertDialog
+    <NativeFinanceReactOnly><AlertDialog
       open={Boolean(statementSnapshotDeleteId)}
       onOpenChange={(open) => {
         if (isDeletingStatementSnapshot) return;
@@ -1893,9 +1904,10 @@ export function DashboardMasterView({
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
-    </AlertDialog>
+    </AlertDialog></NativeFinanceReactOnly>
   );
 
+  const renderContent = () => {
   if (isSourcesLoading && !displayedPortfolio) {
     return (
       <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
@@ -1903,7 +1915,7 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Preparing your portfolio sources."
-          actions={<FinanceSharingHistoryAction />}
+          actions={<FinanceSharingHistoryAction open={presentationView === "history"} onOpenChange={value => setPresentationView(value ? "history" : null)} />}
         />
         <AppPageContentRegion>
           <SurfaceCard className="w-full">
@@ -1924,7 +1936,7 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Choose how you want to begin."
-          actions={<FinanceSharingHistoryAction />}
+          actions={<FinanceSharingHistoryAction open={presentationView === "history"} onOpenChange={value => setPresentationView(value ? "history" : null)} />}
         />
         <AppPageContentRegion className="space-y-3">
           <PortfolioBriefing onOpen={onReupload} />
@@ -1987,10 +1999,10 @@ export function DashboardMasterView({
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
           <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel} onImport={onReupload}
             briefing={<PortfolioBriefing model={model} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
-            sharing={<FinancePortfolioSharing model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
+            sharing={<FinancePortfolioSharing presentation={presentation} model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
             period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
-            action={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+            action={<PortfolioReportAction presentation={presentation} model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
               disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />} />
 
           {deletePortfolioDialog}
@@ -2024,7 +2036,7 @@ export function DashboardMasterView({
                   ? "An overview of your saved portfolio."
                   : "Where your holdings come from."
         }
-        actions={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
+        actions={<PortfolioReportAction presentation={presentation} model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
           disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />}
         actionsInlineMobile
       />
@@ -2397,4 +2409,100 @@ export function DashboardMasterView({
       </AppPageContentRegion>
     </div>
   );
+  };
+  const content = renderContent();
+  if (!nativeActive) return content;
+  const title = { overview: "Portfolio", holdings: "Holdings", allocation: "Allocation", performance: "Performance", sources: "Portfolio source", analysis: "Portfolio analysis" }[section];
+  const period = model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot");
+  const sourceBusy = isChangingSource || isChangingStatementSnapshot || isPlaidRefreshing || isLinkingPlaid || isDeletingImportedData || isDeletingStatementSnapshot;
+  const activeStatement = statementSnapshots.find(snapshot => snapshot.id === (activeStatementSnapshotId || statementSnapshots[0]?.id));
+  const sections: NativeWorkspaceSurfaceSection[] = [{ key: "portfolio-context", rows: [
+    { key: "source-context", label: activeSource === "statement" ? activeStatement?.label || sourceDisplayLabel : `${freshness?.itemCount || 0} connected brokerages`, detail: `${period} · ${activeSource === "statement" ? "Editable, from a statement you uploaded." : "Read-only brokerage snapshot."}` },
+    ...(sourcesError ? [{ key: "source-error", label: sourcesError }, { key: "source-retry", label: "Retry portfolio sources", run: reload }] : []),
+  ] }];
+  const actions: NativeWorkspaceSurfaceRow[] = [
+    { key: "report", label: "Portfolio report", enabled: hasShareablePortfolioData && !isSharingPortfolioPdf, pending: isSharingPortfolioPdf, web: true, run: () => setPresentationView("report") },
+    { key: "sharing", label: section === "overview" ? "Share portfolio" : "Share Finance with connections", web: true, run: () => setPresentationView("share") },
+    ...(section === "overview" ? [{ key: "advisor", label: "Ask an advisor", web: true, run: () => setPresentationView("advisor") }, { key: "sharing-history", label: "Manage sharing", web: true, run: () => setPresentationView("history") }] : []),
+  ];
+  if (isSourcesLoading && !displayedPortfolio) sections.push({ key: "loading", rows: [{ key: "loading", label: "Loading portfolio sources…", pending: true }, { key: "sharing-history", label: "Sharing", web: true, run: () => setPresentationView("history") }] });
+  else if (!displayedPortfolio) sections.push({ key: "no-source", rows: [
+    { key: "source-empty", label: "Choose how you want to begin." },
+    { key: "bank-connect", label: plaidConfigured === false ? "Bank connection unavailable" : isLinkingPlaid ? "Opening Plaid connection" : "Bank account (via Plaid)", detail: plaidConfigured === false ? "Use a statement instead" : "Read-only account sync", enabled: plaidConfigured !== false && !isLinkingPlaid, web: true, run: openPlaidLinkFlow },
+    { key: "upload", label: "Upload a statement", detail: "PDF or CSV from your brokerage", run: onReupload },
+    { key: "sharing-history", label: "Sharing", web: true, run: () => setPresentationView("history") },
+  ] });
+  else {
+    const facts = overviewFacts(model, displayedPortfolio);
+    if (["overview", "performance", "analysis"].includes(section)) sections.push({ key: "portfolio-value", title: "Portfolio value", rows: [
+      { key: "total-value", label: formatCurrency(model.hero.totalValue), detail: `${model.hero.holdingsCount} positions · ${model.hero.portfolioConcentrationLabel}` },
+      { key: "cash", label: "Cash", detail: facts.cash === null ? "Unavailable" : formatCurrency(facts.cash) },
+      { key: "invested", label: "Invested", detail: facts.invested === null ? "Unavailable" : formatCurrency(facts.invested) },
+      { key: "change", label: "Period balance change · includes cash flows", detail: facts.change === null ? "Unavailable" : `${formatCurrency(facts.change)}${facts.changePct === null ? "" : ` · ${facts.changePct.toFixed(2)}%`}` },
+      { key: "history-ready", label: model.quality.historyReady ? "Dated portfolio balances are available to review." : "Dated balance history is unavailable for this source." },
+    ] });
+    if (section === "overview") {
+      sections.push({ key: "overview-navigation", rows: [
+        { key: "analysis", label: "Portfolio analysis", run: () => router.push(buildKaiPortfolioSectionRoute("analysis")) },
+        { key: "performance", label: "View performance", detail: "Balance changes can include deposits and withdrawals and do not establish investment returns.", run: () => router.push(buildKaiPortfolioSectionRoute("performance")) },
+        { key: "allocation", label: "View allocation", run: () => router.push(buildKaiPortfolioSectionRoute("allocation")) },
+        { key: "holdings", label: `All ${model.hero.holdingsCount} holdings`, run: () => router.push(buildKaiPortfolioSectionRoute("holdings")) },
+      ] });
+      const positions = [...model.canonicalModel.positions].filter(position => !position.isCashEquivalent && position.marketValue > 0).sort((a, b) => b.marketValue - a.marketValue).slice(0, 3);
+      if (positions.length) sections.push({ key: "top-holdings", title: "Holdings", rows: positions.map(position => ({ key: `position:${position.id}`, label: position.name || position.displaySymbol, detail: `${position.displaySymbol} · ${position.sector || "Sector unavailable"} · ${formatCurrency(position.marketValue)}${model.hero.totalValue > 0 ? ` · ${(position.marketValue / model.hero.totalValue * 100).toFixed(1)}%` : ""}`, run: () => router.push(buildKaiPortfolioSectionRoute("holdings")) })) });
+      actions.push({ key: "import", label: "Import portfolio", run: onReupload }, { key: "manage", label: "Manage portfolio", run: () => router.push(buildKaiPortfolioSectionRoute("sources")) });
+    }
+    if (section === "sources") {
+      const rows: NativeWorkspaceSurfaceRow[] = [];
+      if (availableSources.length > 1) rows.push({ key: "source-choice", label: "Portfolio source", enabled: canChangePortfolioSource && !sourceBusy, pending: isChangingSource,
+        choices: availableSources.map(source => ({ key: source, label: source === "statement" ? "Statement" : "Brokerage", selected: activeSource === source, run: () => handleSourceChange(source) })) });
+      else rows.push({ key: "source-only", label: "Portfolio source", detail: sourceDisplayLabel });
+      if (activeSource === "statement" && statementSnapshots.length > 1) rows.push({ key: "statement-choice", label: "Saved statement", enabled: canChangePortfolioSource && !sourceBusy, pending: isChangingStatementSnapshot,
+        choices: statementSnapshots.map(snapshot => ({ key: snapshot.id, label: snapshot.label, selected: snapshot.id === (activeStatementSnapshotId || statementSnapshots[0]?.id), run: () => handleStatementSnapshotChange(snapshot.id) })) });
+      if (activeSource === "plaid" && hasPlaidConnections) rows.push({ key: "refresh-plaid", label: "Refresh connected accounts", enabled: !sourceBusy, pending: isPlaidRefreshing, run: handleRefreshPlaid });
+      if (plaidConfigured !== false) rows.push({ key: "manage-banks", label: "Manage connections", enabled: !sourceBusy, pending: isLinkingPlaid, web: true, run: openPlaidLinkFlow });
+      rows.push({ key: "import-statement", label: "Import statement", enabled: !sourceBusy, run: onReupload });
+      if (canDeletePortfolio) rows.push({ key: "delete-portfolio", label: "Delete Portfolio", destructive: true, enabled: !sourceBusy, run: () => setDeleteImportedDialogOpen(true) });
+      if (activeSource === "statement" && activeStatement) rows.push({ key: "delete-active-statement", label: "Delete this statement", detail: activeStatement.label, destructive: true, enabled: !sourceBusy, run: () => setStatementSnapshotDeleteId(activeStatement.id) });
+      sections.push({ key: "sources", rows });
+    }
+    if (section === "holdings") {
+      if (canEditStatement) actions.push({ key: "edit-holdings", label: "Edit", web: true, run: () => { holdingsEditBaseRef.current = statementEditablePortfolio; holdingsEditSnapshotRef.current = activeStatementSnapshotId; setIsHoldingsEditing(true); } });
+      const key = `${activeSource}:${activeStatementSnapshotId}:${holdingsSearch}`, page = nativePage.key === key ? Math.min(nativePage.page, Math.max(0, Math.ceil(mobileHoldingRows.length / 40) - 1)) : 0;
+      const rows: NativeWorkspaceSurfaceRow[] = mobileHoldingRows.slice(page * 40, (page + 1) * 40).map(holding => ({ key: `holding:${holding.client_id}`, label: holding.symbol || "Holding", detail: `${holding.name || "Unnamed security"}${holding.entries.length > 1 ? ` · ${holding.entries.length} entries` : ""} · ${formatCurrency(Number(holding.market_value || 0))} · ${formatPercent(holdingsTableDenominator > 0 ? Number(holding.market_value || 0) / holdingsTableDenominator * 100 : 0)}`, web: true, run: () => setSelectedHoldingId(holding.client_id) }));
+      if (!rows.length) rows.push({ key: "holdings-empty", label: holdingsSearch ? "No matching holdings." : "No positions are available in this source." });
+      if (page > 0) rows.push({ key: "holdings-previous", label: "Previous holdings", run: () => setNativePage({ key, page: page - 1 }) });
+      if ((page + 1) * 40 < mobileHoldingRows.length) rows.push({ key: "holdings-next", label: "More holdings", run: () => setNativePage({ key, page: page + 1 }) });
+      sections.push({ key: "holdings", title: isPlaidView ? "Brokerage holdings · read-only snapshot" : "Current holdings", rows });
+    }
+    if (section === "allocation" || section === "overview" || section === "analysis") {
+      sections.push({ key: "allocation", title: "Allocation", rows: (section === "overview" ? model.allocation.some(row => row.value > 0 && Number.isFinite(row.value)) : model.quality.allocationReady) && model.allocation.length ? model.allocation.filter(row => section !== "overview" || row.value > 0 && Number.isFinite(row.value)).map(row => ({ key: `allocation:${row.name}`, label: row.name, detail: `${formatCurrency(row.value)}${model.hero.totalValue > 0 ? ` · ${(row.value / model.hero.totalValue * 100).toFixed(1)}%` : ""}`, selected: selectedAllocationName === row.name,
+        ...(section === "allocation" ? { run: () => setSelectedAllocationName(value => value === row.name ? null : row.name) } : {}) })) : [{ key: "allocation-empty", label: "Allocation is unavailable for this source." }] });
+      if (section === "analysis" && model.quality.sectorReady) sections.push({ key: "equity-sectors", title: `Equity sectors · ${(model.allocation_quality.equityCoveragePct * 100).toFixed(0)}% of eligible equity holdings mapped`, rows: model.equity_sector_allocation.slice(0, 5).map(row => ({ key: `sector:${row.sector}`, label: row.sector, detail: `${row.pct.toFixed(1)}% of portfolio` })) });
+    }
+    if (section === "analysis" || section === "performance") {
+      sections.push({ key: "history", title: "Value history", rows: [{ key: "history-status", label: model.quality.historyReady ? `${model.history.length} saved observations` : "Dated balance history is unavailable for this source.", detail: "Saved balance changes may include deposits and withdrawals; they are not investment returns." }] });
+      if (section === "analysis") sections.push({ key: "concentration", title: "Position concentration", rows: model.canonicalModel.positions.length && model.hero.totalValue > 0 ? [...model.canonicalModel.positions].sort((a, b) => b.marketValue - a.marketValue).slice(0, 5).map(position => ({ key: `concentration:${position.id}`, label: position.name || position.displaySymbol, detail: `${formatCurrency(position.marketValue)}${model.hero.totalValue > 0 ? ` · ${(position.marketValue / model.hero.totalValue * 100).toFixed(1)}%` : ""}` })) : [{ key: "concentration-unavailable", label: "Position concentration is unavailable for this source." }] });
+    }
+    if (section === "analysis") sections.push({ key: "source-limitations", rows: [
+      { key: "basis", label: `Based on ${sourceDisplayLabel.toLowerCase()} information · ${period}.` },
+      ...(!model.quality.sectorReady ? [{ key: "sector-unavailable", label: "Equity sector information is unavailable or incomplete." }] : []),
+      { key: "limitations", label: "Figures reflect the available saved source and may not include other accounts or recent market changes. This is not a recommendation." },
+    ] });
+    if (["overview", "allocation", "performance", "analysis"].includes(section)) actions.push({ key: "detailed-charts", label: section === "allocation" ? "Allocation details and sector holdings" : "Detailed portfolio charts", web: true, run: () => setChartsOpen(true) });
+    sections.push({ key: "portfolio-actions", rows: actions });
+  }
+  const confirmation: NativeWorkspaceSurfaceConfirmation | undefined = deleteImportedDialogOpen ? {
+    title: activeSource === "plaid" ? "Delete Plaid portfolio?" : "Delete statement portfolio?",
+    description: activeSource === "plaid" ? "This disconnects the Plaid brokerage portfolio and removes the local portfolio mirror from your Vault. Profile and consent data are kept." : "This removes imported holdings and statement snapshots from your Vault. Profile and consent data are kept.",
+    confirm: { key: "confirm-delete-portfolio", label: "Delete Portfolio", destructive: true, enabled: !isDeletingImportedData, pending: isDeletingImportedData, run: handleDeletePortfolioData }, cancelLabel: "Cancel", cancel: () => setDeleteImportedDialogOpen(false),
+  } : statementSnapshotDeleteId ? {
+    title: "Delete saved statement?", description: `This removes ${statementSnapshotToDelete?.label || "this statement"} from your saved portfolio history. Your other saved statements and connected brokerages are kept.`,
+    confirm: { key: "confirm-delete-statement", label: "Delete statement", destructive: true, enabled: !isDeletingStatementSnapshot, pending: isDeletingStatementSnapshot, run: () => handleDeleteStatementSnapshot(statementSnapshotDeleteId) }, cancelLabel: "Cancel", cancel: () => setStatementSnapshotDeleteId(null),
+  } : undefined;
+  return <NativeFinanceLayer active contentPresentation={section === "sources" ? "native" : "rich"} title={title} sections={sections} confirmation={confirmation}
+    viewKey={`${section}:${activeSource}:${activeStatementSnapshotId}:${nativePage.page}`}
+    search={section === "holdings" ? { query: holdingsSearch, label: "Search holdings", change: setHoldingsSearch } : undefined}
+    webChild={Boolean(chartsOpen || presentationView || isHoldingsEditing || selectedHoldingId || isModalOpen)} fallback={content} />;
+
 }

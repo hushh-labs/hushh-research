@@ -15093,7 +15093,10 @@
       ],
       "search_keywords": [
         "profile",
-        "account"
+        "account",
+        "native interface",
+        "experimental interface",
+        "appearance"
       ],
       "meaning": "Navigates to profile landing route.",
       "speaker_persona": "one",

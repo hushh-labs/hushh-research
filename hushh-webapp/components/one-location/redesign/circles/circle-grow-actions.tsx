@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Check, Loader2, Send, Share2, UserPlus } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";

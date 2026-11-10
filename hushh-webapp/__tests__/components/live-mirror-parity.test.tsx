@@ -1,6 +1,7 @@
 import { cleanup, render, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import { CacheService } from "@/lib/services/cache-service";
 
 const m = vi.hoisted(() => ({ view: null as LiveMirrorView | null }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -50,6 +51,16 @@ function profileReading() {
 }
 
 afterEach(cleanup);
+
+it("uses a retained Memory view without creating another live subscription", () => {
+  const subscribe = vi.spyOn(CacheService.getInstance(), "subscribe");
+  const supplied = realView([], ["profile"]);
+  const view = render(<LiveMirrorPreview mirror={{ status: "ready", view: supplied }} />);
+  expect(view.getByTestId("live-mirror-status")).toBeTruthy();
+  expect(subscribe).not.toHaveBeenCalled();
+  view.unmount();
+  subscribe.mockRestore();
+});
 
 it("Profile and the shared preview read one view the same way: value, status and check time", () => {
   m.view = realView([

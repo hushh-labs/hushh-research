@@ -318,7 +318,7 @@ describe("VaultFlow create validation", () => {
       recoveryEncryptedVaultKey: "encrypted-recovery",
       recoverySalt: "recovery-salt",
       recoveryIv: "recovery-iv",
-      recoveryKey: "recovery-key",
+      recoveryKey: "HRK-0001-0203-0405-0607-0809-0A0B-0C0D-0E0F",
     });
     hashVaultKeyMock.mockResolvedValue("vault-key-hash");
     setupVaultStateMock.mockResolvedValue(undefined);

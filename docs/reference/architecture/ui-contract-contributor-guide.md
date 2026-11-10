@@ -135,28 +135,35 @@ This is repository contract verification, not deployed or physical-device proof.
 | Generated file conflicts after another PR lands | Merge main, reconcile authored fields, regenerate Back before Search, then verify |
 | Validator/test failure | Fix the behavior or owning declaration; do not skip tests or stamp blindly |
 
-Freshness evidence lives in immutable, content-addressed JSON receipts under
-`hushh-webapp/contracts/ui-review/{back,search}/<source-revision>.json`, not in
-authored route/action contracts or runtime gateway metadata. Back still hashes
-the full UI source set and authored route cases; Search still hashes the complete
-route import graph. Relevant source changes require the exact receipt for the current
-sources. An unrelated PR may inherit its target branch's evidence when none of the
-owner's sources, authored contracts or validator inputs changed against that base.
-All current inputs must be tracked in that repository; an ignored workspace or
-fixture cannot inherit its enclosing repository's review evidence.
-CI pins the PR/merge-group base SHA; local checks use an ancestor `origin/main`.
-Missing history, invalid bases, deleted/new UI modules and changed imported information
-fail closed. Validation never creates or repairs evidence. Existing history-bypass,
-route coverage, action/control coverage and behavior checks remain mandatory.
+Freshness evidence is **not committed as generated JSON files**. After reviewing
+changed behavior, the existing owner build commands refresh only the bounded,
+ignored `hushh-webapp/tmp/ui-review/back.json` and `search.json` cache records.
+The tracked `commit-msg` hook records compact `UI-Review-Back` and
+`UI-Review-Search` technical trailers: the source revision and SHA-256 of the
+canonical receipt, including its route/module counts. These are freshness
+fingerprints, not claims of human review or runtime acceptance. Keep
+`core.hooksPath=.githooks`; a commit made without this hook must retain the exact
+trailers printed by the owner build commands.
 
-Independent branches add different receipt files, so source-only reviews no longer
-rewrite a shared stamp across every contract and generated mirror. Preserve both
-branches' receipts during merges. A combined source revision with relevant PR changes
-requires a fresh review/build receipt even when each parent passed. An asset/docs-only
-PR does not need to repair main's combined review receipt. Historical receipts do not
-authorize different sources. Real overlapping authored edits can still conflict;
-reconcile those semantically. Do not use a Git merge driver to silently choose a
-side, auto-stamp during verification, or treat receipts as proof of action meaning.
+Read-only verification never creates evidence. Local verification can use the
+exact current ignored cache; CI requires matching trailers reachable from the
+candidate HEAD or verified unchanged-target inheritance. Unrelated branches,
+reflogs, malformed or missing/shallow history cannot supply proof. Later local
+commits carry forward existing trailers without minting a new source review.
+Synthetic merge commits can reuse exact matching parent proof; changed combined
+sources still require review. Squash merges must retain the technical trailers.
+Back hashes the full UI source set and authored route cases; Search hashes the
+complete route import graph. Authored behavior, action/control coverage and
+tracked-input/verified-base checks remain mandatory.
+
+CI pins the PR/merge-group base SHA; local inheritance uses an ancestor
+`origin/main`. Missing history, invalid bases, untracked inputs, deleted/new UI
+modules and changed imported information fail closed. Do not hand-edit a source
+fingerprint, auto-review during verification, or treat a checksum as proof of
+interaction meaning. Do not add generated review JSON, audit runs, screenshots,
+traces or evaluation ledgers to Git. Keep local evidence ignored; use sanitized
+CI artifacts when evidence must be handed off. Authored contracts, runtime
+mirrors, dependency locks, fixtures and app assets remain source-controlled.
 
 `app-route-layout.contract.json` and local action contracts are authored authority;
 never resolve them wholesale as generated files. Keep generated gateway,

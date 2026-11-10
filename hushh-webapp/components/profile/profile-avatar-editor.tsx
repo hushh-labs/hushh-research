@@ -93,7 +93,7 @@ export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = fals
         return identity;
       },
     );
-    toast.promise(upload, {
+    toast.promiseText(upload, {
       loading: "Updating photo...",
       success: "Profile photo updated.",
       error: (error) =>
@@ -121,7 +121,7 @@ export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = fals
         return identity;
       },
     );
-    toast.promise(removal, {
+    toast.promiseText(removal, {
       loading: "Removing photo...",
       success: "Profile photo removed.",
       error: (error) =>

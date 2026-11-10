@@ -12,6 +12,7 @@ import {
   copyWalletCardLink,
 } from "@/components/wallet-card/wallet-card-share";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
+import { withNativeFeedbackScope } from "@/lib/capacitor/native-feedback-sink";
 import type { ReferralSummary } from "@/lib/services/referral-service";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
 import { WalletCardImageShareButton } from "./wallet-card-image-share-button";
@@ -34,7 +35,8 @@ export function useWalletReferralOwner({
   shareToken,
   profile,
   onRevoke,
-}: WalletReferralDetailsProps) {
+}: WalletReferralDetailsProps, nativePresentation = false) {
+  const notify = (create: () => unknown) => nativePresentation ? withNativeFeedbackScope("workspace", create) : create();
   const [busy, setBusy] = useState<"wallet" | "revoke" | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const visit = useMemo(() => ({ ownerId: profile?.ownerId, onRevoke }), [profile?.ownerId, onRevoke]);
@@ -47,9 +49,9 @@ export function useWalletReferralOwner({
     setBusy("wallet");
     try {
       const result = await WalletCardService.addToAppleWallet(shareToken, { variant: "referral" });
-      if (visitRef.current === visit && result.state !== "opened") morphyToast.error(result.message);
+      if (visitRef.current === visit && result.state !== "opened") notify(() => morphyToast.error(result.message));
     } catch {
-      if (visitRef.current === visit) morphyToast.error("Could not create your pass. Try again.");
+      if (visitRef.current === visit) notify(() => morphyToast.error("Could not create your pass. Try again."));
     } finally {
       if (visitRef.current === visit) setBusy(null);
     }
@@ -62,9 +64,9 @@ export function useWalletReferralOwner({
       await onRevoke(summary.slug);
       if (visitRef.current !== visit) return;
       setConfirmRevoke(false);
-      morphyToast.success("Old referral QR revoked. Your new link starts with zero opens.");
+      notify(() => morphyToast.success("Old referral QR revoked. Your new link starts with zero opens."));
     } catch {
-      if (visitRef.current === visit) morphyToast.error("Could not revoke access. Try again.");
+      if (visitRef.current === visit) notify(() => morphyToast.error("Could not revoke access. Try again."));
     } finally {
       if (visitRef.current === visit) setBusy(null);
     }
@@ -73,7 +75,7 @@ export function useWalletReferralOwner({
   const copyLink = async () => {
     if (!summary) return;
     const copied = await copyWalletCardLink(summary.link);
-    if (visitRef.current === visit) copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy");
+    if (visitRef.current === visit) notify(() => copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"));
   };
   return { busy, confirmRevoke, setConfirmRevoke, addToWallet, revokeAccess, copyLink };
 }

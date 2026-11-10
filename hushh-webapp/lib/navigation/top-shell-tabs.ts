@@ -2,6 +2,7 @@ export interface TopShellTab {
   value: string;
   label: string;
   href: string;
+  voiceControlId?: string;
 }
 
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
@@ -23,11 +24,19 @@ export interface TopShellTabDefinition {
 
 export interface TopShellTabSet {
   /** Wallet and Calendar also use local controlled pagers. */
-  id: TopShellTabSetId | "wallet" | "calendar";
+  id: TopShellTabSetId | "wallet" | "calendar" | "connect-views";
   label: string;
   queryParam: "view" | "tab" | null;
   activeValue: string;
   tabs: readonly TopShellTab[];
+}
+
+/** Local Connect views share labels/identity across DOM and native controls. */
+export function connectViewTabs(activeValue: string, connectionsLabel = "My connections"): TopShellTabSet {
+  return { id: "connect-views", label: "Connection views", queryParam: null, activeValue, tabs: [
+    { value: "connections", label: connectionsLabel, href: ROUTES.CONNECT, voiceControlId: "one-connect-connections" },
+    { value: "discover", label: "Find people", href: ROUTES.CONNECT, voiceControlId: "one-connect-discovery" },
+  ] };
 }
 
 const RIA_TOP_SHELL_TABS: readonly TopShellTab[] = RIA_ROUTE_TABS.map(

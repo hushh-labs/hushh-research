@@ -13,6 +13,7 @@ import UIKit
     private var retiring = false
     private var externalCoverage = false
     var coverage: (() -> Void)?
+    var feedbackPresenter: UIViewController? { !retiring ? sheet?.feedbackPresenter : nil }
     var coversPresentation: Bool { sheet?.coversPresentation == true || retiring }
     var ready: Bool { workspace?.state.wallet?.selectedId == nil ? sheet == nil && !retiring : sheet?.presentationSettled == true && !retiring }
     init(model: NativeWorkspaceModel, parent: UIViewController) { workspace = model; self.parent = parent }
@@ -21,7 +22,7 @@ import UIKit
               workspace.state.wallet?.detailVisitId == visit else { return false }
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         guard privacy.appIsActive, !privacy.shielded, privacy.generation == workspace.state.privacyGeneration else { return false }
-        return dismissed ? detached : sheet?.presentationSettled == true && !detached
+        return dismissed ? detached : sheet?.presentationAttached == true && !detached
     }
     func setExternalCoverage(_ covered: Bool) {
         externalCoverage = covered
@@ -59,6 +60,10 @@ import UIKit
             guard let self, let detail, self.detail === detail, detail.visit == origin else { return }
             _ = self.workspace?.choice("feedback-dismiss", row: id, detailVisitId: detail.visit)
         }
+        detail.activateFeedback = { [weak self, weak detail] id, origin, token in
+            guard let self, let detail, self.detail === detail, detail.visit == origin else { return }
+            _ = self.workspace?.choice("feedback-action", row: id, detailVisitId: detail.visit, actionToken: token)
+        }
         let owned = NativeProfileOwnedSheet(makeHost: { [weak detail] in
             guard let detail else { return nil }; return UIHostingController(rootView: NativeWalletCardDetailBody(model: detail))
         }, canPresent: { [weak self] in guard let self, let current = self.detail else { return false }; return self.allowsPreparation(current.visit) }, canDismiss: { [weak self, weak detail] in
@@ -70,7 +75,7 @@ import UIKit
             guard let self, let detail, self.detail === detail, !self.retiring else { return }
             self.detached = true; detail.enabled = false
             _ = self.workspace?.choice("row", row: detail.closeId, detailVisitId: detail.visit, dismissed: true)
-        }, clear: { [weak detail] in detail?.clear() })
+        }, clear: { [weak detail] in detail?.clear() }, initialDetent: .large)
         owned.coverage = { [weak self] in self?.updateEligibility(); self?.coverage?() }
         sheet = owned
         Self.presentationCount = min(100_000, Self.presentationCount + 1)

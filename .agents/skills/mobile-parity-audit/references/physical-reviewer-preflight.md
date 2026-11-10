@@ -119,6 +119,43 @@ another reviewer store or a privileged app-unlock route.
   route jumps. Preserve passcode and privacy protection; do not promise the OS
   will keep its authorization forever.
 
+## Simulator runner-only attachment to an existing app
+
+Use this only when preserving an installed Simulator app/data;
+`UseDestinationArtifacts` is physical-device only. Derive a throwaway project
+from the candidate's `App.xcodeproj`; never edit the canonical project. In the
+copy set `TargetApplication=None`, remove `App` from AppUITests dependencies and
+remove `TestTargetID`/`TEST_TARGET_NAME`. Preserve `Package.resolved` byte-for-byte
+and disable package resolution.
+
+The disposable scheme builds/tests `AppUITests` only, with no implicit App
+dependency or TestAction macro expansion. UI tests attach with
+`XCUIApplication(bundleIdentifier:)`; do not call `launch()` or reset app
+state. Pass `-UITestResetAppState false` explicitly. Build-for-testing in
+isolated DerivedData; inspect the xctestrun and product roots. Require
+`UseUITargetAppProvidedByTests=true`, no `UITargetAppPath`/bundle ID or AUT
+product, and runner/test-only dependent paths. Stop if an AUT product or
+mandatory app path remains. Install only the runner; compare app PID, executable
+and data-container identity before/after. A container UUID/path change alone
+does not prove data loss.
+
+Copy the generated xctestrun beside itself to preserve relative paths. Change
+only `SystemAttachmentLifetime` and `UserAttachmentLifetime` to `keepNever`, run
+with `-collect-test-diagnostics never`, and validate that exact copy diff. Never
+delete required fields. Remove the disposable project only after Xcode/test processes
+exit and derivation evidence is preserved.
+
+For a DEBUG native Back pilot, diagnostics alone are insufficient: launch with
+the coherent `--hushh-native-shell-qualification` flag and keep
+`-UITestResetAppState false`. Never pass real credentials in argv, files,
+xctestrun data or logs, and never read secure-field `.value`; qualify the exact
+field with a synthetic canary before private input. Treat keyboard visibility
+as window/frame intersection, not accessibility-element existence. A retained
+drawer accessibility root can remain present when closed; use its authored
+close control and authoritative native interaction state to classify obstruction.
+Keep successful touch and accessibility proof separate; a pointer hit does not
+clear a failed accessibility assertion.
+
 ## Account for screens, then batch the candidate
 
 1. Join the existing generated surface map, native route inventory and semantic

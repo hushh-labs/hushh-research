@@ -13,7 +13,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -160,6 +160,11 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
     profileState.personRef === resolvedPersonRef ? profileState.profile
       : initialProfile?.personRef === resolvedPersonRef ? initialProfile : null;
   const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const nativeTestDataState = profile
+    ? "loaded"
+    : publicProfileUnavailable
+      ? "unavailable-valid"
+      : "loading";
   const [publicReloadToken, setPublicReloadToken] = useState(0);
   const [viewerLoadError, setViewerLoadError] = useState<{
     personRef: string; viewerUid: string;
@@ -810,7 +815,16 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
 
   if (!profile) {
     return (
-      <AppPageShell width="agent" fitContent>
+      <AppPageShell
+        width="agent"
+        fitContent
+        nativeTest={{
+          routeId: "/people/[personRef]",
+          marker: "native-route-person-profile",
+          authState: "public",
+          dataState: nativeTestDataState,
+        }}
+      >
         <div
           className="flex min-h-[50vh] items-center justify-center"
           data-native-route="native-route-person-profile"
@@ -825,7 +839,16 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   }
 
   return (
-    <AppPageShell width="agent" fitContent>
+    <AppPageShell
+      width="agent"
+      fitContent
+      nativeTest={{
+        routeId: "/people/[personRef]",
+        marker: "native-route-person-profile",
+        authState: "public",
+        dataState: nativeTestDataState,
+      }}
+    >
       <div className={styles.page} data-native-route="native-route-person-profile">
         <PersonProfileHero
           profile={profile}

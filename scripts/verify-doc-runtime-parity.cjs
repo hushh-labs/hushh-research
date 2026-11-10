@@ -63,6 +63,13 @@ const DOC_EXCLUDES = [
 const GENERATED_ARTIFACT_DIRS = [
   "hushh-webapp/ios/App/DerivedData",
   "hushh-webapp/ios/build/SourcePackages",
+  "hushh-webapp/contracts/ui-review",
+  "hushh-webapp/native-*-parity-report.json",
+  "hushh-webapp/native-*-ui-interaction-report.json",
+  "artifacts",
+  "consent-protocol/artifacts",
+  "docs/reference/mobile/perf/baseline-*.json",
+  "docs/reference/architecture/paid-answer-provider-review-*.json",
 ];
 
 const REQUIRED_CANONICAL_ROUTES = {
@@ -481,6 +488,14 @@ function verifyDocPathReferences(files) {
 
       const resolved = resolveDocPathReference(file, token);
       if (resolved.length === 0) continue;
+      // These are declared local/CI outputs, not source dependencies. Their
+      // absence in a clean checkout is expected; tracking them is checked below.
+      if (resolved.some((candidate) => candidate.startsWith("hushh-webapp/tmp/") ||
+        GENERATED_ARTIFACT_DIRS.some((pattern) => {
+          if (!pattern.includes("*")) return candidate === pattern || candidate.startsWith(`${pattern}/`);
+          const expression = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+          return new RegExp(`^${expression}$`).test(candidate);
+        }))) continue;
 
       if (!resolved.some((candidate) => exists(candidate))) {
         offenders.push(`${file}: unresolved path reference \`${token}\` -> ${resolved.join(" OR ")}`);
@@ -550,14 +565,14 @@ function verifyNoGeneratedArtifacts() {
         offenders.push(`${dir} (tracked files present)`);
       }
     } catch {
-      // ignore git invocation failures and continue best-effort checks
+      offenders.push(`${dir} (Git tracking could not be verified)`);
     }
   }
 
   if (offenders.length) {
-    fail(`Generated native artifact trees must not be tracked:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
+    fail(`Generated evidence/report artifacts must not be tracked:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
   } else {
-    ok("No generated iOS artifact doc/build trees are tracked");
+    ok("No generated evidence/report artifacts are tracked");
   }
 }
 

@@ -562,11 +562,14 @@ export function usePkmNaturalModel({
     (card) => card.write_mode !== "do_not_save" && !isDegradedPreviewCard(card),
   );
   const captureRevision = useRef(0);
+  const captureInputRevision = useRef(0);
+  const captureReviewRevision = useRef<number | null>(null);
   const captureAuthReady = !authLoading && !sessionVerificationRequired;
   useEffect(() => {
     if (captureAuthReady) return;
     // Keep the owner's draft, but old work must not resume after verification.
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setCaptureLoading(false);
     // A dispatched save can still succeed. Retire the old review, but hold its
     // operation lock until settlement so recovery cannot submit it twice.
@@ -583,6 +586,7 @@ export function usePkmNaturalModel({
   useEffect(() => {
     setCaptureOwner(presentationOwner);
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setCaptureText("");
     setIdentifierApproval(null);
     setCaptureCards([]);
@@ -597,6 +601,7 @@ export function usePkmNaturalModel({
     );
     return () => {
       captureRevision.current += 1;
+      captureInputRevision.current += 1;
     };
   }, [applicationOwnerId, isVaultUnlocked, presentationOwner]);
 
@@ -1379,7 +1384,8 @@ export function usePkmNaturalModel({
       !isVaultUnlocked ||
       !vaultOwnerToken ||
       !captureText.trim() ||
-      captureSaving
+      captureSaving ||
+      captureReviewRevision.current === captureRevision.current
     )
       return;
     const operationOwnerId = applicationOwnerId;
@@ -1391,6 +1397,7 @@ export function usePkmNaturalModel({
         revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
     });
     if (!guard.isCurrent()) return;
+    captureReviewRevision.current = revision;
     setCaptureCards([]);
     setCaptureSharingImpactAcknowledged(false);
     setCaptureLoading(true);
@@ -1484,6 +1491,7 @@ export function usePkmNaturalModel({
         "That note couldn’t be prepared. Nothing was saved. Please try again.",
       );
     } finally {
+      if (captureReviewRevision.current === revision) captureReviewRevision.current = null;
       if (revision === captureRevision.current) setCaptureLoading(false);
     }
   }
@@ -1707,6 +1715,8 @@ export function usePkmNaturalModel({
             current.filter((card) => !savedIds.has(card.card_id)),
           );
         } else {
+          // Retire the native editor's acknowledged draft when React clears it.
+          captureInputRevision.current += 1;
           setCaptureText("");
           setCaptureCards([]);
           setCaptureSharingImpactAcknowledged(false);
@@ -1955,6 +1965,7 @@ export function usePkmNaturalModel({
     if (memoryReadSessionRef.current !== memoryReadSession || captureSaving)
       return;
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setCaptureText(text);
     setIdentifierApproval(null);
     setCaptureCards([]);
@@ -1966,6 +1977,7 @@ export function usePkmNaturalModel({
   const setIdentifierProcessingApproval = (approved: boolean) => {
     if (memoryReadSessionRef.current !== memoryReadSession || captureLoading || captureSaving) return;
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setIdentifierApproval(approved ? { note: captureText, epoch: snapshotVaultSessionEpoch() } : null);
     setCaptureCards([]);
     setCaptureUnresolvedSections([]);
@@ -1974,6 +1986,7 @@ export function usePkmNaturalModel({
   };
   return {
     ownerId: applicationOwnerId ?? "",
+    presentationIdentity: presentationOwner,
     identifierProcessingApproved,
     setIdentifierProcessingApproval,
     memoryScopeShareBundle,
@@ -2003,6 +2016,11 @@ export function usePkmNaturalModel({
     handleExportMemory,
     workspaceTab,
     setWorkspaceTab,
+    // The native editor shares this existing revision and owner fence; it
+    // must not create a second draft or apply an old owner's final edit.
+    captureInputRevision: () => captureInputRevision.current,
+    captureSessionCurrent: () => captureIsCurrent && memoryReadSessionRef.current === memoryReadSession &&
+      presentationOwnerRef.current === presentationOwner && captureAuthReady && isVaultUnlocked && isVaultSessionEpochCurrent(operationEpoch),
     captureText: captureIsCurrent ? captureText : "",
     captureCards: captureIsCurrent ? captureCards : [],
     captureHasSharedRecipients: captureIsCurrent && captureHasSharedRecipients,

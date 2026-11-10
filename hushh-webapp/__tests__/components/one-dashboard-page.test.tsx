@@ -2,6 +2,8 @@ vi.mock("@/components/wallet/wallet-entry-warmup", () => ({ WalletEntryWarmup: (
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { nativeLauncherAgent } from "@/components/dashboard/native-one-dashboard";
+import type { OneAgentMode } from "@/components/dashboard/one-agent-roster";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -72,6 +74,8 @@ vi.mock("@/components/dashboard/one-agent-presence", () => ({
 // Discovery has its own auth and service tests; these assertions cover the roster.
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({
   PublicProfileDiscoveryEntry: () => null,
+  usePublicProfileDiscoveryEntry: () => ({ visible: false, ready: false, open: false, setOpen: vi.fn(), ownerId: schedule.owner }),
+  PublicProfileDiscoveryEntryBody: () => null,
 }));
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
@@ -120,6 +124,13 @@ function countRosterMetrics(
 describe("OneDashboardPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("resolves the authored CSS accent before native launcher admission", () => {
+    const mode = { id: "location", title: "Location", description: "Share with people you trust", tone: "location", primaryMetric: { value: "0", label: "live" } } as OneAgentMode;
+    expect(nativeLauncherAgent(mode, "location-handle", "#123456")).toMatchObject({ artworkId: "roster-location", iconHex: "#007AFF" });
+    expect(nativeLauncherAgent({ ...mode, id: "finance", tone: "finance" }, "finance-handle", "#123456").artworkId).toBe("roster-finance");
+    expect(nativeLauncherAgent({ ...mode, id: "messages" }, "messages-handle", "#123456").artworkId).toBe("roster-default");
   });
 
   it("leaves pod presence to the shared top bar", () => {

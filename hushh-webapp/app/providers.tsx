@@ -862,6 +862,9 @@ export function Providers({ children }: ProvidersProps) {
         <KeyboardInsetManager />
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
+        {/* Register native feedback ownership before route effects can publish
+            a toast during the first native presentation admission. */}
+        <NativeFeedbackToaster />
         <AuthProvider>
           <AzureReturnBootRecovery />
           <AuthenticatedFeedStream />
@@ -886,7 +889,6 @@ export function Providers({ children }: ProvidersProps) {
             </RenderPerfProfiler>
           </Suspense>
         </AuthProvider>
-        <NativeFeedbackToaster />
         <Toaster
           position="top-center"
           closeButton

@@ -40,7 +40,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { contactCountBucket } from "./contact-count-bucket";
 import { useGoogleContactSync, type GoogleContactSyncController } from "./use-google-contact-sync-session";
 

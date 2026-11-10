@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { trackEvent } from "@/lib/observability/client";
 import {
   Check,
@@ -623,6 +623,8 @@ const CIRCLE_KIND_OPTIONS: {
 ];
 
 export type CreateCircleFlowProps = {
+  /** A retained route may change vault owners without unmounting its model. */
+  resetKey?: unknown;
   active?: boolean;
   busy: boolean;
   onSubmit: (name: string, kind: OneLocationCircleKind, existingCircleId?: string, customTypeLabel?: string) => Promise<OneLocationCircleDetail>;
@@ -640,6 +642,7 @@ export type CreateCircleFlowProps = {
 /** One create/update writer and one people draft, shared by both renderers. */
 export function useCreateCircleFlow({
   active = true,
+  resetKey,
   busy,
   onSubmit,
   showCircleType = true,
@@ -651,6 +654,10 @@ export function useCreateCircleFlow({
   pathname = ROUTES.ONE_LOCATION,
   backLayerQuery = { action: "create-circle" },
 }: CreateCircleFlowProps) {
+  const session = useRef({ key: resetKey, revision: 0 });
+  const sessionChanged = session.current.key !== resetKey;
+  if (sessionChanged) session.current = { key: resetKey, revision: session.current.revision + 1 };
+  const sessionRevision = session.current.revision;
   const [name, setName] = useState("");
   const [nameRequirementActive, setNameRequirementActive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
@@ -665,7 +672,7 @@ export function useCreateCircleFlow({
   const input = useRef({ name: "", kind: "family" as OneLocationCircleKind, customTypeLabel: "", revision: 0 });
   const inputRevision = useCallback(() => input.current.revision, []);
   const changeDraft = useCallback((draft: { name: string; kind: OneLocationCircleKind; customTypeLabel?: string }, expectedRevision?: number) => {
-    if (!mounted.current || submittingRef.current || expectedRevision !== undefined && input.current.revision !== expectedRevision ||
+    if (!mounted.current || session.current.revision !== sessionRevision || submittingRef.current || expectedRevision !== undefined && input.current.revision !== expectedRevision ||
       draft.name.length > 80 || !["family", "friends", "other"].includes(draft.kind)) return false;
     const nextType = draft.kind === "other" ? (draft.customTypeLabel ?? input.current.customTypeLabel) : "";
     if (nextType.length > MAX_CIRCLE_TYPE_LABEL_LENGTH) return false;
@@ -673,7 +680,7 @@ export function useCreateCircleFlow({
     input.current = { ...draft, customTypeLabel: nextType, revision: input.current.revision + 1 };
     setName(draft.name); setKind(draft.kind); setCustomTypeLabel(nextType); if (draft.name.trim()) setNameRequirementActive(false);
     return true;
-  }, []);
+  }, [sessionRevision]);
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
   const trimmedName = name.trim();
@@ -715,19 +722,19 @@ export function useCreateCircleFlow({
 
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const current = useCallback(() => mounted.current, []);
+  const current = useCallback(() => mounted.current && session.current.revision === sessionRevision, [sessionRevision]);
   const stepRef = useRef(step), addingRef = useRef(addingPeople);
   const mutationPending = useCallback(() => (submittingRef.current && stepRef.current === "details") || addingRef.current, []);
   stepRef.current = step; addingRef.current = addingPeople;
-  useEffect(() => {
-    if (active) return;
+  useLayoutEffect(() => {
+    if (active && !sessionChanged) return;
     input.current = { name: "", kind: "family", customTypeLabel: "", revision: input.current.revision + 1 };
     submittingRef.current = false; setName(""); setKind("family"); setCustomTypeLabel(""); setNameRequirementActive(false); setNameFocused(false);
     setStep("details"); setSavedCircle(null); setSaving(false); setAddingPeople(false);
     setError(null);
-  }, [active]);
+  }, [active, resetKey]);
   const prepare = async (draft = input.current) => {
-    if (!mounted.current || submittingRef.current || busy || saving) return false;
+    if (!current() || submittingRef.current || busy || saving) return false;
     const nextName = draft.name.trim();
     const enteredType = draft.kind === "other" && customTypesSupported ? normalizeCircleTypeLabel(draft.customTypeLabel) : "";
     const nextType = customTypes.find(label => label.toLocaleLowerCase() === enteredType.toLocaleLowerCase()) ?? enteredType;
@@ -743,7 +750,7 @@ export function useCreateCircleFlow({
       const circle = savedCircle && savedCircle.name === nextName && savedCircle.kind === draft.kind && (savedCircle.customTypeLabel ?? "") === nextType
         ? savedCircle
         : await (nextType ? onSubmit(nextName, draft.kind, savedCircle?.id, nextType) : onSubmit(nextName, draft.kind, savedCircle?.id));
-      if (!mounted.current) return false;
+      if (!current()) return false;
       setSavedCircle(circle);
       if (nextType && circle.customTypeLabel !== nextType) {
         throw new Error("Could not save the Circle type. Please try again.");
@@ -757,18 +764,18 @@ export function useCreateCircleFlow({
       } catch {}
       return true;
     } catch (error) {
-      if (!mounted.current) return false;
+      if (!current()) return false;
       submittingRef.current = false;
       const message = circleFlowErrorMessage(error, "Could not create this Circle.");
       setError(message); toast.error(message);
       return false;
     } finally {
-      if (mounted.current) setSaving(false);
+      if (current()) setSaving(false);
     }
   };
-  const advance = () => { if (mounted.current && submittingRef.current) setStep("people"); };
+  const advance = () => { if (current() && submittingRef.current) setStep("people"); };
   const submit = async () => { if (await prepare()) advance(); };
-  const peopleProps = { circleId: savedCircle?.id ?? "", circleName: savedCircle?.name ?? "", active: active && step === "people", onLoad: onLoadPeople,
+  const peopleProps = { circleId: sessionChanged ? "" : savedCircle?.id ?? "", circleName: savedCircle?.name ?? "", active: active && !sessionChanged && step === "people", onLoad: onLoadPeople,
     onAdd: onAddPeople, onComplete, onBack: backToDetails, onSavingChange: setAddingPeople };
   const people = useCreateCirclePeopleModel(peopleProps);
   return { name, setName: (name: string) => changeDraft({ ...input.current, name }), nameRequirementActive, setNameRequirementActive, nameFocused, setNameFocused,

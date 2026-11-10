@@ -132,7 +132,7 @@ export function CommandAgentBar({
           : undefined
       }
     >
-      <div className={cn("pointer-events-none", BOTTOM_CHROME_COLUMN_CLASSNAME)}>
+      <div data-agent-bar-extras className={cn("pointer-events-none", BOTTOM_CHROME_COLUMN_CLASSNAME)}>
         <LocationCommandCard />
         {working && view.transcript && !collapsed ? (
           <p

@@ -183,3 +183,66 @@ Nearest existing checks include
 [bottom clearance](../../e2e/app-shell-bottom-clearance.layout.spec.ts) fixtures.
 These are source/fixture evidence, not device permission or Dynamic Type
 acceptance. This documentation change performs no navigation/runtime mutation.
+
+## Experimental native Tasks
+
+When the existing experimental native-interface preference admits the iPhone
+workspace, `/one/todos` uses the shared native presentation owner. React retains
+loading, task projection, encrypted writes, confirmation outcomes and feedback.
+The adapter maps grouped pending/completed rows, receipts, retries and the
+existing source links; task detail provides complete/restore, Open/Join and
+Delete with confirmation. A bounded list window has explicit Previous/More.
+
+Add uses native title/notes fields and optional native date/time pickers. Cancel
+and the authored shell Back clear the local draft and restore the collection;
+failed saves keep the editor. All values flow to the existing task callbacks.
+Flag-off, unsupported hosts or a confirmed presentation failure retain the
+complete existing React route. This does not add another lifecycle mechanism.
+
+## Experimental native Mail
+
+On an admitted iPhone, canonical Mail and its setup variant share one presentation owner across Overview, KYC and Receipts. React retains connector admission, account and vault fences, sync, persistence, verification drafts and all writers. The effect-only receipt-to-Memory saver stays mounted when native controls are visible.
+
+The native projection uses the existing tab selection, receipt filters/month grouping/paging, KYC queue/activity and guarded confirmation callbacks. Only the selected current-account pane owns a native workspace. Historical receipts remain an explicit, account-unverified reader handoff; they cannot admit a competing collection workspace.
+
+Receipt source/evidence details, encrypted identity intake, exact-scope reply review, receipt update details and Google transition/authorization retain their complete authored presentations after confirmed native retirement. Dismissal readmits the native owner. Renderer-off or unavailable capabilities retain the complete React route. Runtime scope and fixture limits are recorded in the adoption ledger; implementation alone is not route acceptance.
+
+## Experimental native Calendar
+
+Calendar and its setup variant retain the connection/OAuth owner. The current multi-account Board, Invitations and Insights panes share one native presentation owner; the Board's one-time OAuth-return initializer and existing read/cache generations remain mounted. Account and date selection, paging, filters, search and refresh dispatch to those owners. A native date picker publishes only validated ISO days in the selected display timezone.
+
+Event/invitation review, booking/conflict review, occasions, meeting-file contents and provider authorization use their complete authored handoffs after confirmed retirement. Revalidate the current row and its enabled/pending state after retirement; booking also checks the current complete board, date, timezone and opening. Incomplete coverage cannot authorize booking. The Insights library retains its authored Back layer, and invitation details register against the normalized static-export pathname. Native disconnect confirmation shares the original state and writer; Cancel does not invoke it.
+
+The older connected response without account metadata retains its complete React schedule. Anonymous/public rescheduling is a separate presentation capability, not this authenticated workspace. Renderer-off retains the complete React route. Runtime scope and fixtures remain distinct from these mappings.
+
+## Experimental native News and Identity-check preferences
+
+Market News composes a native list through the existing reader, scope/snapshot fences, refresh and paging callbacks. URL validation and external opening stay in JavaScript. Native windowing performs no additional provider reads; a new snapshot/window has its own presentation identity while the resource owner stays mounted. Locked or renderer-disabled entry retains the complete React route.
+
+After the existing protected intake and setup readiness gates, Identity checks maps its authoritative response-preparation preference, retry and Finish/Skip callbacks. Intake and vault admission retain their complete authored presentations. The preference writer, sender checks and setup coordinator remain unchanged. Native switches use the existing On-first/Off-second renderer contract; the bridge rejects reversed workspace options. Connector models follow that same convention, including public visibility. Consequential toggles and terminal setup actions retain their binding-verification boundary.
+
+## Experimental native Finance
+
+Finance's retained Market, Portfolio and Stocks panes share the existing workspace presentation owner. The registry still owns query selection, scroll reset and authored return; feature models supply native rows, search and finite-choice menus. Source switching, refresh and destructive review keep the same vault, busy and active-source guards as React. Reselecting a selected menu item is inert; the bridge carries opaque handles rather than source identifiers or operation parameters.
+
+Portfolio section routes reuse their existing reader and callbacks. Detailed charts/sector holdings, holdings editors, report/sharing/advisor review, import/provider/extraction flows, and Stocks company/saved-analysis/comparison/debate views retain complete React presentations. Native controls retire before these presentations; dismissal or authored Back restores the native parent. Renderer-disabled and unsupported projections retain complete React behavior. Actual creation, deletion, provider grants, analysis submissions and financial actions are not implied by presentation verification.
+
+The addressable hardcoded `?preview=analysis|connect` prototypes remain separate mapping gaps; their names do not establish unreachable or live-service parity. Runtime acceptance and fixture limits belong in the adoption ledger, bound to the installed artifact.
+
+## Experimental native Career
+
+The owner-keyed Career workspace retains its existing encrypted resume reader, roles reader, drafts and action callbacks. A change of owner or lock state retires the previous private state even when both accounts were otherwise ready. Native summary, upload/replace/edit, roles and receipts map those owners. File selection/cancellation, complete resume editing and exact outgoing application review remain authored React handoffs; Back cancels reversible drafts and is blocked during an active save or application.
+
+An absent professional domain is an empty result; a failed read is an error with Retry. A save closes the draft only after the write coordinator reports success. External application token acquisition is pinned to the originating owner and checked against the vault credential epoch before POST. Sending an application and persisting its local receipt are separate outcomes. Presentation review does not authorize or claim an external application.
+
+Location's experimental native workspace reuses Now / People / Links selection,
+recipient search and paging, public-link duration, Settings and sharing/request
+lists from the existing route owners. Maps, consent/application reviews, Share,
+Ask, Save My Soul, invitations and saved-place editing remain complete authored
+presentations. Settings Back returns from the saved-place review to Settings;
+sharing/request Back returns from rich detail to its list. Auto-approval On opens
+the existing scope picker; only its existing explicit confirmation can save it.
+Temporary DOM overlay tokens retire native controls before exposing React and
+release admission after actual dismissal; they are not permanent renderer failure.
+Read-only reviewer entry skips ambient identity/key registration without changing
+normal interactive setup or explicit action-boundary key preparation.

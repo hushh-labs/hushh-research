@@ -383,10 +383,16 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     }
 
     func install(_ view: UIView, id: String, group: String?, pane: NativeContentPaneIdentity? = nil) {
-        if pane != nil { contentChrome.addSubview(view) }
+        // Keep the shell Back control above the full-frame WebView for UIKit
+        // accessibility hit testing. Admission still fences covered controls.
+        if pane != nil || (id == "top-shell-back" && group == nil) { contentChrome.addSubview(view) }
         else if let group {
             let host = groupHost(group)
             host.addSubview(view)
+        } else if id == "route-workspace" {
+            // The base scroll canvas paints beneath the floating shell;
+            // installation order must never let it intercept dock/nav taps.
+            underlay.insertSubview(view, at: 0)
         } else { underlay.addSubview(view) }
         controls[id] = (view, group, pane, false)
         if Self.bottomChromeIds.contains(id), pane == nil {
@@ -781,25 +787,64 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     }
 }
 
+/// Tracks the complete touch lifetime that quarantines bottom-chrome scroll
+/// updates. A returned value is an actual held-state transition to publish.
+struct NativeBottomChromePressState {
+    private var touches = Set<ObjectIdentifier>()
+    private(set) var isHeld = false
+
+    var hasTouches: Bool { !touches.isEmpty }
+
+    mutating func began(_ touches: Set<ObjectIdentifier>) -> Bool? {
+        guard !touches.isEmpty else { return nil }
+        self.touches.formUnion(touches)
+        return setHeld(true)
+    }
+
+    mutating func ended(_ touches: Set<ObjectIdentifier>) -> Bool? {
+        self.touches.subtract(touches)
+        return self.touches.isEmpty ? setHeld(false) : nil
+    }
+
+    mutating func cancelled(_ touches: Set<ObjectIdentifier>) -> Bool? {
+        self.touches.subtract(touches)
+        return self.touches.isEmpty ? setHeld(false) : nil
+    }
+
+    mutating func reset() -> Bool? {
+        touches.removeAll()
+        return setHeld(false)
+    }
+
+    private mutating func setHeld(_ value: Bool) -> Bool? {
+        guard isHeld != value else { return nil }
+        isHeld = value
+        return value
+    }
+}
+
 /// Observes a native press without consuming it or moving its target. The
 /// complete touch lifetime quarantines scroll updates, not normal actions.
 final class NativeBottomChromePressObserver: UIGestureRecognizer {
     private let changed: (Bool) -> Void
-    private var held = false
-    private var touches = Set<UITouch>()
+    private var press = NativeBottomChromePressState()
     init(_ changed: @escaping (Bool) -> Void) { self.changed = changed; super.init(target: nil, action: nil) }
-    private func hold(_ value: Bool) { if held != value { held = value; changed(value) } }
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) { self.touches.formUnion(touches); state = .began; hold(true) }
+    private func publish(_ transition: Bool?) { if let transition { changed(transition) } }
+    private func identities(_ touches: Set<UITouch>) -> Set<ObjectIdentifier> { Set(touches.map(ObjectIdentifier.init)) }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        publish(press.began(identities(touches)))
+        state = .began
+    }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) { state = .changed }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        self.touches.subtract(touches)
-        if self.touches.isEmpty { state = .ended; hold(false) }
+        publish(press.ended(identities(touches)))
+        if !press.hasTouches { state = .ended }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        self.touches.subtract(touches)
-        if self.touches.isEmpty { state = .cancelled; hold(false) }
+        publish(press.cancelled(identities(touches)))
+        if !press.hasTouches { state = .cancelled }
     }
-    override func reset() { touches.removeAll(); hold(false); super.reset() }
+    override func reset() { publish(press.reset()); super.reset() }
 }
 
 #if DEBUG

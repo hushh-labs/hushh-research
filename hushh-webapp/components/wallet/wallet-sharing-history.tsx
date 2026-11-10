@@ -4,7 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import styles from "./wallet-sharing.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CreditCard } from "@/components/icons";
 import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons";
@@ -17,11 +17,13 @@ import { WalletCardFace } from "./wallet-card-face";
 import { isCardNetworkId } from "@/lib/wallet/card-validation";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { withNativeFeedbackScope } from "@/lib/capacitor/native-feedback-sink";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import browserStyles from "./wallet-card-browser.module.css";
 const WalletCardAccessMessage = lazy(() => import("./wallet-card-access-message").then(module => ({ default: module.WalletCardAccessMessage })));
 import { ROUTES } from "@/lib/navigation/routes";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { NativeDrawerRow, NativeDrawerSection } from "@/lib/capacitor/native-drawers";
 
 type State = { context: CardShareContext; page: CardSharingHistory; direction: string };
 const date = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
@@ -54,8 +56,16 @@ function accessLabel(item: CardSharingHistoryItem, serverNow: string) {
 export type WalletSharingHistoryProps = {
   direction?: "outgoing" | "received"; presentation?: "list" | "cards";
   ownerId: string; active: boolean; getContext: (cardId: string) => CardShareContext | null;
+  nativePresentation?: boolean;
+  onNativeProjection?: (projection: WalletNativeHistoryProjection | null) => void;
 };
-export function useWalletSharingHistoryOwner({ ownerId, active, getContext, direction = "outgoing" }: WalletSharingHistoryProps, native = false) {
+export type WalletNativeHistoryProjection = {
+  signature: string;
+  title: string;
+  sections: readonly NativeDrawerSection[];
+  activate: (key: string) => void;
+};
+export function useWalletSharingHistoryOwner({ ownerId, active, getContext, direction = "outgoing" }: WalletSharingHistoryProps, native = false, nativeRouteBack = false) {
   const [viewer, setViewer] = useState<{ ownerId: string; grantId: string; request: number } | null>(null);
   const [state, setState] = useState<State | null>(null);
   const [profile, setProfile] = useState<{ context: CardShareContext; cardId: string } | null>(null);
@@ -89,8 +99,8 @@ export function useWalletSharingHistoryOwner({ ownerId, active, getContext, dire
   const detail = current?.page.items.find(item => item.id === opened?.id && item.cardType === opened.cardType);
   const loadedCount = useRef(0);
   loadedCount.current = retained?.page.items.length ?? 0;
-  useBackLayer(ROUTES.ONE_WALLET, !native && detail ? 2 : 0, () => { if (!busy) setOpened(null); return true; });
-  useBackLayer(ROUTES.ONE_WALLET, !native && selection && current ? 3 : 0, () => { if (!busy) setSelection(null); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, (!native || nativeRouteBack) && detail ? 2 : 0, () => { if (!busy) setOpened(null); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, (!native || nativeRouteBack) && selection && current ? 3 : 0, () => { if (!busy) setSelection(null); return true; });
   useEffect(() => { setSelection(null); setOpened(null); setBusy(null); setViewer(null); }, [active, ownerId, direction]);
 
   useEffect(() => WalletCardAccessService.subscribe(ownerId, retry), [ownerId, retry]);
@@ -185,7 +195,8 @@ export function useWalletSharingHistoryOwner({ ownerId, active, getContext, dire
     } };
     setBusy(item.id);
     const operation = WalletCardAccessService.revoke(context, item.id);
-    void morphyToast.promise(operation, { loading: "Revoking access...", success: "Access revoked.", error: "Could not revoke access. Try again." });
+    const notify = () => morphyToast.promise(operation, { loading: "Revoking access...", success: "Access revoked.", error: "Could not revoke access. Try again." });
+    void (native ? withNativeFeedbackScope("workspace", notify) : notify());
     try { await operation; if (context.isCurrent()) { revoked.current = true; setSelection(null); } }
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
@@ -199,8 +210,88 @@ export function useWalletSharingHistoryOwner({ ownerId, active, getContext, dire
   };
   return { viewer, setViewer, current, profile, failed, unavailable, loading, moreFailed, busy, opened, detail, selection, setSelection, setOpened, returnTarget, detailBack, revokeButton, revoked, end, activation, loadMore, retry, revoke, restoreFocus, beginRevoke: (item: CardSharingHistoryItem) => { revoked.current = false; setSelection(item); } };
 }
-export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing", presentation = "list" }: WalletSharingHistoryProps) {
-  const { viewer, setViewer, current, profile, failed, unavailable, loading, moreFailed, busy, opened, detail, selection, setSelection, setOpened, returnTarget, detailBack, revokeButton, revoked, end, activation, loadMore, retry, revoke, restoreFocus, beginRevoke } = useWalletSharingHistoryOwner({ ownerId, active, getContext, direction });
+export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing", presentation = "list", nativePresentation = false, onNativeProjection }: WalletSharingHistoryProps) {
+  const historyProps = { ownerId, active, getContext, direction };
+  const { viewer, setViewer, current, profile, failed, unavailable, loading, moreFailed, busy, opened, detail, selection, setSelection, setOpened, returnTarget, detailBack, revokeButton, revoked, end, activation, loadMore, retry, revoke, restoreFocus, beginRevoke } = useWalletSharingHistoryOwner(historyProps, nativePresentation, nativePresentation);
+  const [nativeHistoryStart, setNativeHistoryStart] = useState(0);
+  const nativeHistoryPageSize = 80;
+  useEffect(() => { setNativeHistoryStart(0); }, [ownerId, direction]);
+  const nativeActionsRef = useRef<Map<string, () => void>>(new Map());
+  const nativeActions = new Map<string, () => void>();
+  const activateNative = useCallback((key: string) => nativeActionsRef.current.get(key)?.(), []);
+  const nativeSections: NativeDrawerSection[] = [];
+  const pushSection = (id: string, rows: NativeDrawerRow[], title?: string) => nativeSections.push({ id: `wallet-history-${id}`, ...(title ? { title } : {}), rows });
+  const readOnly = (id: string, label: string, detail?: string, trailing?: string): NativeDrawerRow => ({
+    id, label, enabled: false, readOnly: true, ...(detail ? { detail } : {}), ...(trailing ? { trailing } : {}),
+  });
+  const action = (id: string, label: string, run: () => void, detail?: string, trailing?: string): NativeDrawerRow => {
+    nativeActions.set(id, run);
+    return { id, label, enabled: !busy, chevron: true, ...(detail ? { detail } : {}), ...(trailing ? { trailing } : {}) };
+  };
+  let nativeTitle = "Shared with me";
+  if (detail && current) {
+    nativeTitle = `From ${detail.senderName}`;
+    const back = action("history-back", "Back to Shared with me", () => setOpened(null));
+    const kind = detail.cardType === "payment" ? "Shared payment card" : "Profile card";
+    pushSection("detail", [back, readOnly("detail-card", kind, detail.displayLabel, "Details protected"),
+      readOnly("detail-sender", `From ${detail.senderName}`, accessLabel(detail, current.page.serverNow))]);
+    if (detail.status === "active") {
+      pushSection("detail-read-only", [readOnly("detail-protected", "Open this card in your browser to view its details.")]);
+    } else {
+      pushSection("detail-ended", [readOnly("detail-ended-message", detail.status === "revoked" ? "The owner stopped sharing this card." : "This share has expired. Ask the sender for a new share.")]);
+    }
+    const dateLabel = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    const duration = detail.durationMinutes % 60 === 0
+      ? `${detail.durationMinutes / 60} ${detail.durationMinutes === 60 ? "hour" : "hours"}`
+      : `${detail.durationMinutes} minutes`;
+    const detailRows = [
+      readOnly("detail-status", "Status", detail.status === "active" ? "Active" : detail.status === "revoked" ? "Revoked" : "Expired"),
+      readOnly("detail-shared", "Shared", dateLabel(detail.createdAt)),
+      readOnly("detail-duration", "Access time", duration),
+      readOnly("detail-expires", "Expires", dateLabel(detail.expiresAt)),
+      readOnly("detail-connection", "Connection", detail.trustedCircle === true ? "Trusted Circle when shared" : detail.trustedCircle === false ? "Connection" : "Earlier share"),
+      readOnly("detail-verification", "Verification", detail.verifiedAt ? `Identity verified ${dateLabel(detail.verifiedAt)}` : detail.verificationMethod === "identity_reauthentication" ? "Identity verification required" : detail.trustedCircle === true && detail.verificationMethod === "trusted_circle" ? "Trusted access when shared" : "Verification details unavailable"),
+      ...(detail.revokedAt ? [readOnly("detail-revoked", "Revoked", dateLabel(detail.revokedAt))] : []),
+      ...(detail.lastAccessedAt ? [readOnly("detail-viewed", "Last viewed", dateLabel(detail.lastAccessedAt))] : []),
+    ];
+    pushSection("detail-metadata", detailRows, "Share details");
+    const activity = detail.activity.filter((event, index, events) => event.event !== "SHARE_OPENED" || index === events.findIndex(candidate => candidate.event === "SHARE_OPENED"));
+    pushSection("detail-activity", activity.length
+      ? activity.map((event, index) => readOnly(`activity-${index}`, event.event.toLowerCase().replaceAll("_", " "), dateLabel(event.at)))
+      : [readOnly("activity-empty", "No activity yet")], "Activity");
+  } else {
+    if (!current && !failed) pushSection("loading", [readOnly("history-loading", "Loading shared cards…")]);
+    if (current) {
+      const items = current.page.items;
+      const lastPageStart = Math.floor(Math.max(0, items.length - 1) / nativeHistoryPageSize) * nativeHistoryPageSize;
+      const pageStart = Math.min(nativeHistoryStart, lastPageStart);
+      const visibleItems = items.slice(pageStart, pageStart + nativeHistoryPageSize);
+      const activeItems = visibleItems.filter(item => item.status === "active");
+      const pastItems = visibleItems.filter(item => item.status !== "active");
+      if (activeItems.length) pushSection("active", activeItems.map(item => action(
+        `active-${items.indexOf(item)}`, `From ${item.senderName}`, () => setOpened({ id: item.id, cardType: item.cardType }), item.displayLabel, accessLabel(item, current.page.serverNow))));
+      else if (!items.some(item => item.status === "active")) pushSection("active-empty", [readOnly("history-empty", "No active shared cards", current.page.nextCursor ? "Load more to see earlier shares." : "Cards people share with you will appear here.")]);
+      if (pastItems.length) pushSection("past", pastItems.map(item => action(
+        `past-${items.indexOf(item)}`, `From ${item.senderName}`, () => setOpened({ id: item.id, cardType: item.cardType }), item.displayLabel, accessLabel(item, current.page.serverNow)), `Past access · ${items.filter(item => item.status !== "active").length}`));
+      if (pageStart > 0) pushSection("newer", [action("history-newer", "Show newer shares", () => setNativeHistoryStart(Math.max(0, pageStart - nativeHistoryPageSize)))]);
+      if (pageStart + visibleItems.length < items.length) {
+        pushSection("older", [action("history-older", "Show older shares", () => setNativeHistoryStart(pageStart + nativeHistoryPageSize))]);
+      } else if (current.page.nextCursor) {
+        pushSection("more", [loading
+          ? readOnly("history-more-loading", "Loading more shares…")
+          : action("history-more", moreFailed ? "Retry loading shares" : "Load more shares", () => { void loadMore(); })]);
+      }
+    }
+    if (failed) pushSection("error", [readOnly("history-error", unavailable ? "Card sharing is unavailable. Automatic refresh is paused." : "Could not refresh card sharing."),
+      action("history-retry", "Try again", retry)]);
+  }
+  nativeActionsRef.current = nativeActions;
+  const shouldProjectNative = nativePresentation && active && direction === "received";
+  const nativeProjection: WalletNativeHistoryProjection | null = shouldProjectNative ? {
+    signature: JSON.stringify({ title: nativeTitle, sections: nativeSections }), title: nativeTitle, sections: nativeSections, activate: activateNative,
+  } : null;
+  useLayoutEffect(() => { onNativeProjection?.(nativeProjection); }, [onNativeProjection, nativeProjection?.signature]);
+  if (nativePresentation && direction === "received") return null;
   return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
     {direction === "outgoing" && active && profile?.context.isCurrent() && profile.context.userId === ownerId ? <WalletSavedCardSharing card={{ cardId: profile.cardId }} getContext={getContext} disabled={Boolean(busy)} showHistory={false} /> : null}
     {presentation === "cards" && direction === "received" ? <>

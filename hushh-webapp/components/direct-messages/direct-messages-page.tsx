@@ -7,7 +7,7 @@ import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/di
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {

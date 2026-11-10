@@ -30,6 +30,7 @@ export function registerVaultCreateSubmitCases(
 
     await screen.findByRole("heading", { name: /save your recovery key/i });
     expect(document.querySelector("[data-vault-recovery-key]")).toBeTruthy();
+    expect(screen.getByText("HRK-0001-0203-0405-0607-0809-0A0B-0C0D-0E0F")).toBeTruthy();
     expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
     expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(true);
     expect(createVaultMock).toHaveBeenCalledTimes(1);

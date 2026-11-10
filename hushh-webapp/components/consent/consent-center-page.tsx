@@ -2,6 +2,14 @@
 
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
+import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
+import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
+import type { NativeDrawerRow } from "@/lib/capacitor/native-drawers";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { nativePrivacyCanInteract, nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
+
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -10,9 +18,11 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -21,7 +31,7 @@ import { scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
 import { ConsentSharingRevokeDialog } from "@/components/consent/consent-sharing-revoke-dialog";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { ExternalLink, RefreshCcw, Search } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -3733,8 +3743,125 @@ export function ConsentCenterPage() {
     previousPage,
     setPreviousLocalPage,
   );
+  // React remains the authority for routing, records, and decisions. Native
+  // receives only ephemeral display rows and opaque, per-owner action handles.
+  const presentation = useNativeWorkspacePresentation();
+  const nativeVaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const nativeFrame = useRef<HTMLElement | null>(null);
+  const nativeHandles = useMemo(() => {
+    const handles = new Map<string, string>();
+    return (key: string) => {
+      let handle = handles.get(key);
+      if (!handle) { handle = crypto.randomUUID(); handles.set(key, handle); }
+      return handle;
+    };
+  }, [userId]);
+  const [expandedNativeGroups, setExpandedNativeGroups] = useState<Set<string>>(() => new Set());
+  const [nativeChild, setNativeChild] = useState<{ seen: boolean } | null>(null);
+  const nativeSession = useMemo(() => ({}), [userId, isVaultUnlocked]);
+  const { handoff: retireForNativeChild, activationRevision: nativeActivation } = useNativeWorkspaceHandoff(presentation.retireForWeb, nativeSession);
+  const nativeLatest = useRef({ userId, pathname, isVaultUnlocked, items, tab, selectedId, selectedBundleId });
+  useLayoutEffect(() => { nativeLatest.current = { userId, pathname, isVaultUnlocked, items, tab, selectedId, selectedBundleId }; });
+  useLayoutEffect(() => {
+    setNativeChild(null);
+    setExpandedNativeGroups(new Set());
+  }, [userId, isVaultUnlocked]);
+  useEffect(() => {
+    if (!nativeChild) return;
+    if (!nativeChild.seen && (selectedId || selectedBundleId || isPanelOpen)) setNativeChild({ seen: true });
+    else if (nativeChild.seen && !selectedId && !selectedBundleId && !isPanelOpen) setNativeChild(null);
+  }, [nativeChild, selectedId, selectedBundleId, isPanelOpen]);
+  const nativeCurrent = () => {
+    const current = nativeLatest.current;
+    return !!userId && current.userId === userId && current.isVaultUnlocked && isVaultSessionEpochCurrent(nativeVaultEpoch) &&
+      normalizeStaticExportPathname(current.pathname ?? "") === ROUTES.CONSENTS &&
+      nativePrivacyCanInteract(nativePrivacyObservation().state);
+  };
+  const nativeHandoff = async (entry: ConsentCenterEntry) => {
+    const originalItems = items;
+    const originalTab = tab;
+    await retireForNativeChild(nativeCurrent, () => nativeLatest.current.items === originalItems &&
+      nativeLatest.current.tab === originalTab && !nativeLatest.current.selectedId && !nativeLatest.current.selectedBundleId,
+    () => { setNativeChild({ seen: false }); setParam({ requestId: consentSelectionId(entry) }); });
+  };
+  const nativeActions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
+  const nativeRows: NativeDrawerRow[] = [];
+  const actionRow = (key: string, label: string, action: () => void | Promise<unknown>, detail?: string, selected?: boolean) => {
+    const id = nativeHandles(key);
+    nativeActions.set(id, action);
+    nativeRows.push({ id, label, ...(detail ? { detail } : {}), enabled: true, ...(selected ? { selected: true } : {}) });
+  };
+  const nativeEntry = (entry: ConsentCenterEntry, key: string, label?: string, detail?: string) => {
+    const subtitle = entry.counterpart_email || entry.counterpart_secondary_label;
+    const description = entry.kind === "connection" ? (formatDate(entry.issued_at) ? `First connected ${formatDate(entry.issued_at)}` : "Connected") :
+      [entry.scope ? consentEntryInformationLabel(entry) : entrySummary(entry), subtitle].filter(Boolean).join(" · ");
+    actionRow(key, label || resolveCounterpartLabel(entry), () => nativeHandoff(entry), detail || description);
+    if (entry.kind !== "connection" && !label) nativeRows[nativeRows.length - 1]!.trailing = formatStatus(entry.status);
+  };
+  const nativeItems = tab === "requests" ? pendingItems : tab === "active" ? activeSurfaceItems : tab === "history" ? previousItems : connectionsSurfaceItems;
+  const nativeHasInlineDecision = tab === "requests" && !sentDocumentRequests && pendingItems.some(entry => !!rowDecisionFor(entry));
+  if (tab === "requests" && !riaOutgoingCompatibilityRoute) {
+    actionRow("direction:received", "Received", () => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null }), undefined, !sentDocumentRequests);
+    actionRow("direction:sent", "Sent documents", () => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null }), undefined, sentDocumentRequests);
+  }
+  actionRow("refresh", "Refresh consent entries", retryConsentCenter);
+  if (isConsentActionRefreshing) nativeRows[nativeRows.length - 1]!.enabled = false;
+  if (activeListLoading && nativeItems.length === 0) nativeRows.push({ id: nativeHandles("loading"), label: "Loading consent entries", enabled: false, readOnly: true });
+  if (!activeListLoading && nativeItems.length === 0) nativeRows.push({ id: nativeHandles("empty"), label: emptyListMessage, enabled: false, readOnly: true });
+  if (tab === "active") {
+    for (const group of groupActiveConsentEntries(activeSurfaceItems)) {
+      if (group.kind === "single") nativeEntry(group.entry, `entry:${group.entry.kind}:${group.entry.id}`);
+      else {
+        const expanded = expandedNativeGroups.has(group.key);
+        const head = group.members[0]!;
+        actionRow(`group:${group.key}`, resolveCounterpartLabel(head), () => setExpandedNativeGroups(current => {
+          const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next;
+        }), [group.label, head.counterpart_email || head.counterpart_secondary_label].filter(Boolean).join(" · "), expanded);
+        nativeRows[nativeRows.length - 1]!.trailing = formatStatus(head.status);
+        if (expanded) for (const member of group.members) nativeEntry(member, `group-member:${group.key}:${member.kind}:${member.id}`, consentEntryInformationLabel(member), "Shared");
+      }
+    }
+  } else for (const entry of nativeItems) {
+    const opened = entry.bundle_items ? bundleEntryToOpen(entry) : entry;
+    if (opened) nativeEntry(opened, `entry:${entry.kind}:${entry.id}`, undefined, entry.bundle_items ? pendingBundleSummary(entry) : undefined);
+    else nativeRows.push({ id: nativeHandles(`entry:${entry.kind}:${entry.id}`), label: resolveCounterpartLabel(entry), detail: pendingBundleSummary(entry), enabled: false, readOnly: true });
+  }
+  const nativePagination = tab === "requests" ? pendingPagination : tab === "active" ? activePagination : tab === "history" ? previousPagination : null;
+  if (nativePagination && (nativePagination.page > 1 || nativePagination.hasMore || nativePagination.total > nativePagination.limit)) {
+    nativeRows.push({ id: nativeHandles("page-status"), label: `Page ${nativePagination.page} of ${Math.max(1, Math.ceil(nativePagination.total / nativePagination.limit))}`, enabled: false, readOnly: true });
+    if (nativePagination.page > 1) actionRow("previous", "Previous page", nativePagination.onPrevious);
+    if (nativePagination.hasMore) actionRow("next", "Next page", nativePagination.onNext);
+  }
+  const connectionsPageData = tab === "connections" ? centerResource.data?.activeConnections : null;
+  if (connectionsPageData && (connectionsPageData.page > 1 || connectionsPageData.hasMore || connectionsPageData.totalCount > CONSENT_CENTER_PAGE_SIZE)) {
+    nativeRows.push({ id: nativeHandles("page-status"), label: `Page ${connectionsPageData.page} of ${Math.max(1, Math.ceil(connectionsPageData.totalCount / CONSENT_CENTER_PAGE_SIZE))}`, enabled: false, readOnly: true });
+    if (connectionsPageData.page > 1) actionRow("previous", "Previous page", () => setParam({ page: String(Math.max(1, connectionsPage - 1)), requestId: null }));
+    if (connectionsPageData.hasMore) actionRow("next", "Next page", () => setParam({ page: String(connectionsPage + 1), requestId: null }));
+  }
+  const tabOptions = TOP_SHELL_TAB_REGISTRY.consent.tabs.map(option => {
+    const id = nativeHandles(`tab:${option.value}`);
+    nativeActions.set(id, () => commitConsentTab(option.value as ConsentTab));
+    return { id, label: option.label, selected: option.value === tab };
+  });
+  const searchId = nativeHandles("search");
+  nativeActions.set(searchId, choice => { if (typeof choice.text === "string") setSearchValue(choice.text); });
+  const nativeSupported = !nativeHasInlineDecision && !showSessionRecovery && !showCompactRetryState && !showFullRetryState &&
+    !(tab === "connections" && centerResource.data && centerResource.data.activeConnections == null) &&
+    !/^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") &&
+    searchValue.length <= 256 && nativeRows.length <= 200 && nativeRows.every(row => row.label.length > 0 && row.label.length <= 4096 && (!row.detail || row.detail.length <= 4096) && (!row.trailing || row.trailing.length <= 32));
+  const nativeActive = customNativePresentationEnabled() && nativeCurrent() && nativeSupported && !nativeChild &&
+    !selectedId && !selectedBundleId && !isPanelOpen && !rowUnlockPrompt.open;
+  const nativeContent: NativeWorkspaceContent = { workspace: "consent", page: "overview", title: "Consent", enabled: nativeActive, backEnabled: false,
+    sections: [{ id: nativeHandles("section"), rows: nativeRows }], tabs: { label: "Consent", options: tabOptions },
+    search: { id: searchId, label: searchPlaceholder, query: searchValue, live: true } };
+  const nativePhase = useNativeWorkspace({ owner: userId || "", content: nativeContent, actions: nativeActions, current: nativeCurrent,
+    back: () => {}, active: nativeActive, presentationOwner: presentation.owner, contentFrame: nativeFrame, activationRevision: nativeActivation });
+  const nativeAnchor = useCallback((node: HTMLDivElement | null) => { nativeFrame.current = node?.closest<HTMLElement>(".app-page-shell") ?? null; }, []);
+
   return (
     <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent data-consent-presentation="workspace">
+      <div ref={nativeAnchor} hidden aria-hidden="true" />
+      {nativePhase === "web" && !presentation.status.held && <>
       <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
@@ -4217,6 +4344,7 @@ export function ConsentCenterPage() {
         </SettingsDetailPanel>
         <OwnerConsentUnlockPrompt prompt={rowUnlockPrompt} />
       </SettingsPresentationProvider>
+      </>}
     </AppPageShell>
   );
 }

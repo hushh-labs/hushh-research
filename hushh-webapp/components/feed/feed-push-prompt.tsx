@@ -16,7 +16,7 @@ function browserPermission(): BrowserPermission {
 }
 
 /** Explicit permission action for browser and native notification registration. */
-export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat" | "location" } = {}) {
+export function useFeedPushPrompt(context: "feed" | "chat" | "location" = "feed") {
   const { deliveryMode, deliveryDetail, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
@@ -56,6 +56,23 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
     if (result === "granted") retryPushRegistration();
   };
 
+  const message = quietNative ? "Device alerts or sounds are off. Enable them in notification settings to hear alerts."
+          : permission === "denied"
+          ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
+          : permission === "granted" ? "Reconnect notifications to receive message alerts."
+          : context === "location" ? "Turn on device notifications for Save My Soul alerts, location shares, and requests when One is closed."
+          : context === "chat" ? "Allow device notifications to hear new messages when you leave this chat."
+          : "Get notifications for direct messages, Circle chats, and requests.";
+  return { permission, quietNative, enable, isRetryingPushRegistration, context, message };
+}
+
+export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat" | "location" } = {}) {
+  return <FeedPushPromptView model={useFeedPushPrompt(context)} />;
+}
+
+export function FeedPushPromptView({ model }: { model: ReturnType<typeof useFeedPushPrompt> }) {
+  if (!model) return null;
+  const { permission, quietNative, enable, isRetryingPushRegistration, context } = model;
   return (
     <div
       role="status"
@@ -63,13 +80,7 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
       className="mb-3 flex w-full items-center justify-between gap-3 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3"
     >
       <p data-profile-role="description" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-        {quietNative ? "Device alerts or sounds are off. Enable them in notification settings to hear alerts."
-          : permission === "denied"
-          ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
-          : permission === "granted" ? "Reconnect notifications to receive message alerts."
-          : context === "location" ? "Turn on device notifications for Save My Soul alerts, location shares, and requests when One is closed."
-          : context === "chat" ? "Allow device notifications to hear new messages when you leave this chat."
-          : "Get notifications for direct messages, Circle chats, and requests."}
+        {model.message}
       </p>
       {permission === "default" || permission === "granted" || (permission === "denied" && Capacitor.isNativePlatform()) ? (
         <Button

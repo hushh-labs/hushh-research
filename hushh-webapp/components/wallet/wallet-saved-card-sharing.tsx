@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { withNativeFeedbackScope } from "@/lib/capacitor/native-feedback-sink";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
 import { CardRecipientKeyUnavailableError, prepareTemporaryCardShares } from "@/lib/services/wallet-card-share-service";
 import { CardAccessUnavailableError, WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
@@ -31,6 +32,7 @@ type AccessSnapshot = { value: CardAccessState; authority: AccessAuthority } | n
 export function useWalletSavedCardSharing({ card, getContext, compact = false, native = false }: {
   card: Pick<WalletCardSummary, "cardId"> & Partial<WalletCardSummary>; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean; compact?: boolean; native?: boolean;
 }) {
+  const notify = (create: () => unknown) => native ? withNativeFeedbackScope("workspace", create) : create();
   const isProfile = card.cardId.startsWith("profile_");
   const [manageOpen, setManageOpen] = useState(false);
   const revokeValue = useRef<{ target: string | null; revision: number }>({ target: null, revision: 0 });
@@ -278,16 +280,16 @@ export function useWalletSavedCardSharing({ card, getContext, compact = false, n
       await WalletCardAccessService.share(dispatchContext, card.cardId, refs, duration, attempt.current.id, encryptedCards);
       if (!ownerCurrent()) return;
       attempt.current = null; if (selectionCurrent()) close(); setRevision(value => value + 1);
-      morphyToast.success("Card shared.");
+      notify(() => morphyToast.success("Card shared."));
     } catch (error) {
       if (ownerCurrent()) {
         if (error instanceof CardRecipientKeyUnavailableError) {
-          morphyToast.error(error.message);
+          notify(() => morphyToast.error(error.message));
         } else if (error instanceof CardAccessUnavailableError) {
           close(); setAccess(null); setStateFailed(true); setUnavailable(true);
-          morphyToast.error("Card sharing is temporarily unavailable. Try again later.");
+          notify(() => morphyToast.error("Card sharing is temporarily unavailable. Try again later."));
         } else {
-          morphyToast.error("Could not confirm sharing. Retry to check the same request.");
+          notify(() => morphyToast.error("Could not confirm sharing. Retry to check the same request."));
         }
       }
     }
@@ -317,9 +319,9 @@ export function useWalletSavedCardSharing({ card, getContext, compact = false, n
           setAccess(previous => previous?.authority === authority ? { ...previous, value: { ...previous.value, grants: previous.value.grants.map(grant => grant.id === id ? { ...grant, status: "revoked" } : grant) } } : previous);
         } else setRevision(value => value + 1);
         if (revokeValue.current === revokeSnapshot) setRevokeTarget(null);
-        morphyToast.success("Access revoked.");
+        notify(() => morphyToast.success("Access revoked."));
       }
-    } catch { if (context.isCurrent()) morphyToast.error("Could not revoke access. Try again."); }
+    } catch { if (context.isCurrent()) notify(() => morphyToast.error("Could not revoke access. Try again.")); }
     finally {
       revoking.current = false;
       if (context.isCurrent()) setBusy(false);

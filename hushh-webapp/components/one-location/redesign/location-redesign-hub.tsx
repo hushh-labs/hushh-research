@@ -26,11 +26,15 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { hasReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
+import { isNative, getPlatform } from "@/lib/capacitor/platform";
+import { resolveLocationRecoveryGuide } from "@/lib/one-location/location-permission-recovery";
 
 import {
   Loader2,
@@ -119,7 +123,9 @@ import type {
   OneLocationShareDurationMode,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
-import { LocationHeaderActions, LocationPrimaryShareCard, LocationRequestDurationHeader } from "./location-hub-summary";
+import { NativeLocationRoute, NativeLocationLayer, useNativeLocationPaneActive } from "./native-location-workspace";
+import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
+import { locationHeaderStatusText, LocationHeaderActions, LocationPrimaryShareCard, LocationRequestDurationHeader } from "./location-hub-summary";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import {
@@ -380,6 +386,8 @@ function resolveLocationHubTab(value: string | null): LocationHubTab {
 
 export type LocationHubViewModel = {
   savedPlacesBanner?: SavedPlacesBannerProps & { visible: boolean };
+  loadError?: string | null;
+  onRetryLoad?: () => unknown;
   /* identity / gating */
   userId: string | null;
   canShare: boolean;
@@ -1084,7 +1092,8 @@ function shareAudienceSelectionCopy(circleCount: number, contactCount: number) {
   return `${parts.join(" + ")} selected`;
 }
 
-export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
+export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewModel; nativeFrame?: RefObject<HTMLDivElement | null> }) {
+  const localFrame = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1155,13 +1164,27 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     liveShareDurationTriggerRef.current = trigger;
     vm.onEditLiveShareDurationStart(grantId);
   };
+  const recoveryGuide = resolveLocationRecoveryGuide({ userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent, isNativeApp: isNative(), nativePlatform: getPlatform() });
+  const nativeRoot: NativeWorkspaceSurfaceSection[] = [{ key: "location-status", rows: [
+    ...(vm.loadError ? [{ key: "load-error", label: "Location unavailable", detail: vm.loadError, run: vm.onRetryLoad }] : []),
+    { key: "location-enabled", label: "My location", detail: locationHeaderStatusText(vm), toggle: { value: vm.locationEnabled,
+      change: value => value ? vm.onShowMyLocation() : vm.onHideMyLocation() } },
+    ...(vm.locationBlocked ? [
+      { key: "permission-guide", label: recoveryGuide.title, detail: recoveryGuide.steps.join(" ") },
+      { key: "permission-retry", label: "Check again", enabled: !vm.locationAcquiring, pending: vm.locationAcquiring, run: vm.onShowMyLocation },
+      ...(recoveryGuide.canOpenSettings ? [{ key: "permission-settings", label: "Open Settings", run: vm.onOpenLocationSettings, web: true }] : []),
+    ] : []),
+    ...(tab === "now" && vm.savedPlacesBanner?.visible ? [
+      { key: "saved-place-banner", label: "Save a place", detail: "Home, work and more.", enabled: !vm.savedPlacesBanner.busy, pending: vm.savedPlacesBanner.busy, run: vm.savedPlacesBanner.onSave, web: true },
+      { key: "saved-place-dismiss", label: "Dismiss saved places reminder", enabled: !vm.savedPlacesBanner.busy, run: vm.savedPlacesBanner.onDismiss },
+    ] : []),
+  ] }];
   const renderLocationSurface = (children: ReactNode) => (
-    <LocationFeatureRoot
-      vm={vm}
-      liveShareDurationTriggerRef={liveShareDurationTriggerRef}
-    >
-      {children}
-    </LocationFeatureRoot>
+    <NativeLocationRoute model={{ owner: vm.userId, tab, flow, select: next => setTab(next), root: nativeRoot }} frame={nativeFrame ?? localFrame}>
+      <div ref={nativeFrame ? undefined : localFrame}>
+        <LocationFeatureRoot vm={vm} liveShareDurationTriggerRef={liveShareDurationTriggerRef}>{children}</LocationFeatureRoot>
+      </div>
+    </NativeLocationRoute>
   );
   const focusedCircleMemberInviteId =
     String(searchParams.get("circleInviteId") || "").trim() || null;
@@ -2098,7 +2121,28 @@ function NowHub({
       voiceActionId: "location.open_settings",
     },
   ];
+  const nativeSections: NativeWorkspaceSurfaceSection[] = [
+    { key: "sharing", rows: vm.liveShare ? [
+      { key: "active", label: `Sharing with ${vm.liveShare.count} ${vm.liveShare.count === 1 ? "person" : "people"}`,
+        detail: vm.liveShare.endsAt ? vm.expiresCountdownLabel(vm.liveShare.endsAt) : "Until you stop", run: onOpenActiveShares, web: true },
+      ...(vm.liveShare.grantCount === 1 && vm.liveShare.stoppableGrantId ? [
+        { key: "stop", label: "Stop sharing", destructive: true, enabled: vm.revokingGrantId !== vm.liveShare.stoppableGrantId,
+          pending: vm.revokingGrantId === vm.liveShare.stoppableGrantId, run: () => vm.onStopGrant(vm.liveShare!.stoppableGrantId!) },
+        ...(!vm.liveShare.singleGrantIsSms ? [{ key: "duration", label: "Change duration", run: () => vm.onEditLiveShareDurationStart(undefined), web: true }] : []),
+      ] : []),
+      { key: "share-more", label: "Share with more people", run: onStartShare, web: true },
+    ] : [{ key: "share", label: "Share location", run: onStartShare, web: true }] },
+    { key: "actions", rows: [
+      { key: "ask", label: "Ask for location", run: onRequestLocation, web: true },
+      { key: "check-in", label: "Check In", run: onCheckIn, web: true },
+      { key: "sos", label: "Save My Soul", detail: "Emergency alert", run: onSos, web: true },
+      ...activityRows.filter(row => row.value > 0).map(row => ({ key: row.voiceControlId, label: row.title, detail: String(row.value), run: row.onClick, web: true })),
+      { key: "map", label: "Map", run: onOpenMap, web: true },
+      { key: "settings", label: "Settings", run: onOpenSettings },
+    ] },
+  ];
   return (
+    <NativeLocationLayer tab="now" contentPresentation="rich" title="Location" sections={nativeSections}>
     <div className="space-y-2.5" data-testid="one-location-now-hub">
       {/* Sharing is the one thing on this screen that keeps running after you
           leave it, so it reports itself first and keeps its own clock. */}
@@ -2204,6 +2248,7 @@ function NowHub({
         </LocationMenuListGroup>
       </div>
     </div>
+    </NativeLocationLayer>
   );
 }
 
@@ -2530,6 +2575,8 @@ function LocationDetailFlow({
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
+  const [richReview, setRichReview] = useState(false);
+  useBackLayer(ROUTES.ONE_LOCATION, richReview ? 2 : 0, () => { setRichReview(false); return true; }, { action: kind });
   // One row/card per PERSON, not per grant. A pair can now hold two live
   // grants -- an ordinary share and an SMS (SOS) one -- and rendering a grant
   // list rendered the same person twice, each row offering a Stop that left the
@@ -2693,8 +2740,21 @@ function LocationDetailFlow({
     },
   }[kind];
 
+  const groups = kind === "active-shares" ? ownerGrantGroups : receivedGrantGroups;
+  const nativeSections: NativeWorkspaceSurfaceSection[] = [{ key: "summary", rows: [{ key: "summary", label: copy.title, detail: copy.description }] },
+    { key: "entries", rows: kind === "needs-review" ? (vm.pendingOwnerRequests.length ? vm.pendingOwnerRequests.map(request => ({
+      key: request.id, label: vm.requesterLabel(request), detail: locationAskPromptLine(request, vm.nowMs), run: () => setRichReview(true), web: true,
+    })) : [{ key: "empty", label: "No requests to review" }]) : groups.length ? groups.map(group => ({
+      key: group.counterpartUserId, label: kind === "active-shares" ? vm.grantRecipientLabel(group.primaryGrant) : vm.grantOwnerLabel(group.primaryGrant),
+      detail: shareGroupStatusLabel({ group, countdownLabel: vm.expiresCountdownLabel, incoming: kind === "shared-with-me" }), run: () => setRichReview(true), web: true,
+    })) : [{ key: "empty", label: kind === "active-shares" ? "Not sharing your location" : "No one is sharing with you" }] },
+    ...(kind === "active-shares" && onStartShare ? [{ key: "share", rows: [{ key: "share", label: "Share location", run: onStartShare, web: true }] }] : []),
+    ...(kind === "shared-with-me" && onRequestLocation ? [{ key: "ask", rows: [{ key: "ask", label: "Ask for location", run: onRequestLocation, web: true }] }] : []),
+  ];
   return (
+    <NativeLocationLayer flow={kind} title={copy.title} sections={nativeSections} webChild={richReview || Boolean(focusGrantId)}>
     <div className="space-y-5" data-testid={`one-location-${kind}`}>
+      {richReview ? <Button onClick={() => setRichReview(false)}>Back to list</Button> : null}
       <TaskFlowHeader
         eyebrow={
           kind === "active-shares" || kind === "needs-review"
@@ -2950,6 +3010,7 @@ function LocationDetailFlow({
         )
       ) : null}
     </div>
+    </NativeLocationLayer>
   );
 }
 
@@ -3073,6 +3134,8 @@ function LocationSettingsFlow({
   smsContactCount: number;
   onManageSmsContacts: () => void;
 }) {
+  const [savedPlacesReview, setSavedPlacesReview] = useState(false);
+  useBackLayer(ROUTES.ONE_LOCATION, savedPlacesReview ? 2 : 0, () => { setSavedPlacesReview(false); return true; }, { action: "settings" });
   const [scopeSheetOpen, setScopeSheetOpen] = useState(false);
   const [draftScope, setDraftScope] = useState<AutoApproveScope | null>(null);
   const ownedCircles = useMemo(
@@ -3156,7 +3219,19 @@ function LocationSettingsFlow({
     setScopeSheetOpen(false);
   }, [draftScope, vm]);
 
+  const nativeSections: NativeWorkspaceSurfaceSection[] = [
+    { key: "automatic-approval", title: "Automatic approval", rows: [
+      { key: "auto-approve", label: "Auto-approve requests", detail: activeScopeLabel, web: true,
+        toggle: { value: vm.autoApproveRequestsEnabled, change: handleAutoApproveToggle }, run: openScopeSheet },
+      { key: "approval-scope", label: "Choose approval scope", detail: activeScopeLabel, run: openScopeSheet, web: true },
+    ] },
+    { key: "safety", title: "Safety", rows: [
+      { key: "emergency-contacts", label: "Emergency contacts", detail: String(smsContactCount), run: onManageSmsContacts, web: true },
+      { key: "saved-places", label: "Saved places", detail: "Home, work and map preferences", run: () => setSavedPlacesReview(true), web: true },
+    ] },
+  ];
   return (
+    <NativeLocationLayer flow="settings" title="Location settings" sections={nativeSections} webChild={scopeSheetOpen || savedPlacesReview}>
     <div
       className="mx-auto w-full max-w-[640px] space-y-6 pb-[max(20px,env(safe-area-inset-bottom))]"
       data-settings-titles="form-label"
@@ -3165,6 +3240,7 @@ function LocationSettingsFlow({
           the line that used to sit here ("Control live sharing") describes
           something this screen's first control no longer does. */}
       <TaskFlowHeader title="Settings" />
+      {savedPlacesReview ? <Button onClick={() => setSavedPlacesReview(false)}>Back to settings</Button> : null}
 
       <LocationSettingSection title="Automatic approval">
         <SettingsGroup
@@ -3319,6 +3395,7 @@ function LocationSettingsFlow({
         </DialogContent>
       </Dialog>
     </div>
+    </NativeLocationLayer>
   );
 }
 
@@ -4118,6 +4195,7 @@ export function PeopleHub({
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
 }) {
+  const nativePeople = useNativeLocationPaneActive("people");
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
@@ -4208,6 +4286,7 @@ export function PeopleHub({
   const onLoadMoreRecipients = vm.onLoadMoreRecipients;
   useEffect(() => {
     if (
+      nativePeople ||
       !vm.recipientPageHasMore ||
       vm.recipientPageLoading ||
       typeof IntersectionObserver === "undefined"
@@ -4226,7 +4305,7 @@ export function PeopleHub({
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [onLoadMoreRecipients, vm.recipientPageHasMore, vm.recipientPageLoading]);
+  }, [nativePeople, onLoadMoreRecipients, vm.recipientPageHasMore, vm.recipientPageLoading]);
 
   const addPeopleEmptyAction = hasSearch ? (
     <Button asChild size="standard" className="h-11 min-h-11 rounded-full px-6">
@@ -4304,7 +4383,27 @@ export function PeopleHub({
     />
   );
 
+  const nativeSections: NativeWorkspaceSurfaceSection[] = [
+    ...(!hasSearch ? [{ key: "circles", rows: [
+      { key: "circles", label: "Circles", detail: String(vm.circles.length), run: onOpenCircleManager, web: true },
+      { key: "invitations", label: "Invitations", detail: String(vm.incomingCircleMemberInvites.length), run: () => setInvitationsOpen(true), web: true },
+    ] }] : []),
+    { key: "people", title: "People", rows: filtered.length ? filtered.map(person => {
+      const status = peopleDirectoryStatus({ outgoingGroup: ownerGroupsByUserId.get(person.userId) ?? null, incomingGroup: receivedGroupsByOwnerId.get(person.userId) ?? null,
+        pendingRequest: pendingRequestByOwnerId.get(person.userId) ?? null, countdownLabel: vm.expiresCountdownLabel });
+      return { key: person.userId, label: vm.recipientLabel(person), detail: status.label ?? undefined, run: () => setSelectedPersonId(person.userId), web: true };
+    }) : [{ key: "empty", label: hasSearch ? "No matching people" : "No people yet" }] },
+    { key: "people-actions", rows: [
+      ...(!filtered.length ? [{ key: "find-people", label: "Find or invite someone", run: () => hasSearch ? requestInternalAppNavigation({ href: peopleConnectRecoveryHref(vm.recipientSearch), replace: false, scroll: false, source: "tap", transitionMode: "full" }) : onAddConnections(), web: true }] : []),
+      ...(vm.recipientPageHasMore ? [{ key: "more", label: vm.recipientPageLoading ? "Loading more…" : "Load more people", pending: vm.recipientPageLoading, enabled: !vm.recipientPageLoading, run: vm.onLoadMoreRecipients }] : []),
+      { key: "sync", label: vm.contactSyncSummary ? "Sync contacts again" : "Find contacts", pending: vm.busy === "contactSync", enabled: vm.busy !== "contactSync", run: vm.onSyncContacts, web: true },
+      ...(vm.contactSyncSummary && vm.onViewContactSyncResults ? [{ key: "sync-results", label: "View contact sync results", run: vm.onViewContactSyncResults, web: true }] : []),
+      { key: "invite", label: "Invite to One", run: onInvite, web: true },
+      { key: "connections", label: "Manage connections", run: onAddConnections, web: true },
+    ] },
+  ];
   return (
+    <NativeLocationLayer tab="people" contentPresentation="rich" title="Location" sections={nativeSections} search={{ query: vm.recipientSearch, label: "Search people", change: vm.setRecipientSearch }} webChild={Boolean(selectedPerson) || invitationsOpen}>
     <div className="pt-4 sm:pt-5" data-testid="one-location-people-hub">
       {/* Full-bleed body: same measure as the hub root (Now | People | Links
           tabs), so it is never a narrower shrinked column on desktop. */}
@@ -4472,6 +4571,7 @@ export function PeopleHub({
         />
       ) : null}
     </div>
+    </NativeLocationLayer>
   );
 }
 
@@ -4675,7 +4775,17 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
   const hasLiveLink = Boolean(temp) || Boolean(vm.publicInviteUrl);
   const hasShareableLink = Boolean(vm.publicInviteUrl);
 
+  const nativeSections: NativeWorkspaceSurfaceSection[] = [{ key: "temporary-link", title: "Temporary link", rows: hasLiveLink ? [
+    { key: "status", label: "Link is live", detail: hasShareableLink ? `${temp ? publicLinkStatusLabel(vm.expiresCountdownLabel(temp.expiresAt)) : "Active"} · Anyone with this link can see your location.` : "People with this link can still see your location until it expires. Stop it to create a new link." },
+    ...(hasShareableLink ? [{ key: "copy", label: "Copy link", run: vm.onCopyPublicInvite }, { key: "share", label: "Share link", run: vm.onSharePublicInvite, web: true }] : []),
+    { key: "stop", label: "Stop link", destructive: true, enabled: Boolean(temp) && vm.busy !== "publicRevoke", pending: vm.busy === "publicRevoke", run: () => { if (temp) vm.onRevokePublicInvite(temp); } },
+  ] : [
+    { key: "intro", label: "Create a temporary link", detail: "Anyone with the link can view." },
+    { key: "duration", label: "Duration", choices: PUBLIC_LINK_DURATION_OPTIONS.map(option => ({ key: option.value, label: option.label, selected: vm.publicLinkDurationHours === option.value, run: () => vm.setPublicLinkDurationHours(option.value) })) },
+    { key: "create", label: vm.busy === "publicInvite" ? "Creating link…" : "Create link", pending: vm.busy === "publicInvite", enabled: vm.busy !== "publicInvite", run: vm.onCreatePublicInvite },
+  ] }, ...(invite ? [{ key: "circle-invite", title: "Invite link", rows: [{ key: "copy-circle", label: "Copy invite link", detail: `${vm.expiresCountdownLabel(invite.expiresAt)} · one person`, run: vm.onCopyCircleInvite }] }] : [])];
   return (
+    <NativeLocationLayer tab="links" title="Location" sections={nativeSections}>
     <div className="space-y-3">
       <SettingsGroup
         title="Temporary link"
@@ -4797,6 +4907,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
         </SettingsGroup>
       ) : null}
     </div>
+    </NativeLocationLayer>
   );
 }
 

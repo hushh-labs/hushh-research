@@ -30,6 +30,10 @@ Canonical visual owner: [Hussh Webapp Docs](../README.md). [Location](./location
 
 ## Changed files
 
+Generated Back/Search receipt files from this historical pass are no longer
+source dependencies. Current freshness evidence uses ignored local caches and
+commit fingerprints under the [UI contract contributor guide](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+
 The change uses the existing shared shell and semantic typography. A presentation-only context repeats its scope on actual portal hosts. Individual raw text hooks change font properties without introducing wrappers, effects, listeners, requests, timers or a new dependency. Shared contacts and guest onboarding opt in only from Location. The retained, unmounted places-history edit from the earlier narrow patch was removed.
 
 Production owners include the Location page, map/public route clients, onboarding/place picker, immersive map/Nearby, hub/private Check-In/SOS, contacts/invitations and reachable Circle/recipient portal owners. No backend, service, encryption, cache, persistence, native plugin, package or lockfile changes are part of the candidate. Generated Back/Search receipts are refreshed; intermediate receipts from this task are removed.
@@ -91,8 +95,6 @@ Production owners include the Location page, map/public route clients, onboardin
 - `hushh-webapp/components/one-location/redesign/sos-panel.tsx`
 - `hushh-webapp/components/one-location/saved-locations-section.tsx`
 - `hushh-webapp/components/one-location/saved-places-banner.tsx`
-- `hushh-webapp/contracts/ui-review/back/48e04c4109b8c77cdbdd075029a772097cf8ba5f4ebfa754c7b0d72c37c38622.json`
-- `hushh-webapp/contracts/ui-review/search/ac90b21a3a6a779a0f2d5c49ad86c9566864e259ec139fe6bb56e3b9f66c68ce.json`
 - `hushh-webapp/docs/one-location-now-and-map.md`
 - `hushh-webapp/docs/ui-contracts/README.md`
 - `hushh-webapp/docs/ui-contracts/location-action-coverage.md`

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { AuthStep } from "@/components/onboarding/AuthStep";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";

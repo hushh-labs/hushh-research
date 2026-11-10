@@ -235,6 +235,11 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion,
+                              "supported": false, "contentHeight": 0, "bottomInset": 0])
+                return
+            }
             if #available(iOS 26.0, *) {
                 call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "columnLayout": true, "interactionIsolation": true,
                               "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
@@ -254,6 +259,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func setState(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                self.state.retireDocument()
+                self.updatePresentation()
+                call.resolve(["supported": false, "contentHeight": 0, "bottomInset": 0])
+                return
+            }
             guard #available(iOS 26.0, *) else {
                 call.resolve(["supported": false, "contentHeight": 0, "bottomInset": 0]); return
             }
@@ -306,6 +317,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func setScroll(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { call.resolve(["applied": false]); return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                call.resolve(["applied": false]); return
+            }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             guard Set(call.options.keys).isSubset(of: ["documentId", "revision", "interactionEpoch", "privacyGeneration", "scrollGeneration", "sequence", "progress", "travel"]),
                   self.scrollActive, self.compositor?.workspaceScrollOwner == nil,
@@ -327,7 +341,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var scrollActive: Bool {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         let presentationAllowsScroll = compositor.map { !$0.interactionIsolated && $0.contentPane == nil } ?? true
-        return presentationAllowsScroll &&
+        return NativeDrawerQualificationPolicy.coherentPresentationEnabled && presentationAllowsScroll &&
             scrollFollowing && !scrollPressHeld && state.visible && state.interactionEnabled && privacy.appIsActive && !privacy.shielded && !keyboardVisible
     }
     private func applyScroll(offset: CGFloat, progress: CGFloat) {
@@ -364,6 +378,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func confirmSelection(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                call.resolve(["valid": false]); return
+            }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let sequence = call.getInt("sequence") ?? -1
             let tab = call.getString("tab") ?? ""
@@ -381,7 +398,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
 
     @available(iOS 26.0, *)
     private func installIfNeeded() {
-        guard tabBar == nil, let host = bridge?.viewController?.view, let items = navigationItems else { return }
+        guard NativeDrawerQualificationPolicy.coherentPresentationEnabled,
+              tabBar == nil, let host = bridge?.viewController?.view, let items = navigationItems else { return }
         let bar = UITabBar()
         bar.accessibilityIdentifier = "one-native-navigation"
         bar.isHidden = true
@@ -433,6 +451,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     }
 
     func layoutTabBar() {
+        guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+            tabBar?.isHidden = true
+            tabBar?.isUserInteractionEnabled = false
+            tabBar?.accessibilityElementsHidden = true
+            return
+        }
         guard let bar = tabBar, let column, let restingFrame = currentColumnFrame else {
             tabBar?.isHidden = true; tabBar?.isUserInteractionEnabled = false; return
         }
@@ -457,9 +481,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             state.retireDocument()
             retiredRestartGeneration = privacy.generation
         }
-        let show = currentColumnFrame != nil && state.isPresented(appIsActive: privacy.appIsActive,
+        let show = NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil && state.isPresented(appIsActive: privacy.appIsActive,
                                      shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
-        let interactive = currentColumnFrame != nil && compositor?.interactionIsolated != true && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
+        let interactive = NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil && compositor?.interactionIsolated != true && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
                                           shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
         tabBar?.isHidden = !show
         tabBar?.isUserInteractionEnabled = interactive
@@ -512,7 +536,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     }
 
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-        guard HushhNativeNavigationState.tabs.indices.contains(item.tag) else { return }
+        guard NativeDrawerQualificationPolicy.coherentPresentationEnabled,
+              HushhNativeNavigationState.tabs.indices.contains(item.tag) else { return }
         let tab = HushhNativeNavigationState.tabs[item.tag]
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         updatePresentation() // Do not commit a selection before React's existing guard accepts it.

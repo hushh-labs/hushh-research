@@ -11,7 +11,7 @@ import { ScopeCommerceOwnerReview } from "@/components/consent/scope-commerce-ow
 import { ScopeCommerceBuyerReview } from "@/components/consent/scope-commerce-buyer-review";
 import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activity";
 import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
-import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
+import { MemoryCommerceSummary, MemoryCommerceSummaryView, useMemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
@@ -321,6 +321,18 @@ describe("Payments and earnings history", () => {
 
 
 describe("free sharing independent of payment setup", () => {
+  it("shares one earnings read between the retained Memory owner and its web renderer", async () => {
+    mocks.account.mockResolvedValue({ ...balanceAccount(), earnings: { pending_cents: 450, available_cents: 100 } });
+    function RetainedMemory() {
+      const commerce = useMemoryCommerceSummary();
+      return <><MemoryCommerceSummaryView model={commerce} /><span data-testid="retained-earnings">{commerce.data?.earnings.pending_cents}</span></>;
+    }
+    render(<RetainedMemory />);
+    expect(await screen.findByText("450 Hussh coins ($4.50)")).toBeVisible();
+    expect(screen.getByTestId("retained-earnings")).toHaveTextContent("450");
+    expect(mocks.account).toHaveBeenCalledTimes(1);
+  });
+
   it("projects canonical earnings in Saved and routes payout setup to Payments and earnings without starting OAuth", async () => {
     mocks.account.mockResolvedValue({ ...balanceAccount(), earnings: { pending_cents: 450, available_cents: 100 } });
     render(<MemoryCommerceSummary />);

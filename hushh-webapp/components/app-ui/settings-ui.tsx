@@ -1093,6 +1093,7 @@ export function AdaptiveDetailSurface({
       <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent
           onCloseAutoFocus={onCloseAutoFocus}
+          respectNativePresentationRegions={mobilePresentation === "fullscreen"}
           className={cn(
             "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]",
             mobilePresentation === "fullscreen"
@@ -1134,7 +1135,7 @@ export function AdaptiveDetailSurface({
           </DrawerHeader>
           <div
             className={cn(
-              "flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-2 sm:px-4 sm:pt-3",
+              "min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-2 sm:px-4 sm:pt-3",
               bodyClassName,
             )}
           >

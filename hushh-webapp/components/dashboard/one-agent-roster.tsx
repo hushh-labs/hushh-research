@@ -41,7 +41,7 @@ import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-kno
 import type { RiaHomeResponse } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
 
-type OneAgentMode = {
+export type OneAgentMode = {
   id: string;
   title: string;
   description: string;
@@ -664,16 +664,18 @@ function AgentRosterViewToggle({
 /** Search isn't pulling its weight yet at 9 agents -- off for now, easy to flip back on. */
 const SHOW_AGENT_SEARCH = false;
 
-export function OneAgentRoster({
-  capabilityStatusById,
-  userId,
-  messagesUnreadCount = null,
-}: {
+export type OneAgentRosterProps = {
   capabilityStatusById: Record<string, CapabilityStatus>;
   userId?: string | null;
   messagesUnreadCount?: number | null;
   displayName?: string | null;
-}) {
+};
+
+export function useOneAgentRosterModel({
+  capabilityStatusById,
+  userId,
+  messagesUnreadCount = null,
+}: OneAgentRosterProps) {
   const cachedMetrics = useCachedAgentMetrics(userId);
   const setupDismissed = Boolean(
     userId &&
@@ -722,6 +724,19 @@ export function OneAgentRoster({
     }
   };
 
+  return { modes, visibleModes, view, selectView, animateViewChange, query, setQuery, userId };
+}
+
+export function OneAgentRoster(props: OneAgentRosterProps) {
+  return <OneAgentRosterBody model={useOneAgentRosterModel(props)} />;
+}
+
+export function OneAgentRosterBody({ model, scheduledContent }: {
+  model: ReturnType<typeof useOneAgentRosterModel>;
+  scheduledContent?: import("react").ReactNode;
+}) {
+  const { modes, visibleModes, view, selectView, animateViewChange, query, setQuery, userId } = model;
+
   return (
     <section
       aria-labelledby="one-agents-heading"
@@ -746,7 +761,7 @@ export function OneAgentRoster({
           Agents ({modes.length})
         </PageTitle>
         <div className="flex shrink-0 items-center gap-2">
-          {userId && <ScheduledTasksPanel key={userId} ownerId={userId} />}
+          {scheduledContent === undefined ? userId && <ScheduledTasksPanel key={userId} ownerId={userId} /> : scheduledContent}
           <AgentRosterViewToggle value={view} onChange={selectView} />
         </div>
       </div>

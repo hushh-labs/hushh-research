@@ -103,6 +103,9 @@ final class AppUITests: XCTestCase {
     }
 
     private var vaultUnlockSubmitted = false
+    private static var vaultEntrySessionIsRetryable = true
+    private static var vaultPrivateEntryAttempted = false
+    private static let maximumVaultPassphraseDeleteCount = 4096
     /// The session walk captures the vault gate with its keyboard up, before
     /// anything is typed (a stop the host screenshots).
     private var perfGateStop = false
@@ -463,6 +466,17 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(keyboard.exists)
         XCTAssertLessThanOrEqual(editor.frame.maxY, keyboard.frame.minY,
             "The retained native editor must remain above the system keyboard")
+        // The expanded dock covers lower story controls while the keyboard is
+        // active. Retire the keyboard through the owned History presentation,
+        // which preserves this public draft, before changing the story mode.
+        open.tap()
+        guard waitForAdmittedControl(close) else { XCTFail("PUBLIC_EDITING_DRAWER_NOT_ADMITTED"); return }
+        XCTAssertFalse(editor.isHittable)
+        close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("PUBLIC_EDITING_BASE_NOT_RESTORED"); return }
+        XCTAssertTrue((editor.value as? String) == sample, "Drawer settlement must not replace the editor")
+        XCTAssertFalse(softwareKeyboardIsOnscreen(keyboard, in: app),
+            "The owned drawer handoff must retire the software keyboard before story controls are used")
         app.buttons["Talk"].firstMatch.tap()
         XCTAssertFalse(editor.isHittable)
         app.buttons["Message"].firstMatch.tap()
@@ -470,12 +484,6 @@ final class AppUITests: XCTestCase {
             XCTFail("PUBLIC_EDITOR_MODE_NOT_RESTORED"); return
         }
         XCTAssertTrue((editor.value as? String) == sample, "Mode changes must not erase the retained draft")
-        open.tap()
-        guard waitForAdmittedControl(close) else { XCTFail("PUBLIC_EDITING_DRAWER_NOT_ADMITTED"); return }
-        XCTAssertFalse(editor.isHittable)
-        close.tap()
-        guard waitForAdmittedControl(editor) else { XCTFail("PUBLIC_EDITING_BASE_NOT_RESTORED"); return }
-        XCTAssertTrue((editor.value as? String) == sample, "Drawer settlement must not replace the editor")
         XCTAssertFalse(app.buttons["Send message"].firstMatch.isEnabled,
             "A public study must not install product submission authority")
         guard let json = fixture.value as? String, let data = json.data(using: .utf8),
@@ -570,8 +578,45 @@ final class AppUITests: XCTestCase {
     private func auditPublicNativeHistoryAppearance(_ app: XCUIApplication, fixture: XCUIElement) throws {
         // Collect the complete public matrix. Every audit issue still fails the
         // test; none is ignored or expected. This does not certify motion.
+        let auditRequested = ProcessInfo.processInfo.environment["HUSHH_AUDIT_PUBLIC_QUALIFICATION"] == "true"
+        let open = app.buttons["qualification-history-open"].firstMatch
+        let close = app.buttons["qualification-history-close"].firstMatch
+        let dock = fixture.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch
+        let editor = app.textViews.matching(identifier: "native-dock-editor").firstMatch
+        var auditStarted = false
+        var drawerOpen = false
+        var appearanceRestored = false
         continueAfterFailure = true
-        defer { continueAfterFailure = false }
+        defer {
+            if auditStarted {
+                if drawerOpen, waitForAdmittedControl(close) {
+                    close.tap()
+                    drawerOpen = false
+                }
+                if !appearanceRestored {
+                    if waitForAdmittedControl(open) {
+                        let light = fixture.buttons["Light"].firstMatch
+                        let blue = fixture.buttons["Blue"].firstMatch
+                        let lightRestored = waitForAdmittedControl(light)
+                        if lightRestored { light.tap() }
+                        let blueRestored = waitForAdmittedControl(blue)
+                        if blueRestored { blue.tap() }
+                        appearanceRestored = lightRestored && blueRestored && waitForAdmittedControl(open)
+                        print("NATIVE_HISTORY_PUBLIC_A11Y cleanup=\(appearanceRestored ? "restored" : "incomplete")")
+                    } else {
+                        print("NATIVE_HISTORY_PUBLIC_A11Y cleanup=incomplete")
+                    }
+                }
+            }
+            continueAfterFailure = false
+        }
+        let visibleInApp: (XCUIElement) -> Bool = { element in
+            guard element.exists else { return false }
+            let frame = element.frame
+            let appFrame = app.frame
+            return frame.width > 0 && frame.height > 0 && appFrame.width > 0 && appFrame.height > 0 &&
+                appFrame.intersects(frame)
+        }
         for (theme, accent) in [("Light", "Blue"), ("Light", "Molten Gold"), ("Dark", "Blue"), ("Dark", "Molten Gold")] {
             fixture.buttons[theme].firstMatch.tap()
             fixture.buttons[accent].firstMatch.tap()
@@ -583,13 +628,62 @@ final class AppUITests: XCTestCase {
             attachment.name = "public-native-study-\(theme)-\(accent)"
             attachment.lifetime = .keepAlways
             add(attachment)
-            if ProcessInfo.processInfo.environment["HUSHH_AUDIT_PUBLIC_QUALIFICATION"] == "true", #available(iOS 17.0, *) {
+            if auditRequested, #available(iOS 17.0, *) {
+                auditStarted = true
+                print("NATIVE_HISTORY_PUBLIC_A11Y stage=base theme=\(theme) accent=\(accent)")
                 try app.performAccessibilityAudit(for: [.contrast, .hitRegion,
                     .sufficientElementDescription, .trait, .textClipped, .dynamicType])
+
+                guard waitForAdmittedControl(open) else {
+                    XCTFail("PUBLIC_HISTORY_AUDIT_BASE_NOT_ADMITTED"); return
+                }
+                let openFrame = open.frame
+                open.tap()
+                drawerOpen = true
+                guard waitForAdmittedControl(close) else {
+                    XCTFail("PUBLIC_HISTORY_AUDIT_DRAWER_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(close.frame.minX, openFrame.minX, accuracy: 1,
+                    "History Close must occupy the opener's leading slot")
+                XCTAssertEqual(close.frame.minY, openFrame.minY, accuracy: 1)
+                XCTAssertEqual(close.frame.width, openFrame.width, accuracy: 1)
+                XCTAssertEqual(close.frame.height, openFrame.height, accuracy: 1)
+                XCTAssertFalse(open.isHittable, "The covered base History opener must not receive touches")
+                XCTAssertFalse(dock.isHittable, "The covered base dock must not receive touches")
+                XCTAssertFalse(editor.isHittable, "The covered base editor must not receive touches")
+
+                let historyTitle = fixture.staticTexts["History"].firstMatch
+                let syntheticLabel = fixture.staticTexts["Synthetic conversations"].firstMatch
+                let firstSampleRow = fixture.staticTexts["Weekend plans"].firstMatch
+                guard visibleInApp(historyTitle), visibleInApp(syntheticLabel), firstSampleRow.exists else {
+                    XCTFail("PUBLIC_HISTORY_AUDIT_DRAWER_CONTENT_NOT_ADMITTED"); return
+                }
+                print("NATIVE_HISTORY_PUBLIC_A11Y stage=drawer theme=\(theme) accent=\(accent)")
+                let drawerAttachment = XCTAttachment(screenshot: app.screenshot())
+                drawerAttachment.name = "public-native-history-drawer-\(theme)-\(accent)"
+                drawerAttachment.lifetime = .keepAlways
+                add(drawerAttachment)
+                try app.performAccessibilityAudit(for: [.contrast, .hitRegion,
+                    .sufficientElementDescription, .trait, .textClipped, .dynamicType])
+
+                close.tap()
+                guard waitForAdmittedControl(open) else {
+                    XCTFail("PUBLIC_HISTORY_AUDIT_BASE_NOT_RESTORED"); return
+                }
+                drawerOpen = false
+                XCTAssertFalse(close.isHittable, "The retired History drawer must not receive touches")
+                XCTAssertFalse(visibleInApp(historyTitle), "The retired History title must leave the visible stage")
+                XCTAssertFalse(visibleInApp(syntheticLabel), "The retired History summary must leave the visible stage")
+                XCTAssertTrue(dock.isHittable, "The base dock must be admitted after History closes")
+                guard waitForAdmittedControl(editor) else {
+                    XCTFail("PUBLIC_HISTORY_AUDIT_EDITOR_NOT_RESTORED"); return
+                }
+                print("NATIVE_HISTORY_PUBLIC_A11Y stage=returned theme=\(theme) accent=\(accent)")
             }
         }
         fixture.buttons["Light"].firstMatch.tap()
         fixture.buttons["Blue"].firstMatch.tap()
+        appearanceRestored = true
     }
 
     func testLocalSessionAutomationAdmissionOnly() throws {
@@ -826,7 +920,7 @@ final class AppUITests: XCTestCase {
     }
 
     func testLocalSessionVaultWholeValueEntryOnly() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication(bundleIdentifier: "com.hushh.app")
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true",
               [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state)
         else { throw XCTSkip("Requires the existing app session") }
@@ -849,27 +943,23 @@ final class AppUITests: XCTestCase {
             // the application-wide responder (which lost synthetic input).
             field.typeText(fixture)
             let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                (field.value as? String)?.utf16.count == fixture.utf16.count &&
-                    unlock.count == 1 && unlock.firstMatch.isEnabled
+                field.exists && field.isHittable && unlock.count == 1 && unlock.firstMatch.isEnabled
             }, object: field)
             guard XCTWaiter.wait(for: [inserted], timeout: 3) == .completed else {
                 print("SECURE_PUBLIC_PROBE complete=false keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)) enabled=\(unlock.firstMatch.isEnabled)")
-                // Counts are permitted only for this known public fixture,
-                // never the reviewer credential or a previous entry.
-                print("SECURE_PUBLIC_SAMPLE observed=\((field.value as? String)?.utf16.count ?? -1) expected=\(fixture.utf16.count)")
                 let cleanup = prepareEmptySecureEntry(field, app: app, unlockControls: unlock)
                 print("SECURE_PUBLIC_CLEANUP confirmed=\(cleanup)")
                 XCTFail("SECURE_PUBLIC_PROBE_INSERTION_INCOMPLETE"); return
             }
+            guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
+                XCTFail("SECURE_PUBLIC_PROBE_CLEANUP_FAILED"); return
+            }
         }
-        guard prepareEmptySecureEntry(field, app: app, unlockControls: unlock) else {
-            XCTFail("SECURE_PUBLIC_PROBE_CLEANUP_FAILED"); return
-        }
-        print("SECURE_PUBLIC_PROBE length_acknowledged=true samples=\(fixtures.count) cleared=true submitted=false")
+        print("SECURE_PUBLIC_PROBE enabled_state_acknowledged=true samples=\(fixtures.count) cleared=true submitted=false")
     }
 
     func testLocalSessionVaultUnlockOnly() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication(bundleIdentifier: "com.hushh.app")
         let environment = ProcessInfo.processInfo.environment
         guard environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true",
               [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state)
@@ -944,13 +1034,49 @@ final class AppUITests: XCTestCase {
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !unlock.exists || rejected.exists
         }, object: web)
-        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 30), .completed, "Vault unlock did not settle")
-        guard !rejected.exists, !unlock.exists else { XCTFail("Vault authentication rejected the complete entry"); return }
+        guard XCTWaiter.wait(for: [settled], timeout: 30) == .completed else {
+            let field = web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
+            _ = clearVaultPassphraseEntry(field, app: app, unlockControls: app.buttons.matching(NSPredicate(
+                format: "label IN %@", ["Unlock", "Unlock with passphrase", "Unlock with password"]
+            )))
+            markVaultEntrySessionNonRetryable()
+            XCTFail("Vault unlock did not settle; this app session cannot retry private entry")
+            return
+        }
+        if rejected.exists {
+            let field = web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
+            _ = clearVaultPassphraseEntry(field, app: app, unlockControls: app.buttons.matching(NSPredicate(
+                format: "label IN %@", ["Unlock", "Unlock with passphrase", "Unlock with password"]
+            )))
+            XCTFail("Vault authentication was rejected; private entry will not be retried")
+            return
+        }
+        guard !unlock.exists else {
+            let field = web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
+            _ = clearVaultPassphraseEntry(field, app: app, unlockControls: app.buttons.matching(NSPredicate(
+                format: "label IN %@", ["Unlock", "Unlock with passphrase", "Unlock with password"]
+            )))
+            markVaultEntrySessionNonRetryable()
+            XCTFail("Vault gate remained visible; this app session cannot retry private entry")
+            return
+        }
         let navigationReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             app.buttons["one-native-tab-chat"].exists || web.buttons["Chat"].exists
         }, object: app)
         XCTAssertEqual(XCTWaiter.wait(for: [navigationReady], timeout: 15), .completed, "SESSION_NAVIGATION_NOT_SETTLED")
-        perfTapNav(app, label: "Chat")
+        let nativeTabs = app.descendants(matching: .any)
+            .matching(identifier: "one-native-navigation").firstMatch
+        let initialChatTab = nativeTabs.buttons.matching(NSPredicate(format: "label == %@", "Chat")).firstMatch
+        guard waitForAdmittedControl(initialChatTab) else {
+            XCTFail("WALLET_WARM_CHAT_TAB_NOT_ADMITTED"); return
+        }
+        initialChatTab.tap()
+        let chatSelected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "selected == true"), object: initialChatTab
+        )
+        guard XCTWaiter.wait(for: [chatSelected], timeout: 10) == .completed else {
+            XCTFail("WALLET_WARM_CHAT_TAB_DID_NOT_SETTLE"); return
+        }
         let protectedChat = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             composer.exists && composer.isHittable || nativeEditor.exists && nativeEditor.isHittable
         }, object: app)
@@ -959,12 +1085,24 @@ final class AppUITests: XCTestCase {
     }
 
     func testLocalSessionVaultPublicLayoutWithKeyboard() throws {
-        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+        let environment = ProcessInfo.processInfo.environment
+        let requireSoftwareKeyboard = environment["HUSHH_REQUIRE_SOFTWARE_KEYBOARD"] == "true"
+        guard environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in credential-free vault layout check")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication(bundleIdentifier: "com.hushh.app")
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             XCTFail("VAULT_LAYOUT_REQUIRES_RUNNING_APP"); return
+        }
+        var retireStrictKeyboardOnExit = requireSoftwareKeyboard
+        defer {
+            if requireSoftwareKeyboard && retireStrictKeyboardOnExit {
+                let keyboard = app.keyboards.firstMatch
+                if softwareKeyboardIsOnscreen(keyboard, in: app) {
+                    let hide = app.keyboards.buttons["Hide keyboard"].firstMatch
+                    if hide.exists && hide.isHittable { hide.tap() }
+                }
+            }
         }
         app.activate()
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
@@ -994,13 +1132,34 @@ final class AppUITests: XCTestCase {
                   packet["presentCount"]?.intValue == 1 else { return nil }
             return packet
         }
-        func settledGeometry(after sequence: Int, matchingHeight: Double? = nil) -> [String: NSNumber]? {
+        func hasKeyboardLayoutEvidence(_ packet: [String: NSNumber]?) -> Bool {
+            guard let packet,
+                  packet["kbOpen"]?.boolValue == true,
+                  let cssInset = packet["cssInset"]?.doubleValue,
+                  cssInset > 0 else { return false }
+            // A docked iPhone software keyboard also occupies UIKit's public
+            // keyboard guide. iPad floating/split keyboards need not reserve a
+            // full-width native inset, so the CSS event is the relevant signal.
+            guard UIDevice.current.userInterfaceIdiom == .phone else { return true }
+            guard let guide = packet["nativeGuideHeight"]?.doubleValue,
+                  let safeArea = packet["nativeBottomSafeArea"]?.doubleValue else { return false }
+            return guide > safeArea + 1
+        }
+        func settledGeometry(after sequence: Int, matchingHeight: Double? = nil,
+                             requireKeyboardLayout: Bool = false,
+                             requireVaultPasswordDiagnostics: Bool = false) -> [String: NSNumber]? {
             var latestSequence = sequence
             var previous: [String: NSNumber]?
             var settled: [String: NSNumber]?
             let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                let requiredKeys: [String] = ["innerHeight", "visualTop", "visualScale", "cssInset",
+                                              "scrollTopEdge", "scrollBottomEdge", "scrollTop",
+                                              "nativeGuideHeight", "nativeBottomSafeArea"] +
+                    (requireKeyboardLayout ? ["kbOpen"] : []) +
+                    (requireVaultPasswordDiagnostics ? ["vaultPasswordFocused", "vaultPasswordEditable"] : [])
                 guard let packet = geometry(), let next = packet["sequence"]?.intValue, next > latestSequence,
-                      ["innerHeight", "visualTop", "visualScale", "cssInset", "scrollTopEdge", "scrollBottomEdge", "scrollTop", "nativeGuideHeight", "nativeBottomSafeArea"].allSatisfy({ packet[$0] != nil }) else { return false }
+                      requiredKeys.allSatisfy({ packet[$0] != nil }),
+                      !requireKeyboardLayout || hasKeyboardLayoutEvidence(packet) else { return false }
                 if let matchingHeight, abs((packet["innerHeight"]?.doubleValue ?? -1) - matchingHeight) > 1 { return false }
                 latestSequence = next
                 let comparable = packet.filter { $0.key != "sequence" }
@@ -1011,7 +1170,9 @@ final class AppUITests: XCTestCase {
                 previous = comparable
                 return false
             }, object: probe)
-            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, "VAULT_LAYOUT_PUBLIC_GEOMETRY_STALLED")
+            let failure = requireKeyboardLayout ? "VAULT_LAYOUT_KEYBOARD_LAYOUT_EVIDENCE_UNAVAILABLE" :
+                (requireVaultPasswordDiagnostics ? "VAULT_LAYOUT_PASSWORD_FOCUS_DIAGNOSTICS_UNAVAILABLE" : "VAULT_LAYOUT_PUBLIC_GEOMETRY_STALLED")
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, failure)
             return settled
         }
         func report(_ stage: String, packet: [String: NSNumber]?) {
@@ -1046,12 +1207,63 @@ final class AppUITests: XCTestCase {
             }
         }
         report("rest", packet: rest)
+        if requireSoftwareKeyboard {
+            guard let initiallyOpen = rest?["kbOpen"]?.boolValue,
+                  let initialCssInset = rest?["cssInset"]?.doubleValue,
+                  !softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app),
+                  !initiallyOpen, initialCssInset <= 0 else {
+                XCTFail("VAULT_LAYOUT_KEYBOARD_BASELINE_NOT_CLOSED")
+                return
+            }
+        }
         entry.tap()
-        // A connected hardware keyboard is a valid tablet state. Do not
-        // confuse its absent software keyboard with a clipped vault form.
-        _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
-        let focused = settledGeometry(after: rest?["sequence"]?.intValue ?? 0)
+        var focusSequence = rest?["sequence"]?.intValue ?? 0
+        if requireSoftwareKeyboard {
+            // Require stable, sequence-advanced field diagnostics before
+            // classifying keyboard visibility, so an early probe sample cannot
+            // confuse a tap-delivery/focus issue with keyboard suppression.
+            let fieldStage = settledGeometry(after: focusSequence,
+                                             requireVaultPasswordDiagnostics: true)
+            report("fieldFocus", packet: fieldStage)
+            guard let fieldStage else { return }
+            guard let editable = fieldStage["vaultPasswordEditable"]?.boolValue,
+                  let fieldFocused = fieldStage["vaultPasswordFocused"]?.boolValue,
+                  let stageSequence = fieldStage["sequence"]?.intValue else {
+                XCTFail("VAULT_LAYOUT_PASSWORD_FOCUS_PACKET_INCOMPLETE")
+                return
+            }
+            print("VAULT_PASSWORD_FOCUS stage=afterTap focused=\(fieldFocused) editable=\(editable) sequence=\(stageSequence)")
+            guard editable else {
+                XCTFail("VAULT_LAYOUT_PASSWORD_FIELD_NOT_EDITABLE")
+                return
+            }
+            guard fieldFocused else {
+                XCTFail("VAULT_LAYOUT_PASSWORD_FIELD_NOT_FOCUSED")
+                return
+            }
+            focusSequence = stageSequence
+            // Focus is now proven separately; this checkpoint tests whether
+            // the real software keyboard and its public inset are admitted.
+            guard waitForSoftwareKeyboard(app) else {
+                XCTFail("VAULT_LAYOUT_SOFTWARE_KEYBOARD_NOT_ONSCREEN_AFTER_FIELD_TAP")
+                return
+            }
+            retireStrictKeyboardOnExit = true
+        } else {
+            // A connected hardware keyboard is a valid tablet state. Do not
+            // confuse its absent software keyboard with a clipped vault form.
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
+        }
+        let focused = settledGeometry(after: focusSequence,
+                                      requireKeyboardLayout: requireSoftwareKeyboard)
         report("focused", packet: focused)
+        if requireSoftwareKeyboard {
+            guard softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app),
+                  hasKeyboardLayoutEvidence(focused) else {
+                XCTFail("VAULT_LAYOUT_KEYBOARD_ADMISSION_NOT_CONFIRMED")
+                return
+            }
+        }
         let signOut = web.buttons.matching(NSPredicate(format: "label == %@", "Sign out"))
         func escapeReachable(_ packet: [String: NSNumber]?) -> Bool {
             guard let packet, packet["recoveryInside"]?.boolValue == true,
@@ -1082,7 +1294,8 @@ final class AppUITests: XCTestCase {
                 let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (top + (bottom - top) * 0.2) / height))
                 start.press(forDuration: 0.05, thenDragTo: end)
             }
-            let packet = settledGeometry(after: beforeScroll?["sequence"]?.intValue ?? sequence)
+            let packet = settledGeometry(after: beforeScroll?["sequence"]?.intValue ?? sequence,
+                                         requireKeyboardLayout: requireSoftwareKeyboard && stage == "scrolled")
             report(stage, packet: packet)
             XCTAssertTrue(escapeReachable(packet), "VAULT_LAYOUT_RECOVERY_ESCAPE_UNREACHABLE")
             return packet
@@ -1090,6 +1303,13 @@ final class AppUITests: XCTestCase {
         // Prove reachability while the observed keyboard is still present.
         // Accessibility can claim Sign out is tappable outside a DOM scroller.
         guard let revealed = revealEscape("scrolled", after: focused?["sequence"]?.intValue ?? 0) else { return }
+        if requireSoftwareKeyboard {
+            guard softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app),
+                  hasKeyboardLayoutEvidence(revealed) else {
+                XCTFail("VAULT_LAYOUT_KEYBOARD_LOST_BEFORE_CLEARANCE_CHECK")
+                return
+            }
+        }
         // Never submit Unlock or read/change the credential. Hide only the
         // system keyboard when available, after its avoidance has been checked.
         let hide = app.keyboards.buttons["Hide keyboard"].firstMatch
@@ -2255,6 +2475,18 @@ final class AppUITests: XCTestCase {
         // accessibility node. A coordinate re-resolved from the latter can
         // move with the content between the two halves of a reverse gesture.
         let origin = app.coordinate(withNormalizedOffset: .zero)
+        let chatTab = bar.buttons["Chat"]
+        let feedTab = bar.buttons["Feed"]
+        guard chatTab.exists && chatTab.isHittable && feedTab.isSelected else {
+            XCTFail("NATIVE_BOTTOM_SCROLL_CANCEL_PRESS_PRECONDITION_FAILED"); return
+        }
+        let cancelTarget = origin.withOffset(CGVector(dx: webFrame.maxX - 8,
+                                                       dy: webFrame.minY + webFrame.height * 0.3))
+        chatTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: cancelTarget,
+                   withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
+        XCTAssertTrue(feedTab.isSelected, "Dragging a tab press away must not commit a selection")
+        XCTAssertFalse(chatTab.isSelected, "A canceled press cannot select its original tab")
         let start = origin.withOffset(CGVector(dx: webFrame.minX + webFrame.width * 0.97,
                                                dy: webFrame.minY + webFrame.height * 0.65))
         let end = origin.withOffset(CGVector(dx: webFrame.minX + webFrame.width * 0.97,
@@ -5582,11 +5814,475 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue((editor.value as? String) == initialDraft, "ONE_PROFILE_DRAFT_CHANGED")
     }
 
+    private func runWalletWarmContinuity() {
+        let priorContinueAfterFailure = continueAfterFailure
+        continueAfterFailure = true
+        defer { continueAfterFailure = priorContinueAfterFailure }
+
+        let app = XCUIApplication(bundleIdentifier: "com.hushh.app")
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("WALLET_WARM_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate()
+
+        guard !app.otherElements["session-privacy-shield"].exists else {
+            XCTFail("WALLET_WARM_PRIVACY_COVER_ACTIVE"); return
+        }
+        // Native Wallet owns this surface and can hide the WebView's AX tree.
+        // A runner interruption can leave this same live process on Wallet,
+        // Chat, or One. Recover only through authored close/navigation controls.
+        let walletCollection = app.scrollViews["native-wallet-collection"].firstMatch
+        let walletAdd = app.buttons["native-wallet-add"].firstMatch
+        let walletTabs = app.segmentedControls.matching(identifier: "segmented-tabs:wallet")
+        let walletMyCards = walletTabs.firstMatch.buttons["My cards"].firstMatch
+        let nativeTabBars = app.descendants(matching: .any)
+            .matching(identifier: "one-native-navigation")
+        let nativeTabs = nativeTabBars.firstMatch
+        let oneTab = nativeTabs.buttons.matching(NSPredicate(format: "label == %@", "One")).firstMatch
+        let chatTab = nativeTabs.buttons.matching(NSPredicate(format: "label == %@", "Chat")).firstMatch
+        let detailClose = app.buttons["native-wallet-detail-close"].firstMatch
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        let web = hosts.firstMatch
+        let walletEntry = web.links["Open Wallet"].firstMatch
+        let authoredBack = app.buttons["top-shell-back"].firstMatch
+        let walletProfileDialogs = web.descendants(matching: .dialog).matching(NSPredicate(
+            format: "label == %@", "Agent One Profile"
+        ))
+        let walletProfileDialog = walletProfileDialogs.firstMatch
+        let walletProfileTitles = web.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Agent One Profile"
+        ))
+        let walletProfileEyebrows = walletProfileDialog.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Your card"
+        ))
+        let walletProfileBacks = walletProfileDialog.buttons.matching(NSPredicate(
+            format: "label == %@", "Back"
+        ))
+        let webAuthoredBacks = web.buttons.matching(NSPredicate(format: "label == %@", "Back"))
+        let walletProfileCollectionCards = web.buttons.matching(NSPredicate(
+            format: "label == %@", "Agent One Profile"
+        ))
+        let walletProfileCollectionCard = walletProfileCollectionCards.firstMatch
+        var chatDraft: String?
+
+        func activeChatComposer() -> XCUIElement {
+            let nativeComposer = app.textViews["native-dock-editor"].firstMatch
+            if nativeComposer.exists && nativeComposer.isHittable { return nativeComposer }
+            return web.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        }
+
+        func captureCurrentChatDraft() -> Bool {
+            guard chatTab.exists && chatTab.isSelected else { return false }
+            let composer = activeChatComposer()
+            guard composer.waitForExistence(timeout: 10), composer.isHittable,
+                  let draft = composer.value as? String else { return false }
+            chatDraft = draft
+            return true
+        }
+
+        func openWalletFromOne() -> Bool {
+            guard waitForAdmittedControl(oneTab) else { return false }
+            if !oneTab.isSelected {
+                oneTab.tap()
+                let selected = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "selected == true"), object: oneTab
+                )
+                guard XCTWaiter.wait(for: [selected], timeout: 10) == .completed else { return false }
+            }
+            let hostReady = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in hosts.count == 1 }, object: app
+            )
+            guard XCTWaiter.wait(for: [hostReady], timeout: 15) == .completed,
+                  walletEntry.waitForExistence(timeout: 15) else { return false }
+            for _ in 0..<4 { if walletEntry.isHittable { break }; web.swipeDown() }
+            for _ in 0..<6 { if walletEntry.isHittable { break }; web.swipeUp() }
+            guard walletEntry.isHittable else { return false }
+            walletEntry.tap()
+            return walletCollection.waitForExistence(timeout: 15) && waitForAdmittedControl(walletAdd)
+        }
+
+        /// Recover an interrupted WebView card detail through its own named
+        /// dialog. The current Wallet route is retained; shell Back is never a
+        /// fallback for this state.
+        func recoverWalletProfileDetailIfPresent() -> Bool? {
+            let initialDialogCount = walletProfileDialogs.count
+            let initialTitleCount = walletProfileTitles.count
+            let initialWebBackCount = webAuthoredBacks.count
+            guard initialDialogCount > 0 || initialTitleCount > 0 || initialWebBackCount > 0 else {
+                return nil
+            }
+
+            let detailAppeared = walletProfileDialog.waitForExistence(timeout: 3)
+            let dialogCount = walletProfileDialogs.count
+            let titleCount = walletProfileTitles.count
+            let eyebrowCount = walletProfileEyebrows.count
+            let backCount = walletProfileBacks.count
+            print("WALLET_WARM_PROFILE_BACK_LOCATOR dialogs=\(dialogCount) titles=\(titleCount) eyebrows=\(eyebrowCount) web_back_buttons=\(webAuthoredBacks.count) scoped_back_buttons=\(backCount)")
+
+            let back = walletProfileBacks.firstMatch
+            let backExists = back.exists
+            let backEnabled = backExists && back.isEnabled
+            let backHittable = backExists && back.isHittable
+            let frame = back.frame
+            let frameValues = [frame.minX, frame.minY, frame.width, frame.height, frame.maxX, frame.maxY]
+            let appFrame = app.frame
+            let appFrameValues = [appFrame.minX, appFrame.minY, appFrame.width, appFrame.height, appFrame.maxX, appFrame.maxY]
+            let finiteBounds = !frame.isNull && !frame.isInfinite && frameValues.allSatisfy(\.isFinite) &&
+                frame.width > 0 && frame.height > 0 && !appFrame.isNull && !appFrame.isInfinite &&
+                appFrameValues.allSatisfy(\.isFinite) && appFrame.intersects(frame)
+            let walletRouteState = detailAppeared && hosts.count == 1 && web.exists && dialogCount == 1 &&
+                titleCount > 0 && eyebrowCount == 1 && !walletEntry.exists
+            print("WALLET_WARM_PROFILE_BACK_ADMISSION exists=\(backExists) count_unique=\(backCount == 1) enabled=\(backEnabled) hittable=\(backHittable) finite_bounds=\(finiteBounds) route_state=\(walletRouteState)")
+
+            guard detailAppeared, dialogCount == 1, titleCount > 0, eyebrowCount == 1,
+                  backExists, backCount == 1, backEnabled, backHittable, finiteBounds, walletRouteState else {
+                return false
+            }
+
+            back.tap()
+            let detailRetired = walletProfileDialog.waitForNonExistence(timeout: 10)
+            let collectionReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !walletProfileDialog.exists && walletProfileCollectionCards.count == 1 &&
+                    walletProfileCollectionCard.exists && walletProfileCollectionCard.isEnabled &&
+                    walletProfileCollectionCard.isHittable && hosts.count == 1 && !walletEntry.exists
+            }, object: app)
+            let collectionRestored = XCTWaiter.wait(for: [collectionReady], timeout: 15) == .completed
+            let cardCount = walletProfileCollectionCards.count
+            let cardExists = walletProfileCollectionCard.exists
+            let cardHittable = cardExists && walletProfileCollectionCard.isHittable
+            let walletRouteRetained = hosts.count == 1 && !walletEntry.exists
+            let returnedToCollection = detailRetired && collectionRestored && cardCount == 1 &&
+                cardExists && cardHittable && walletRouteRetained
+            print("WALLET_WARM_PROFILE_BACK_TRANSITION detail_retired=\(detailRetired) collection_card_count=\(cardCount) collection_card_exists=\(cardExists) collection_card_hittable=\(cardHittable) wallet_route_retained=\(walletRouteRetained) returned=\(returnedToCollection)")
+            return returnedToCollection
+        }
+
+        func recoverWalletAdmission() -> Bool {
+            for _ in 0..<6 {
+                if walletCollection.exists && !(walletAdd.exists && walletAdd.isHittable) && !detailClose.exists {
+                    walletCollection.swipeDown()
+                    continue
+                }
+                if walletCollection.exists && walletAdd.exists && walletAdd.isHittable && walletAdd.isEnabled {
+                    return true
+                }
+                if detailClose.exists && detailClose.isHittable {
+                    detailClose.tap()
+                    _ = detailClose.waitForNonExistence(timeout: 10)
+                    continue
+                }
+                if nativeTabBars.count == 0, hosts.count == 1,
+                   !walletCollection.exists, !walletAdd.exists,
+                   authoredBack.exists && authoredBack.isHittable {
+                    authoredBack.tap()
+                    let backDestinationReady = XCTNSPredicateExpectation(
+                        predicate: NSPredicate { _, _ in walletCollection.exists || walletEntry.exists },
+                        object: app
+                    )
+                    guard XCTWaiter.wait(for: [backDestinationReady], timeout: 15) == .completed else {
+                        return false
+                    }
+                    if walletCollection.exists {
+                        print("WALLET_WARM_AUTHORED_BACK_RECOVERY destination=wallet_collection")
+                        return waitForAdmittedControl(walletAdd)
+                    }
+                    for _ in 0..<4 { if walletEntry.isHittable { break }; web.swipeDown() }
+                    for _ in 0..<6 { if walletEntry.isHittable { break }; web.swipeUp() }
+                    guard walletEntry.isHittable else { return false }
+                    print("WALLET_WARM_AUTHORED_BACK_RECOVERY destination=wallet_entry")
+                    walletEntry.tap()
+                    return walletCollection.waitForExistence(timeout: 15) && waitForAdmittedControl(walletAdd)
+                }
+                guard nativeTabBars.count == 1 else { return false }
+                if chatTab.exists && chatTab.isSelected {
+                    guard chatDraft != nil || captureCurrentChatDraft() else { return false }
+                    guard openWalletFromOne() else { return false }
+                    continue
+                }
+                if oneTab.exists && oneTab.isSelected {
+                    guard openWalletFromOne() else { return false }
+                    continue
+                }
+                return false
+            }
+            return walletCollection.exists && waitForAdmittedControl(walletAdd)
+        }
+
+        if let recovered = recoverWalletProfileDetailIfPresent() {
+            guard recovered else { XCTFail("WALLET_WARM_PROFILE_DETAIL_RECOVERY_FAILED"); return }
+            print("WALLET_WARM_PROFILE_DETAIL_RECOVERY_CONTINUING destination=wallet_collection add_cancel_replayed=false current_route_preserved=true")
+        }
+
+        // Restore Wallet through authored controls. Register before admission
+        // so a failed early route still gets cleanup.
+        defer {
+            for _ in 0..<8 {
+                if walletCollection.exists && walletAdd.exists && walletAdd.isHittable { break }
+                let cancelEditor = app.buttons["native-wallet-profile-cancel"].firstMatch
+                if cancelEditor.exists && cancelEditor.isHittable {
+                    cancelEditor.tap()
+                    continue
+                }
+                if detailClose.exists && detailClose.isHittable {
+                    detailClose.tap()
+                    continue
+                }
+                if walletEntry.exists && walletEntry.isHittable {
+                    walletEntry.tap()
+                    continue
+                }
+                if authoredBack.exists && authoredBack.isHittable {
+                    authoredBack.tap()
+                    continue
+                }
+                if nativeTabBars.count == 1 && openWalletFromOne() {
+                    continue
+                }
+                break
+            }
+            XCTAssertTrue(walletCollection.waitForExistence(timeout: 10) && waitForAdmittedControl(walletAdd),
+                          "WALLET_WARM_FINAL_WALLET_NOT_ADMITTED")
+            if walletTabs.count == 1 {
+                XCTAssertTrue(walletMyCards.isSelected, "WALLET_WARM_FINAL_MY_CARDS_NOT_SELECTED")
+            }
+        }
+
+        guard recoverWalletAdmission() else {
+            XCTFail("WALLET_WARM_SAFE_START_NOT_ADMITTED"); return
+        }
+        guard walletTabs.count == 1, waitForAdmittedControl(walletMyCards), walletMyCards.isSelected else {
+            XCTFail("WALLET_WARM_REQUIRES_MY_CARDS_ENTRY"); return
+        }
+
+        NativeWalletJourney.captureWarmCheckpoint("collection")
+        print("WALLET_WARM_JOURNEY stage=already_open_wallet add_cancel_replayed=false")
+
+        var profileKeyboardQualified = false
+        var profileSentinelObserved = false
+        var profileCancelDiscardedSentinel = false
+        if ProcessInfo.processInfo.environment["HUSHH_WALLET_SHELL_ONLY"] != "true" {
+        guard NativeWalletJourney.runWarmContinuity(
+            app,
+            recordProfileEvidence: { keyboardQualified, sentinelObserved, discarded in
+                profileKeyboardQualified = keyboardQualified
+                profileSentinelObserved = sentinelObserved
+                profileCancelDiscardedSentinel = discarded
+            }
+        ) else { return }
+        }
+        guard nativeTabs.waitForExistence(timeout: 15), nativeTabBars.count == 1 else {
+            XCTFail("WALLET_WARM_NATIVE_TABS_UNAVAILABLE"); return
+        }
+        perfTapNav(app, label: "Chat")
+        let chatHostReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in hosts.count == 1 }, object: app
+        )
+        guard XCTWaiter.wait(for: [chatHostReady], timeout: 15) == .completed else {
+            XCTFail("WALLET_WARM_CHAT_HOST_COUNT_INVALID"); return
+        }
+        let hostFrame = web.frame
+        let composerReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let candidate = activeChatComposer()
+            return candidate.exists && candidate.isHittable
+        }, object: app)
+        guard XCTWaiter.wait(for: [composerReady], timeout: 15) == .completed else {
+            NativeWalletJourney.captureWarmCheckpoint("chat-transition-failed")
+            reportNativeDockAdmission(app)
+            XCTFail("WALLET_WARM_CHAT_FROM_WALLET_NOT_ADMITTED"); return
+        }
+        let composer = activeChatComposer()
+        guard !softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app),
+              let capturedDraft = composer.value as? String else {
+            XCTFail("WALLET_WARM_CHAT_BASELINE_UNAVAILABLE"); return
+        }
+        if let initialChatDraft = chatDraft {
+            XCTAssertTrue(capturedDraft == initialChatDraft, "WALLET_WARM_CHAT_DRAFT_CHANGED_DURING_WALLET_ENTRY")
+        } else {
+            chatDraft = capturedDraft
+        }
+        XCTAssertTrue(walletAdd.waitForNonExistence(timeout: 5),
+                      "WALLET_WARM_NATIVE_BODY_LEAKED_AFTER_CHAT_TAB_SWITCH")
+        XCTAssertFalse(web.buttons["Unlock"].exists, "WALLET_WARM_CHAT_SWITCH_LOST_VAULT_ADMISSION")
+        XCTAssertEqual(hosts.count, 1, "WALLET_WARM_CHAT_SWITCH_CHANGED_WEBVIEW_COUNT")
+        XCTAssertEqual(web.frame, hostFrame, "WALLET_WARM_CHAT_SWITCH_MOVED_WEBVIEW")
+        NativeWalletJourney.captureWarmCheckpoint("chat-from-wallet")
+
+        for label in ["Connect", "Feed", "Chat"] {
+            let matches = nativeTabs.buttons.matching(NSPredicate(format: "label == %@", label))
+            let tab = matches.firstMatch
+            guard waitForAdmittedControl(tab), matches.count == 1 else {
+                XCTFail("WALLET_WARM_TAB_UNAVAILABLE"); return
+            }
+            tab.tap()
+            let selected = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "selected == true"), object: tab
+            )
+            guard XCTWaiter.wait(for: [selected], timeout: 10) == .completed else {
+                XCTFail("WALLET_WARM_TAB_DID_NOT_SETTLE"); return
+            }
+            XCTAssertEqual(hosts.count, 1, "WALLET_WARM_TAB_CHANGED_WEBVIEW_COUNT")
+            XCTAssertEqual(web.frame, hostFrame, "WALLET_WARM_TAB_MOVED_WEBVIEW")
+            if label == "Chat" {
+                let returnedComposer = activeChatComposer()
+                guard returnedComposer.waitForExistence(timeout: 15) && returnedComposer.isHittable else {
+                    XCTFail("WALLET_WARM_CHAT_NOT_ADMITTED"); return
+                }
+                XCTAssertFalse(web.buttons["Unlock"].exists,
+                               "WALLET_WARM_TAB_SWITCH_LOST_VAULT_ADMISSION")
+                guard !softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app) else {
+                    XCTFail("WALLET_WARM_CHAT_KEYBOARD_ACTIVE"); return
+                }
+                XCTAssertTrue((returnedComposer.value as? String) == chatDraft,
+                              "WALLET_WARM_CHAT_DRAFT_CHANGED_AFTER_TAB_CYCLE")
+                NativeWalletJourney.captureWarmCheckpoint("chat-return")
+            }
+            if label == "Connect" { NativeWalletJourney.captureWarmCheckpoint("connect") }
+            if label == "Feed" { NativeWalletJourney.captureWarmCheckpoint("feed") }
+            print("WALLET_WARM_TAB_CONTINUITY tab=\(label) selected=true single_host=true")
+        }
+
+        guard waitForAdmittedControl(oneTab) else { XCTFail("WALLET_WARM_ONE_TAB_NOT_ADMITTED"); return }
+        oneTab.tap()
+        let oneSelected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "selected == true"), object: oneTab
+        )
+        guard XCTWaiter.wait(for: [oneSelected], timeout: 10) == .completed else {
+            XCTFail("WALLET_WARM_ONE_TAB_DID_NOT_SETTLE"); return
+        }
+        XCTAssertEqual(hosts.count, 1, "WALLET_WARM_ONE_CHANGED_WEBVIEW_COUNT")
+        XCTAssertEqual(web.frame, hostFrame, "WALLET_WARM_ONE_MOVED_WEBVIEW")
+        let oneDestinationSettled = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                (walletCollection.exists && walletAdd.exists && walletAdd.isHittable) ||
+                    (walletEntry.exists && !walletAdd.exists)
+            }, object: app
+        )
+        guard XCTWaiter.wait(for: [oneDestinationSettled], timeout: 15) == .completed else {
+            XCTFail("WALLET_WARM_ONE_DESTINATION_DID_NOT_SETTLE"); return
+        }
+        if !(walletCollection.exists && walletAdd.isHittable) {
+            guard walletEntry.waitForExistence(timeout: 15) else {
+                XCTFail("WALLET_WARM_ONE_DID_NOT_RESTORE_WALLET_ENTRY"); return
+            }
+            XCTAssertFalse(walletAdd.exists, "WALLET_WARM_NATIVE_BODY_LEAKED_ON_ONE")
+            NativeWalletJourney.captureWarmCheckpoint("one")
+            for _ in 0..<4 { if walletEntry.isHittable { break }; web.swipeDown() }
+            for _ in 0..<6 { if walletEntry.isHittable { break }; web.swipeUp() }
+            guard walletEntry.isHittable else { XCTFail("WALLET_WARM_FINAL_WALLET_ENTRY_NOT_HITTABLE"); return }
+            walletEntry.tap()
+        }
+        guard walletCollection.waitForExistence(timeout: 15), waitForAdmittedControl(walletAdd) else {
+            XCTFail("WALLET_WARM_TAB_RETURN_DID_NOT_RESTORE_WALLET"); return
+        }
+        XCTAssertTrue(walletMyCards.isSelected, "WALLET_WARM_FINAL_MY_CARDS_NOT_SELECTED")
+        let back = app.buttons["top-shell-back"].firstMatch
+        guard waitForAdmittedControl(back) else {
+            let count = app.buttons.matching(identifier: "top-shell-back").count
+            let exists = back.exists
+            let frame = exists ? back.frame : .zero
+            let finite = [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite)
+            let guardDetails = "count=\(count) exists=\(exists) enabled=\(exists && back.isEnabled) hittable=\(exists && back.isHittable) finite_bounds=\(finite) width=\(finite ? frame.width : 0) height=\(finite ? frame.height : 0)"
+            NativeWalletJourney.captureWarmCheckpoint("authored-back-failed")
+            reportNativeDockAdmission(app)
+            XCTFail("WALLET_WARM_BACK_UNAVAILABLE \(guardDetails)"); return
+        }
+        back.tap()
+        guard walletEntry.waitForExistence(timeout: 15), walletAdd.waitForNonExistence(timeout: 5) else {
+            XCTFail("WALLET_WARM_AUTHORED_BACK_DID_NOT_RETURN_TO_ONE"); return
+        }
+        XCTAssertEqual(hosts.count, 1, "WALLET_WARM_AUTHORED_BACK_CHANGED_WEBVIEW_COUNT")
+        XCTAssertEqual(web.frame, hostFrame, "WALLET_WARM_AUTHORED_BACK_MOVED_WEBVIEW")
+        NativeWalletJourney.captureWarmCheckpoint("wallet-back-one")
+        for _ in 0..<4 { if walletEntry.isHittable { break }; web.swipeDown() }
+        for _ in 0..<6 { if walletEntry.isHittable { break }; web.swipeUp() }
+        guard walletEntry.isHittable else { XCTFail("WALLET_WARM_REENTRY_NOT_HITTABLE"); return }
+        walletEntry.tap()
+        guard walletCollection.waitForExistence(timeout: 15), waitForAdmittedControl(walletAdd) else {
+            XCTFail("WALLET_WARM_FINAL_WALLET_NOT_ADMITTED"); return
+        }
+        XCTAssertTrue(walletMyCards.isSelected, "WALLET_WARM_FINAL_MY_CARDS_NOT_SELECTED")
+        NativeWalletJourney.captureWarmCheckpoint("final-wallet")
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        guard walletCollection.waitForExistence(timeout: 15), waitForAdmittedControl(walletAdd) else {
+            XCTFail("WALLET_WARM_RESUME_DID_NOT_RESTORE_NATIVE_COLLECTION"); return
+        }
+        XCTAssertEqual(app.segmentedControls.matching(identifier: "segmented-tabs:wallet").count, 1,
+                       "WALLET_WARM_RESUME_DUPLICATED_PRESENTATION")
+        NativeWalletJourney.captureWarmCheckpoint("background-resume")
+        if profileKeyboardQualified {
+            XCTAssertTrue(profileSentinelObserved, "WALLET_PROFILE_SENTINEL_INPUT_NOT_OBSERVED")
+            XCTAssertTrue(profileCancelDiscardedSentinel, "WALLET_PROFILE_CANCEL_RETAINED_SENTINEL")
+        } else {
+            print("WALLET_PROFILE_KEYBOARD_UNQUALIFIED route_completed=true sentinel_attempted=false")
+        }
+    }
+
+    func testLocalSessionWalletShareCancellation() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_WALLET_WARM_SESSION"] == "true" else { throw XCTSkip("Requires the existing unlocked Wallet session") }
+        let app = XCUIApplication(bundleIdentifier: "com.hushh.app")
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else { throw XCTSkip("The installed app must already be running") }
+        app.activate()
+        let collection = app.scrollViews["native-wallet-collection"].firstMatch
+        let close = app.buttons["native-wallet-detail-close"].firstMatch
+        let activity = app.otherElements["ActivityListView"].firstMatch
+        if !activity.exists && !collection.exists {
+            let one = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch.buttons["One"].firstMatch
+            guard waitForAdmittedControl(one) else { XCTFail("WALLET_SHARE_ONE_UNAVAILABLE"); return }
+            one.tap()
+            let web = app.webViews.matching(identifier: "native-webview").firstMatch
+            let wallet = web.links["Open Wallet"].firstMatch
+            guard wallet.waitForExistence(timeout: 15) else { XCTFail("WALLET_SHARE_ENTRY_UNAVAILABLE"); return }
+            for _ in 0..<4 { if wallet.isHittable { break }; web.swipeDown() }
+            for _ in 0..<6 { if wallet.isHittable { break }; web.swipeUp() }
+            guard wallet.isHittable else { XCTFail("WALLET_SHARE_ENTRY_NOT_HITTABLE"); return }
+            wallet.tap()
+            guard collection.waitForExistence(timeout: 15) else { XCTFail("WALLET_SHARE_COLLECTION_UNAVAILABLE"); return }
+        }
+        if !activity.exists {
+            let card = app.buttons["Agent One Profile"].firstMatch
+            for _ in 0..<6 { if card.isHittable { break }; if collection.exists { collection.swipeUp() } }
+            guard waitForAdmittedControl(card) else { XCTFail("WALLET_SHARE_CARD_UNAVAILABLE"); return }
+            card.tap()
+            let body = app.descendants(matching: .any)["native-wallet-detail-content"].firstMatch
+            let share = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Share card")).firstMatch
+            guard waitForAdmittedControl(close) else { XCTFail("WALLET_SHARE_DETAIL_UNAVAILABLE"); return }
+            for _ in 0..<6 { if share.exists && share.isHittable { break }; if body.exists && body.isHittable { body.swipeUp() } }
+            guard waitForAdmittedControl(share) else { XCTFail("WALLET_SHARE_ACTION_UNAVAILABLE"); return }
+            share.tap()
+            guard activity.waitForExistence(timeout: 10) else {
+                NativeWalletJourney.captureWarmCheckpoint("share-unavailable")
+                XCTFail("WALLET_SHARE_SHEET_UNAVAILABLE"); return
+            }
+        }
+        NativeWalletJourney.captureWarmCheckpoint("share-sheet")
+        let frame = activity.frame
+        print("WALLET_SHARE_SHEET_BOUNDS x=\(frame.minX) y=\(frame.minY) width=\(frame.width) height=\(frame.height)")
+        guard frame.width > 0, frame.height > 0 else { XCTFail("WALLET_SHARE_SHEET_BOUNDS_UNAVAILABLE"); return }
+        let screen = app.frame
+        guard frame.minY > screen.minY + 60 else { XCTFail("WALLET_SHARE_OUTSIDE_POINT_UNAVAILABLE"); return }
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: screen.midX - screen.minX,
+            dy: frame.minY - screen.minY - 30)).tap()
+        guard activity.waitForNonExistence(timeout: 10), waitForAdmittedControl(close) else {
+            NativeWalletJourney.captureWarmCheckpoint("share-cancel-failed")
+            XCTFail("WALLET_SHARE_DETAIL_NOT_RESTORED"); return
+        }
+        NativeWalletJourney.captureWarmCheckpoint("share-cancel-return")
+        close.tap()
+        XCTAssertTrue(collection.waitForExistence(timeout: 10), "WALLET_SHARE_COLLECTION_NOT_RESTORED")
+        print("WALLET_SHARE_CANCEL returned_to_native_detail=true")
+    }
+
     func testLocalSessionWorkspaceFamiliesKeepDraftAndAuthoritativeSelection() throws {
+        if ProcessInfo.processInfo.environment["HUSHH_RUN_WALLET_WARM_SESSION"] == "true" {
+            runWalletWarmContinuity()
+            return
+        }
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in multi-workspace warm navigation regression")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication(bundleIdentifier: "com.hushh.app")
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             XCTFail("WORKSPACE_REQUIRES_RUNNING_SESSION"); return
         }
@@ -5787,10 +6483,9 @@ final class AppUITests: XCTestCase {
         memory.tap()
         let saved = webView.buttons["Saved"]
         let add = webView.buttons["Add"]
-        let sharing = webView.buttons["Sharing"]
         XCTAssertTrue(saved.waitForExistence(timeout: 15), "MEMORY_WORKSPACE_UNAVAILABLE")
         saved.tap()
-        XCTAssertTrue(add.exists && sharing.exists, "Memory tabs are incomplete")
+        XCTAssertTrue(add.exists, "Memory Add tab is unavailable")
 
         func swipeLeft() -> Bool {
             // Start in the authored gap following the active pane's field,
@@ -5815,7 +6510,7 @@ final class AppUITests: XCTestCase {
                     element.exists && element.isHittable && element.frame.contains(point)
                 }
             }
-            print("MEMORY_SWIPE_ADMISSION guarded_start=\(blocked) saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+            print("MEMORY_SWIPE_ADMISSION guarded_start=\(blocked) saved=\(saved.isSelected) add=\(add.isSelected)")
             guard webView.frame.contains(point) && !blocked else {
                 XCTFail("MEMORY_SWIPE_START_NOT_ADMITTED"); return false
             }
@@ -5837,22 +6532,21 @@ final class AppUITests: XCTestCase {
 
         guard swipeLeft() else { return }
         let added = waitForSelected(add)
-        print("MEMORY_SWIPE_SELECTION saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+        print("MEMORY_SWIPE_SELECTION saved=\(saved.isSelected) add=\(add.isSelected)")
         XCTAssertTrue(added, "One Memory swipe must land on Add")
-        XCTAssertFalse(sharing.isSelected, "The first swipe must not skip Add")
         guard swipeLeft() else { return }
-        XCTAssertTrue(waitForSelected(sharing), "The next Memory swipe must land on Sharing")
+        XCTAssertTrue(waitForSelected(add), "A swipe beyond the last Memory tab must stay on Add")
         // Keep the interruption test immediate. Selected state is not proof
         // that the compositor has settled or the original tab is reachable.
         print("MEMORY_RETURN_ADMISSION hittable=\(saved.exists && saved.isHittable)")
         XCTAssertTrue(saved.exists && saved.isHittable, "MEMORY_RETURN_TAB_NOT_HITTABLE")
         saved.tap()
         let returned = waitForSelected(saved)
-        print("MEMORY_RETURN_SELECTION saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+        print("MEMORY_RETURN_SELECTION saved=\(saved.isSelected) add=\(add.isSelected)")
         XCTAssertTrue(returned, "Memory tap must settle on the same pane as its swipe")
         XCTAssertFalse(webView.buttons["Unlock"].exists, "Memory paging lost the unlocked session")
         XCTAssertEqual(hosts.count, 1)
-        print("MEMORY_PAGER_CONTINUITY saved_add_sharing_warm_single_host")
+        print("MEMORY_PAGER_CONTINUITY saved_add_warm_single_host")
     }
 
     func testAccountNotFoundRecoveryReturnsToLogin() throws {
@@ -6451,10 +7145,61 @@ final class AppUITests: XCTestCase {
         field.typeText(value)
     }
 
+    private func markVaultEntrySessionNonRetryable() {
+        Self.vaultEntrySessionIsRetryable = false
+        print("VAULT_ENTRY_CLEANUP session_retryable=false")
+    }
+
+    private func vaultUnlockControlIsDisabled(_ unlockControls: XCUIElementQuery) -> Bool {
+        guard unlockControls.count == 1 else { return false }
+        let unlock = unlockControls.firstMatch
+        return ["Unlock", "Unlock with passphrase", "Unlock with password"].contains(unlock.label) &&
+            !unlock.isEnabled
+    }
+
+    /// Clear only through the named field after admitting its onscreen keyboard.
+    /// The native Vault projection caps password input at 4096 characters; send
+    /// that fixed maximum, then accept cleanup only from the public Unlock state.
+    private func clearVaultPassphraseEntry(_ field: XCUIElement, app: XCUIApplication,
+                                           unlockControls: XCUIElementQuery) -> Bool {
+        let privacyCover = app.otherElements["session-privacy-shield"].firstMatch
+        let keyboard = app.keyboards.firstMatch
+        guard field.exists, field.isHittable, !privacyCover.exists, unlockControls.count == 1 else {
+            markVaultEntrySessionNonRetryable()
+            print("VAULT_ENTRY_CLEANUP stage=field_or_control_unavailable")
+            return false
+        }
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        guard waitForSoftwareKeyboard(app), softwareKeyboardIsOnscreen(keyboard, in: app) else {
+            markVaultEntrySessionNonRetryable()
+            print("VAULT_ENTRY_CLEANUP stage=keyboard_unavailable")
+            return false
+        }
+        if vaultUnlockControlIsDisabled(unlockControls) {
+            print("VAULT_ENTRY_CLEANUP cleared=true control_disabled=true")
+            return true
+        }
+
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue,
+                              count: Self.maximumVaultPassphraseDeleteCount))
+        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            field.exists && field.isHittable && !privacyCover.exists &&
+                self.softwareKeyboardIsOnscreen(keyboard, in: app) &&
+                self.vaultUnlockControlIsDisabled(unlockControls)
+        }, object: app)
+        guard XCTWaiter.wait(for: [cleared], timeout: 5) == .completed else {
+            markVaultEntrySessionNonRetryable()
+            print("VAULT_ENTRY_CLEANUP cleared=false control_disabled=false")
+            return false
+        }
+        print("VAULT_ENTRY_CLEANUP cleared=true control_disabled=true")
+        return true
+    }
+
     /// A hittable WebKit field does not establish keyboard admission. On the
     /// phone wait for the real onscreen keyboard; a tablet hardware keyboard
-    /// remains valid. Clear in one normal editing operation, then acknowledge
-    /// both the empty field and React's disabled Unlock before whole-value entry.
+    /// remains valid for entry. Any pre-existing value is removed through the
+    /// named field and the public Unlock control state only.
     private func prepareEmptySecureEntry(_ field: XCUIElement, app: XCUIApplication,
                                          unlockControls: XCUIElementQuery) -> Bool {
         guard field.exists, field.isHittable,
@@ -6465,26 +7210,20 @@ final class AppUITests: XCTestCase {
         guard UIDevice.current.userInterfaceIdiom != .phone || waitForSoftwareKeyboard(app) else {
             print("VAULT_ENTRY_ADMISSION stage=keyboard_unavailable"); return false
         }
-        let existing = field.value as? String ?? ""
-        if !existing.isEmpty && existing != field.placeholderValue {
-            // Secure fields do not reliably expose Select All, especially
-            // after XCTest switches to the symbols keyboard. Use normal
-            // deletion instead, never a value setter or authentication hook.
-            let deletes = [app.keyboards.keys["delete"], app.keyboards.keys["Delete"],
-                           app.keyboards.buttons["delete"], app.keyboards.buttons["Delete"]]
-            if let delete = deletes.first(where: { $0.exists && $0.isHittable }) {
-                field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-                delete.press(forDuration: 2)
-            } else {
-                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.utf16.count))
-            }
+        guard unlockControls.count == 1 else {
+            markVaultEntrySessionNonRetryable()
+            print("VAULT_ENTRY_ADMISSION stage=unlock_control_unavailable")
+            return false
+        }
+        if unlockControls.firstMatch.isEnabled,
+           !clearVaultPassphraseEntry(field, app: app, unlockControls: unlockControls) {
+            return false
         }
         let cleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            guard let value = field.value as? String else { return false }
-            return (value.isEmpty || value == field.placeholderValue) &&
-                unlockControls.count == 1 && !unlockControls.firstMatch.isEnabled
+            field.exists && field.isHittable && self.vaultUnlockControlIsDisabled(unlockControls)
         }, object: field)
         guard XCTWaiter.wait(for: [cleared], timeout: 3) == .completed else {
+            markVaultEntrySessionNonRetryable()
             print("VAULT_ENTRY_ADMISSION stage=empty_acknowledgement_timeout"); return false
         }
         // XCTest can inherit the prior symbols/number keyboard across runs.
@@ -6497,12 +7236,17 @@ final class AppUITests: XCTestCase {
     /// Explicit physical-run alternative to typeText, characterized with public
     /// mixed input. Stay on the named secure field and visible reviewer; never
     /// reveal entry, bootstrap authentication, or retry an unacknowledged key.
-    private func enterSecureValueWithSoftwareKeyboard(_ value: String, field: XCUIElement, app: XCUIApplication) -> Bool {
+    private func enterSecureValueWithSoftwareKeyboard(_ value: String, field: XCUIElement,
+                                                       app: XCUIApplication,
+                                                       unlockControls: XCUIElementQuery) -> Bool {
         let email = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"] ?? ""
         guard !email.isEmpty else { return false }
-        var expectedLength = 0
+        let keyboard = app.keyboards.firstMatch
+        let privacyCover = app.otherElements["session-privacy-shield"].firstMatch
         for character in value {
             guard field.exists, field.isHittable, field.elementType == .secureTextField,
+                  !privacyCover.exists,
+                  softwareKeyboardIsOnscreen(keyboard, in: app),
                   app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", email)).firstMatch.exists else { return false }
             let literal = String(character)
             let keyNames = literal == "#" ? ["#", "number sign", "Number sign", "hash", "Hash", "pound", "Pound", "pound sign"] : [literal]
@@ -6517,19 +7261,21 @@ final class AppUITests: XCTestCase {
                 change.tap()
             }
             guard inserted else { return false }
-            expectedLength += literal.utf16.count
-            let count = expectedLength
-            let receipt = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                (field.value as? String)?.utf16.count == count
-            }, object: field)
-            guard XCTWaiter.wait(for: [receipt], timeout: 3) == .completed else { return false }
+            let accepted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                field.exists && field.isHittable && !privacyCover.exists &&
+                    self.softwareKeyboardIsOnscreen(keyboard, in: app) &&
+                    unlockControls.count == 1 && unlockControls.firstMatch.isEnabled
+            }, object: app)
+            guard XCTWaiter.wait(for: [accepted], timeout: 3) == .completed else { return false }
         }
         return true
     }
 
     @discardableResult
     private func attemptVaultPassphraseUnlock(app: XCUIApplication) -> Bool {
-        guard !vaultUnlockSubmitted else {
+        guard !vaultUnlockSubmitted,
+              Self.vaultEntrySessionIsRetryable,
+              !Self.vaultPrivateEntryAttempted else {
             return false
         }
         // UIKit's modal privacy cover can leave underlying WebKit elements
@@ -6593,7 +7339,6 @@ final class AppUITests: XCTestCase {
             print("VAULT_ENTRY_ADMISSION stage=authored_field_unavailable")
             return false
         }
-        let passphrase = reviewerVaultPassphrase()
         let reviewerEmail = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"] ?? ""
         let reviewerLabel = NSPredicate(format: "label == %@", reviewerEmail)
         let privateEntryAdmitted = { (field: XCUIElement) -> Bool in
@@ -6603,6 +7348,12 @@ final class AppUITests: XCTestCase {
                 field.exists && field.isHittable && !privacyCover.exists && account.exists && account.isHittable
         }
         let softwareKeyEntry = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_SOFTWARE_KEY_ENTRY"] == "true"
+        var pendingPrivateEntry: XCUIElement?
+        defer {
+            if let field = pendingPrivateEntry {
+                _ = clearVaultPassphraseEntry(field, app: app, unlockControls: unlockControls)
+            }
+        }
 
         for query in fieldQueries {
             // Resolve the authored field, not an index that can change as
@@ -6621,36 +7372,25 @@ final class AppUITests: XCTestCase {
                 print("VAULT_ENTRY_ADMISSION stage=keyboard_unavailable")
                 return false
             }
-            let entryLength = { () -> Int? in
-                guard let value = field.value as? String else { return nil }
-                return value == field.placeholderValue ? 0 : value.utf16.count
-            }
             // Whole-value entry is the default. An explicit physical run can
             // use the publicly characterized software-key path instead; never
             // switch modes after failure or replay a partial credential.
             guard privateEntryAdmitted(field) else {
                 print("VAULT_ENTRY_ADMISSION stage=reviewer_unavailable"); return false
             }
+            Self.vaultPrivateEntryAttempted = true
+            let passphrase = reviewerVaultPassphrase()
+            pendingPrivateEntry = field
             print("VAULT_ENTRY_MODE mode=\(softwareKeyEntry ? "software_keys" : "whole_value")")
             if softwareKeyEntry {
-                guard enterSecureValueWithSoftwareKeyboard(passphrase, field: field, app: app) else {
+                guard enterSecureValueWithSoftwareKeyboard(passphrase, field: field, app: app,
+                                                            unlockControls: unlockControls) else {
                     XCTFail("Vault software-key entry was not acknowledged; unlock was not submitted")
                     return false
                 }
             } else {
                 field.typeText(passphrase)
             }
-            let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                entryLength() == passphrase.utf16.count
-            }, object: field)
-            guard XCTWaiter.wait(for: [inserted], timeout: 3) == .completed else {
-                XCTFail("Vault secure entry insertion was not acknowledged; unlock was not submitted")
-                return false
-            }
-            // Submit once through the normal cryptographic unlock, then
-            // require protected content and absence of the gate in the caller.
-            // Never bootstrap or retry a rejected credential to pass a test.
-            print("VAULT_ENTRY_MASK length_matched=true")
             let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 unlockControls.count == 1 && unlockControls.firstMatch.isEnabled && unlockControls.firstMatch.isHittable
             }, object: app)
@@ -6665,6 +7405,7 @@ final class AppUITests: XCTestCase {
             print("VAULT_SUBMISSION_RECEIPT stage=ready")
             vaultUnlockSubmitted = true
             unlockControls.firstMatch.tap()
+            pendingPrivateEntry = nil
             print("VAULT_SUBMISSION_RECEIPT stage=tap_dispatched")
             return true
         }

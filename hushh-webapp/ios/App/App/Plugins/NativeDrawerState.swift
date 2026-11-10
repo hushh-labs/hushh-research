@@ -24,6 +24,51 @@ struct NativeDrawerOption: Codable, Identifiable {
     var colorHex: String? = nil
 }
 
+struct NativeMemoryText: Codable {
+    struct Run: Codable { let text: String; var bold: Bool?; var italic: Bool?; var actionId: String? }
+    var level: Int?
+    let runs: [Run]
+    var actionIds: Set<String> { Set(runs.compactMap(\.actionId)) }
+    static func closed(_ value: Any) -> Bool {
+        guard let value = value as? [String: Any], Set(value.keys).isSubset(of: ["level", "runs"]),
+              let runs = value["runs"] as? [[String: Any]] else { return false }
+        return runs.allSatisfy { Set($0.keys).isSubset(of: ["text", "bold", "italic", "actionId"]) }
+    }
+    var valid: Bool {
+        (level == nil || (1...6).contains(level!)) && (1...128).contains(runs.count) && actionIds.count <= 50 &&
+            runs.map(\.text).joined().utf16.count <= 4096 && runs.allSatisfy {
+                NativeDrawerProjection.text($0.text, 4096) && ($0.bold == nil || $0.bold == true) && ($0.italic == nil || $0.italic == true) &&
+                    ($0.actionId == nil || NativeDrawerIdentity.identifier($0.actionId!))
+            }
+    }
+}
+struct NativeWorkspaceAvatar: Codable {
+    let initials: String
+    var jpeg: String?
+    var verified: Bool?
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any] else { return false }
+        return Set(value.keys).isSubset(of: ["initials", "jpeg", "verified"]) && !value.values.contains(where: { $0 is NSNull })
+    }
+    var valid: Bool {
+        initials.utf16.count <= 8 && (jpeg == nil || (jpeg!.utf16.count <= 40_000 &&
+            jpeg!.range(of: "^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$", options: .regularExpression) != nil))
+    }
+}
+struct NativeWorkspaceInlineAction: Codable, Identifiable {
+    let id: String
+    let label: String
+    let enabled: Bool
+    let tone: String
+    var pending: Bool?
+    var symbol: String?
+    var avatar: NativeWorkspaceAvatar?
+    var placement: String?
+    var valid: Bool {
+        NativeDrawerIdentity.identifier(id) && NativeDrawerProjection.text(label, 256) &&
+            ["primary", "ghost", "danger", "success"].contains(tone) && (symbol == nil || NativeDrawerIdentity.identifier(symbol!)) && (avatar == nil || avatar!.valid) && (placement == nil || placement == "menu")
+    }
+}
 struct NativeDrawerRow: Codable, Identifiable {
     let id: String
     let label: String
@@ -45,6 +90,11 @@ struct NativeDrawerRow: Codable, Identifiable {
     var toggle: Bool? = nil
     var portrait: Bool? = nil
     var portraitData: String? = nil
+    var formattedText: NativeMemoryText? = nil
+    var avatar: NativeWorkspaceAvatar? = nil
+    var inlineActions: [NativeWorkspaceInlineAction]? = nil
+    var milestone: Int? = nil
+    var expanded: Bool? = nil
 }
 
 struct NativeDrawerProgress: Codable {

@@ -177,6 +177,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value: Object.freeze({
                   contractVersion: 1,
                   documentId: __hushhNativeDocumentId,
+                  nativeInterfacePreference: \(NativeDrawerQualificationPolicy.experimentalInterfaceAvailable ? "true" : "false"),
                   enabled: \(eligible ? "true" : "false"),
                   coherentShell: \(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false"),
                   ownedChoices: \(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false"),
@@ -301,6 +302,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 self.committedNativeDocumentId = document
                 self.documentAuthorityState = .committed(document)
                 HushhSessionPrivacyShield.shared.commitDocument(document)
+                (self.bridge?.plugin(withName: "HushhNativeVaultGate") as? NativeVaultGatePlugin)?.mainFrameDocumentDidCommit(document)
                 (self.bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?
                     .mainFrameDocumentDidCommit(document)
             }
@@ -434,12 +436,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
-        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
-        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible,
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.coherentPresentationEnabled,
            let existing = webView, view === existing {
             view = NativePresentationContainer(webView: existing, basePresentation: .coherentDrawers)
         }
-        #endif
         #if DEBUG
         // Qualification-only; older wrappers and Release retain their current
         // host until composition, touch and physical frame pacing pass.
@@ -480,6 +480,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhNativeChromePlugin())
         bridge?.registerPluginInstance(HushhNativeDockPlugin())
         bridge?.registerPluginInstance(HushhNativeDrawersPlugin())
+        bridge?.registerPluginInstance(NativeVaultGatePlugin())
         bridge?.registerPluginInstance(HushhStreamPlugin())
         bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
         bridge?.registerPluginInstance(HushhPlaidLinkPlugin())
@@ -528,6 +529,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhNativeChrome",
             "HushhNativeDock",
             "HushhNativeDrawers",
+            "HushhNativeVaultGate",
             "HushhStream",
             "HushhOAuthReturn",
             "HushhPlaidLink"

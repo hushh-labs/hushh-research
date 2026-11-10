@@ -21,7 +21,7 @@ import {
   UsersRound,
 } from "@/components/icons";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { StarRatingInput } from "@/components/one-location/nearby-check-in/star-rating-input";
 import { Label } from "@/components/ui/label";

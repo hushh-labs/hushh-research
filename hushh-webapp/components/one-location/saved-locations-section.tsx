@@ -13,7 +13,7 @@ import {
   Star,
   Trash2,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";

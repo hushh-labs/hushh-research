@@ -36,7 +36,7 @@ import {
 
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Button } from "@/components/ui/button";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { PlainLocationPoint } from "@/lib/one-location/types";

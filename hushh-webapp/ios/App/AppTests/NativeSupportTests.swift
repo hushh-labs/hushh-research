@@ -11,12 +11,506 @@ private final class ZeroSafeAreaView: UIView {
 @available(iOS 16.0, *)
 @MainActor private final class EditorMenuDismissalProbe: UIEditMenuInteraction {
     private(set) var dismissals = 0
-    override func dismissMenu() { dismissals += 1 }
+    var onDismiss: (() -> Void)?
+    override func dismissMenu() { dismissals += 1; onDismiss?() }
+}
+
+@available(iOS 16.0, *)
+@MainActor private final class EditorMenuTestAnimator: NSObject, UIEditMenuInteractionAnimating {
+    private var completions = [() -> Void]()
+    func addAnimations(_ animations: @escaping () -> Void) { animations() }
+    func addCompletion(_ completion: @escaping () -> Void) { completions.append(completion) }
+    func finish() {
+        let pending = completions
+        completions.removeAll()
+        pending.forEach { $0() }
+    }
 }
 
 @MainActor private final class EditorDelegateLifetimeProbe: NSObject, UITextFieldDelegate {}
 
 final class NativeSupportTests: XCTestCase {
+    func testChromeIdentityAdmitsMapControlsAndRejectsUnknownControls() {
+        for id in ["map-close", "map-locate", "map-check-in", "top-shell-back", "profile-back", "chat-history-toggle", "profile-close", "profile-appearance"] {
+            XCTAssertTrue(HushhNativeChromePlugin.recognizesControlId(id), "Known native control missing from identity admission: \(id)")
+        }
+        for id in ["", "map-close/stale", "map-delete", "unknown-control"] {
+            XCTAssertFalse(HushhNativeChromePlugin.recognizesControlId(id), "Unknown control admitted: \(id)")
+        }
+    }
+    func testMemoryWorkspaceApprovalIsBoundToTheExactNote() {
+        var draft = NativeWorkspaceMemoryDraft(text: "first", identifierApproved: true)
+        draft["text"] = "first"
+        XCTAssertTrue(draft.identifierApproved)
+        draft["text"] = "changed"
+        XCTAssertFalse(draft.identifierApproved)
+        XCTAssertTrue(draft.valid)
+        draft.text = String(repeating: "x", count: 50_001)
+        XCTAssertFalse(draft.valid)
+    }
+    @MainActor
+    func testMemoryLiveSearchCoalescesUntilAuthoritativeProjectionAndScrubs() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native workspace requires iOS 26") }
+        func projection(_ sequence: Int, _ query: String) throws -> NativeWorkspaceProjection {
+            let object: [String: Any] = ["documentId": "document", "ownerEpoch": "owner", "ownerGeneration": 1, "revision": 1,
+                "workspace": "memory", "updateSequence": sequence, "privacyGeneration": 0, "isolationGeneration": 0,
+                "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
+                "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+                "page": "overview", "title": "Memory", "enabled": true, "backEnabled": false, "sections": [],
+                "search": ["id": "search", "query": query, "label": "Search Memory", "live": true]]
+            return try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+        }
+        let initial = try projection(1, "")
+        let model = NativeWorkspaceModel(initial)
+        model.canInteract = { true }
+        var values = [String]()
+        model.emit = { event in if let value = event["text"] as? String { values.append(value) } }
+        let control = NativeWorkspaceSearchControl(model: model, search: try XCTUnwrap(initial.search))
+        let field = try XCTUnwrap(control.arrangedSubviews.compactMap { $0 as? UITextField }.first)
+        field.text = "A"; field.sendActions(for: .editingChanged)
+        let first = try XCTUnwrap(model.pending)
+        field.text = "AB"; field.sendActions(for: .editingChanged)
+        XCTAssertEqual(values, ["A"])
+        XCTAssertTrue(model.confirm(first)); XCTAssertTrue(model.settle(first))
+        let acknowledged = try projection(2, "A")
+        XCTAssertTrue(model.update(acknowledged)); control.update(try XCTUnwrap(acknowledged.search))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(values, ["A", "AB"])
+        let second = try XCTUnwrap(model.pending)
+        XCTAssertTrue(model.confirm(second)); XCTAssertTrue(model.settle(second))
+        let latest = try projection(3, "AB")
+        XCTAssertTrue(model.update(latest)); control.update(try XCTUnwrap(latest.search))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        let host = UIViewController(); window.rootViewController = host
+        host.view.addSubview(control); window.makeKeyAndVisible()
+        XCTAssertTrue(field.becomeFirstResponder())
+        XCTAssertFalse(control.textFieldShouldReturn(field))
+        XCTAssertFalse(field.isFirstResponder, "Memory search Return must dismiss the keyboard")
+        window.isHidden = true
+        let clear = try XCTUnwrap(control.arrangedSubviews.compactMap { $0 as? UIButton }.first)
+        clear.sendActions(for: .touchUpInside)
+        XCTAssertEqual(values, ["A", "AB", ""])
+        model.clear()
+        XCTAssertTrue(field.text?.isEmpty ?? true)
+    }
+
+    private func nativeVaultGateFixture() -> [String: Any] {
+        [
+            "documentId": "synthetic-document", "ownerEpoch": "synthetic-owner", "ownerGeneration": 1,
+            "revision": 1, "scene": "vault-hard-gate", "destinationId": "vault",
+            "updateSequence": 1, "privacyGeneration": 0, "acknowledgedEditRevision": 0,
+            "step": "create", "title": "Create vault", "description": "Private fixture",
+            "password": "private-draft", "confirmation": "private-draft", "recoveryKeyInput": "",
+            "recoveryKey": "private-generated-key", "error": "", "primaryLabel": "Continue", "primaryEnabled": true,
+            "busy": false, "busyLabel": "", "showPasswordUnlock": false, "showGeneratedUnlock": false,
+            "generatedUnlockLabel": "", "generatedUnlockEnabled": false, "showRecoveryAction": false,
+            "showSignOut": false, "signOutBusy": false, "showLostVaultDelete": false, "showCopy": false,
+            "copied": false, "showDownload": false, "showRecoverySaved": false, "savedLabel": "",
+            "quickMethodLabel": "", "quickMethodBody": "", "quickMethodEnabled": false,
+            "skipMethodLabel": "", "showCreateQuickUnlock": false, "createWantsQuickUnlock": false,
+            "createQuickUnlockLabel": "", "appearance": "light", "accentHex": "#123456", "foregroundHex": "#111111"
+        ]
+    }
+
+    @MainActor
+    func testNativeVaultGateClosedSchemaActionFenceAndScrub() throws {
+        var raw = nativeVaultGateFixture()
+        let projection = try XCTUnwrap(NativeVaultGateProjection(raw))
+        XCTAssertEqual(projection.identity.documentId, "synthetic-document")
+        raw["unrecognized"] = "reject"
+        XCTAssertNil(NativeVaultGateProjection(raw), "Unknown projection keys must fail closed")
+
+        var emitted: NativeVaultGateAction?
+        let model = NativeVaultGateModel(projection)
+        let staleProjectionFields: [(String, Any)] = [
+            ("documentId", "replacement-document"),
+            ("ownerEpoch", "replacement-owner"),
+            ("ownerGeneration", 2),
+            ("privacyGeneration", 1),
+        ]
+        for (key, value) in staleProjectionFields {
+            var staleRaw = nativeVaultGateFixture()
+            staleRaw["updateSequence"] = 2
+            staleRaw[key] = value
+            let stale = try XCTUnwrap(NativeVaultGateProjection(staleRaw))
+            XCTAssertFalse(model.update(stale), "A projection with changed \(key) must be rejected")
+        }
+        XCTAssertEqual(model.projection.identity.documentId, "synthetic-document")
+        XCTAssertEqual(model.projection.identity.ownerEpoch, "synthetic-owner")
+        XCTAssertEqual(model.projection.identity.ownerGeneration, 1)
+        XCTAssertEqual(model.projection.privacyGeneration, 0)
+        XCTAssertEqual(model.projection.updateSequence, 1)
+
+        model.onAction = { emitted = $0; return true }
+        model.choose("primary")
+        let action = try XCTUnwrap(emitted)
+        XCTAssertFalse(model.confirm(NativeVaultGateAction(editRevision: action.editRevision,
+            sequence: action.sequence + 1, action: action.action)), "A future action sequence cannot confirm the pending action")
+        XCTAssertTrue(model.confirm(action))
+        XCTAssertFalse(model.confirm(action), "An action sequence can be confirmed only once")
+        XCTAssertTrue(model.settle(action))
+        XCTAssertFalse(model.settle(action), "A settled action cannot be replayed")
+        model.choose("primary")
+        let pendingAtRetirement = try XCTUnwrap(emitted)
+
+        let passwordField = UITextField(), confirmationField = UITextField(), recoveryField = UITextField()
+        passwordField.text = "private-draft"; confirmationField.text = "private-draft"; recoveryField.text = "private-recovery"
+        model.passwordField = passwordField; model.confirmationField = confirmationField; model.recoveryField = recoveryField
+        var scrubbedBeforeRetirementCompletion = false
+        model.retire {
+            scrubbedBeforeRetirementCompletion = passwordField.text == "" && confirmationField.text == "" && recoveryField.text == ""
+        }
+        XCTAssertFalse(model.confirm(pendingAtRetirement), "An action emitted before retirement cannot be confirmed after scrub")
+        XCTAssertFalse(model.settle(pendingAtRetirement), "An action emitted before retirement cannot settle after scrub")
+        XCTAssertFalse(model.canChoose)
+        XCTAssertFalse(model.canEdit)
+        XCTAssertTrue(scrubbedBeforeRetirementCompletion, "Fields are scrubbed before native dismissal can complete")
+        XCTAssertEqual(passwordField.text, "")
+        XCTAssertEqual(confirmationField.text, "")
+        XCTAssertEqual(recoveryField.text, "")
+        XCTAssertEqual(model.password, "")
+        XCTAssertEqual(model.confirmation, "")
+        XCTAssertEqual(model.recoveryKeyInput, "")
+        XCTAssertEqual(model.projection.password, "")
+        XCTAssertEqual(model.projection.confirmation, "")
+        XCTAssertEqual(model.projection.recoveryKeyInput, "")
+        XCTAssertEqual(model.projection.recoveryKey, "")
+        XCTAssertFalse(model.projection.receipt("retired").keys.contains("password"))
+    }
+
+    @available(iOS 26.0, *)
+    @MainActor
+    func testNativeVaultGateHostedViewKeepsCreateFieldsSecureAndFencesActions() throws {
+        let projection = try XCTUnwrap(NativeVaultGateProjection(nativeVaultGateFixture()))
+        let model = NativeVaultGateModel(projection)
+        var edit: (String, String, String, Bool, Int)?
+        var action: NativeVaultGateAction?
+        model.onEdit = { password, confirmation, recovery, composing, revision in
+            edit = (password, confirmation, recovery, composing, revision)
+            return true
+        }
+        model.onAction = { action = $0; return true }
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let controller = UIHostingController(rootView: NativeVaultGateContent(model: model))
+        controller.view.accessibilityIdentifier = "native-vault-hard-gate"
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        defer {
+            model.retire {}
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+        }
+
+        func field(_ identifier: String, in view: UIView) -> UITextField? {
+            if let input = view as? UITextField, input.accessibilityIdentifier == identifier { return input }
+            for child in view.subviews {
+                if let input = field(identifier, in: child) { return input }
+            }
+            return nil
+        }
+        let password = try XCTUnwrap(field("native-vault-gate-password", in: controller.view))
+        let confirmation = try XCTUnwrap(field("native-vault-gate-confirmation", in: controller.view))
+        XCTAssertTrue(password.isSecureTextEntry)
+        XCTAssertTrue(confirmation.isSecureTextEntry)
+        XCTAssertEqual(password.textContentType, .newPassword)
+        XCTAssertEqual(confirmation.textContentType, nil)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let passwordFrame = password.convert(password.bounds, to: controller.view)
+            XCTAssertGreaterThan(controller.view.bounds.width, 700)
+            XCTAssertLessThanOrEqual(password.frame.width, 520)
+            XCTAssertLessThanOrEqual(passwordFrame.maxX, controller.view.bounds.maxX)
+        }
+
+        password.text = "replacement-secret"
+        confirmation.text = "replacement-secret"
+        password.sendActions(for: .editingChanged)
+        XCTAssertEqual(model.editRevision, 1)
+        XCTAssertEqual(edit?.0, "replacement-secret")
+        XCTAssertEqual(edit?.1, "replacement-secret")
+        XCTAssertFalse(edit?.3 ?? true)
+        XCTAssertFalse(model.canChoose, "The native action remains disabled until React acknowledges the edit revision")
+
+        var acknowledged = nativeVaultGateFixture()
+        acknowledged["updateSequence"] = 2
+        acknowledged["acknowledgedEditRevision"] = 1
+        acknowledged["password"] = "replacement-secret"
+        acknowledged["confirmation"] = "replacement-secret"
+        XCTAssertTrue(model.update(try XCTUnwrap(NativeVaultGateProjection(acknowledged))))
+        XCTAssertTrue(model.canChoose)
+
+        XCTAssertTrue(password.becomeFirstResponder())
+        XCTAssertFalse(password.delegate?.textFieldShouldReturn?(password) ?? true)
+        XCTAssertTrue(confirmation.isFirstResponder, "Create password Return advances to confirmation")
+        XCTAssertNil(action, "Advancing between create fields does not submit")
+
+        XCTAssertFalse(confirmation.delegate?.textFieldShouldReturn?(confirmation) ?? true)
+        guard let firstCreateAction = action else {
+            XCTFail("Create confirmation Return must submit the acknowledged primary action")
+            return
+        }
+        XCTAssertEqual(password.returnKeyType, .next)
+        XCTAssertEqual(confirmation.returnKeyType, .go)
+        XCTAssertEqual(firstCreateAction.action, "primary")
+        XCTAssertEqual(firstCreateAction.editRevision, 1)
+        XCTAssertEqual(firstCreateAction.sequence, 1)
+        XCTAssertTrue(model.confirm(firstCreateAction))
+        XCTAssertTrue(model.settle(firstCreateAction))
+        action = nil
+
+        confirmation.text = "mismatched-secret"
+        confirmation.sendActions(for: .editingChanged)
+        XCTAssertEqual(model.editRevision, 2)
+        XCTAssertFalse(model.canChoose)
+        XCTAssertFalse(confirmation.delegate?.textFieldShouldReturn?(confirmation) ?? true)
+        XCTAssertNil(action, "Return cannot submit a mismatched edit before React acknowledges it")
+
+        var acknowledgedMismatch = nativeVaultGateFixture()
+        acknowledgedMismatch["updateSequence"] = 3
+        acknowledgedMismatch["acknowledgedEditRevision"] = 2
+        acknowledgedMismatch["password"] = "replacement-secret"
+        acknowledgedMismatch["confirmation"] = "mismatched-secret"
+        acknowledgedMismatch["primaryEnabled"] = false
+        XCTAssertTrue(model.update(try XCTUnwrap(NativeVaultGateProjection(acknowledgedMismatch))))
+        XCTAssertNil(action, "Acknowledging a mismatched edit cannot replay a rejected Return")
+        XCTAssertFalse(confirmation.delegate?.textFieldShouldReturn?(confirmation) ?? true)
+        XCTAssertNil(action, "A mismatched confirmation cannot submit the primary action")
+
+        confirmation.text = "replacement-secret"
+        confirmation.sendActions(for: .editingChanged)
+        XCTAssertEqual(model.editRevision, 3)
+        XCTAssertFalse(model.canChoose)
+        XCTAssertFalse(confirmation.delegate?.textFieldShouldReturn?(confirmation) ?? true)
+        XCTAssertNil(action, "A matching edit still waits for React acknowledgement")
+
+        var acknowledgedMatch = nativeVaultGateFixture()
+        acknowledgedMatch["updateSequence"] = 4
+        acknowledgedMatch["acknowledgedEditRevision"] = 3
+        acknowledgedMatch["password"] = "replacement-secret"
+        acknowledgedMatch["confirmation"] = "replacement-secret"
+        XCTAssertTrue(model.update(try XCTUnwrap(NativeVaultGateProjection(acknowledgedMatch))))
+        XCTAssertNil(action, "Acknowledging a matching edit never replays Return")
+        XCTAssertFalse(confirmation.delegate?.textFieldShouldReturn?(confirmation) ?? true)
+        guard let secondCreateAction = action else {
+            XCTFail("Create confirmation Return must submit after the matching edit is acknowledged")
+            return
+        }
+        XCTAssertEqual(secondCreateAction.action, "primary")
+        XCTAssertEqual(secondCreateAction.editRevision, 3)
+        XCTAssertEqual(secondCreateAction.sequence, 2)
+        XCTAssertTrue(model.confirm(secondCreateAction))
+        XCTAssertTrue(model.settle(secondCreateAction))
+        action = nil
+
+        var unlock = nativeVaultGateFixture()
+        unlock["updateSequence"] = 5
+        unlock["acknowledgedEditRevision"] = 3
+        unlock["step"] = "unlock"
+        unlock["password"] = "replacement-secret"
+        unlock["confirmation"] = ""
+        unlock["primaryLabel"] = "Unlock"
+        XCTAssertTrue(model.update(try XCTUnwrap(NativeVaultGateProjection(unlock))))
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        let unlockPassword = try XCTUnwrap(field("native-vault-gate-password", in: controller.view))
+        XCTAssertFalse(unlockPassword.delegate?.textFieldShouldReturn?(unlockPassword) ?? true)
+        guard let unlockAction = action else {
+            XCTFail("Unlock password Return must submit the acknowledged primary action")
+            return
+        }
+        XCTAssertEqual(unlockPassword.returnKeyType, .go)
+        XCTAssertEqual(unlockAction.action, "primary")
+        XCTAssertEqual(unlockAction.editRevision, 3)
+        XCTAssertEqual(unlockAction.sequence, 3)
+        XCTAssertTrue(model.confirm(unlockAction))
+        XCTAssertTrue(model.settle(unlockAction))
+        action = nil
+
+        XCTAssertTrue(unlockPassword.becomeFirstResponder())
+        unlockPassword.setMarkedText("candidate", selectedRange: NSRange(location: 9, length: 0))
+        XCTAssertNotNil(unlockPassword.markedTextRange)
+        XCTAssertFalse(unlockPassword.delegate?.textFieldShouldReturn?(unlockPassword) ?? true)
+        XCTAssertNil(action, "Return during marked-text composition cannot submit")
+    }
+
+    @available(iOS 26.0, *)
+    @MainActor
+    func testRegisteredNativeVaultGatePresentsAndRetiresItsFullScreenScene() async throws {
+        guard NativeDrawerQualificationPolicy.deviceEligible else {
+            throw XCTSkip("Run this AppTests case with the existing native-shell qualification build condition")
+        }
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        guard let host = scene.windows.compactMap({ $0.rootViewController as? MyViewController }).first else {
+            throw XCTSkip("The app's native bridge host is not installed in the active window")
+        }
+        guard host.presentedViewController == nil else { throw XCTSkip("The app already owns a presented controller") }
+        let documentDeadline = Date().addingTimeInterval(15)
+        while host.committedNativeDocumentId == nil && Date() < documentDeadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        guard let document = host.committedNativeDocumentId else {
+            throw XCTSkip("The app has not committed a Web document")
+        }
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        guard privacy.appIsActive, !privacy.shielded, host.authorizesNativeDocument(document),
+              let plugin = host.bridge?.plugin(withName: "HushhNativeVaultGate") as? NativeVaultGatePlugin else {
+            throw XCTSkip("The live app document must be authorized by its current privacy generation")
+        }
+
+        var raw = nativeVaultGateFixture()
+        raw["documentId"] = document
+        raw["ownerEpoch"] = "synthetic-presentation-\(UUID().uuidString)"
+        raw["privacyGeneration"] = privacy.generation
+        raw["title"] = "Synthetic Vault presentation"
+        raw["description"] = "Credential-free presentation check"
+        raw["password"] = ""
+        raw["confirmation"] = ""
+        raw["recoveryKeyInput"] = ""
+        raw["recoveryKey"] = ""
+        raw["primaryEnabled"] = false
+        let projection = try XCTUnwrap(NativeVaultGateProjection(raw))
+        let applied = expectation(description: "Registered Vault plugin presents its full-screen scene")
+        var activePhase: String?
+        let applyCall = try XCTUnwrap(CAPPluginCall(callbackId: "synthetic-vault-present",
+            methodName: "applyVaultGateScene", options: raw, success: { result, _ in
+                if case let .dictionary(value)? = result?.resultData { activePhase = value["phase"] as? String }
+                applied.fulfill()
+            }, error: { _ in applied.fulfill() }))
+
+        var retirementOptions = projection.identity.payload()
+        retirementOptions["updateSequence"] = projection.updateSequence
+        retirementOptions["privacyGeneration"] = projection.privacyGeneration
+        var retiredPhase: String?
+        var retirementCompletionCount = 0
+        var retirementCompletedWhilePresented = false
+        let retired = expectation(description: "Registered Vault plugin confirms full-screen retirement")
+        let retireCall = try XCTUnwrap(CAPPluginCall(callbackId: "synthetic-vault-retire",
+            methodName: "retireVaultGateScene", options: retirementOptions, success: { result, _ in
+                retirementCompletionCount += 1
+                if case let .dictionary(value)? = result?.resultData { retiredPhase = value["phase"] as? String }
+                retirementCompletedWhilePresented = host.presentedViewController?.view.accessibilityIdentifier == "native-vault-hard-gate"
+                retired.fulfill()
+            }, error: { _ in
+                retirementCompletionCount += 1
+                retirementCompletedWhilePresented = host.presentedViewController?.view.accessibilityIdentifier == "native-vault-hard-gate"
+                retired.fulfill()
+            }))
+        var fallbackRetiredPhase: String?
+        var fallbackCompletion: XCTestExpectation?
+        let fallbackCall = try XCTUnwrap(CAPPluginCall(callbackId: "synthetic-vault-fallback-retire",
+            methodName: "retireVaultGateScene", options: retirementOptions, success: { result, _ in
+                if case let .dictionary(value)? = result?.resultData { fallbackRetiredPhase = value["phase"] as? String }
+                fallbackCompletion?.fulfill()
+            }, error: { _ in fallbackCompletion?.fulfill() }))
+        var overlappingRetiredPhase: String?
+        var overlappingRetirementCompletionCount = 0
+        var overlappingRetirementCompletedWhilePresented = false
+        let overlappingRetired = expectation(description: "Overlapping Vault retirement waits for menu and controller dismissal")
+        let overlappingCall = try XCTUnwrap(CAPPluginCall(callbackId: "synthetic-vault-overlapping-retire",
+            methodName: "retireVaultGateScene", options: retirementOptions, success: { result, _ in
+                overlappingRetirementCompletionCount += 1
+                if case let .dictionary(value)? = result?.resultData { overlappingRetiredPhase = value["phase"] as? String }
+                overlappingRetirementCompletedWhilePresented = host.presentedViewController?.view.accessibilityIdentifier == "native-vault-hard-gate"
+                overlappingRetired.fulfill()
+            }, error: { _ in
+                overlappingRetirementCompletionCount += 1
+                overlappingRetirementCompletedWhilePresented = host.presentedViewController?.view.accessibilityIdentifier == "native-vault-hard-gate"
+                overlappingRetired.fulfill()
+            }))
+
+        plugin.applyVaultGateScene(applyCall)
+        await fulfillment(of: [applied], timeout: 5)
+        let shouldRetire = activePhase == "active" ||
+            host.presentedViewController?.view.accessibilityIdentifier == "native-vault-hard-gate"
+        guard activePhase == "active" else {
+            XCTFail("The registered native Vault plugin did not return an active receipt")
+            plugin.retireVaultGateScene(retireCall)
+            await fulfillment(of: [retired], timeout: 5)
+            if shouldRetire && retiredPhase != "retired" {
+                let fallback = expectation(description: "Fallback Vault plugin retirement")
+                fallbackCompletion = fallback
+                plugin.retireVaultGateScene(fallbackCall)
+                await fulfillment(of: [fallback], timeout: 5)
+                XCTAssertEqual(fallbackRetiredPhase, "retired")
+            }
+            XCTAssertNil(host.presentedViewController)
+            return
+        }
+
+        func textField(_ identifier: String, in view: UIView) -> UITextField? {
+            if let field = view as? UITextField, field.accessibilityIdentifier == identifier { return field }
+            for child in view.subviews {
+                if let field = textField(identifier, in: child) { return field }
+            }
+            return nil
+        }
+        guard let presented = host.presentedViewController,
+              let passwordField = textField("native-vault-gate-password", in: presented.view) else {
+            XCTFail("The registered native Vault plugin must present its password field")
+            plugin.retireVaultGateScene(retireCall)
+            await fulfillment(of: [retired], timeout: 5)
+            XCTAssertNil(host.presentedViewController)
+            return
+        }
+        XCTAssertEqual(presented.view.accessibilityIdentifier, "native-vault-hard-gate")
+        XCTAssertEqual(presented.modalPresentationStyle, .fullScreen)
+        XCTAssertTrue(presented.isModalInPresentation,
+            "The hard Vault scene remains owned until its matching retirement call")
+        let menu = EditorMenuDismissalProbe(delegate: nil)
+        let menuDismissRequested = expectation(description: "Vault retirement requests dismissal of its owned edit menu")
+        menu.onDismiss = { menuDismissRequested.fulfill() }
+        passwordField.addInteraction(menu)
+        let presentationAnimator = EditorMenuTestAnimator()
+        passwordField.delegate?.textField?(passwordField, willPresentEditMenuWith: presentationAnimator)
+
+        let overlappingRetirementProcessed = expectation(description: "Both matching plugin retire calls entered the main-thread owner")
+        plugin.retireVaultGateScene(retireCall)
+        plugin.retireVaultGateScene(overlappingCall)
+        DispatchQueue.main.async { overlappingRetirementProcessed.fulfill() }
+        await fulfillment(of: [menuDismissRequested, overlappingRetirementProcessed], timeout: 5)
+        XCTAssertEqual(menu.dismissals, 1, "Retirement asks the owned edit menu to dismiss after scrubbing its field")
+        XCTAssertTrue(host.presentedViewController === presented, "The held edit menu keeps the hard Vault scene presented")
+        XCTAssertEqual(retirementCompletionCount, 0)
+        XCTAssertEqual(overlappingRetirementCompletionCount, 0)
+        XCTAssertFalse(retirementCompletedWhilePresented)
+        XCTAssertFalse(overlappingRetirementCompletedWhilePresented,
+            "A matching overlapping retirement cannot acknowledge while the owned menu and controller remain presented")
+
+        let dismissalAnimator = EditorMenuTestAnimator()
+        passwordField.delegate?.textField?(passwordField, willDismissEditMenuWith: dismissalAnimator)
+        XCTAssertEqual(retirementCompletionCount, 0)
+        XCTAssertEqual(overlappingRetirementCompletionCount, 0)
+        XCTAssertFalse(retirementCompletedWhilePresented)
+        XCTAssertFalse(overlappingRetirementCompletedWhilePresented,
+            "A dismissal request is not the UIKit dismissal completion")
+        dismissalAnimator.finish()
+        await fulfillment(of: [retired, overlappingRetired], timeout: 5)
+        XCTAssertEqual(retirementCompletionCount, 1)
+        XCTAssertEqual(overlappingRetirementCompletionCount, 1)
+        XCTAssertFalse(retirementCompletedWhilePresented)
+        XCTAssertFalse(overlappingRetirementCompletedWhilePresented)
+        XCTAssertEqual(retiredPhase, "retired")
+        XCTAssertEqual(overlappingRetiredPhase, "retired")
+        if retiredPhase != "retired" {
+            let fallback = expectation(description: "Fallback Vault plugin retirement")
+            fallbackCompletion = fallback
+            plugin.retireVaultGateScene(fallbackCall)
+            await fulfillment(of: [fallback], timeout: 5)
+            XCTAssertEqual(fallbackRetiredPhase, "retired")
+        }
+        XCTAssertEqual(retiredPhase, "retired")
+        XCTAssertNil(host.presentedViewController)
+    }
 
     func testCommittedNavigationForwarderPreservesCapacitorDelegateCallbacks() {
         final class DelegateProbe: NSObject, WKNavigationDelegate {
@@ -258,6 +752,8 @@ final class NativeSupportTests: XCTestCase {
         choice.readState(absent); XCTAssertTrue(confirmed); XCTAssertEqual(events, 0)
         var larger = projection
         larger["revision"] = 2; larger["visitId"] = "public-large-visit"
+        larger["anchor"] = ["x": 20.0, "y": 150.0, "width": 140.0, "height": 44.0,
+            "viewportWidth": Double(parent.view.bounds.width), "viewportHeight": Double(parent.view.bounds.height)]
         larger["options"] = (0..<251).map { ["handle": "public-option-\($0)", "label": "Public option \($0)", "selected": $0 == 0, "disabled": false] as [String: Any] }
         let largeActive = expectation(description: "Large native list presents after adjacent retirement")
         let prepareLarge = try XCTUnwrap(CAPPluginCall(callbackId: "public-large", methodName: "prepareOwnedChoice", options: larger,
@@ -265,6 +761,10 @@ final class NativeSupportTests: XCTestCase {
         choice.prepare(prepareLarge)
         await fulfillment(of: [largeActive], timeout: 5)
         XCTAssertTrue(choice.coversPresentation)
+        let anchored = try XCTUnwrap(parent.presentedViewController)
+        XCTAssertEqual(anchored.modalPresentationStyle, .popover)
+        XCTAssertEqual(anchored.popoverPresentationController?.sourceRect, CGRect(x: 20, y: 150, width: 140, height: 44))
+        XCTAssertLessThan(anchored.view.bounds.width, parent.view.bounds.width, "Phone choices must remain anchored, not adapt into another sheet")
         var largeIdentity = identity
         largeIdentity["revision"] = 2; largeIdentity["visitId"] = "public-large-visit"
         let largeDetached = expectation(description: "Large native list actually disappears")
@@ -296,15 +796,18 @@ final class NativeSupportTests: XCTestCase {
             NativeFeedbackProjection(documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1,
                 revision: 1, family: "profile", privacyGeneration: 0, feedbackId: "public-notice-\(sequence)",
                 feedbackRevision: revision, feedbackSequence: sequence, destinationId: nil, supportDestinationId: nil,
-                formScene: nil, formRevision: nil, message: "Public result \(sequence)", tone: "success", duration: 3600, dismissible: true)
+                formScene: nil, formRevision: nil, message: "Public result \(sequence)", tone: "success", duration: 3600,
+                dismissible: true, actionToken: nil, actionLabel: nil)
         }
         let feedback = NativeFeedbackPresentation()
         XCTAssertTrue(feedback.apply(state(1), to: parent))
         let host = try XCTUnwrap(parent.children.first)
         XCTAssertTrue(feedback.apply(state(2), to: parent))
         var endedRevisions = [Int]()
+        var endedReasons = [String]()
         feedback.ended = { receipt in
             if let revision = receipt["feedbackRevision"] as? Int { endedRevisions.append(revision) }
+            if let reason = receipt["endReason"] as? String { endedReasons.append(reason) }
         }
         let latest = state(2, revision: 2)
         XCTAssertTrue(feedback.apply(latest, to: parent))
@@ -321,28 +824,47 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(parent.view.accessibilityViewIsModal)
         var retirement = latest.receipt
         retirement["feedbackRevision"] = 3
-        feedback.retire(id: latest.feedbackId, sequence: latest.feedbackSequence,
-            revision: 3, owner: latest.identity, context: retirement)
+        var staleRetirement = retirement
+        staleRetirement["revision"] = latest.revision + 1
+        XCTAssertFalse(feedback.retire(id: latest.feedbackId, sequence: latest.feedbackSequence,
+            revision: 3, owner: latest.identity, context: staleRetirement), "NATIVE_FEEDBACK_UNCONFIRMED_RETIREMENT_REPORTED_SUCCESS")
+        XCTAssertEqual(parent.children.count, 1, "NATIVE_FEEDBACK_UNCONFIRMED_RETIREMENT_REMOVED_CURRENT_CHILD")
+        XCTAssertTrue(feedback.retire(id: latest.feedbackId, sequence: latest.feedbackSequence,
+            revision: 3, owner: latest.identity, context: retirement))
         XCTAssertTrue(parent.children.isEmpty, "NATIVE_FEEDBACK_TARGETED_RETIREMENT_FAILED")
         XCTAssertEqual(endedRevisions, [2])
+        XCTAssertEqual(endedReasons, ["programmatic"], "NATIVE_FEEDBACK_RETIRE_LOOKED_LIKE_USER_DISMISSAL")
         XCTAssertTrue(feedback.apply(state(3), to: parent))
         feedback.clear()
         XCTAssertTrue(parent.children.isEmpty)
         XCTAssertTrue(parent.view.hitTest(CGPoint(x: 40, y: 420), with: nil) === underlying)
     }
     func testNativeFeedbackRejectsReorderedUpdatesAndRetiredLoadingResults() throws {
-        func state(_ revision: Int, message: String = "Public result", sequence: Int = 1) throws -> NativeFeedbackProjection {
+        func state(_ revision: Int, message: String = "Public result", sequence: Int = 1,
+                   actionToken: String? = nil, actionLabel: String? = nil, family: String = "profile") throws -> NativeFeedbackProjection {
             let json: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1,
-                "revision": 1, "family": "profile", "privacyGeneration": 0, "feedbackId": "public-notification-\(sequence)",
-                "feedbackRevision": revision, "feedbackSequence": sequence, "destinationId": "preferences-visit", "supportDestinationId": NSNull(), "formScene": NSNull(), "formRevision": NSNull(),
-                "message": message, "tone": "success", "duration": 3600, "dismissible": true]
+                "revision": 1, "family": family, "privacyGeneration": 0, "feedbackId": "public-notification-\(sequence)",
+                "feedbackRevision": revision, "feedbackSequence": sequence, "destinationId": family == "shell" ? NSNull() as Any : "preferences-visit" as Any, "supportDestinationId": NSNull(), "formScene": NSNull(), "formRevision": NSNull(),
+                "message": message, "tone": "success", "duration": 3600, "dismissible": true,
+                "actionToken": actionToken as Any? ?? NSNull(), "actionLabel": actionLabel as Any? ?? NSNull()]
             return try JSONDecoder().decode(NativeFeedbackProjection.self, from: JSONSerialization.data(withJSONObject: json))
         }
+        let shell = try state(1, family: "shell")
+        XCTAssertTrue(shell.valid)
+        XCTAssertFalse(shell.identity.valid, "Shell feedback must not widen drawer admission")
+        var shellFence = NativeFeedbackFence()
+        XCTAssertTrue(shellFence.apply(shell))
+        XCTAssertTrue(shellFence.retire(id: shell.feedbackId, sequence: shell.feedbackSequence, revision: shell.feedbackRevision, owner: shell.identity))
+        XCTAssertFalse(shellFence.apply(try state(2, family: "shell")))
+        XCTAssertFalse(try state(1, family: "unregistered").valid)
         var fence = NativeFeedbackFence()
         XCTAssertTrue(fence.apply(try state(1)))
         XCTAssertTrue(fence.apply(try state(2)))
         XCTAssertFalse(fence.apply(try state(1)))
         XCTAssertFalse(fence.apply(try state(3, message: String(repeating: "x", count: 2049))))
+        XCTAssertFalse(try state(1, actionToken: "arbitrary-token", actionLabel: "Open").valid)
+        XCTAssertFalse(try state(1, actionToken: "open-conversation").valid)
+        XCTAssertFalse(try state(1, actionToken: "open-conversation", actionLabel: String(repeating: "x", count: 49)).valid)
         XCTAssertFalse(fence.retire(id: "public-notification-1", sequence: 1, revision: 1, owner: try state(1).identity))
         _ = fence.retire(id: "public-notification-1", sequence: 1, revision: 2, owner: try state(1).identity)
         XCTAssertFalse(fence.apply(try state(3)))
@@ -354,6 +876,55 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(expired.retire(id: "public-notification-1", sequence: 1, revision: 1, owner: try state(1).identity, terminal: false))
         XCTAssertTrue(expired.apply(try state(2)), "An old expiry must not reject an already requested newer result")
         for sequence in 2...1030 { XCTAssertTrue(expired.apply(try state(1, sequence: sequence))) }
+    }
+    @MainActor func testNativeFeedbackActionIsBoundToCurrentRevisionAndReportsEndReason() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let parent = UIViewController()
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        func state(_ revision: Int, sequence: Int = 4, actionToken: String? = nil, actionLabel: String? = nil) -> NativeFeedbackProjection {
+            NativeFeedbackProjection(documentId: "action-document", ownerEpoch: "action-owner", ownerGeneration: 2,
+                revision: 3, family: "history", privacyGeneration: 0, feedbackId: "one-reply-abc",
+                feedbackRevision: revision, feedbackSequence: sequence, destinationId: nil, supportDestinationId: nil,
+                formScene: nil, formRevision: nil, message: "One replied. Your answer is ready.", tone: "normal",
+                duration: 3600, dismissible: true, actionToken: actionToken, actionLabel: actionLabel)
+        }
+        let feedback = NativeFeedbackPresentation()
+        var actionEvents = [NativeFeedbackProjection]()
+        var endEvents = [[String: Any]]()
+        feedback.actioned = { actionEvents.append($0) }
+        feedback.ended = { endEvents.append($0) }
+        let loading = state(1, actionToken: "open-conversation", actionLabel: "Open")
+        let current = state(2, actionToken: "open-conversation", actionLabel: "Open")
+        XCTAssertTrue(feedback.apply(loading, to: parent))
+        XCTAssertTrue(feedback.apply(current, to: parent))
+        XCTAssertFalse(feedback.activate(loading), "NATIVE_FEEDBACK_STALE_ACTION_RAN")
+        XCTAssertTrue(actionEvents.isEmpty)
+        XCTAssertTrue(feedback.activate(current))
+        XCTAssertEqual(actionEvents.count, 1)
+        XCTAssertEqual(actionEvents[0].actionToken, "open-conversation")
+        XCTAssertEqual(actionEvents[0].feedbackRevision, 2)
+        XCTAssertTrue(endEvents.isEmpty, "Action activation must not masquerade as a user close")
+        XCTAssertEqual(parent.children.count, 1, "An action stays visible until JavaScript accepts and retires it")
+        feedback.retire(id: current.feedbackId, sequence: current.feedbackSequence, revision: current.feedbackRevision,
+            owner: current.identity, context: current.receipt)
+        XCTAssertTrue(parent.children.isEmpty)
+        XCTAssertEqual(endEvents.last?["endReason"] as? String, "programmatic")
+
+        // A terminal retirement cannot be revived by resetting its revision.
+        XCTAssertFalse(feedback.apply(state(1), to: parent))
+        let programmatic = state(1, sequence: 5)
+        XCTAssertTrue(feedback.apply(programmatic, to: parent))
+        feedback.dismiss(programmatic, reason: .programmatic)
+        XCTAssertEqual(endEvents.last?["endReason"] as? String, "programmatic")
+        let userDismissed = state(1, sequence: 6)
+        XCTAssertTrue(feedback.apply(userDismissed, to: parent))
+        feedback.dismiss(userDismissed, reason: .user)
+        XCTAssertEqual(endEvents.last?["endReason"] as? String, "user")
+        XCTAssertEqual(endEvents.count, 3)
     }
     func testDeletionProofFencesOwnerSessionExpiryAndCancelledExchange() {
         let fence = DeletionPhoneProofFence(userID: "owner", attemptID: "attempt", now: 100)
@@ -441,9 +1012,9 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testWalletCardReplacementRejectsCallbacksFromThePreviousVisit() throws {
-        func state(_ visit: String) throws -> NativeWorkspaceProjection {
+        func state(_ visit: String, sequence: Int = 1) throws -> NativeWorkspaceProjection {
             let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "wallet",
-                "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
+                "updateSequence": sequence, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#f2f2f7",
                 "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
                 "page": "overview", "title": "Wallet", "enabled": true, "backEnabled": false, "sections": [],
                 "wallet": ["cards": [["id": "public-card", "kind": "profile", "title": "Public fixture", "subtitle": "", "network": "", "last4": "", "holder": "", "expiry": ""]],
@@ -451,7 +1022,12 @@ final class NativeSupportTests: XCTestCase {
             let decoded = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
             XCTAssertTrue(decoded.valid); return decoded
         }
-        let first = try state("visit-a"), second = try state("visit-b")
+        let first = try state("visit-a"), second = try state("visit-b", sequence: 2)
+        let workspace = NativeWorkspaceModel(first)
+        XCTAssertFalse(workspace.acceptsUpdate(try state("visit-b")), "A stale selection cannot authorize child retirement")
+        XCTAssertEqual(workspace.state.wallet?.detailVisitId, "visit-a")
+        XCTAssertTrue(workspace.update(second))
+        XCTAssertFalse(workspace.acceptsUpdate(first))
         let model = NativeWalletDetailModel(first, wallet: try XCTUnwrap(first.wallet), visit: "visit-a")
         var events = 0; model.enabled = true; model.action = { _, _ in events += 1 }
         let staleClose = { model.choose("close", from: "visit-a") }
@@ -462,6 +1038,78 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(events, 1)
         model.clear(); model.choose("close", from: "visit-b")
         XCTAssertEqual(events, 1)
+    }
+
+    @MainActor
+    func testMemoryFormattingKeepsInlineActionsInTheirCurrentWorkspace() throws {
+        var object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "memory",
+            "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#f2f2f7",
+            "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+            "page": "overview", "title": "Memory", "enabled": true, "backEnabled": false,
+            "sections": [["id": "document", "rows": [["id": "paragraph", "label": "Read this link", "enabled": true, "readOnly": false,
+                "formattedText": ["runs": [["text": "Read ", "bold": true], ["text": "this link", "italic": true, "actionId": "public-link"]]]]]]]]
+        XCTAssertTrue(NativeWorkspaceProjection.closed(object))
+        let state = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertTrue(state.valid)
+        XCTAssertTrue(state.permits("row", row: "public-link", text: nil))
+        XCTAssertFalse(state.permits("row", row: "paragraph", text: nil))
+        XCTAssertFalse(state.permits("row", row: "retired-link", text: nil))
+        object["sections"] = [["id": "document", "rows": [["id": "paragraph", "label": "Read this link", "enabled": true,
+            "formattedText": ["runs": [["text": "Read this link", "href": "https://example.org"]]]]]]]
+        XCTAssertFalse(NativeWorkspaceProjection.closed(object), "Destinations stay in JavaScript, never in native reading replicas")
+    }
+
+    @MainActor
+    func testConnectTabLevelsKeepDistinctHandlesAndCurrentSelection() throws {
+        var object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "connect",
+            "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
+            "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+            "page": "overview", "title": "Connect", "enabled": true, "backEnabled": false, "sections": [],
+            "tabs": ["label": "Connect", "options": [["id": "all", "label": "Connections", "selected": true], ["id": "circles", "label": "Circles", "selected": false]]],
+            "secondaryTabs": ["label": "Connection views", "options": [["id": "saved", "label": "My connections", "selected": false], ["id": "find", "label": "Find people", "selected": true]]]]
+        func projection() throws -> NativeWorkspaceProjection { try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object)) }
+        let state = try projection()
+        XCTAssertTrue(NativeWorkspaceProjection.closed(object)); XCTAssertTrue(state.valid)
+        XCTAssertTrue(state.permits("row", row: "saved")); XCTAssertTrue(state.permits("row", row: "circles"))
+        XCTAssertFalse(state.permits("row", row: "find"))
+        object["secondaryTabs"] = object["tabs"]
+        XCTAssertFalse(try projection().valid)
+        object["secondaryTabs"] = ["label": "Connection views", "options": [["id": "saved", "label": "Saved", "selected": true, "href": "/profile"]]]
+        XCTAssertFalse(NativeWorkspaceProjection.closed(object))
+    }
+
+    func testRichWorkspaceDecisionsRejectDisabledDuplicateAndNullInputs() throws {
+        var row: [String: Any] = ["id": "record", "label": "Public activity", "enabled": true, "readOnly": true,
+            "avatar": ["initials": "PA"], "milestone": 2,
+            "inlineActions": [["id": "review", "label": "Review", "enabled": true, "tone": "primary"]]]
+        var object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "feed",
+            "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
+            "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+            "page": "overview", "title": "Feed", "enabled": true, "backEnabled": false]
+        func projection() throws -> NativeWorkspaceProjection {
+            object["sections"] = [["id": "activity", "rows": [row]]]
+            return try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+        }
+        let state = try projection()
+        XCTAssertTrue(state.valid)
+        XCTAssertTrue(state.permits("row", row: "review"))
+        XCTAssertFalse(state.permits("row", row: "record"))
+        row["enabled"] = false
+        XCTAssertFalse(try projection().permits("row", row: "review"))
+        row["enabled"] = true
+        row["inlineActions"] = [["id": "record", "label": "Review", "enabled": true, "tone": "primary"]]
+        XCTAssertFalse(try projection().valid)
+        let invalidActions: [[String: Any]] = [
+            ["id": "review", "label": "Review", "enabled": true, "tone": "primary", "pending": NSNull()],
+            ["id": "review", "label": "Review", "enabled": true, "tone": "primary", "href": "https://untrusted.test"]
+        ]
+        for invalid in invalidActions {
+            row["inlineActions"] = [invalid]; _ = try projection()
+            XCTAssertFalse(NativeWorkspaceProjection.closed(object))
+        }
+        row["inlineActions"] = [["id": "review", "label": "Review", "enabled": true, "tone": "primary"]]
+        row["avatar"] = ["initials": "PA", "jpeg": NSNull()]; _ = try projection()
+        XCTAssertFalse(NativeWorkspaceProjection.closed(object))
     }
 
     @MainActor
@@ -528,8 +1176,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(model.editor === editor, "A compatible update retains the real editor")
         editor.action("save")
         let intent = try XCTUnwrap(model.pending)
+        XCTAssertFalse(model.isConfirmed(intent), "A pending action cannot authorize a native handoff before confirmation")
         XCTAssertTrue(model.confirm(intent)); XCTAssertFalse(model.confirm(intent))
+        XCTAssertTrue(model.isConfirmed(intent))
         XCTAssertTrue(model.settle(intent))
+        XCTAssertFalse(model.isConfirmed(intent), "A settled action cannot authorize a later native handoff")
         editor.action("save")
         let blocked = try XCTUnwrap(model.pending)
         eligible = false
@@ -664,6 +1315,45 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testOwnedSheetRelayoutPreservesItsAdmittedInteractionLifetime() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene), parent = UIViewController()
+        window.rootViewController = parent; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        final class RefreshingHost: UIViewController {
+            var onRelease: (() -> Void)?
+            deinit { onRelease?() }
+        }
+        let released = expectation(description: "Host teardown may synchronously request refresh")
+        var refreshOnRelease: (() -> Void)?
+        let sheet = NativeProfileOwnedSheet(makeHost: {
+            let host = RefreshingHost()
+            host.onRelease = { refreshOnRelease?(); released.fulfill() }
+            return host
+        }, canPresent: { true },
+            canDismiss: { true }, hasPending: { false }, appearance: { nil }, cancel: {}, clear: {})
+        refreshOnRelease = { [weak sheet] in sheet?.refresh() }
+        let shown = expectation(description: "Initial sheet admission")
+        XCTAssertTrue(sheet.present(from: parent) { accepted in XCTAssertTrue(accepted); shown.fulfill() })
+        XCTAssertFalse(sheet.presentationAttached, "Opening must not authorize editor input")
+        await fulfillment(of: [shown], timeout: 3)
+        try autoreleasepool {
+            let visible = try XCTUnwrap(sheet.feedbackPresenter)
+            let form = try XCTUnwrap(visible.children.first)
+            XCTAssertEqual(form.view.frame.maxY, visible.view.keyboardLayoutGuide.layoutFrame.minY, accuracy: 1,
+                           "The ordinary form viewport must follow UIKit's sheet-local keyboard guide")
+        }
+        sheet.refresh()
+        XCTAssertFalse(sheet.presentationSettled, "A receipt must wait for refreshed layout")
+        XCTAssertTrue(sheet.presentationAttached, "A keystroke during content relayout must retain its owner")
+        let retired = expectation(description: "Confirmed sheet retirement")
+        sheet.retire { retired.fulfill() }
+        XCTAssertFalse(sheet.presentationAttached, "Retirement must revoke input immediately")
+        await fulfillment(of: [retired, released], timeout: 3)
+    }
+
+    @MainActor
     func testOrdinarySheetRetirementWaitsForOpeningAndOwnedPopupCompletion() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previous = windowScene.windows.first(where: \.isKeyWindow)
@@ -782,9 +1472,13 @@ final class NativeSupportTests: XCTestCase {
         scene.model.action("save")
         let pending = try XCTUnwrap(action)
         XCTAssertTrue(scene.update(publicNameScene(update: 2, appearance: "dark")))
+        XCTAssertFalse(scene.model.canEdit, "A pending Save keeps the owned sheet locked")
         XCTAssertTrue(presented.isModalInPresentation)
         XCTAssertTrue(scene.settle(pending))
-        XCTAssertFalse(presented.isModalInPresentation, "Rejected/refused Save must restore native drag dismissal")
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        XCTAssertTrue(scene.model.canEdit, "A settled Save restores editing authority")
+        XCTAssertEqual(presented.isModalInPresentation, !privacy.appIsActive || privacy.shielded,
+            "A settled Save unlocks native drag dismissal only while the app is active and unshielded; active=\(privacy.appIsActive) shielded=\(privacy.shielded)")
         let first = expectation(description: "First actual dismissal observer")
         let second = expectation(description: "Joined actual dismissal observer")
         scene.retire { XCTAssertNil(parent.presentedViewController); first.fulfill() }
@@ -1102,7 +1796,7 @@ final class NativeSupportTests: XCTestCase {
             "action-join", "action-manage-connections"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
-            let glyphSize: CGFloat = id == "gemini" ? 32 : 28
+            let glyphSize: CGFloat = id.hasPrefix("roster-") ? 36 : id == "gemini" ? 32 : 28
             XCTAssertEqual(artwork.base.size, CGSize(width: glyphSize, height: glyphSize))
             XCTAssertEqual(artwork.base.renderingMode, originalArtwork.contains(id) ? .alwaysOriginal : .alwaysTemplate, id)
             XCTAssertEqual(artwork.accent != nil, accentedArtwork.contains(id), id)
@@ -1119,15 +1813,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(NativeProfileArtwork.resolve("unknown"))
     }
     func testCoherentDeviceAdmissionAndProfileGeometryPreservePlatformFallbacks() {
-        #if !DEBUG && !HUSHH_NATIVE_SHELL_QUALIFICATION
-        XCTAssertFalse(NativeDrawerQualificationPolicy.coherentShell,
-            "Ordinary distribution must not enable the unqualified custom native shell")
-        XCTAssertFalse(NativeDrawerQualificationPolicy.enabled)
-        #endif
+        let suite = "public-native-interface-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertFalse(NativeDrawerQualificationPolicy.requestedNativeInterface(in: defaults))
+        for stored in ["{}", "invalid", "[]", "{\"experimentalNativeInterface\":1}", "{\"experimentalNativeInterface\":\"true\"}", "{\"experimentalNativeInterface\":false}"] {
+            defaults.set(stored, forKey: "CapacitorStorage.hushh_settings")
+            XCTAssertFalse(NativeDrawerQualificationPolicy.requestedNativeInterface(in: defaults))
+        }
+        defaults.set("{\"experimentalNativeInterface\":true,\"theme\":\"dark\"}", forKey: "CapacitorStorage.hushh_settings")
+        XCTAssertTrue(NativeDrawerQualificationPolicy.requestedNativeInterface(in: defaults))
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: false))
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.phone, enabled: false, coherentShell: false))
         XCTAssertTrue(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: true))
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.tv, enabled: true, coherentShell: true))
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admitsCoherentPresentation(deviceEligible: true, coherentShell: false))
+        XCTAssertFalse(NativeDrawerQualificationPolicy.admitsCoherentPresentation(deviceEligible: false, coherentShell: true))
+        XCTAssertTrue(NativeDrawerQualificationPolicy.admitsCoherentPresentation(deviceEligible: true, coherentShell: true))
         for bounds in [CGRect(x: 0, y: 0, width: 390, height: 844), CGRect(x: 0, y: 0, width: 844, height: 390)] {
             XCTAssertEqual(NativeDrawerLayout.frame(family: "profile", in: bounds, phone: true), bounds)
             XCTAssertEqual(NativeDrawerLayout.frame(family: "history", in: bounds, phone: true), bounds)
@@ -1655,6 +2357,13 @@ final class NativeSupportTests: XCTestCase {
         let identity = NativeContentPaneIdentity(document: "synthetic", ownerEpoch: "owner", generation: 1,
             privacyGeneration: HushhSessionPrivacyShield.shared.snapshot().generation)
         XCTAssertFalse(container.acquireContentPane(identity, viewport: CGSize(width: 400, height: 844)))
+        container.isolateForOwnedDrawer(true)
+        XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size),
+                      "An incoming Profile body may stage behind its native owner")
+        XCTAssertFalse(web.isUserInteractionEnabled)
+        XCTAssertTrue(web.accessibilityElementsHidden, "Staging cannot expose covered React actions")
+        XCTAssertTrue(container.ownedPresentationIsolated)
+        container.isolateForOwnedDrawer(false)
         XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size))
         XCTAssertTrue(base.superview === retainedHost)
         XCTAssertFalse(base.isHidden)
@@ -1690,18 +2399,57 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testLateContentPaneRetirementCannotPoisonAReplacementDocument() {
-        let privacy = HushhSessionPrivacyShield.shared.snapshot().generation
+    func testLateContentPaneRetirementCannotPoisonAReplacementDocument() async throws {
         let shield = HushhSessionPrivacyShield.shared
-        shield.observeDocument("public-retirement-old")
-        shield.observeDocument("public-retirement-current")
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let host = try XCTUnwrap(scene.windows.compactMap { $0.rootViewController as? MyViewController }.first)
+        let documentDeadline = Date().addingTimeInterval(15)
+        while host.committedNativeDocumentId == nil && Date() < documentDeadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        let currentDocument = try XCTUnwrap(host.committedNativeDocumentId, "The native host must commit its current document")
+        XCTAssertTrue(host.authorizesNativeDocument(currentDocument))
+        let oldDocument = "public-retirement-old-\(UUID().uuidString)"
+        shield.observeDocument(oldDocument)
+        shield.observeDocument(currentDocument)
+        XCTAssertTrue(shield.acceptsDocument(oldDocument))
+        XCTAssertTrue(shield.acceptsDocument(currentDocument))
         let plugin = HushhNativeChromePlugin()
-        XCTAssertTrue(plugin.acceptContentPaneRetirementDocument("public-retirement-current"),
+        plugin.bridge = try XCTUnwrap(host.bridge)
+        XCTAssertFalse(plugin.acceptContentPaneRetirementDocument(oldDocument),
+            "A stale observed document cannot bind an unowned plugin")
+        XCTAssertTrue(plugin.acceptContentPaneRetirementDocument(currentDocument),
             "Cleanup may bind the first observed document")
-        XCTAssertFalse(plugin.acceptContentPaneRetirementDocument("public-retirement-old"),
+        XCTAssertFalse(plugin.acceptContentPaneRetirementDocument(oldDocument),
             "A late cleanup cannot replace the current document even when both were observed")
-        XCTAssertTrue(plugin.acceptContentPaneRetirementDocument("public-retirement-current"),
+        XCTAssertTrue(plugin.acceptContentPaneRetirementDocument(currentDocument),
             "The current document remains usable after the stale cleanup")
+        let installedPlugin = try XCTUnwrap(host.bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)
+        let originalView = try XCTUnwrap(host.view)
+        let installedContainer = NativePresentationContainer(webView: WKWebView(frame: originalView.bounds), basePresentation: .coherentDrawers)
+        host.view = installedContainer
+        defer { host.view = originalView }
+        XCTAssertNil(installedContainer.contentPane)
+        let wasCovered = installedContainer.ownedPresentationIsolated
+        installedContainer.isolateForOwnedDrawer(true)
+        defer { installedContainer.isolateForOwnedDrawer(wasCovered) }
+        let cancellation = expectation(description: "Retired WK ownership does not wait for its restored native parent")
+        let cancel = try XCTUnwrap(CAPPluginCall(callbackId: "public-covered-pane-cancel", methodName: "cancelContentPane",
+            options: ["documentId": currentDocument, "ownerEpoch": "public-covered-pane", "generation": 1,
+                      "privacyGeneration": shield.snapshot().generation], success: { result, _ in
+                defer { cancellation.fulfill() }
+                guard case let .dictionary(value)? = result?.resultData else {
+                    XCTFail("NATIVE_COVERED_PANE_RECEIPT_MISSING"); return
+                }
+                XCTAssertEqual(value["phase"] as? String, "retired")
+                XCTAssertEqual(value["settled"] as? Bool, true)
+                XCTAssertEqual(value["handoffReady"] as? Bool, true)
+                XCTAssertTrue(installedContainer.ownedPresentationIsolated,
+                    "A pane retirement receipt cannot withdraw its native parent's isolation")
+            }, error: { _ in XCTFail("NATIVE_COVERED_PANE_CANCEL_REFUSED"); cancellation.fulfill() }))
+        installedPlugin.cancelContentPane(cancel)
+        await fulfillment(of: [cancellation], timeout: 3)
+        let privacy = shield.snapshot().generation
         let old = NativeContentPaneIdentity(document: "old-document", ownerEpoch: "owner", generation: 1, privacyGeneration: privacy)
         var firstDocument = NativeContentPaneFence()
         XCTAssertTrue(firstDocument.beginRetirement(old), "Cleanup may precede the first admitted acquisition")
@@ -2366,6 +3114,21 @@ final class NativeSupportTests: XCTestCase {
         let preferencesPage = try XCTUnwrap(navigation.topViewController)
         XCTAssertEqual(preferencesPage.view.backgroundColor, UIColor.systemGroupedBackground,
             "The first push frame must not expose the underlying web route while SwiftUI draws")
+        XCTAssertTrue(controller.feedbackPresenter === preferencesPage,
+            "Feedback must belong to the visible page so its safe area clears the navigation bar")
+        let feedback = NativeFeedbackPresentation()
+        let notice = NativeFeedbackProjection(documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1,
+            revision: 1, family: "profile", privacyGeneration: 0, feedbackId: "public-preferences-result",
+            feedbackRevision: 1, feedbackSequence: 1, destinationId: nil, supportDestinationId: nil,
+            formScene: nil, formRevision: nil, message: "Saved", tone: "success", duration: 3600,
+            dismissible: true, actionToken: nil, actionLabel: nil)
+        XCTAssertTrue(feedback.apply(notice, to: controller.feedbackPresenter))
+        let banner = try XCTUnwrap(preferencesPage.children.first(where: { $0.view.accessibilityIdentifier == "native-feedback-host" }))
+        let bannerFrame = banner.view.convert(banner.view.bounds, to: navigation.view)
+        XCTAssertGreaterThanOrEqual(bannerFrame.minY, navigation.navigationBar.frame.maxY,
+            "Preference feedback must leave native Back and Close reachable")
+        feedback.clear()
+
         XCTAssertEqual(navigation.view.backgroundColor, UIColor.systemGroupedBackground)
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)
@@ -2687,6 +3450,22 @@ final class NativeSupportTests: XCTestCase {
     #endif
 
     @MainActor
+    func testWorkspaceCanvasStaysBehindFloatingChromeRegardlessOfInstallationOrder() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .contentBacked)
+        let dock = UIButton(frame: CGRect(x: 16, y: 700, width: 358, height: 52))
+        let workspace = UIButton(frame: CGRect(x: 0, y: 100, width: 390, height: 744))
+        container.install(dock, id: "agent-dock", group: nil)
+        container.install(workspace, id: "route-workspace", group: nil)
+        container.setAdmission("agent-dock", admitted: true)
+        container.setAdmission("route-workspace", admitted: true)
+        XCTAssertGreaterThan(container.underlay.subviews.firstIndex(of: dock)!, container.underlay.subviews.firstIndex(of: workspace)!)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 30, y: 720), with: nil) === dock)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 30, y: 680), with: nil) === workspace)
+        container.setAdmission("agent-dock", admitted: false)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 30, y: 720), with: nil) === dock)
+    }
+
     func testContentBackedBaseHasNoCanvasBetweenGlassAndPageAndPreservesHitIsolation() {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let container = NativePresentationContainer(webView: web, basePresentation: .contentBacked)
@@ -3035,10 +3814,22 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testNativeBottomScrollMovesTheStandardReleaseTabBarWithoutACompositor() {
+        let viewport = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let tabBar = UITabBar(frame: CGRect(x: 0, y: 760, width: 390, height: 84))
+        viewport.addSubview(tabBar)
         XCTAssertTrue(HushhNativeNavigationScrollSurface.apply(offset: 52, navigationOffset: 86,
             compositor: nil, tabBar: tabBar))
         XCTAssertEqual(tabBar.transform.ty, 86, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(tabBar.convert(tabBar.bounds, to: viewport).minY, viewport.bounds.maxY,
+            "The standard Release tab bar must fully clear the app viewport at the hidden endpoint")
+
+        // Prove the endpoint assertion detects an insufficient displacement.
+        let underTravel = UITabBar(frame: CGRect(x: 0, y: 760, width: 390, height: 84))
+        viewport.addSubview(underTravel)
+        XCTAssertTrue(HushhNativeNavigationScrollSurface.apply(offset: 44, navigationOffset: 78,
+            compositor: nil, tabBar: underTravel))
+        XCTAssertLessThan(underTravel.convert(underTravel.bounds, to: viewport).minY, viewport.bounds.maxY,
+            "The negative control must leave part of the tab bar inside the viewport")
 
         XCTAssertFalse(HushhNativeNavigationScrollSurface.apply(offset: 0, navigationOffset: 161,
             compositor: nil, tabBar: tabBar), "Out-of-range scroll cannot move native navigation")
@@ -3049,6 +3840,34 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(HushhNativeNavigationScrollSurface.apply(offset: 0, navigationOffset: 0,
             compositor: nil, tabBar: tabBar), "Authoritative settlement restores the resting position")
         XCTAssertTrue(tabBar.transform.isIdentity)
+    }
+
+    func testNativeBottomChromePressStateReleasesAfterEndCancelAndReset() {
+        let firstTouchObject = NSObject(), secondTouchObject = NSObject()
+        let firstTouch = ObjectIdentifier(firstTouchObject)
+        let secondTouch = ObjectIdentifier(secondTouchObject)
+        var press = NativeBottomChromePressState()
+        var transitions = [Bool]()
+
+        if let transition = press.began([firstTouch]) { transitions.append(transition) }
+        XCTAssertTrue(press.isHeld)
+        if let transition = press.began([secondTouch]) { transitions.append(transition) }
+        if let transition = press.ended([firstTouch]) { transitions.append(transition) }
+        XCTAssertTrue(press.isHeld, "One remaining finger keeps the shared scroll owner quarantined")
+        XCTAssertTrue(press.hasTouches)
+        if let transition = press.cancelled([secondTouch]) { transitions.append(transition) }
+        XCTAssertFalse(press.isHeld, "Cancellation of the final touch releases the scroll owner")
+
+        if let transition = press.began([firstTouch]) { transitions.append(transition) }
+        if let transition = press.ended([firstTouch]) { transitions.append(transition) }
+        XCTAssertFalse(press.isHeld, "A normal release also restores scroll updates")
+
+        if let transition = press.began([secondTouch]) { transitions.append(transition) }
+        if let transition = press.reset() { transitions.append(transition) }
+        XCTAssertFalse(press.hasTouches)
+        if let transition = press.reset() { transitions.append(transition) }
+        XCTAssertEqual(transitions, [true, false, true, false, true, false],
+            "Only held-state edges are published; duplicate cleanup cannot emit another release")
     }
 
     @MainActor
@@ -3953,6 +4772,56 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(config.expectedMarker, "consent-manager-primary")
         XCTAssertTrue(config.autoReviewerLogin)
         XCTAssertTrue(config.resetAppState)
+        XCTAssertFalse(config.inventoryReadOnlyMode)
+        XCTAssertEqual(config.inventoryReadOnlySessionKind, "none")
+
+        let inventoryReadOnly = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode", "-UITestInventoryReadOnly", "true",
+        ], environment: [:])
+        XCTAssertTrue(inventoryReadOnly.enabled)
+        XCTAssertTrue(inventoryReadOnly.inventoryReadOnlyMode)
+        XCTAssertEqual(inventoryReadOnly.inventoryReadOnlySessionKind, "authenticated-vault")
+        XCTAssertFalse(inventoryReadOnly.resetAppState)
+        XCTAssertFalse(inventoryReadOnly.autoReviewerLogin)
+        XCTAssertFalse(inventoryReadOnly.runUiFlows)
+        XCTAssertFalse(inventoryReadOnly.showStatusOverlay)
+        XCTAssertNil(inventoryReadOnly.initialRoute)
+        XCTAssertNil(inventoryReadOnly.expectedMarker)
+        XCTAssertNil(inventoryReadOnly.expectedRoute)
+        XCTAssertNil(inventoryReadOnly.vaultPassphrase)
+        XCTAssertNil(inventoryReadOnly.expectedUserId)
+
+        let conflictingInventoryReadOnly = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode", "-UITestInventoryReadOnly", "true",
+            "-UITestResetAppState", "true",
+            "-UITestAutoReviewerLogin", "true",
+            "-UITestInitialRoute", "/one/wallet",
+            "-UITestRunUiFlows", "true",
+            "-UITestUiFlowRunId", "unsafe-flow",
+            "-UITestShowStatusOverlay", "true",
+            "-UITestVaultPassphrase", "launch-only-secret",
+            "-UITestExpectedUserId", "launch-only-user",
+        ], environment: [
+            "HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE": "synthetic-read-only-secret",
+            "HUSHH_UI_TEST_REVIEWER_UID": "synthetic-read-only-user",
+        ])
+        XCTAssertTrue(conflictingInventoryReadOnly.inventoryReadOnlyMode)
+        XCTAssertEqual(conflictingInventoryReadOnly.inventoryReadOnlySessionKind, "authenticated-vault")
+        XCTAssertFalse(conflictingInventoryReadOnly.resetAppState)
+        XCTAssertFalse(conflictingInventoryReadOnly.autoReviewerLogin)
+        XCTAssertFalse(conflictingInventoryReadOnly.runUiFlows)
+        XCTAssertNil(conflictingInventoryReadOnly.uiFlowRunId)
+        XCTAssertFalse(conflictingInventoryReadOnly.showStatusOverlay)
+        XCTAssertNil(conflictingInventoryReadOnly.initialRoute)
+        XCTAssertNil(conflictingInventoryReadOnly.expectedMarker)
+        XCTAssertNil(conflictingInventoryReadOnly.expectedRoute)
+        XCTAssertNil(conflictingInventoryReadOnly.vaultPassphrase)
+        XCTAssertNil(conflictingInventoryReadOnly.expectedUserId)
+        XCTAssertFalse(conflictingInventoryReadOnly.injectedScript.contains("/one/wallet"))
+        XCTAssertFalse(conflictingInventoryReadOnly.injectedScript.contains("launch-only-secret"))
+        XCTAssertFalse(conflictingInventoryReadOnly.injectedScript.contains("launch-only-user"))
+        XCTAssertFalse(conflictingInventoryReadOnly.injectedScript.contains("synthetic-read-only-secret"))
+        XCTAssertFalse(conflictingInventoryReadOnly.injectedScript.contains("synthetic-read-only-user"))
 
         // Preparation for attach-only reviewer tests must select the normal
         // passphrase surface without signing out, resetting or auto-unlocking.
@@ -4004,6 +4873,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(ordinaryLaunch.expectedUserId)
         XCTAssertFalse(ordinaryLaunch.runUiFlows)
         XCTAssertNil(ordinaryLaunch.uiFlowRunId)
+        XCTAssertFalse(ordinaryLaunch.inventoryReadOnlyMode)
         XCTAssertTrue(testLaunch.enabled)
         XCTAssertTrue(testLaunch.runUiFlows)
         XCTAssertEqual(testLaunch.uiFlowRunId, "ios-run-1")

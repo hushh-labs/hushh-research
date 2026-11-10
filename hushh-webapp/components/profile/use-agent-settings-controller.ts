@@ -108,11 +108,22 @@ export function useAgentSettingsController({
     update.presentationState !== "blocked" &&
     (update.inProgress || ["scheduled", "updating"].includes(update.presentationState ?? ""));
   function notify<T>(request: Promise<T>, copy: { loading: string; success: string | ((value: T) => string | null); error: string | ((error: unknown) => string | null) }, admitted = current) {
-    const success = (value: T) => admitted() ? typeof copy.success === "function" ? copy.success(value) : copy.success : null;
-    const error = (cause: unknown) => admitted() ? typeof copy.error === "function" ? copy.error(cause) : copy.error : null;
+    const success = (value: T) => {
+      if (!admitted()) return null;
+      const message = typeof copy.success === "function" ? copy.success(value) : copy.success;
+      const text = typeof message === "string" && message.trim() ? message : null;
+      setNotice(text);
+      return text;
+    };
+    const error = (cause: unknown) => {
+      if (!admitted()) return null;
+      const message = typeof copy.error === "function" ? copy.error(cause) : copy.error;
+      const text = typeof message === "string" && message.trim() ? message : null;
+      setNotice(text);
+      return text;
+    };
     if (admitted()) setNotice(copy.loading);
-    const observed = request.then(value => { if (admitted()) setNotice(success(value)); return value; }, cause => { if (admitted()) setNotice(error(cause)); throw cause; });
-    return morphyToast.promise(observed, { ...copy, success, error });
+    return morphyToast.promiseText(request, { ...copy, success, error, isCurrent: admitted });
   }
   const browser = useBrowserActivationModel({ userId: userId ?? "", disabled: busy || working,
     enabled: enabled && kind === "software-updates" && mode === "byoc" && isOwnerCloudTarget(status?.deploymentTarget) && !!status?.browserActivationAvailable,
@@ -246,7 +257,7 @@ export function useAgentSettingsController({
     if (!isEffectCurrent()) return;
     busyRef.current = true;
     setBusy(true);
-    let recoveryToast: ReturnType<typeof morphyToast.promise> | undefined;
+    let recoveryToast: ReturnType<typeof morphyToast.promiseText> | undefined;
     try {
       recoveryToast = notify(
         ApiService.adoptOrphanPod({ isEffectCurrent }).then((result) => {

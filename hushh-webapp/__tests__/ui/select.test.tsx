@@ -62,15 +62,48 @@ function Field(props: Partial<React.ComponentProps<typeof Select>> = {}) {
 
 beforeEach(() => {
   runtime.native = true; runtime.current = true; runtime.events.clear(); runtime.privacy.clear();
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 24, y: 80, width: 180, height: 44,
+    top: 80, right: 204, bottom: 124, left: 24, toJSON: () => ({}) });
   runtime.appearance = { appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" };
   runtime.capabilities.mockReset().mockResolvedValue({ ownedChoices: true });
   runtime.prepare.mockReset().mockImplementation(async state => receipt(state));
   runtime.retire.mockReset().mockImplementation(async state => ({ ...state, phase: "retired" }));
   runtime.read.mockReset(); runtime.update.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("shared Select native presentation", () => {
+  it("anchors to the actual trigger and retires when its retained tab becomes inactive", async () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 24, y: 80, width: 180, height: 44, top: 80, right: 204, bottom: 124, left: 24, toJSON: () => ({}) });
+    const view = render(<div role="tabpanel"><Field /></div>);
+    try {
+      fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+      await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+      expect(runtime.prepare.mock.calls[0][0].anchor).toEqual({ x: 24, y: 80, width: 180, height: 44,
+        viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+      view.container.querySelector('[role="tabpanel"]')!.setAttribute("aria-hidden", "true");
+      await waitFor(() => expect(runtime.retire).toHaveBeenCalledOnce());
+      expect(screen.queryByRole("listbox")).toBeNull();
+    } finally { bounds.mockRestore(); }
+  });
+
+  it("reopens after its retained pane leaves during capability admission", async () => {
+    const capabilities = deferred<{ ownedChoices: boolean }>();
+    runtime.capabilities.mockReturnValueOnce(capabilities.promise);
+    const view = render(<div role="tabpanel"><Field /></div>);
+    const panel = view.container.querySelector('[role="tabpanel"]')!;
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.capabilities).toHaveBeenCalledOnce());
+    panel.setAttribute("aria-hidden", "true");
+    await act(async () => capabilities.resolve({ ownedChoices: true }));
+    expect(runtime.prepare).not.toHaveBeenCalled();
+    panel.removeAttribute("aria-hidden");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+  });
+
   it("keeps an initially unset choice empty if it becomes a required named field", () => {
     const field = (named: boolean) => <form><Select {...(named ? { name: "choice", required: true } : {})}>
       <SelectTrigger aria-label="Time"><SelectValue placeholder="Choose a time" /></SelectTrigger>
@@ -247,7 +280,7 @@ describe("shared Select native presentation", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     const state = runtime.prepare.mock.calls[0][0];
     await act(async () => retirement.resolve(receipt(state, "retired")));
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    // The original open intent survives confirmed failure; a second tap is not required.
     await waitFor(() => expect(screen.getByRole("listbox")).toBeVisible());
     expect(runtime.prepare).toHaveBeenCalledOnce();
   });

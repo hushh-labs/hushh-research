@@ -10,8 +10,9 @@ import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-i
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Loader2 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
+import { NativeCalendarRoute, NativeCalendarReactOnly, type CalendarNativeSection } from "./native-calendar-workspace";
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
 import { connectGmailInPlace } from "@/lib/connections/google-connect-in-place";
 import { AskOneButton } from "@/components/agent/ask-one-button";
@@ -144,7 +145,8 @@ export function CalendarAgentPage({
 }: CalendarAgentPageProps) {
   const { user, userId, loading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
+  const nativeFrame = useRef<HTMLDivElement | null>(null);
+  const { confirmTransition, transitionDialog, transitionPending } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
   const renderedOwnerId = userId;
   const latestUserRef = useRef(user);
   const latestOwnerIdRef = useRef(userId);
@@ -627,7 +629,7 @@ export function CalendarAgentPage({
   ) : null;
 
   const disconnectDialog = (
-      <AlertDialog
+      <NativeCalendarReactOnly><AlertDialog
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
@@ -655,7 +657,7 @@ export function CalendarAgentPage({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog></NativeCalendarReactOnly>
   );
 
   const connectMail = async () => {
@@ -679,24 +681,43 @@ export function CalendarAgentPage({
     }
   };
 
+  const hasWorkspace = (connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && Boolean(user && userId && status);
+  const nativeRoot: CalendarNativeSection[] = [{ key: "connection", rows: [
+    { key: "status", label: checkingConnection ? "Checking Calendar connection…" : statusError || connectionLabel, detail },
+    ...(!status && statusError ? [{ key: "retry", label: "Try again", run: refresh }] : []),
+    ...(!checkingConnection && !statusError && !connected ? [{ key: "connect", label: needsReauth ? "Reconnect Calendar" : "Connect Calendar", enabled: !busy && Boolean(user), web: true,
+      run: () => connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length) }] : []),
+    ...(connected ? [{ key: "chat", label: "Try Calendar Agent with One", enabled: !busy, run: () => openCalendarChat("Summarize my calendar events and help me plan meetings") },
+      { key: "disconnect", label: "Disconnect Calendar", enabled: !busy, destructive: true, run: () => setDisconnectConfirmOpen(true) }] : []),
+  ] }];
+  if (journeyVariant === "onboarding" && onFinishSetup && onSkipSetup) nativeRoot.push({ key: "setup", rows: [{
+    key: "complete", label: connected ? "Finish Calendar setup" : "Skip Calendar setup", enabled: !busy && !(connected ? finishingSetup : skippingSetup),
+    pending: connected ? finishingSetup : skippingSetup, run: connected ? onFinishSetup : onSkipSetup,
+  }] });
+  const nativeModel = { owner: userId, onboarding: journeyVariant === "onboarding", rootOnly: !hasWorkspace, root: nativeRoot,
+    webChild: popupWaiting || transitionPending, confirmation: disconnectConfirmOpen ? {
+      title: "Disconnect Google Calendar?", description: "This disconnects the selected Calendar account. Your Mail connection and other Calendar accounts stay available.",
+      confirm: { key: "confirm-disconnect", label: "Disconnect", destructive: true, enabled: !busy, pending: busy, run: () => disconnect(disconnectAccountId) },
+      cancelLabel: "Cancel", cancel: () => setDisconnectConfirmOpen(false),
+    } : undefined };
   if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
-    return <>
+    return <NativeCalendarRoute frame={nativeFrame} model={nativeModel}>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
-        onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
-        onAddAccount={() => { void connect("manage", true, true, undefined, true); }}
-        onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
-        onAllowMeetingFiles={(accountId, returnContext) => { const selected = status.accounts?.find(account => account.account_id === accountId); void connect(selected?.access_level || "read", selected?.calendar_list_access === true, accountId !== "default", accountId === "default" ? undefined : accountId, true, returnContext); }}
+        onConnect={(access, includeCalendarList) => connect(access, includeCalendarList)}
+        onAddAccount={() => connect("manage", true, true, undefined, true)}
+        onReconnectAccount={(accountId) => connect("manage", true, true, accountId)}
+        onAllowMeetingFiles={(accountId, returnContext) => { const selected = status.accounts?.find(account => account.account_id === accountId); return connect(selected?.access_level || "read", selected?.calendar_list_access === true, accountId !== "default", accountId === "default" ? undefined : accountId, true, returnContext); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
       {transitionDialog}
-    </>;
+    </NativeCalendarRoute>;
   }
 
   return (
-    <AppPageShell
+    <NativeCalendarRoute frame={nativeFrame} model={nativeModel}><AppPageShell ref={nativeFrame}
       width="reading"
       headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
@@ -877,6 +898,6 @@ export function CalendarAgentPage({
       </AppPageContentRegion>
 
       {disconnectDialog}
-    </AppPageShell>
+    </AppPageShell></NativeCalendarRoute>
   );
 }

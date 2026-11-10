@@ -103,6 +103,7 @@ import {
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+import { ExperimentalNativeInterface } from "@/components/profile/experimental-native-interface";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
@@ -228,7 +229,7 @@ import {
   type SupportMessageKind,
 } from "@/lib/services/support-service";
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
-import TrustedDevicesPage from "@/components/profile/trusted-devices-page";
+import TrustedDevicesPage, { TrustedDeviceConfirmation } from "@/components/profile/trusted-devices-page";
 import { useTrustedDevicesModel } from "./use-trusted-devices-model";
 import { useNativeTrustedDevices } from "./use-native-trusted-devices";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -3808,6 +3809,7 @@ function ProfilePageContent({
       </SettingsGroup>
       </>
       )}
+      <ExperimentalNativeInterface />
       <CommunicationPreferencesSection
         nativeScene={presentation === "native-page"}
         userId={applicationOwnerId ?? null}
@@ -4603,7 +4605,8 @@ function ProfilePageContent({
         key: "detail:trusted-devices",
         title: "Trusted devices",
         description: "Devices connected to your private agent.",
-        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel} />,
+        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel}
+          renderConfirmation={presentation !== "native-page" || !nativeDevicesAvailable} />,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "gmail") {
@@ -5140,7 +5143,7 @@ function ProfilePageContent({
       editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={applicationOwnerId} model={nativePricingModel} destinationId={destinationId}
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
-    detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
+    detailOverlay={<>{devicesActive && nativeDevicesAvailable ? <TrustedDeviceConfirmation model={devicesModel} /> : null}{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
       onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
     phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen && !phoneLookupPending,
       editor: options => <NativePhoneVerificationFlow {...options} {...accountPhoneProps} webHost={nativePhoneHost}

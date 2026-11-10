@@ -12,10 +12,24 @@ import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocumen
  * process-local replicas of the existing feature owner, not another store. */
 export type NativeDrawerFamily = "history" | "profile" | "agent-profile";
 export type NativeDrawerOption = { id: string; label: string; selected: boolean; symbol?: string; colorHex?: string };
+export type NativeWorkspaceAvatar = { initials: string; jpeg?: string; verified?: boolean };
+export type NativeWorkspaceInlineAction = {
+  id: string; label: string; enabled: boolean; pending?: boolean;
+  tone: "primary" | "ghost" | "danger" | "success"; symbol?: string;
+  avatar?: NativeWorkspaceAvatar;
+  placement?: "menu";
+};
 export type NativeDrawerRow = {
   id: string;
   label: string;
   detail?: string;
+  /** Private Memory reading semantics; destinations stay in the action registry. */
+  formattedText?: { level?: number; runs: readonly { text: string; bold?: true; italic?: true; actionId?: string }[] };
+  /** Feed/Connect identity and independent actions, never nested row buttons. */
+  avatar?: NativeWorkspaceAvatar;
+  inlineActions?: readonly NativeWorkspaceInlineAction[];
+  milestone?: number;
+  expanded?: boolean;
   symbol?: string;
   iconHex?: string;
   chevron?: boolean;

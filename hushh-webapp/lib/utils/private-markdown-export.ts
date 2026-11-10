@@ -1,5 +1,5 @@
 import { Capacitor } from "@capacitor/core";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 /** Export owner Drive notes only after a complete stream and an explicit click. */
 export async function exportPrivateDriveMarkdown(

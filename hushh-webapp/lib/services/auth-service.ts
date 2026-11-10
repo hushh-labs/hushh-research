@@ -44,7 +44,7 @@ import {
 } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
 import { googleSignupConfigured, requestGoogleSignupToken } from "@/lib/auth/google-signup-token";
 import { firebaseUidForOwner, lastAdmittedOwnerFor, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";

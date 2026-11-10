@@ -139,42 +139,7 @@
   --type-form-label-line: 22px;
 }
 .viewTabs {
-  justify-content: flex-start;
   width: 100%;
-  gap: 26px;
-}
-.viewTabs :global([data-slot="tabs-trigger"]) {
-  min-height: 48px;
-  flex: 0 1 auto;
-  white-space: normal;
-  padding: 10px 0;
-  font-size: 15px;
-  font-weight: 550;
-  line-height: 22px;
-}
-.viewTabs :global([data-slot="tabs-trigger"]::after) {
-  bottom: 0;
-  background: var(--app-accent);
-}
-.connectionTabCount {
-  display: inline-grid;
-  place-items: center;
-  align-self: center;
-  flex-shrink: 0;
-  min-width: 18px;
-  height: 17px;
-  padding-inline: 4px;
-  border-radius: 999px;
-  background: var(--app-neutral-fill);
-  color: var(--app-secondary-label);
-  font-size: 10px;
-  line-height: 1;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-.viewTabs :global([data-state="active"]) .connectionTabCount {
-  background: var(--app-accent-tint);
-  color: var(--app-accent);
 }
 
 .count {
@@ -380,16 +345,10 @@
   .circleSearch input {
     font-size: 16px;
   }
-  .viewTabs {
-    gap: 24px;
-  }
 }
 @media (max-width: 350px) {
   .workspace {
     --page-inline-gutter-standard: 16px;
-  }
-  .viewTabs {
-    gap: 16px;
   }
 }
 
@@ -531,7 +490,7 @@
   position: sticky;
   top: calc(
     var(--top-shell-mask-solid-height, 0px) +
-      var(--connect-sticky-header-height, 0px) + 48px
+      var(--connect-sticky-header-height, 0px) + var(--connect-view-tabs-height, 0px)
   );
   z-index: 11;
   min-height: 44px;
@@ -542,7 +501,7 @@
   position: sticky;
   top: calc(
     var(--top-shell-mask-solid-height, 0px) +
-      var(--connect-sticky-header-height, 0px) + 92px
+      var(--connect-sticky-header-height, 0px) + var(--connect-view-tabs-height, 0px) + var(--connect-list-toolbar-height, 0px)
   );
   z-index: 10;
   background: var(--background);
@@ -656,12 +615,6 @@
   }
 }
 
-.viewTabs :global([data-slot="tabs-trigger"] > span:first-child) {
-  line-height: inherit;
-}
-.viewTabs :global([data-slot="tabs-trigger"][data-state="inactive"]) {
-  --app-label: var(--app-secondary-label);
-}
 .quietAction {
   --type-compact-button-label-size: 12px;
   --type-compact-button-label-weight: 550;

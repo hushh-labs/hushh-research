@@ -23,6 +23,19 @@ const mocks = vi.hoisted(() => ({
   hasSeenReferralIntroduction: vi.fn(),
   markReferralIntroductionSeen: vi.fn(),
   workspaceCapabilities: vi.fn(),
+  workspaceOptions: null as null | {
+    content: import("@/lib/capacitor/use-native-workspace").NativeWorkspaceContent;
+    actions: ReadonlyMap<string, (choice: never) => unknown>;
+    presentationOwner: import("@/lib/capacitor/native-workspace-presence").NativeWorkspacePresentationOwner;
+  },
+}));
+
+vi.mock("@/lib/capacitor/use-native-workspace", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/use-native-workspace")>(),
+  useNativeWorkspace: (options: NonNullable<typeof mocks.workspaceOptions>) => {
+    mocks.workspaceOptions = options;
+    return "native";
+  },
 }));
 
 vi.mock("@/lib/capacitor/native-drawers", async (importOriginal) => ({
@@ -117,10 +130,10 @@ describe("formatCountdown", () => {
 });
 
 describe("ReferralDashboardPage", () => {
-  it("preserves the complete dashboard in a native shell instead of admitting the stripped workspace", async () => {
+  it("preserves the complete dashboard with experimental native rendering disabled", async () => {
     const bootstrap = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
     Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true,
-      value: { contractVersion: 1, enabled: true, coherentShell: true } });
+      value: { contractVersion: 1, enabled: false, coherentShell: true } });
     mocks.workspaceCapabilities.mockResolvedValue({ contractVersion: 1, supported: true,
       wholePresentation: true, routeWorkspaces: ["referrals"] });
     try {
@@ -134,7 +147,67 @@ describe("ReferralDashboardPage", () => {
       fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
       expect(screen.getByRole("region", { name: "Rewards" })).toBeInTheDocument();
       expect(mocks.claimReward).not.toHaveBeenCalled();
+      expect(mocks.workspaceOptions).toBeNull();
     } finally {
+      if (bootstrap) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", bootstrap);
+      else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    }
+  });
+  it("maps progress including streak and native tab actions to the existing dashboard model", async () => {
+    const bootstrap = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true,
+      value: { contractVersion: 1, enabled: true, coherentShell: true } });
+    mocks.getMilestones.mockResolvedValue({ joined_referral_count: 11, earned: [],
+      next_milestone: { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds", progress: 11 },
+      available_milestones: [{ milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds" }] });
+    publishValidatedAuthSessionOwner("user-a");
+    try {
+      render(<VaultContext.Provider value={{ vaultOwnerToken: "synthetic-owner-token" } as never}>
+        <ReferralDashboardPage />
+      </VaultContext.Provider>);
+      await waitFor(() => expect(mocks.workspaceOptions?.content.sections.flatMap(section => section.rows)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ label: "Coins", detail: "2,450" }),
+          expect.objectContaining({ label: "Referral streak", detail: "6 days" })])));
+      const ranking = mocks.workspaceOptions!.content.tabs!.options.find(option => option.label === "Ranking")!;
+      await act(async () => { await mocks.workspaceOptions!.actions.get(ranking.id)!({} as never); });
+      expect(mocks.workspaceOptions!.content.tabs!.options.find(option => option.label === "Ranking")!.selected).toBe(true);
+      const rewards = mocks.workspaceOptions!.content.tabs!.options.find(option => option.label === "Rewards")!;
+      await act(async () => { await mocks.workspaceOptions!.actions.get(rewards.id)!({} as never); });
+      expect(mocks.workspaceOptions!.content.sections.flatMap(section => section.rows)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ label: "Wireless earbuds" })]));
+      const rules = mocks.workspaceOptions!.content.sections.flatMap(section => section.rows).find(row => row.label === "How it works")!;
+      await act(async () => { await mocks.workspaceOptions!.actions.get(rules.id)!({} as never); });
+      expect(mocks.workspaceOptions!.content).toMatchObject({ page: "rules", backEnabled: false });
+      await act(async () => { unwindBackLayer("/one/referrals"); });
+      expect(mocks.workspaceOptions!.content.tabs!.options.find(option => option.label === "Rewards")!.selected).toBe(true);
+      const oldRankingAction = mocks.workspaceOptions!.actions.get(ranking.id)!;
+      publishValidatedAuthSessionOwner("user-b");
+      await act(async () => { await oldRankingAction({} as never); });
+      expect(mocks.workspaceOptions!.content.tabs!.options.find(option => option.label === "Rewards")!.selected).toBe(true);
+      expect(mocks.claimReward).not.toHaveBeenCalled();
+    } finally {
+      publishValidatedAuthSessionOwner(null);
+      if (bootstrap) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", bootstrap);
+      else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    }
+  });
+  it("unmounts the native feature after unsupported retirement before mounting the complete fallback", async () => {
+    const bootstrap = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true,
+      value: { contractVersion: 1, enabled: true, coherentShell: true } });
+    publishValidatedAuthSessionOwner("user-a");
+    try {
+      const view = render(<VaultContext.Provider value={{ vaultOwnerToken: "synthetic-owner-token" } as never}>
+        <ReferralDashboardPage />
+      </VaultContext.Provider>);
+      await waitFor(() => expect(mocks.workspaceOptions).not.toBeNull());
+      const owner = mocks.workspaceOptions!.presentationOwner, identity = {};
+      act(() => { owner.register(identity, async () => true); owner.report(identity, "web", "unsupported"); });
+      expect(await screen.findByRole("heading", { name: "Good things grow together" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Invite" })).toBeVisible();
+      expect(view.container.querySelector("[data-native-referral-workspace]")).toBeNull();
+    } finally {
+      publishValidatedAuthSessionOwner(null);
       if (bootstrap) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", bootstrap);
       else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
     }
@@ -393,6 +466,7 @@ describe("ReferralDashboardPage", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.workspaceOptions = null;
     mocks.shareLink.mockResolvedValue("web-share");
     CacheService.getInstance().clear();
     mocks.recordAppOpen.mockReturnValue(neverResolves());

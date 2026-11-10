@@ -9,11 +9,13 @@ flowchart TD
   api["Next.js API proxy"]
   backend["Backend endpoint family"]
   native["Native transport / plugin"]
+  shared["Shared guarded native plugins"]
   voice["Voice action contract"]
   map["generated surface map"]
 
   route --> page --> api --> backend
   route --> native
+  shared --> map
   route --> voice
   page --> map
   api --> map
@@ -25,6 +27,8 @@ flowchart TD
 The generated surface map is the canonical scaffold for linking each app route to its
 page file, native parity marker, shared shell pattern, Next.js proxy family, backend
 endpoint family, native transport, plugin dependency, and voice/action contract.
+Shared native plugin dependencies record guards or shells applied across routes;
+route-level dependencies remain beside the route whose feature invokes them.
 
 ## Source
 
@@ -49,6 +53,9 @@ endpoint family, native transport, plugin dependency, and voice/action contract.
 4. Native builds do not have a Next.js server. Native transport must be mapped as
    direct backend through `ApiService.apiFetch`, `CapacitorHttp`, or a named
    Capacitor plugin method.
+   Shared guard plugins belong in `shared_native_plugin_dependencies`; do not
+   duplicate them across every route row. Route-specific plugin calls remain in
+   each route's `native_plugin_dependencies`.
 5. Voice/action ids belong in each route's checked-in
    `page.voice-action-contract.json`; the surface map only indexes them.
 6. The route-orchestration index joins every physical route with generated

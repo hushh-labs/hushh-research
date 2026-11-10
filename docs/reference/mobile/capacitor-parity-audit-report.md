@@ -5,13 +5,13 @@
 
 Canonical visual owner: [Mobile Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-Status as of: September 5, 2026
+Historical status reference date: September 5, 2026
 
 Founder-language note: this report is evidence for `Separation of Duties`, not a new architecture concept. It tracks whether the mobile delivery boundary stays aligned with the shared platform contract.
 
 ## Overall Status
 
-Current status: cold route-parity gate implemented. The dated simulator/emulator reports below are historical cold-start evidence; they are not proof of normal-session vault or route continuity.
+Historical status on September 5, 2026: the cold route-parity gate was implemented. The May simulator/emulator reports below are historical cold-start evidence, not proof of normal-session vault or route continuity. The October 29 entry under Blockers is a read of this worktree's tracked inventory and reports, not a new audit or runtime result, and does not claim remote/main or deployed status.
 
 Historical route evidence (not current release proof):
 
@@ -62,11 +62,17 @@ an emulator compositor defect.
 
 ## Blockers
 
-Current tracked evidence blockers:
+Historical local evidence blockers:
 
-- `verify:capacitor:reports` fails against the current 103-route inventory on the
-  audited local revision. The tracked iOS report declares 91 audited routes but has
-  only 13 results, including a failed `/register-phone`; Android has 76 results.
+The checked worktree snapshot (2026-10-29 at HEAD `b42fd208556189298060b79db7427069e89643d4`) is not remote/main or deployed truth. Its [inventory](../../../hushh-webapp/native-route-inventory.json) has 147 routes / 119 native-required. These historical run snapshots do not meet the `verify:capacitor:reports` gate:
+
+| Platform report | Generated | Required routes (of 119) | Completed/result rows / declared audited | Completeness |
+| --- | --- | --- | --- | --- |
+| iOS local report | 2026-07-20T04:48:12.945Z | 11 passed / 1 failed / 107 missing | 13 (12 `ok`, 1 failed) / 91 | `audit_complete=false` |
+| Android local report | 2026-09-16T23:57:46.183Z | 40 passed / 12 failed / 67 missing | 57 (45 `ok`, 12 failed) / 103 | `audit_complete=false` |
+
+See the [report verifier](../../../hushh-webapp/scripts/native/verify-native-parity-reports.mjs) for freshness and per-route contract requirements. Refresh inventory and reports after base integration.
+
 - Updated simulator/emulator runs are required to establish route parity. Static
   plugin checks and historical May results do not replace those runs.
 - iOS background location sharing exists; Android explicitly reports it unavailable.
@@ -131,3 +137,5 @@ If entitlements change, update:
 - `docs/guides/mobile.md`
 
 in the same change.
+
+Generated native run reports remain ignored local or sanitized CI artifacts. Their absence, incompleteness or stale routes must still fail the report verifier; source control retains the authored route inventory and maintained summary, not raw run JSON.

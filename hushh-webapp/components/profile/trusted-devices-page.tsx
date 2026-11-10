@@ -36,12 +36,13 @@ import { UNLINK_WARNING, type TrustedDevicesModel } from "./use-trusted-devices-
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
 export default function TrustedDevicesPage({
-  panePresentation = false, model,
+  panePresentation = false, model, renderConfirmation = true,
 }: {
   panePresentation?: boolean;
   model: TrustedDevicesModel;
+  renderConfirmation?: boolean;
 }) {
-  const { devices, confirmation: pendingRevocation, busy: revoking, loading, error: visibleError } = model;
+  const { devices, busy: revoking, loading, error: visibleError } = model;
 
   const { puppyAccess, byocReady, changingPuppy, puppyNotice, pendingPuppyWithdrawal, pendingPodRevocations } = model;
   const nowMs = Date.now();
@@ -149,6 +150,26 @@ export default function TrustedDevicesPage({
           ) : null}
         </SettingsPresentationProvider>
       </AppPageContentRegion>
+      {renderConfirmation ? <TrustedDeviceConfirmation model={model} /> : null}
+    </>
+  );
+
+  return (
+    <div
+      className={cn(
+        "profile-inner-devices w-full",
+        panePresentation && typographyStyles.paneDevices,
+      )}
+    >
+      {pageContent}
+    </div>
+  );
+}
+
+/** Mounted by the existing admitted Profile overlay port in native mode. */
+export function TrustedDeviceConfirmation({ model }: { model: TrustedDevicesModel }) {
+  const { confirmation: pendingRevocation, busy: revoking } = model;
+  return (
       <AlertDialog
         open={pendingRevocation !== null}
         onOpenChange={(open) => {
@@ -179,17 +200,5 @@ export default function TrustedDevicesPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
-  );
-
-  return (
-    <div
-      className={cn(
-        "profile-inner-devices w-full",
-        panePresentation && typographyStyles.paneDevices,
-      )}
-    >
-      {pageContent}
-    </div>
   );
 }

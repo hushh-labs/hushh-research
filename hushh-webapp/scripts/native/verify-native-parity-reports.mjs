@@ -2,7 +2,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { hasNativeRouteAuditContract } from "./native-route-status.mjs";
+import {
+  hasNativeRouteAuditContract,
+  nativeRouteReportMatches,
+} from "./native-route-status.mjs";
 
 const repoRoot = process.cwd();
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
@@ -26,35 +29,6 @@ function fail(failures, platform, message) {
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
-
-function normalizeRoute(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed || trimmed === "/") {
-    return trimmed || "/";
-  }
-  try {
-    const url = new URL(trimmed, "https://native-audit.local");
-    let pathname = url.pathname || "/";
-    if (pathname.length > 1 && pathname.endsWith("/")) {
-      pathname = pathname.slice(0, -1);
-    }
-    return `${pathname}${url.search}`;
-  } catch {
-    return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
-  }
-}
-
-function matchesRoute(parsedRoute, route) {
-  if (route.expectedRoute) {
-    return normalizeRoute(parsedRoute) === normalizeRoute(route.expectedRoute);
-  }
-  if (route.expectedRoutePrefix) {
-    return normalizeRoute(parsedRoute).startsWith(
-      normalizeRoute(route.expectedRoutePrefix)
-    );
-  }
-  return true;
 }
 
 function validateReport({ platform, reportPath, requiredRoutes }) {
@@ -140,13 +114,14 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
         `${route.route} marker=${observed.marker || ""}; expected ${route.expectedMarker}`
       );
     }
-    if (!matchesRoute(observed.route || "", route)) {
+    if (!nativeRouteReportMatches(observed, route)) {
       fail(
         failures,
         platform,
-        `${route.route} observed route=${observed.route || ""}; expected ${
-          route.expectedRoute || route.expectedRoutePrefix || "route-compatible"
-        }`
+        `${route.route} failed its native route verdict or sanitized path check ` +
+          `(routeok=${observed.routeok || ""}, observed=${observed.route || ""}, expected=${
+            route.expectedRoute || route.expectedRoutePrefix || "route-compatible"
+          })`
       );
     }
     const allowedAuthStates = route.allowedAuthStates || [route.expectedAuth];

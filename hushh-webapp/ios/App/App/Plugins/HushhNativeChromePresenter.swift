@@ -113,7 +113,7 @@ final class NativeChromePresenterRetirements {
 
 /// An owned presentation, not a second router. Completion means UIKit has
 /// actually detached the presenter, including retirement during its opening.
-final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControllerDelegate {
+final class HushhNativeChromePresenter: NSObject, UIPopoverPresentationControllerDelegate {
     private weak var parent: UIViewController?
     private let controller: UIViewController
     private var opening = true
@@ -155,18 +155,17 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
     }
 
     func present() {
+        // UIKit chooses popover adaptation as presentation begins.
+        // UIAlertController owns its delegate; replacing it triggers a UIKit
+        // assertion. Its actions and dismissal completion retire ownership.
+        if !(controller is UIAlertController) {
+            controller.presentationController?.delegate = self
+        }
         parent?.present(controller, animated: true) { [self] in
             opening = false
             privacyShield.reassertCover()
             if closing { dismissOwned() }
             else { controller.view.layoutIfNeeded(); didPresent?() }
-        }
-        // UIAlertController owns its presentation delegate. Replacing it
-        // triggers a UIKit assertion when History opens Delete confirmation.
-        // Its authored actions and dismiss completion already retire ownership;
-        // custom sheets still need the adaptive dismissal callback.
-        if !(controller is UIAlertController) {
-            controller.presentationController?.delegate = self
         }
     }
 
@@ -188,6 +187,15 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
     private func dismissOwned() {
         guard controller.presentingViewController != nil else { finish(); return }
         controller.dismiss(animated: animatedDismissal && UIApplication.shared.applicationState == .active) { [self] in finish() }
+    }
+
+    func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle {
+        controller is UIPopoverPresentationController ? .none : .automatic
+    }
+
+    func adaptivePresentationStyle(for controller: UIPresentationController,
+                                   traitCollection: UITraitCollection) -> UIModalPresentationStyle {
+        adaptivePresentationStyle(for: controller)
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {

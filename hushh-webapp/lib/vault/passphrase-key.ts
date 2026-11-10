@@ -1,5 +1,6 @@
 // lib/vault/passphrase-key.ts
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
+import { generateRecoveryKey } from "@/lib/vault/recovery-key";
 
 /**
  * Passphrase-Based Key Derivation (Fallback)
@@ -208,16 +209,8 @@ export async function createVaultWithPassphrase(passphrase: string): Promise<{
   );
 
   // === RECOVERY KEY ENCRYPTION ===
-  // Generate recovery key
-  const recoveryBytes = crypto.getRandomValues(new Uint8Array(16));
-  const recoveryHex = Array.from(recoveryBytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  const recoveryKey = `HRK-${recoveryHex
-    .slice(0, 4)
-    .toUpperCase()}-${recoveryHex.slice(4, 8).toUpperCase()}-${recoveryHex
-    .slice(8, 12)
-    .toUpperCase()}-${recoveryHex.slice(12, 16).toUpperCase()}`;
+  // The formatted key retains all 128 random bits for offline recovery.
+  const recoveryKey = generateRecoveryKey();
 
   // Generate salt and IV for recovery encryption
   const recoverySalt = crypto.getRandomValues(new Uint8Array(16));

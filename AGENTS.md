@@ -18,6 +18,10 @@ create or retain stale, duplicate, or bloated copies. Preserve unique uncommitte
 work and required evidence before removing a copy; use Git history for prior
 versions instead of checking in historical snapshots.
 
+Generated review/audit evidence belongs in ignored local or CI artifacts, not
+source commits. Preserve runtime contracts and required app assets under the
+canonical [evidence policy](.agents/instructions.md).
+
 All development sources belong in **`.agents/`**:
 
 - [skills](.agents/skills/): reusable procedures and their supporting tools.

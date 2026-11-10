@@ -18,6 +18,7 @@
  */
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
+import { generateRecoveryKey } from "@/lib/vault/recovery-key";
 
 // WebAuthn only allows a single outstanding navigator.credentials.get() /
 // create() request per page at a time. A second request must not abort the
@@ -212,22 +213,6 @@ export async function exportKeyToHex(key: CryptoKey): Promise<string> {
   return Array.from(new Uint8Array(exported))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-/**
- * Generate recovery key (HRK-XXXX-XXXX-XXXX-XXXX format)
- */
-function generateRecoveryKey(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  const hex = Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  // Format: HRK-XXXX-XXXX-XXXX-XXXX
-  return `HRK-${hex.slice(0, 4).toUpperCase()}-${hex
-    .slice(4, 8)
-    .toUpperCase()}-${hex.slice(8, 12).toUpperCase()}-${hex
-    .slice(12, 16)
-    .toUpperCase()}`;
 }
 
 /**

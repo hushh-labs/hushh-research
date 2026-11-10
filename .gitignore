@@ -96,6 +96,14 @@ continue-dev-tools-usage.md
 # Local temp artifacts
 temp/
 tmp/
+# Generated review/evaluation reports belong in ignored local or CI artifacts.
+/hushh-webapp/contracts/ui-review/
+/hushh-webapp/native-*-parity-report.json
+/hushh-webapp/native-*-ui-interaction-report.json
+/artifacts/
+/consent-protocol/artifacts/
+/docs/reference/mobile/perf/baseline-*.json
+/docs/reference/architecture/paid-answer-provider-review-*.json
 /plans/kai-finance-reset-*.json
 token.txt
 /tmp_voice_*.json

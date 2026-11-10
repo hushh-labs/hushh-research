@@ -5,7 +5,7 @@ import { SheetSearch } from "@/components/app-ui/sheet-parts";
 import { connectPersonName } from "@/lib/connections/person-label";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Button } from "@/components/ui/button";
 import { EmptyStateCard } from "@/components/one-location/redesign/contact-picker/atoms";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";

@@ -9,7 +9,7 @@ vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCar
 vi.mock("@/components/wallet/wallet-card-access-message", () => ({ WalletCardAccessMessage: ({ grantId, openRequest }: { grantId: string; openRequest: number }) => <div data-testid="protected-recipient-viewer">{grantId}:{openRequest}</div> }));
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
-import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history";
+import { WalletSharingHistory, type WalletNativeHistoryProjection } from "@/components/wallet/wallet-sharing-history";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const context = { userId: "owner", vaultKey: "memory-only", vaultOwnerToken: "consent", getIdToken: async () => "identity", isCurrent: () => mocks.current };
@@ -22,6 +22,53 @@ beforeEach(() => {
   mocks.history.mockResolvedValue(page(["First"])); mocks.revoke.mockResolvedValue({ revoked: true });
 });
 describe("Wallet's participant-scoped sharing ledger", () => {
+  it("projects active and past received history as safe native rows with authored detail Back", async () => {
+    const active = item("grant-active");
+    const past = { ...item("grant-past"), status: "revoked", revokedAt: "2026-10-12T10:01:00Z" };
+    mocks.history.mockResolvedValue({ ...page(["active", "past"]), items: [active, past] });
+    let projection: WalletNativeHistoryProjection | null = null;
+    const onNativeProjection = (next: WalletNativeHistoryProjection | null) => { projection = next; };
+    const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" presentation="cards"
+      nativePresentation onNativeProjection={onNativeProjection} />);
+    await waitFor(() => expect(projection).not.toBeNull());
+    expect(view.container).toBeEmptyDOMElement();
+
+    const rows = () => projection!.sections.flatMap(section => section.rows);
+    const activeRow = projection!.sections.find(section => section.id === "wallet-history-active")!.rows[0]!;
+    const pastRow = projection!.sections.find(section => section.id === "wallet-history-past")!.rows[0]!;
+    expect(activeRow.label).toBe("From Owner");
+    expect(activeRow.id).not.toContain("grant-active");
+    expect(pastRow.id).not.toContain("grant-past");
+    expect(JSON.stringify(projection)).not.toContain(context.vaultOwnerToken);
+
+    act(() => projection!.activate(activeRow.id));
+    await waitFor(() => expect(rows().some(row => row.label === "Back to Shared with me")).toBe(true));
+    expect(rows().map(row => row.label)).toContain("Open this card in your browser to view its details.");
+    expect(rows().map(row => row.label)).not.toContain("View card");
+    expect(JSON.stringify(projection)).not.toMatch(/vaultKey|vaultOwnerToken|credential|security code|grant-active|card_1/i);
+    expect(mocks.revoke).not.toHaveBeenCalled();
+
+    const back = rows().find(row => row.label === "Back to Shared with me")!;
+    act(() => projection!.activate(back.id));
+    await waitFor(() => expect(projection!.sections.some(section => section.id === "wallet-history-past")).toBe(true));
+    const returnedPast = projection!.sections.find(section => section.id === "wallet-history-past")!.rows[0]!;
+    act(() => projection!.activate(returnedPast.id));
+    await waitFor(() => expect(rows().map(row => row.label)).toContain("The owner stopped sharing this card."));
+    expect(rows().map(row => row.label)).toContain("Back to Shared with me");
+    expect(mocks.revoke).not.toHaveBeenCalled();
+  });
+
+  it("projects the received empty state natively without rendering the Web history", async () => {
+    mocks.history.mockResolvedValue(page([]));
+    let projection: WalletNativeHistoryProjection | null = null;
+    const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received"
+      nativePresentation onNativeProjection={next => { projection = next; }} />);
+    await waitFor(() => expect(projection).not.toBeNull());
+    expect(view.container).toBeEmptyDOMElement();
+    expect(projection!.sections.flatMap(section => section.rows).map(row => row.label)).toContain("No active shared cards");
+    expect(screen.queryByText("Cards people share with you will appear here.")).toBeNull();
+  });
+
   it("masks malformed summary digits and uses generic branding for an unknown label", async () => {
     mocks.history.mockResolvedValue({ ...page([]), items: [{ ...item("First"), displayLabel: "Personal nickname", last4: "4242424242424242" }] });
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" presentation="cards" />);

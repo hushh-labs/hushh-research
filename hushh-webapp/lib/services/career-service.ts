@@ -11,6 +11,7 @@
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { normalizeResume, type Resume } from "@/lib/career/resume";
 import { ApiService } from "@/lib/services/api-service";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { AuthService } from "@/lib/services/auth-service";
 
 export interface CareerRole {
@@ -65,6 +66,7 @@ export const CareerService = {
   },
 
   async applyToRole(params: {
+    expectedUserId: string;
     role: Pick<CareerRole, "slug" | "family">;
     firstName: string;
     lastName: string;
@@ -73,8 +75,11 @@ export const CareerService = {
     links: { linkedin?: string; github?: string; portfolio?: string };
     consentReceiptId: string;
   }): Promise<CareerApplicationResult> {
-    const idToken = await AuthService.getIdTokenWithRetry();
+    const epoch = snapshotVaultSessionEpoch();
+    if (!params.expectedUserId.trim()) throw new Error("Sign in again to apply.");
+    const idToken = await AuthService.getIdTokenWithRetry({ expectedUserId: params.expectedUserId });
     if (!idToken) throw new Error("Sign in again to apply.");
+    if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Your session changed. Review the application again.");
     const res = await fetch(`${careersOrigin()}/api/careers/agent/apply`, {
       method: "POST",
       headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },

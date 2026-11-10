@@ -32,14 +32,30 @@ type Presentation = NativeOwnedScenePresentation<OwnedChoiceIdentity, NativeWall
 
 /** One authoritative feature owner survives the chosen renderer and explicit
  * scan handoffs. Protected fields never enter public chrome or diagnostics. */
-export function AdaptiveWalletCardForm({ open, ownerId, onReturnFocus, ...props }: SecureCardAddFormProps & {
+export function AdaptiveWalletCardForm({ open, ownerId, onReturnFocus, onNativeFallback, ...props }: SecureCardAddFormProps & {
   open: boolean; ownerId: string; onReturnFocus: () => void;
+  onNativeFallback?: () => boolean | void | Promise<boolean | void>;
 }) {
   const form = useSecureCardFormOwner({ ...props, active: open });
   const [fallback, setFallback] = useState(false), [media, setMedia] = useState<Media | null>(null);
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
+  const fallbackRequest = useRef<Promise<boolean> | null>(null);
   const native = nativeWalletCardFormsEnabled() && !fallback;
   const wasOpen = useRef(open);
+  const requestFallback = useCallback(() => {
+    if (fallbackRequest.current) return fallbackRequest.current;
+    const request = Promise.resolve().then(() => onNativeFallback?.()).then(allowed => {
+      if (allowed !== false) setFallback(true);
+      return allowed !== false;
+    }, () => false);
+    fallbackRequest.current = request;
+    // Failed retirement stays fail-closed, but a later Add visit gets a fresh
+    // identity-scoped readback instead of reusing the stale false result.
+    void request.then(allowed => {
+      if (!allowed && fallbackRequest.current === request) fallbackRequest.current = null;
+    });
+    return request;
+  }, [onNativeFallback]);
   useEffect(() => {
     if (wasOpen.current && !open) { form.resetDraft(); setMedia(null); }
     wasOpen.current = open;
@@ -50,7 +66,7 @@ export function AdaptiveWalletCardForm({ open, ownerId, onReturnFocus, ...props 
     backRoute={props.backRoute} onReturn={() => { form.setScanning(false); setMedia(null); }} /> :
     <NativeWalletCardForm ownerId={ownerId} form={form} collectSecurityCode={props.collectSecurityCode === true}
       scanEnabled={props.scanEnabled !== false} onCancel={() => { props.onCancel?.(); onReturnFocus(); }}
-      onMedia={setMedia} onFallback={() => setFallback(true)} /> : null;
+      onMedia={setMedia} onFallback={() => { void requestFallback(); }} /> : null;
   return <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) props.onCancel?.(); }}
     title="Add card" headerTextOverflow="wrap" desktopMaxWidth="560px" desktopMaxWidthClassName="sm:!max-w-[560px]"
     surfaceClassName={`${workspaceStyles.addPanel} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={workspaceStyles.addBody}
@@ -109,7 +125,7 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
       securityCode: collectSecurityCode ? f.securityCode : "", network: f.network || "auto", issuingRegion: f.issuingRegion || "none" };
     const value = { ...entry.identity, ...v.appearance, privacyGeneration: v.privacy.generation,
       acknowledgedEditRevision: v.edit.revision, draftRevision: entry.draftRevision, draft,
-      busy: f.submitting, canSave: !v.edit.composing && !f.submitting && !f.scanning,
+      busy: f.submitting, canSave: !v.edit.composing && !f.submitting && !f.scanning, draftValid: f.draftValid,
       collectSecurityCode, scanEnabled, networkLoading: f.networkLoading, networkHint: f.networkHint ?? undefined,
       error: f.saveError ?? (f.errors.length ? f.errors.map(code => CARD_FORM_ERROR_COPY[code] ?? "Check your card details.").join("\n") : undefined),
       networks: [{ id: "auto", label: f.brand === "other" ? "Auto-detect" : `Auto-detect · ${cardNetworkLabel(f.brand)}`, selected: !f.network },
@@ -152,7 +168,7 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
         const capabilities = await nativeDrawerAcknowledged(plugin.getCapabilities());
         if (!isCurrent()) return;
         if (!capabilities.walletCardForms || !plugin.applyWalletCardScene || !plugin.confirmWalletCardAction ||
-            !plugin.settleWalletCardAction || !plugin.retireWalletCardScene) {
+            !plugin.settleWalletCardAction || !plugin.retireWalletCardScene || !plugin.getWalletCardState) {
           await afterNativeContentPaneRetirement(async () => { if (isCurrent()) live.current.onFallback(); });
           return;
         }
@@ -165,7 +181,15 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
             if (result.valid && event.action === "cancel" && installation.current?.identity === identity) installation.current.discardFinal = true;
             return result;
           },
-          settle: event => plugin.settleWalletCardAction!(event), retire: async id => { const receipt = await plugin.retireWalletCardScene!(id); await finalReconciliation; return receipt; },
+          settle: event => plugin.settleWalletCardAction!(event),
+          retire: async id => {
+            try { return await plugin.retireWalletCardScene!(id); }
+            finally { await finalReconciliation; }
+          },
+          read: async id => {
+            try { return await plugin.getWalletCardState!(id); }
+            finally { await finalReconciliation; }
+          },
           edits: callback => plugin.addListener("walletCardEdit", callback), choices: callback => plugin.addListener("walletCardAction", callback),
         }, new NativeWalletCardFence(identity), validNativeWalletCardProjection, isCurrent,
         next => { if (current) {

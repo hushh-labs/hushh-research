@@ -27,7 +27,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { useAuth } from "@/hooks/use-auth";
 import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
@@ -122,7 +122,7 @@ export function AgentConsentContinuationNotifier(): null {
     ) => {
       if (!claimConsentContinuation(ownerId, request.bundleId)) return;
       setInformationRequestPhase(ownerId, request.bundleId, "reading");
-      toast(consentOutcomeDisplayText({ outcome, personName: request.personName, sharedLabels }), {
+      toast.noticeText(consentOutcomeDisplayText({ outcome, personName: request.personName, sharedLabels }), {
         id: `consent-outcome-${request.bundleId}`,
         description: "One is finishing your answer.",
       });
@@ -175,9 +175,9 @@ export function AgentConsentContinuationNotifier(): null {
         releaseConsentContinuation(ownerId, request.bundleId);
         setInformationRequestPhase(ownerId, request.bundleId, null);
         settleWatchedAgentTurn(ownerId, request.conversationId, false);
-        toast.error("One couldn't finish that answer. Open the chat to try again.", {
+        toast.noticeText("One couldn't finish that answer. Open the chat to try again.", {
           id: `consent-outcome-${request.bundleId}`,
-        });
+        }, "error");
       }
     };
 
@@ -285,9 +285,10 @@ export function AgentConsentContinuationNotifier(): null {
       // derived from it (see the workspace's access-ended handling).
       if (action === "CONSENT_REVOKED" || action === "REVOKED") return;
       if (pathnameRef.current === ROUTES.HOME) return; // the open chat reads its own cards
-      toast(CONSENT_ANSWER_NOTICE_TITLE, {
+      toast.noticeText(CONSENT_ANSWER_NOTICE_TITLE, {
         id: `consent-answer-${bundleId}`,
         action: {
+          token: "open-information-request",
           label: "Open",
           onClick: () =>
             router.push(`${ROUTES.HOME}?${new URLSearchParams({ [INFORMATION_REQUEST_QUERY]: bundleId })}`),

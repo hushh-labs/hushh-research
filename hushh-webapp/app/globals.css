@@ -6753,6 +6753,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
+:root {
+  --agent-dock-resting-height: 3.25rem;
+}
+
 [data-agent-dock-surface="text"] {
   display: block;
   min-width: 0;
@@ -6765,6 +6769,14 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    * route navigation. Taller drafts still grow inside the bounded editor. */
   border-radius: 1.5rem;
   padding-block: 0.25rem;
+}
+
+/* The native receipt is the full bar height, including its own padding. */
+[data-agent-dock-surface="voice"][data-native-dock-owned="true"] {
+  padding-block: 0;
+}
+[data-agent-bar-retained] [data-agent-bar-extras]:not(:empty) {
+  margin-bottom: 0.5rem;
 }
 [data-agent-dock-voice][hidden],
 [data-agent-dock-composer][hidden] {
@@ -6792,7 +6804,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .agent-chat-composer-compact {
-  padding: 0.4375rem 0.5rem 0.4375rem 1rem;
+  padding: 0.25rem 0.5rem 0.25rem 1rem;
 }
 .agent-chat-composer-field {
   box-sizing: border-box;
@@ -8224,8 +8236,27 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
   }
 }
 
+/* The coherent shell retains chrome without the legacy regions capability.
+   Portals consume the same mirrored geometry as its existing workspace seat. */
+html:has([data-native-workspace-seat="true"]):not(.native-reserved-chrome) {
+  --native-overlay-top: var(--native-workspace-top, var(--app-top-content-offset, 0px));
+  --native-overlay-bottom: max(var(--native-workspace-bottom, var(--bottom-chrome-stack-height, 0px)), var(--kb-height, 0px));
+}
+
+/* Full-screen Profile covers the workspace chrome. Its nested portals clear
+   the keyboard, rather than reserving the hidden dock a second time. */
+@media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
+  html:has([data-native-workspace-seat="true"]):not(.native-reserved-chrome):has(
+    .native-feature-page[data-native-feature-pane="profile"][data-state="open"],
+    [data-testid="profile-pane"][data-state="open"]
+  ) {
+    --native-overlay-top: 0px;
+    --native-overlay-bottom: var(--kb-height, 0px);
+  }
+}
+
 /* Acknowledged native seats bound web overlays; panel motion stays React. */
-html.native-reserved-chrome:not([data-session-check-active]) :is(
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) :is(
   [data-slot="sheet-overlay"], [data-slot="dialog-overlay"],
   [data-slot="alert-dialog-overlay"], [data-slot="popover-scrim"],
   [data-agent-history-scrim], [data-profile-preview-scrim]
@@ -8233,7 +8264,7 @@ html.native-reserved-chrome:not([data-session-check-active]) :is(
   top: var(--native-overlay-top, 0px);
   bottom: var(--native-overlay-bottom, 0px);
 }
-html.native-reserved-chrome:not([data-session-check-active]) :is(
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) :is(
   [data-agent-history-drawer], [data-profile-preview],
   [data-slot="sheet-content"][data-sheet-side="left"],
   [data-slot="sheet-content"][data-sheet-side="right"]
@@ -8242,18 +8273,21 @@ html.native-reserved-chrome:not([data-session-check-active]) :is(
   bottom: var(--native-overlay-bottom, 0px);
   height: auto;
 }
-html.native-reserved-chrome:not([data-session-check-active]) :is(
-  [data-slot="dialog-content"], [data-slot="alert-dialog-content"]
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) :is(
+  [data-slot="dialog-content"]:not(.native-feature-page), [data-slot="alert-dialog-content"]
 ) {
   top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 2rem);
+  /* The acknowledged bottom region already includes the keyboard. The
+     generic centered-dialog lift would apply that clearance a second time. */
+  margin-top: 0;
   overflow-y: auto;
 }
-html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
   bottom: var(--native-overlay-bottom, 0px);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
 }
-html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
   top: var(--native-overlay-top, 0px);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
 }
