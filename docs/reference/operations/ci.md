@@ -851,6 +851,15 @@ jobs.
    use separate PostgreSQL services and serial test partitions; both must
    succeed. Unselected lanes may skip, but selected lanes cannot pass by skip.
 
+When the full Protocol owner is required in the same hosted run, it owns the
+exact whole-module overlap with Governance's release-controller checks.
+Governance keeps its other controller modules; Protocol keeps its complete
+manifest, runtime setup and import collection. Draft/auth-health suppression,
+local or diagnostic runs, invalid selection and historical recovery retain the
+full Governance owner. The final gate refuses missing, skipped, cancelled or
+failed required Protocol results. This avoids duplicate execution without
+adding a wait between the jobs or removing a functional contract.
+
 The exact production-restoration fixture helper and test module use a focused
 Governance controller owner. It runs the restoration suite, both phone-schema
 history consumers, and the single historical Drive release-tooling case. Only

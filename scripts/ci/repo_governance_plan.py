@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Sequence
 
@@ -530,6 +530,46 @@ def _checks_for_ids(check_ids: Sequence[str]) -> tuple[Check, ...]:
     return tuple(check for check in CHECKS if check.check_id in selected)
 
 
+def _checks_for_selection(selection: Selection, env: dict[str, str]) -> tuple[Check, ...]:
+    checks = _checks_for_ids(selection.check_ids)
+    # Protocol retains its full manifest, import collection and runtime envelope.
+    # Transfer only whole-module duplicates when that required hosted owner runs.
+    if (
+        selection.error
+        or selection.level == "diagnostic"
+        or env.get("GITHUB_ACTIONS") != "true"
+        or env.get("GITHUB_EVENT_NAME") not in {"pull_request", "merge_group", "workflow_dispatch"}
+        or env.get("CI_PROTOCOL_CONTROLLER_OWNER") != "true"
+        or env.get("PRODUCTION_RECOVERY_SHA")
+    ):
+        return checks
+    manifest = ROOT / "consent-protocol/scripts/test-ci.manifest.txt"
+    try:
+        if manifest.is_symlink():
+            return checks
+        paths = [line for line in manifest.read_text().splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")]
+        if not paths or len(paths) != len(set(paths)) or any(
+            not path.startswith("tests/") or not path.endswith(".py")
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or not (ROOT / "consent-protocol" / path).is_file()
+            for path in paths
+        ):
+            return checks
+    except (OSError, UnicodeError):
+        return checks
+    protocol_owned = {f"consent-protocol/{path}" for path in paths}
+    result = []
+    for check in checks:
+        if check.check_id == "release-controller-contracts":
+            remaining = tuple(path for path in RELEASE_CONTROLLER_TESTS if path not in protocol_owned)
+            if not remaining:
+                continue  # Never invoke pytest without paths and discover the repository.
+            check = replace(check, argv=check.argv[:-len(RELEASE_CONTROLLER_TESTS)] + remaining)
+        result.append(check)
+    return tuple(result)
+
+
 def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> int:
     failures: list[tuple[str, str]] = []
     for check in checks:
@@ -558,7 +598,7 @@ def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> 
 
 
 def _emit_plan(selection: Selection) -> None:
-    checks = _checks_for_ids(selection.check_ids)
+    checks = _checks_for_selection(selection, dict(os.environ))
     payload = {
         "level": selection.level,
         "changed_files": list(selection.files),
@@ -607,7 +647,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.plan:
         _emit_plan(selection)
         return 2 if selection.error else 0
-    return _run_checks(_checks_for_ids(selection.check_ids), selection.error)
+    return _run_checks(_checks_for_selection(selection, dict(os.environ)), selection.error)
 
 
 if __name__ == "__main__":
