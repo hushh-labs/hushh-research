@@ -13,7 +13,7 @@ vi.mock("@/lib/capacitor/native-drawers", async (original) => ({
   ...await original<typeof import("@/lib/capacitor/native-drawers")>(),
   nativeDrawersPlatformEligible: () => native.enabled,
   nativeDrawers: () => ({
-    getCapabilities: async () => ({ profileNetWorthScore: native.scoreSupported }),
+    getCapabilities: async () => ({ profileNetWorthScore: true, profileNetWorthAmount: native.scoreSupported }),
   }),
 }));
 const url = vi.hoisted(() => ({
@@ -63,7 +63,9 @@ it("closes the native presentation with its browser entry even while the shell's
   window.history.replaceState({ __hushhProfilePane: { depth: 2, parentPanel: null } }, "", "/one?profile_pane=1&profile_panel=preferences");
   const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
   expect(await screen.findByTestId("pane-body")).toHaveAttribute("data-native-open", "true");
-  act(() => {
+  // Native capability admission crosses an async boundary; flush its React work
+  // before asserting the browser entry's committed close state.
+  await act(async () => {
     window.history.replaceState(null, "", "/one");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });

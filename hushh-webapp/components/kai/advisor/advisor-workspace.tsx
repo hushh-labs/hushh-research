@@ -5,6 +5,10 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { buildDirectMessageRoute } from "@/lib/navigation/routes";
 import { AdvisorReviewService } from "@/lib/advisor-review/service";
@@ -32,6 +36,7 @@ export function AdvisorWorkspace({
   const [snapshot, setSnapshot] = useState<AdvisorSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [endAction, setEndAction] = useState<"withdraw" | "stop" | null>(null);
   const live = useRef(true);
   const work = useRef(false);
   const reading = useRef(false);
@@ -114,10 +119,10 @@ export function AdvisorWorkspace({
       await action();
       if (live.current && context.isCurrent()) await load();
     } catch (e) {
-      if (live.current && context.isCurrent())
-        setError(
-          e instanceof Error ? e.message : "This step could not be confirmed.",
-        );
+      if (live.current && context.isCurrent()) {
+        setError(e instanceof Error ? e.message : "This step could not be confirmed.");
+        await load();
+      }
     } finally {
       work.current = false;
       if (live.current && context.isCurrent()) setBusy(false);
@@ -137,7 +142,9 @@ export function AdvisorWorkspace({
       }
       description={
         review?.status === "pending"
-          ? "One request to connect and review a Finance snapshot."
+          ? review.alreadyConnected
+            ? "Already connected"
+            : "One request to connect and review a Finance snapshot."
           : "Your introduction, meeting and plan."
       }
       surfaceClassName={finance.detail}
@@ -178,7 +185,9 @@ export function AdvisorWorkspace({
               <div className={styles.notice}>
                 The full Finance snapshot is sealed.{" "}
                 {incoming
-                  ? "Accepting connects you and opens it."
+                  ? review.alreadyConnected
+                    ? "Accept to open the snapshot."
+                    : "Accepting connects you and opens it."
                   : "Only this advisor can open it after accepting."}{" "}
                 No subscription or payment is included.
               </div>
@@ -202,24 +211,20 @@ export function AdvisorWorkspace({
                       disabled={busy}
                       onClick={() =>
                         void run(() =>
-                          AdvisorReviewService.decide(context, id, "accept"),
+                          AdvisorReviewService.decide(context, id, "accept", review.alreadyConnected),
                         )
                       }
                     >
-                      Accept & connect
+                      {review.alreadyConnected ? "Accept" : "Accept & connect"}
                     </ShellActionSurface>
                   </>
                 ) : (
                   <ShellActionSurface
                     variant="pill"
                     disabled={busy}
-                    onClick={() =>
-                      void run(() =>
-                        AdvisorReviewService.decide(context, id, "withdraw"),
-                      )
-                    }
+                    onClick={() => setEndAction("withdraw")}
                   >
-                    Withdraw request
+                    Cancel request
                   </ShellActionSurface>
                 )}
               </div>
@@ -271,25 +276,15 @@ export function AdvisorWorkspace({
                 </div>
               </div>
               {!incoming ? (
-                <details className={styles.card}>
-                  <summary>Snapshot access</summary>
-                  <p className="ui-text-helper-text">
-                    Stopping snapshot access does not disconnect you or cancel a
-                    subscription. Cancel billing separately before stopping if
-                    you no longer want the service.
-                  </p>
+                <div className={styles.actions}>
                   <ShellActionSurface
                     variant="pill"
                     disabled={busy}
-                    onClick={() =>
-                      void run(() =>
-                        AdvisorReviewService.decide(context, id, "stop"),
-                      )
-                    }
+                    onClick={() => setEndAction("stop")}
                   >
-                    Stop snapshot access
+                    End advisor review
                   </ShellActionSurface>
-                </details>
+                </div>
               ) : null}
             </>
           ) : null}
@@ -314,6 +309,26 @@ export function AdvisorWorkspace({
       ) : (
         <p role="status">Checking this request…</p>
       )}
+      <AlertDialog open={endAction !== null} onOpenChange={(open) => { if (!open) setEndAction(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{endAction === "stop" ? "End advisor review?" : "Cancel advisor request?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {endAction === "stop"
+                ? "This ends the advisor’s snapshot access. Meetings, subscriptions and your connection are managed separately."
+                : "The advisor will no longer be able to accept this request or open your snapshot."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep {endAction === "stop" ? "review" : "request"}</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={() => {
+              if (endAction) void run(() => AdvisorReviewService.decide(context, id, endAction));
+            }}>
+              {endAction === "stop" ? "End review" : "Cancel request"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </KaiControlSurface>
   );
 }

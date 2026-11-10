@@ -15,10 +15,10 @@ describe("portfolio briefing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import portfolio" }));
     expect(open).toHaveBeenCalledOnce();
   });
-  it("shows when the score is unavailable and opens detailed holdings and history", () => {
+  it("shows when the score is unavailable and computes a stock-decline scenario", () => {
     const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
       { symbol: "SMALL", name: "Smaller", quantity: 1, price: 100, market_value: 100 },
-      { symbol: "LARGE", name: "Larger", quantity: 1, price: 900, market_value: 900 },
+      { symbol: "LARGE", name: "Larger", quantity: 1, price: 900, market_value: 900, asset_type: "Common Stock" },
     ] });
     const open = vi.fn();
     const { unmount } = render(<PortfolioBriefing model={model} onOpen={open} />);
@@ -30,8 +30,47 @@ describe("portfolio briefing", () => {
     unmount();
     render(<PortfolioAnalysis model={model} />);
     expect(screen.queryByRole("heading", { name: "Balance history" })).toBeNull();
-    expect(screen.getByText("Larger", { selector: "dt" }).nextElementSibling?.textContent).toBe("90.0%");
+    expect(screen.getByText("Larger · 90.0% of portfolio")).toBeTruthy();
+    expect(screen.getByText("−18.0%")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "−30%" }));
+    expect(screen.getByText("−27.0%")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Largest holdings" })).toBeNull();
   });
+  it("uses a Plaid equity holding for the scenario and excludes funds", () => {
+    const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
+      { symbol: "SBSI", name: "Southside Bancshares", quantity: 1, price: 291, market_value: 291, asset_type: "equity" },
+      { symbol: "FUND", name: "Sample fund", quantity: 1, price: 420, market_value: 420, asset_type: "ETF" },
+      { symbol: "CASH", name: "Cash", quantity: 1, price: 289, market_value: 289, asset_type: "Cash" },
+    ] });
+    render(<PortfolioAnalysis model={model} />);
+    expect(screen.getByText("Southside Bancshares · 29.1% of portfolio")).toBeTruthy();
+    expect(screen.getByText("−5.8%")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "−30%" }));
+    expect(screen.getByText("−8.7%")).toBeTruthy();
+  });
+
+  it("keeps the second card for a fund-and-cash portfolio without history", () => {
+    const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
+      { symbol: "FUND", name: "Sample fund", quantity: 1, price: 456, market_value: 456, asset_type: "ETF" },
+      { symbol: "CASH", name: "Cash", quantity: 1, price: 544, market_value: 544, asset_type: "Cash" },
+    ] });
+    render(<PortfolioAnalysis model={model} />);
+    expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+      "Portfolio mix", "What if your investments fall?",
+    ]);
+    expect(screen.getByText("−9.1%")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "−30%" }));
+    expect(screen.getByText("−13.7%")).toBeTruthy();
+  });
+
+  it("keeps both cards when figures are unavailable", () => {
+    render(<PortfolioAnalysis />);
+    expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+      "Portfolio mix", "Portfolio insights",
+    ]);
+    expect(screen.queryByText("Estimated portfolio change")).toBeNull();
+  });
+
   it("shows saved positions and allocation without inventing performance contributions", () => {
     const portfolio = { total_value: 1000, holdings: [
       { symbol: "ABC", name: "Example", quantity: 1, price: 1000, market_value: 1000 },

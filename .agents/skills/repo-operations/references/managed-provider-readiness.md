@@ -13,8 +13,10 @@ fixtures, add a second semantic stage, weaken a gate or retry until a desired an
 appears. Preserve the producer's existing deadlines and bounded recovery.
 
 Use fixed case/stage/reason/timing diagnostics without prompts, model output or
-credentials. A semantic failure must remain fail-closed in its terminal verdict
-even if earlier log lines arrive later. Verify producer and collector regressions,
+credentials. A semantic failure must remain failed in its terminal verdict
+even if earlier log lines arrive later. Core trust, ownership, schema and active-model
+failures block deployment. Secondary feature failures remain diagnostic outcomes;
+not-run features are not reported as passing. Follow the [canonical CI policy](../../../../docs/reference/operations/ci.md#managed-provider-readiness-policy). Verify producer and collector regressions,
 then qualify the fixed image through the existing runtime-identity release path.
 A source patch or healthy newer workflow cannot repair an older pinned image.
 
@@ -64,7 +66,8 @@ Each rule names the check that enforces it today, or its gap.
    reason code, and the terminal verdict keeps it.
    - Structured text declares the same closed object schema for unary and streamed
      output. It validates received JSON type, keys, synthetic value and completion;
-     invalid content remains blocking. Short `structured.unary`,
+     invalid core/trust/schema content remains blocking; secondary failures remain
+     failed diagnostics. Short `structured.unary`,
      `structured.unary_end` and `structured.stream` reasons identify the failed leg
      without recording output. Both receipt consumers enforce capability ownership.
    - Enforced: the Drive planner probe raises fixed reasons
@@ -105,19 +108,19 @@ Each rule names the check that enforces it today, or its gap.
    - Gap: variance is not classified automatically, and PWM gateway calls are not
      yet observed.
 7. **Fail fast, stay cheap.** Run a check as soon as its artifact exists, run
-   independent checks concurrently, fail the aggregate on the first required
-   failure, keep sleeps and log polling off the critical path, and report
+   independent checks concurrently, collect their outcomes before the final
+   required verdict, keep sleeps and log polling bounded, and report
    time-to-verdict.
    - Enforced: the step that collects a finished exam's verdict waits for its rows
      with bounded, capped backoff instead of a fixed 30-second window
      (`tests/test_uat_readiness_verdict_collector.py`), so slow log indexing no
      longer fails a passing exam.
    - Current implementation: Azure starts after the candidate image and runtime
-     IAM are available, independently of backend deployment; Azure and Vertex
-     steps run concurrently. The aggregate joins both candidate-bound proofs.
-     A complete Vertex bundle can qualify a classified Azure outage as
-     `degraded_fallback`; missing evidence, application/configuration failures
-     and PWM trust failures remain blocking.
+     IAM are available, independently of backend deployment. Ordinary UAT core mode
+     runs the configured provider; full diagnostics retain concurrent Azure/Vertex
+     qualification. Only the existing complete fallback evidence can qualify a
+     classified Azure outage as `degraded_fallback`; core mode grants no fallback.
+     Missing required evidence and PWM trust failures remain blocking.
    - Gap: the verdict still travels through log search, and individual stages
      inside each provider exam remain sequential. Ending the build from a provider step cancels sibling steps
      before their own job cleanup runs (UAT build a7482d0a left a job that

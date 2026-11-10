@@ -1,6 +1,6 @@
 ---
 name: release-ios-appstore
-description: Use when releasing, submitting, or verifying a public Hussh One iOS App Store build cut from green main: Apple-managed signing with an Admin ASC API key, a binary whose backend is chosen by `backend_target` (default UAT, or production), per-version "What's New" and build attach via the ASC API, and the two-gate dispatch path (prepare-only default, opt-in irreversible public submit).
+description: Use when releasing, submitting, or verifying a public Hussh One iOS App Store build cut from green main: Apple-managed signing with an Admin ASC API key, a binary whose backend is chosen by `backend_target` (production by default; explicit legacy UAT diagnostics), per-version "What's New" and build attach via the ASC API, and the two-gate dispatch path (prepare-only default, opt-in irreversible public submit).
 ---
 
 # Hussh Release iOS to App Store Skill
@@ -54,11 +54,11 @@ Non-owned surfaces:
 
 ## Workflow
 
-1. Confirm the `gh` actor is in `config/ci-governance.json` -> `production.manual_dispatch_users`, else STOP (the run is rejected by `scripts/ci/assert-governed-actor.py` with `--surface production`).
+1. Confirm the `gh` actor and rerunner have current `deploy-production` team membership through the trusted admission check. Saved username lists and organization-admin status do not grant release authority.
 2. Pick SHA = user-provided else latest `origin/main`; it must be an ancestor of `origin/main`.
 3. Require "Main Post-Merge Smoke Gate" = success on that exact SHA (the workflow re-checks via `scripts/ci/require-deploy-sha-on-main.sh` and refuses otherwise).
 4. First run after any signing/secret change, dispatch a dry run (`make ios-prod-release-dry`): archive + sign, no upload. A dry run does NOT catch a closed marketing-version train.
-5. GATE 1 (every dispatch): restate workflow, `--ref main`, short SHA, mode, backend target (`uat` = `hushh-pda-uat`, the default; `production` = `hushh-pda` / one.hushh.ai), bundle `com.hushh.app`; get an explicit yes, then `make ios-prod-release ARGS="--sha <sha> --backend <uat|production> --yes --whats-new '<notes>'"` (prepare-only default; no `--submit`). The first production-backed release moves existing App Store users from the UAT database to the production one. Name that in the gate, because their vault and records do not move with them.
+5. GATE 1 (every dispatch): restate workflow, `--ref main`, exact SHA, mode, production backend and bundle `com.hushh.app`. Existing explicit authorization for that operation is sufficient; do not ask again. Use `make ios-prod-release ARGS="--sha <sha> --backend production --yes --whats-new '<notes>'"` (prepare-only default; no `--submit`). Explicit UAT remains a legacy diagnostic option, not a public-release target. A backend transition for existing installations requires a reviewed recovery plan: the same Firebase UID does not transfer vaults or records between databases.
 6. Before packaging, follow `release-proof.md` → Live version and concurrent-release admission. Read current Apple marketing versions/states and other developers' in-flight uploads; a higher build number does not advance the marketing version. Use a supported explicit `--marketing-version` or reviewed source change when needed, verify app/extension/receipt parity, and preserve exact backend provenance. Resolve an approved-but-unreleased public version before preparing its successor; publishing or withdrawing it requires its own authorization.
 7. GATE 2 (manual public submission): irreversible and publishes to real users; requires fresh explicit authorization and every publish-safety blocker cleared, then `--submit --ack-blockers` (workflow input `submit_for_review=true`). Unattended UAT/native cadence is retired; preparation never authorizes submission or publication.
 8. Verify from the ASC API and the run Job summary — uploaded, processed, "What's New" set, build attached, submitted-or-prepared — before reporting done. Never print, paste, or read the ASC `.p8` / Key / Issuer secrets.

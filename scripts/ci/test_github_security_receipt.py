@@ -152,7 +152,17 @@ def _owned_pid_running(pid):
     except ProcessLookupError:
         return False
     status = Path(f"/proc/{pid}/stat")
-    return not (status.exists() and status.read_text().rsplit(")", 1)[1].split()[0] == "Z")
+    try:
+        state = status.read_text()
+    except FileNotFoundError:
+        # The owned process may exit between kill(0) and the procfs read.
+        # Platforms without procfs still use the kernel's existence check.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+    return state.rsplit(")", 1)[1].split()[0] != "Z"
 
 
 def _writer_command(directory, case, limit):
@@ -334,6 +344,12 @@ class SecurityReceiptTest(unittest.TestCase):
         import subprocess
         import threading
 
+        if os.name != "nt":
+            with patch.object(Path, "read_text", side_effect=FileNotFoundError):
+                with patch.object(os, "kill", side_effect=[None, ProcessLookupError]):
+                    self.assertFalse(_owned_pid_running(123))
+                with patch.object(os, "kill", return_value=None):
+                    self.assertTrue(_owned_pid_running(123))
         consumer, *_ = receipt_fixture()
         original = subprocess.Popen
         transport = consumer._process_group

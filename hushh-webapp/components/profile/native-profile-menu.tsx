@@ -36,8 +36,8 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
   navigationLocked?: boolean;
   portrait?: string;
   scoreCard?: {
-    score: string; netWorth: string | null; updated: string | null; status: string | null;
-    primary?: NwsCardAction; secondary?: NwsCardAction; onOpen: () => void;
+    amount: string; status: string | null;
+    primary?: NwsCardAction; onOpen: () => void;
   };
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: NativeDrawerActions["close"];
   onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;
@@ -67,20 +67,15 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
           ...(portrait ? { portraitData: portrait } : {}) } : row),
       })) : projected.sections;
       if (scoreCard) {
-        const summary = [scoreCard.netWorth && `Linked net worth ${scoreCard.netWorth}`,
-          scoreCard.updated && `Last updated ${scoreCard.updated}`, scoreCard.status].filter(Boolean).join("\n");
         const rows: NativeDrawerRow[] = [{
-          id: "nws-score-value", label: scoreCard.score, ...(summary ? { detail: summary } : {}),
+          id: "nws-net-worth-amount", label: scoreCard.amount, ...(scoreCard.status ? { detail: scoreCard.status } : {}),
           enabled: ready,
         }];
-        projected.actions.rows.set("nws-score-value", scoreCard.onOpen);
-        const buttons = [scoreCard.primary, scoreCard.secondary];
-        buttons.forEach((button, index) => {
-          if (!button) return;
-          const id = index === 0 ? "nws-primary" : "nws-secondary";
-          rows.push({ id, label: button.label, enabled: ready });
-          projected.actions.rows.set(id, button.run);
-        });
+        projected.actions.rows.set("nws-net-worth-amount", scoreCard.onOpen);
+        if (scoreCard.primary) {
+          rows.push({ id: "nws-primary", label: scoreCard.primary.label, enabled: ready });
+          projected.actions.rows.set("nws-primary", scoreCard.primary.run);
+        }
         sections = [sections[0]!, { id: "net-worth-score-card", title: "Net Worth Score", rows }, ...sections.slice(1)];
       }
       if (!stack) return { ...projected, sections };

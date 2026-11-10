@@ -147,8 +147,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         super.load()
         DispatchQueue.main.async {
             if self.ensureFirebaseConfigured() {
-                self.deletionPhoneProof = try? DeletionPhoneProof(primary: Auth.auth())
-                self.appleIdentityReauthentication = AppleIdentityReauthentication(auth: Auth.auth())
+                self.deletionPhoneProof = try? DeletionPhoneProof(primary: HushhFirebaseIdentity.auth)
+                self.appleIdentityReauthentication = AppleIdentityReauthentication(auth: HushhFirebaseIdentity.auth)
             }
         }
     }
@@ -502,6 +502,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return false
         }
         FirebaseApp.configure()
+        HushhFirebaseIdentity.configureSharedIdentity()
         print("✅ [\(TAG)] Firebase configured")
         migrateUserDefaultsToKeychain()
         return true
@@ -531,10 +532,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        // Get Web Client ID from GoogleService-Info.plist
-        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
-              let plist = NSDictionary(contentsOfFile: path),
-              let clientId = plist["CLIENT_ID"] as? String else {
+        guard let clientId = HushhFirebaseIdentity.app?.options.clientID, !clientId.isEmpty else {
             call.reject("Missing GoogleService-Info.plist or CLIENT_ID")
             return
         }
@@ -566,7 +564,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             // Exchange for Firebase credential
             let credential = GoogleAuthProvider.credential(withIDToken: idToken, accessToken: accessToken)
             
-            Auth.auth().signIn(with: credential) { authResult, error in
+            HushhFirebaseIdentity.auth.signIn(with: credential) { authResult, error in
                 if let error = error {
                     self.googleInteractiveInFlight = false
                     print("❌ [\(self.TAG)] Firebase sign-in failed")
@@ -664,9 +662,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
-              let plist = NSDictionary(contentsOfFile: path),
-              let clientId = plist["CLIENT_ID"] as? String else {
+        guard let clientId = HushhFirebaseIdentity.app?.options.clientID, !clientId.isEmpty else {
             call.reject("Missing GoogleService-Info.plist or CLIENT_ID")
             return
         }
@@ -836,7 +832,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async {
                 guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
                 let scope = "https://www.googleapis.com/auth/contacts.readonly"
-                guard Auth.auth().currentUser === capture.user,
+                guard HushhFirebaseIdentity.auth.currentUser === capture.user,
                       ProcessInfo.processInfo.systemUptime < capture.deadline,
                       capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
                       GIDSignIn.sharedInstance.currentUser === google,
@@ -866,7 +862,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     private func continueGoogleContactsCapture(_ capture: GoogleContactsCapture, subject: String) {
         let scope = "https://www.googleapis.com/auth/contacts.readonly"
         guard googleContactsCapture === capture, !capture.settled,
-              Auth.auth().currentUser === capture.user,
+              HushhFirebaseIdentity.auth.currentUser === capture.user,
               ProcessInfo.processInfo.systemUptime < capture.deadline,
               capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
               let google = capture.googleUser, google.userID == subject,
@@ -890,7 +886,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         google.addScopes([scope], presenting: presenter) { [weak self] result, error in
             DispatchQueue.main.async {
                 guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
-                guard Auth.auth().currentUser === capture.user,
+                guard HushhFirebaseIdentity.auth.currentUser === capture.user,
                       ProcessInfo.processInfo.systemUptime < capture.deadline,
                       GIDSignIn.sharedInstance.currentUser === google,
                       error == nil, let granted = result?.user,
@@ -917,7 +913,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             guard self.ensureFirebaseConfigured(),
                   let expected = call.getString("expectedUserId"), !expected.isEmpty,
-                  let user = Auth.auth().currentUser, user.uid == expected,
+                  let user = HushhFirebaseIdentity.auth.currentUser, user.uid == expected,
                   let provider = user.providerData.first(where: { $0.providerID == "google.com" }),
                   !provider.uid.isEmpty else {
                 call.reject("Google Contacts access is unavailable.", "contacts_authorization_unavailable")
@@ -943,7 +939,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] restored, error in
                     DispatchQueue.main.async {
                         guard let self = self, self.drainGoogleContactsProvider(capture) else { return }
-                        guard Auth.auth().currentUser === capture.user,
+                        guard HushhFirebaseIdentity.auth.currentUser === capture.user,
                               ProcessInfo.processInfo.systemUptime < capture.deadline,
                               capture.user.providerData.contains(where: { $0.providerID == "google.com" && $0.uid == subject }),
                               error == nil, let restored = restored, restored.userID == subject,
@@ -980,7 +976,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
               let expiresAt = call.getDouble("expiresAt"),
               expiresAt > Date().timeIntervalSince1970 * 1_000,
               expiresAt <= Date().timeIntervalSince1970 * 1_000 + 11 * 60 * 1_000,
-              let user = Auth.auth().currentUser, user.uid == expectedUserID,
+              let user = HushhFirebaseIdentity.auth.currentUser, user.uid == expectedUserID,
               let presenter = bridge?.viewController else {
             call.reject("Drive connection is unavailable.", "drive_connection_unavailable")
             return
@@ -1074,7 +1070,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         _ operation: DriveAuthorization, attemptID: String
     ) -> NativeDriveAuthorizationFence.Claim {
         guard driveAuthorization === operation else { return .ignored }
-        let user = Auth.auth().currentUser
+        let user = HushhFirebaseIdentity.auth.currentUser
         return operation.fence.claim(
             attemptID: attemptID,
             userID: user?.uid,
@@ -1122,7 +1118,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
               let expiresAt = call.getDouble("expiresAt"),
               expiresAt > Date().timeIntervalSince1970 * 1_000,
               expiresAt <= Date().timeIntervalSince1970 * 1_000 + 11 * 60 * 1_000,
-              let user = Auth.auth().currentUser, user.uid == expectedUserID,
+              let user = HushhFirebaseIdentity.auth.currentUser, user.uid == expectedUserID,
               let presenter = bridge?.viewController else {
             call.reject("Drive file selection is unavailable.", "drive_picker_unavailable")
             return
@@ -1206,7 +1202,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         _ operation: DrivePickerAuthorization, attemptID: String
     ) -> NativeDriveAuthorizationFence.Claim {
         guard drivePickerAuthorization === operation else { return .ignored }
-        let user = Auth.auth().currentUser
+        let user = HushhFirebaseIdentity.auth.currentUser
         return operation.fence.claim(
             attemptID: attemptID,
             userID: user?.uid,
@@ -1258,13 +1254,13 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         guard ensureFirebaseConfigured(),
               let expectedUserID = call.getString("expectedUserId"), !expectedUserID.isEmpty,
-              let user = Auth.auth().currentUser, user.uid == expectedUserID,
+              let user = HushhFirebaseIdentity.auth.currentUser, user.uid == expectedUserID,
               let google = user.providerData.first(where: { $0.providerID == "google.com" }) else {
             call.reject("Verify the current Google identity.", "google_identity_required")
             return
         }
         guard let presenter = bridge?.viewController,
-              let clientID = FirebaseApp.app()?.options.clientID, !clientID.isEmpty else {
+              let clientID = HushhFirebaseIdentity.app?.options.clientID, !clientID.isEmpty else {
             call.reject("Identity verification is unavailable.", "identity_verification_failed")
             return
         }
@@ -1327,7 +1323,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func claimIdentity(_ operation: IdentityReauthentication, phase: Int) -> Bool {
         guard identityReauthentication === operation else { return false }
-        let current = Auth.auth().currentUser
+        let current = HushhFirebaseIdentity.auth.currentUser
         switch operation.fence.claim(
             phase: phase, userID: current?.uid, sameSession: current === operation.user,
             now: ProcessInfo.processInfo.systemUptime
@@ -1371,7 +1367,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Sign out from Firebase
         do {
-            try Auth.auth().signOut()
+            try HushhFirebaseIdentity.auth.signOut()
         } catch {
             print("⚠️ [\(TAG)] Firebase sign out failed")
         }
@@ -1439,7 +1435,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func getIdToken(_ call: CAPPluginCall) {
         let forceRefresh = call.getBool("forceRefresh") ?? false
 
-        if let user = Auth.auth().currentUser {
+        if let user = HushhFirebaseIdentity.auth.currentUser {
             // Firebase owns forced-refresh authority. In that mode, a failed
             // refresh must not be hidden by the Keychain's unexpired token.
             user.getIDTokenResult(forcingRefresh: forceRefresh) { [weak self] result, error in
@@ -1484,7 +1480,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Get Current User
     @objc func getCurrentUser(_ call: CAPPluginCall) {
-        if let user = Auth.auth().currentUser {
+        if let user = HushhFirebaseIdentity.auth.currentUser {
             let userData: [String: Any] = [
                 "uid": user.uid,
                 "email": user.email ?? "",
@@ -1504,7 +1500,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Is Signed In
     @objc func isSignedIn(_ call: CAPPluginCall) {
         let signedIn =
-            Auth.auth().currentUser != nil ||
+            HushhFirebaseIdentity.auth.currentUser != nil ||
             (freshCachedIdToken() != nil && cachedUserData() != nil)
         call.resolve(["signedIn": signedIn])
     }
@@ -1596,7 +1592,7 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
             fullName: appleIDCredential.fullName
         )
         
-        Auth.auth().signIn(with: credential) { [weak self] authResult, error in
+        HushhFirebaseIdentity.auth.signIn(with: credential) { [weak self] authResult, error in
             guard let self = self else { return }
             
             if let error = error {

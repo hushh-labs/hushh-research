@@ -1,5 +1,62 @@
 # API Contracts
 
+## Visual Map
+
+Which credential plane authorizes which FastAPI route family, and how first-party
+clients reach them through the Next.js proxy layer.
+
+```mermaid
+flowchart TB
+  subgraph creds["Credential planes"]
+    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
+    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
+    devtok["Developer Token<br/>Authorization Bearer"]
+    hct["Consent Token HCT<br/>app-bound scoped grant"]
+    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
+    anon["No auth<br/>public reads"]
+  end
+
+  subgraph client["First-party client transport"]
+    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
+    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
+  end
+
+  subgraph api["FastAPI route families in consent-protocol/api/routes"]
+    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
+    con["consent.py and sse.py<br/>/api/consent"]
+    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
+    vault["db_proxy.py<br/>/db/vault wrappers"]
+    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
+    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
+    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
+    ria["ria.py and account.py<br/>/api/ria and /api/account"]
+    dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
+  end
+
+  fb --> vo
+  fb --> dev
+  fb --> commerce
+  anon --> pub
+  vo --> svc
+  svc --> proxy
+  proxy --> con
+  proxy --> pkm
+  proxy --> vault
+  proxy --> kai
+  proxy --> one
+  proxy --> fabric
+  proxy --> ria
+  proxy --> commerce
+  devtok --> dev
+  devtok --> fabric
+  con --> hct
+  hct --> dev
+  maint --> one
+```
+
+---
+
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
@@ -9,7 +66,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`; filtering precedes logical pagination. |
 | `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
 | `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
 
@@ -135,62 +192,31 @@ confirmation metadata remain until reconciliation or account erasure. Production
 qualification must separately verify the migration, exact authenticated
 two-person journey, platform transport and current processing-provider approval.
 
-## Visual Map
+## V1 chat memory preparation
 
-Which credential plane authorizes which FastAPI route family, and how first-party
-clients reach them through the Next.js proxy layer.
+`POST /api/one/agent-chat` accepts the current owner's
+`forwardedProps.emailMemoryProjection` with a declared `budget_chars` of up to
+96,000 UTF-16 code units, matching the complete `one_memory.markdown` document.
+The document must fit both that declared budget and the server maximum. Email
+session reads and prompt preparation use the same memory bound without truncation.
+Owner matching, strict projection fields and request-only secret references remain
+required; the separate 18,000-character draft and 2,048-character fact-write limits
+are unchanged.
 
-```mermaid
-flowchart TB
-  subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
-    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
-    devtok["Developer Token<br/>Authorization Bearer"]
-    hct["Consent Token HCT<br/>app-bound scoped grant"]
-    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
-    anon["No auth<br/>public reads"]
-  end
-
-  subgraph client["First-party client transport"]
-    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
-    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
-  end
-
-  subgraph api["FastAPI route families in consent-protocol/api/routes"]
-    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
-    con["consent.py and sse.py<br/>/api/consent"]
-    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
-    vault["db_proxy.py<br/>/db/vault wrappers"]
-    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
-    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
-    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
-    ria["ria.py and account.py<br/>/api/ria and /api/account"]
-    dev["developer.py<br/>/api/v1 and /api/developer"]
-    commerce["scope_commerce.py<br/>/api/scope-commerce"]
-  end
-
-  fb --> vo
-  fb --> dev
-  fb --> commerce
-  anon --> pub
-  vo --> svc
-  svc --> proxy
-  proxy --> con
-  proxy --> pkm
-  proxy --> vault
-  proxy --> kai
-  proxy --> one
-  proxy --> fabric
-  proxy --> ria
-  proxy --> commerce
-  devtok --> dev
-  devtok --> fabric
-  con --> hct
-  hct --> dev
-  maint --> one
-```
-
----
+`POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
+owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
+admission, held owner incarnation and AI-selection checks before and after inference.
+The request contains `user_id`, `current_markdown`, incremental `messages`
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. Whitespace-only messages are
+rejected during request validation before inference. Meaningful Markdown
+indentation is preserved, and `current_markdown` may be empty for initial memory.
+The response is
+`{markdown}`: a proposed complete document with no persistence authority. The
+client validates and atomically commits ciphertext and its source checkpoint
+through the existing PKM writer. Invalid generation returns a bounded failure;
+there is no partial replacement or client-visible success before storage ACK.
+The platform-aware PKM proxy/native transport and explicit pod allowlists own
+placement; unknown/private owners never fall back to Shared inference.
 
 ## Public market quotes
 
@@ -723,6 +749,11 @@ existing isolated proof service instead of replaying the SMS code. Its phone
 ID token stays in memory, bound to the current user, phone and verification
 attempt. It is cleared on resend, retirement, owner change, unmount or success.
 Ordinary successful links never create a secondary sign-in session.
+
+Linked-account deletion is a separate contract: confirming deletion links no
+phone to the surviving account. It releases the consumed proof and requires a
+fresh verification afterward. An uncertain confirmation uses the existing
+read-only recheck; it never replays deletion or reuses the spent SMS proof.
 
 After linking, clients send `{ "verified_phone_number": "+…" }` through the
 existing account proxy or shared native transport. The backend reads the current
@@ -5388,7 +5419,14 @@ unavailable row with a retry action.
 ### Connect directory mutual connections
 
 Directory rows additionally return `mutualConnectionCount` and optional
-`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`). Counts use distinct shared
+`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`), plus
+`mutualConnectionPreviews` containing up to two eligible public identities. The
+singular field remains the first eligible preview for existing clients. The same
+metadata is returned on mutual-list and network-list rows, with viewer-relative
+`relationship` (`none`, `pending_outgoing`, `pending_incoming`, `connected`).
+Preview reads are batched across at most 50 page rows and 100 selected identities;
+final graph, block, profile and reference checks reject mid-read changes with 503.
+Counts use distinct shared
 neighbors across active canonical connections, scoped to the returned page,
 excluding blocked relationships. A bounded batch lookup resolves shared peers
 through the canonical directory's live visibility and account checks, independent
@@ -5399,6 +5437,12 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+The authenticated, private/no-store person-context lookup also returns the
+canonical `publicPersonRef`. UID-only portrait entry points use this reference
+to open the existing shared profile preview; they never reinterpret a UID as a
+public reference. Connection requests continue through the existing authenticated
+`POST /api/one/people/{person_ref}/connection` endpoint.
 
 ### Private email send recovery
 
@@ -5777,6 +5821,49 @@ marketing subscription and carry `readAuthority=verified_owner` plus the hashed
 `ownerEpoch`; they never carry delivery authority. Identity changes and account
 reset during a snapshot invalidate it. No raw email or private content is exported.
 Production marketing/reporting contracts remain separate.
+
+Memory's explicit export, edit, delete, preparation, section retry and reviewed
+save controls report paired `pkm.*` client attempts under Personal Information.
+They retain the original owner and admission generation and expose only a closed
+action ID, opaque operation ID and phase. Their authored action contracts remain
+manual-only; observation does not add an executor or authorize a write or email.
+Preparation is distinct from saving. Partial saves, expired authority, transport
+timeouts and an unacknowledged file handoff remain unknown. A confirmed write is
+not changed to failure by a later metadata refresh. Existing aggregate Memory
+observations remain unpaired and cannot create additional attempt emails.
+
+Manual KYC profile imports in Mail and Email setup report `kyc.save_profile`
+under KYC. Both preserve the originally admitted owner and generation. Local
+Memory staging does not settle the attempt: the existing encrypted-write queue
+notifies a RAM-only, zero-payload observer after a write acknowledgement or its
+existing commit-receipt recovery. A confirmed write remains returned if local
+checkpoint cleanup needs retry; that retry cannot emit the outcome twice. A
+fully synced, already persisted no-op may return, while a duplicate of pending
+work remains unknown. Explicit no-write preparation rejection is blocked;
+transport loss, retired ownership, reset and page exit never infer a terminal
+outcome. Observers are not persisted or replayed after reload, and observer
+errors cannot change the product's result. These observations add no email
+permission and do not cover every KYC action or prove live delivery.
+
+World Model confirmation, rejection, edit and removal report under Memory.
+The shared web and native controller returns an attempt only after the current
+owner’s existing encrypted memory decision has been verified. A lost commit
+acknowledgement or retired owner remains unknown. Reports carry action metadata
+only. Fact keys, wording and evidence never enter PLG or its email body.
+
+The Mail workspace reports an explicit retry of saved receipt restoration as
+`profile.gmail.restore_saved_receipts` under Email. A current, verified saved
+snapshot is required for a returned outcome. Confirmed unavailable storage or
+invalid receipt binding can report failure. Missing snapshots, expired reads
+and retired owners or account/vault scopes supply no terminal outcome.
+Automatic hydration and the follow-up sync do not create another attempt.
+Only activity metadata is reported, with no receipt or account data.
+
+Manual Calendar connection and disconnection report against the original attempt.
+Terminal returns require an acknowledged connection or confirmed disconnection.
+Meeting file upgrades wait for the matching grant. An expired popup, a lost
+response, a handoff that leaves the page, and a same-window reload can leave the
+attempt unknown. Calendar reports contain no Google account or event details.
 
 Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
 `snapshot-dev`, with matching distinct HMAC purposes. It requires exactly

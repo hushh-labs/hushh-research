@@ -86,7 +86,7 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
-import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
+import { neutralWorldCamera, wrappedLongitude } from "@/lib/one-location/map-world-view";
 import {
   attachWebPersonAvatarHosts,
   webPersonMarkerPlaceholder,
@@ -613,10 +613,6 @@ async function frameMarkers(
   // fit. A rejected bridge call must leave the existing street-scale dot alone
   // rather than painting a continent-sized circle over an unmoved camera.
   if (fittedZoom !== null) prepareCamera?.(fittedZoom);
-}
-
-function wrappedLongitude(longitude: number): number {
-  return ((((longitude + 180) % 360) + 360) % 360) - 180;
 }
 
 function radiusBounds(

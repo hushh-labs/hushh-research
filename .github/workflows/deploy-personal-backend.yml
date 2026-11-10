@@ -29,28 +29,49 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-backend-dev-${{ inputs.sandbox }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    if: >-
-      github.repository == 'hushh-labs/hushh-research' &&
-      github.ref == 'refs/heads/main' &&
-      github.actor == github.triggering_actor &&
-      (github.actor == 'ankitkumarsingh1702' ||
-       (github.actor == 'RGlodAkshat' && inputs.sandbox == 'akshat'))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    environment: uat
+  deployment-security:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha }}
+      environment_name: uat
+      scope: backend
+  deploy:
+    needs: deployment-security
+    if: >-
+      github.repository == 'hushh-labs/hushh-research' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: uat
+    env:
+      RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+      RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+    permissions:
+      contents: read
+      actions: write
       id-token: write
     steps:
+      - name: Require current-attempt deployment security
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -62,6 +83,8 @@ jobs:
           SOURCE_OBJECT: ${{ inputs.source }}
           SOURCE_SHA256: ${{ inputs.source_sha256 }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         shell: bash
         run: |
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"

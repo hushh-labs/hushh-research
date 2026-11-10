@@ -183,6 +183,11 @@ async def run_portfolio_gene(
         raise RuntimeError(f"Portfolio Import gene must run on managed Gemini: {gene_id}")
 
     resolved_model = _model_name(gene, model_name)
+    call_timeout_seconds = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else max(30.0, gene.performance.latency_p95_ms / 1000)
+    )
     agent = build_single_turn_agent(
         gene,
         output_schema=output_schema,
@@ -191,7 +196,9 @@ async def run_portfolio_gene(
         # ADK 2.9's Gemini.client (typed genai.Client) rejects, so every import
         # failed before its request was sent. The regional model is the seam for
         # a tool-less single turn, with bounded failover across locations.
-        model=build_managed_regional_gemini_adk_model(resolved_model),
+        model=build_managed_regional_gemini_adk_model(
+            resolved_model, timeout_seconds=call_timeout_seconds
+        ),
     )
     parts: list[Any] = [types.Part.from_text(text=str(prompt).strip())]
     parts.extend(document_parts)
@@ -202,9 +209,7 @@ async def run_portfolio_gene(
         message_content=types.Content(role="user", parts=parts),
         user_id=str(user_id),
         consent_token=str(consent_token),
-        timeout_seconds=timeout_seconds
-        if timeout_seconds is not None
-        else max(30.0, gene.performance.latency_p95_ms / 1000),
+        timeout_seconds=call_timeout_seconds,
     )
     payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
     if not isinstance(payload, dict):

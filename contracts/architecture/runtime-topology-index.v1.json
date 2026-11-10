@@ -67,6 +67,72 @@
       }
     },
     {
+      "id": "agent_chat_memory_manager",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": null,
+        "rollback": "Restore the previous chat memory runtime; retain encrypted documents and transcripts.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_chat_stm",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": null,
+        "rollback": "Restore the previous chat runtime; retain encrypted summaries and full transcripts.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_computer_use",
       "parent": "agent_one",
       "rollout": {
@@ -7256,22 +7322,22 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "072eb5a8b08650681fe314c97697c7e5589d6ae76ce849bafc122b1052aa849b",
-    "agent_registry": "3bab823bfb5c461b4ef334135d4df010412a887cf33a02cd44f9f3a6d61aa8f0",
+    "action_gateway": "2ab12ce02dcd9e7c44eb14f25bc9d6e7a62ee6764d61637497cc2a9eb8fdaa9f",
+    "agent_registry": "6236327d663e26e0f15180631e24290b6ba5ffd2d5272374a72d719afab46a7b",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
     "data_plane": "07c0ef4e8eaddde0f85cfd22f12d6c0dacc8a7e0adec95025f844fc987fdcbde",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "b9b55fb607d8160c2e5a0f04d0c115db3f1c1ebd2303c7b2bae1ecc820573cb7",
-    "route_layout": "2cf500dfe53a88d97aaf73beb5f3399829a65ff82a8120d4cafe61cf4499c0a6",
-    "surface_map": "e2a272010e8453d3a32a5345c795fde5c8a6942833e01e07b2c8e96414f7e628",
+    "one_specialist_tools": "ee3a87017fc16dde5f853a4b95e828491237fefd05db4c1b751c4079538ed965",
+    "route_index": "2cf09d1f281d70589f0300ededf21ff1a0fc56ae4bbd76037b5773f3b8dbf169",
+    "route_layout": "7ecb8d768861ce4200cb617dde71bd0292169593b28101fb4ac7a9675971ea4e",
+    "surface_map": "92925e20e776a7fdb7b20c6137f680300a0cf0fb7f6465f119fc93b2abd72107",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 314,
-    "agents": 21,
+    "actions": 327,
+    "agents": 23,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,

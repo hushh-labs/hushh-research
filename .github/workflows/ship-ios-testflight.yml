@@ -3,9 +3,8 @@ name: Ship iOS to TestFlight
 # New builds use UAT. upload_run_id resumes the exact existing binary, preserving
 # its original backend. This workflow never
 # creates an App Store version or submits the app for public App Store review.
-# The one valid build is assigned to the configured internal and external
-# TestFlight groups. External availability remains pending until Apple grants
-# TestFlight Beta App Review when that review is required.
+# The valid build is assigned only to the configured internal TestFlight group.
+# External distribution and beta review require a separate explicit operation.
 
 on:
   workflow_dispatch:
@@ -21,7 +20,7 @@ on:
       source_branch:
         description: Select a Main build or the exact accepted source of a protected UAT branch.
         type: choice
-        default: main
+        default: uat
         options:
           - main
           - uat
@@ -55,6 +54,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
   checks: read
@@ -68,6 +68,7 @@ env:
   GCP_PROJECT_ID: hushh-pda-uat
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
+  TESTFLIGHT_INTERNAL_ONLY: "true"
   IOS_BUNDLE_ID: com.hushh.app
   XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
   XCODE_SCHEME: App
@@ -80,12 +81,19 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.upload_run_id != '' && github.sha || inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   preflight:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     if: inputs.upload_run_id == ''
     needs: deployment-security
     name: Resolve green UAT release source
@@ -132,6 +140,8 @@ jobs:
       - name: Authorize dispatching actor
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
 
@@ -146,7 +156,7 @@ jobs:
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
           SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SHA: ${{ inputs.sha }}
-          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
           REQUIRE_HARDWARE: ${{ inputs.require_hardware }}
         run: |
           set -euo pipefail
@@ -158,10 +168,17 @@ jobs:
             fi
             bash scripts/ci/require-deploy-sha-on-main.sh "$GITHUB_SHA"
             git fetch --no-tags origin "$SOURCE_BRANCH"
-            gh api "repos/$GITHUB_REPOSITORY/branches/$SOURCE_BRANCH" \
-              | jq -e --arg sha "$SHA" '.protected == true and .commit.sha == $sha' >/dev/null
+            PYTHONPATH=scripts/ci python3 -c '
+          import os
+          from uat_exact_ci import GitHub, REPOSITORY, require_protected_tip
+          require_protected_tip(
+              GitHub(REPOSITORY, os.environ["GITHUB_TOKEN"]),
+              os.environ["SHA"], os.environ["SOURCE_BRANCH"],
+          )
+          '
             # Run the candidate release controls with signing credentials only
-            # when they agree with the Main dispatch revision.
+            # when they agree with the Main dispatch revision. Test-only selectors
+            # and the uninvoked phone diagnostic are not signing/build inputs.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
               .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
@@ -175,7 +192,8 @@ jobs:
               ':(glob)scripts/ci/*ios*' ':(glob)scripts/ci/*testflight*' \
               ':(glob)scripts/ci/*appstore*' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' || {
+              ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }
@@ -222,7 +240,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
-          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -311,6 +329,11 @@ jobs:
         run: rm -f "$RUNNER_TEMP/asc.p8"
 
   hardware-capture:
+    permissions:
+      contents: read
+      checks: read
+      actions: write
+      id-token: write
     name: Prove physical iPhone capture gate
     needs: [preflight, deployment-security]
     if: ${{ needs.preflight.result == 'success' && inputs.require_hardware == true }}
@@ -318,9 +341,17 @@ jobs:
     with:
       release_sha: ${{ needs.preflight.outputs.release_sha }}
       security_attempt: ${{ needs.deployment-security.outputs.attempt }}
+      security_authorization: ${{ needs.deployment-security.outputs.authorization }}
+      security_application_sha: ${{ needs.deployment-security.outputs.application_sha }}
     secrets: inherit
 
   ship:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Build and distribute normal UAT TestFlight build
     needs:
       - deployment-security
@@ -360,11 +391,15 @@ jobs:
           persist-credentials: false
       - name: Authorize build actor including individual job reruns
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - name: Preserve trusted serving revision verifier
         if: inputs.source_branch == 'uat' || inputs.source_branch == 'uat-isolated'
-        run: cp scripts/ci/resolve-cloud-run-serving-state.py "$RUNNER_TEMP/testflight-serving-state.py"
+        run: |
+          cp scripts/ci/resolve-cloud-run-serving-state.py "$RUNNER_TEMP/testflight-serving-state.py"
+          cp consent-protocol/scripts/generate_capability_graph.py "$RUNNER_TEMP/testflight-capability-graph.py"
       - name: Check out exact release SHA
         uses: actions/checkout@v6
         with:
@@ -493,14 +528,20 @@ jobs:
         env:
           ISOLATED_AUTHORITY: ${{ needs.preflight.outputs.isolated_authority }}
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
         run: |
           set -euo pipefail
           if [[ -n "$ISOLATED_AUTHORITY" ]]; then
-            # Exact UAT CI used this verifier with the candidate. Use it
-            # for the same checks, then restore the candidate before packaging.
+            # Preserve the accepted isolated verifier. Normal UAT uses the
+            # reviewed Main verifier that understands its serving history.
+            # Restore the exact candidate before packaging in either case.
             graph=consent-protocol/scripts/generate_capability_graph.py
             trap 'git restore --worktree -- "$graph"' EXIT
-            git show "$ISOLATED_AUTHORITY:$graph" > "$graph"
+            if [[ "$SOURCE_BRANCH" == uat ]]; then
+              cp "$RUNNER_TEMP/testflight-capability-graph.py" "$graph"
+            else
+              git show "$ISOLATED_AUTHORITY:$graph" > "$graph"
+            fi
             export UAT_CI_CANDIDATE="$RELEASE_SHA" CI_VALIDATION_LEVEL=release
           fi
           npm run --prefix hushh-webapp verify:one-voice
@@ -639,7 +680,7 @@ jobs:
           ISOLATED_IMAGE: ${{ needs.preflight.outputs.isolated_image }}
           ISOLATED_RUN: ${{ needs.preflight.outputs.isolated_run }}
           ISOLATED_ATTEMPT: ${{ needs.preflight.outputs.isolated_attempt }}
-          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -707,7 +748,7 @@ jobs:
         env:
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
-          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
           ISOLATED_REVISION: ${{ needs.preflight.outputs.isolated_revision }}
           ISOLATED_RUN: ${{ needs.preflight.outputs.isolated_run }}
         run: |
@@ -771,10 +812,16 @@ jobs:
             echo "| Apple processing | separate Ubuntu distribution job |"
             echo "| TestFlight distribution | separate Ubuntu distribution job |"
             echo
-            echo "The workflow uses TestFlight beta endpoints only. External tester availability is pending until Apple approves TestFlight Beta App Review when required; this workflow never submits an App Store version."
+            echo "This workflow distributes internally only; it neither prepares external beta review nor submits an App Store version."
           } >> "$GITHUB_STEP_SUMMARY"
 
   distribute:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Process and distribute uploaded TestFlight build
     needs: [preflight, ship, deployment-security]
     # Override implicit success(): the optional hardware ancestor may be skipped.
@@ -803,6 +850,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Authorize distribution actor including individual job reruns
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - uses: actions/setup-python@v6
         with:
@@ -834,7 +884,7 @@ jobs:
             --poll-interval-seconds 15 \
             --output-json "$RUNNER_TEMP/testflight-build.json"
 
-      - name: Attach the same valid build to both TestFlight groups
+      - name: Attach the valid build to internal TestFlight testers
         id: distribution
         if: inputs.dry_run != true
         shell: bash
@@ -843,6 +893,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/distribute-testflight-build.py \
+            --internal-only \
             --p8-path "$RUNNER_TEMP/asc.p8" \
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
@@ -851,9 +902,6 @@ jobs:
             --build-number "${{ needs.ship.outputs.build_number }}" \
             --build-id-file "$RUNNER_TEMP/testflight-build.json" \
             --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
-            --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
-            --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
-            --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
             --output-json "$RUNNER_TEMP/testflight-distribution.json"
 
       - name: Upload redacted release evidence
@@ -870,12 +918,18 @@ jobs:
         if: always()
         run: |
           echo "Source: ${{ needs.preflight.outputs.release_sha }}; build: ${{ needs.ship.outputs.build_number }}." >> "$GITHUB_STEP_SUMMARY"
-          echo "Apple processing: ${{ steps.processing.outcome }}; distribution: ${{ steps.distribution.outcome }}. External Beta App Review may remain pending." >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple processing: ${{ steps.processing.outcome }}; internal distribution: ${{ steps.distribution.outcome }}. External distribution was not requested." >> "$GITHUB_STEP_SUMMARY"
       - name: Remove protected distribution files
         if: always()
         run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"
 
   resume:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     if: inputs.upload_run_id != ''
     needs: deployment-security
     runs-on: ubuntu-latest
@@ -906,8 +960,10 @@ jobs:
       - name: Validate dispatch and original upload provenance
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SHA: ${{ inputs.sha }}
-          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
           REQUESTED_VERSION: ${{ inputs.marketing_version }}
           DRY_RUN: ${{ inputs.dry_run }}
           REQUIRE_HARDWARE: ${{ inputs.require_hardware }}
@@ -986,11 +1042,11 @@ jobs:
         id: distribution
         run: |
           python scripts/ci/distribute-testflight-build.py \
+            --internal-only \
             --p8-path "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id com.hushh.app --marketing-version "$MARKETING_VERSION" --build-number "$BUILD_NUMBER" \
             --build-id-file "$RUNNER_TEMP/testflight-build.json" \
-            --internal-group-id "$ASC_INTERNAL_GROUP_ID" --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
-            --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
+            --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
             --output-json "$RUNNER_TEMP/testflight-distribution.json"
       - name: Bind recovery evidence to the original upload
         run: |

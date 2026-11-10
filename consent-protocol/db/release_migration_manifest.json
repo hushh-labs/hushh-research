@@ -385,7 +385,8 @@
     "447_finance_advisor_handshake.sql",
     "448_connection_network_visibility.sql",
     "450_one_attempt_email_outbox.sql",
-    "451_one_attempt_email_feedback.sql"
+    "451_one_attempt_email_feedback.sql",
+    "454_calendar_email_followup_temporal.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -817,6 +818,7 @@
     "447_finance_advisor_handshake.sql": "rollback/447_finance_advisor_handshake.rollback.sql",
     "448_connection_network_visibility.sql": "rollback/448_connection_network_visibility.rollback.sql",
     "450_one_attempt_email_outbox.sql": "rollback/450_one_attempt_email_outbox.rollback.sql",
-    "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql"
+    "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql",
+    "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql"
   }
 }

@@ -136,7 +136,8 @@ import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-
 import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
+import { FlowActionGroup, QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import {
   ConnectionsService,
   type ConnectionAudience,
@@ -158,6 +159,7 @@ import {
 } from "@/lib/kai/actions/voice-action-card";
 import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ConnectionStatusBadges } from "@/components/connections/connection-status-badges";
 import {
   CONNECT_DIRECTORY_CONTENT_CLASSNAME,
   CONNECT_PAGER_BUTTON_CLASSNAME,
@@ -3018,7 +3020,8 @@ export default function ConnectPageClient() {
           useWebDirectoryPopover ? "rounded-[12px]" : "rounded-[10px]",
           active
             ? "font-semibold text-[color:var(--app-accent)]"
-            : "font-normal text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+            : "font-normal text-[color:var(--app-primary-label)]",
+          PERSON_ROW_FEEDBACK_CLASSNAME,
         )}
         onClick={() => {
           setTab(option.value);
@@ -3496,10 +3499,6 @@ export default function ConnectPageClient() {
                                       key={person.userId}
                                       person={person}
                                       testId="directory-person-row"
-                                      // Verified is a state, and green is what this design
-                                      // system already spends on a verified one. It is on the
-                                      // row rather than on the tab so the mark still means
-                                      // something in a search that spans both.
                                       leading={
                                         <ConnectionPersonAvatar
                                           size="compact"
@@ -3507,7 +3506,6 @@ export default function ConnectPageClient() {
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
                                           photoUrl={person.photoUrl}
                                           label={title}
-                                          verified={Boolean(person.isRia)}
                                         />
                                       }
                                       openLabel={`Open ${title}'s profile`}
@@ -3856,8 +3854,6 @@ export default function ConnectPageClient() {
                                         fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
                                         photoUrl={connection.photoUrl ?? null}
                                         label={connectionName}
-                                        verified={Boolean(connection.isRia)}
-                                        fromContacts={connection.connectedFromContacts === true}
                                       />
                                     }
                                     title={connectionName}
@@ -3870,6 +3866,12 @@ export default function ConnectPageClient() {
                                         : "Connected"
                                     }
                                     voiceLabel={connectionName}
+                                    supplement={connection.isRia === true || connection.connectedFromContacts === true ? (
+                                      <ConnectionStatusBadges
+                                        riaVerified={connection.isRia === true}
+                                        fromContacts={connection.connectedFromContacts === true}
+                                      />
+                                    ) : undefined}
                                     openLabel={`Open ${connectionName}'s profile`}
                                     onOpen={
                                       connection.publicPersonRef
@@ -4025,7 +4027,6 @@ export default function ConnectPageClient() {
                             size="list"
                             photoUrl={person.photoUrl}
                             label={title}
-                            verified={Boolean(person.isRia)}
                           />
                         }
                         title={
@@ -4033,6 +4034,7 @@ export default function ConnectPageClient() {
                             {title}
                           </span>
                         }
+                        description={person.isRia === true ? <ConnectionStatusBadges riaVerified /> : undefined}
                         density="compact"
                         trailing={
                           <Button
@@ -4219,7 +4221,8 @@ export default function ConnectPageClient() {
                     variant="none"
                     effect="fade"
                     size="standard"
-                    className="min-w-[96px]"
+                    className={cn("min-w-[96px]", QUIET_FLOW_ACTION_CLASSNAME)}
+                    disableHoverRipple
                     disabled={isConnectingMultiple}
                     onClick={closeBatchConnectDraft}
                   >
@@ -4248,7 +4251,7 @@ export default function ConnectPageClient() {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel size="standard" disabled={Boolean(busyId)}>
+              <AlertDialogCancel variant="ghost" size="standard" disableHoverRipple className={QUIET_FLOW_ACTION_CLASSNAME} disabled={Boolean(busyId)}>
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
@@ -4288,7 +4291,8 @@ export default function ConnectPageClient() {
                 variant="none"
                 effect="fade"
                 size="compact"
-                className="text-muted-foreground hover:bg-muted"
+                className={QUIET_FLOW_ACTION_CLASSNAME}
+                disableHoverRipple
                 onClick={() => setShowLimitBanner(false)}
               >
                 Cancel

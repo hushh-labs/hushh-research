@@ -77,6 +77,10 @@ def evaluate(
 
     if not base_ref:
         return False, "PR base ref is missing; cannot enforce branch target policy."
+    if policy.get("authorization", {}).get("native_teams"):
+        # Opening a proposal grants no merge authority. Trusted queue admission
+        # checks the actual requester against current production membership.
+        return True, f"PR destination {base_ref} recorded; live-team merge admission remains required."
     if base_ref == main_branch and head_ref not in allowed_main_heads:
         # Governed maintainers may merge directly into main from any branch. The
         # CI Status Gate, merge queue, and Main Post-Merge Smoke Gate still
@@ -105,11 +109,13 @@ def self_test(policy: dict[str, Any]) -> int:
     intake_branch = str(branch_flow.get("intake_branch") or train_branch)
     maintainers = sorted(_governed_maintainers(policy))
     a_maintainer = maintainers[0] if maintainers else "maintainer"
+    team_authority = policy.get("authorization", {}).get("native_teams") is True
+    # Intake can propose changes; current team permission is enforced at merge.
     # (base_ref, head_ref, actor, expected)
     cases = [
         (main_branch, train_branch, "", True),
-        (main_branch, "feature/example", "", False),
-        (main_branch, "feature/example", "not-a-maintainer", False),
+        (main_branch, "feature/example", "", team_authority),
+        (main_branch, "feature/example", "not-a-maintainer", team_authority),
         (main_branch, "feature/example", a_maintainer, True),
         (train_branch, "feature/example", "", True),
         (intake_branch, "feature/example", "", True),
@@ -127,7 +133,7 @@ def self_test(policy: dict[str, Any]) -> int:
                 "review_bypass_users": ["legacy"], "merge_queue_bypass_users": ["legacy"]}}
     for actor, expected in (("allowed", True), ("legacy", False)):
         ok, _ = evaluate(explicit, base_ref=main_branch, head_ref="ops/example", actor=actor)
-        if ok != expected:
+        if ok != (True if team_authority else expected):
             failures.append("Explicit Main intake must be independent of bypass lists")
     if failures:
         for failure in failures:

@@ -469,6 +469,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "release_acceptance_provenance.py",
         "production_emergency.py",
         "require-deploy-sha-on-main.sh",
+        "promotion_approval.py",
         "resolve-cloud-run-serving-state.py",
     ):
         assert (runner / "release-tools" / companion).read_text() == (
@@ -486,6 +487,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
                 "resolve-deploy-scope.py",
                 "production_emergency.py",
                 "require-deploy-sha-on-main.sh",
+                "promotion_approval.py",
                 "resolve-cloud-run-serving-state.py",
                 "verify-prod-places-readiness.py",
                 "passkey-domain-aliases.json",

@@ -9,13 +9,20 @@ const mocks = vi.hoisted(() => ({
   load: vi.fn(), replace: vi.fn(), peek: vi.fn(), retrySync: vi.fn(), loadContext: vi.fn(), clearContext: vi.fn(),
   toast: { error: vi.fn(), success: vi.fn() }, revision: 0,
   back: null as null | (() => boolean),
+  memoryListeners: new Map<string, Set<() => void>>(),
   mirror: { status: "loading", view: null } as LiveMirrorViewState,
 }));
 vi.mock("@/lib/pkm/use-live-mirror-view", () => ({ useLiveMirrorView: () => mocks.mirror }));
 vi.mock("@/lib/pkm/markdown-memory", () => ({
   loadMarkdownMemory: mocks.load, replaceMarkdownMemoryDocument: mocks.replace, peekMarkdownMemory: mocks.peek,
   MARKDOWN_MEMORY_DOMAIN: "one_memory", MAX_MARKDOWN_MEMORY_CHARS: 18000,
-  subscribeMarkdownMemory: () => () => {}, retryMarkdownMemorySync: mocks.retrySync,
+  subscribeMarkdownMemory: (userId: string, listener: () => void) => {
+    const listeners = mocks.memoryListeners.get(userId) ?? new Set<() => void>();
+    listeners.add(listener);
+    mocks.memoryListeners.set(userId, listeners);
+    return () => { listeners.delete(listener); };
+  },
+  retryMarkdownMemorySync: mocks.retrySync,
 }));
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   loadAgentPkmContext: mocks.loadContext, clearAgentPkmContext: mocks.clearContext,
@@ -36,18 +43,64 @@ const markdown = "# Memory\n\n## Preferences\n- Concise answers.\n";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.revision = 0;
+  mocks.memoryListeners.clear();
+  mocks.peek.mockReturnValue(undefined);
   mocks.mirror = { status: "loading", view: null };
   mocks.load.mockResolvedValue({ markdown, persisted: true });
   mocks.replace.mockResolvedValue({ success: true, markdown: "# Updated\n" });
 });
 
 describe("memory.md editor", () => {
+  it("explains the save limit, previews the draft and recovers without discarding edits", async () => {
+    render(<SoulMemoryPanel {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory" }));
+    const editor = screen.getByRole("textbox", { name: "Memory document" });
+    fireEvent.change(editor, { target: { value: "x".repeat(18001) } });
+    expect(editor).toHaveAttribute("aria-invalid", "true");
+    expect(editor).toHaveAccessibleDescription(/Remove 1 character to save/);
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    fireEvent.change(editor, { target: { value: "# My draft\n- Keep this memory." } });
+    expect(editor).not.toHaveAttribute("aria-invalid", "true");
+    expect(editor).not.toHaveAccessibleDescription(/Remove/);
+    expect(within(screen.getByLabelText("memory.md preview")).getByRole("heading", { name: "My draft" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ markdown: "# My draft\n- Keep this memory." })));
+  });
+
+  it("updates the open reader from its owner's LTM notification and keeps the complete Markdown editable", async () => {
+    render(<SoulMemoryPanel {...props} />);
+    await screen.findByRole("heading", { name: "Memory" });
+    const rewritten = '    synthetic_code()\n\n# My research notebook\n\n## Background\nAn engineering student.\n\n## Projects\n- Build **Memory V1**.\n\n## Goals\n| Goal | Status |\n| --- | --- |\n| Local testing | Active |\n';
+    mocks.load.mockResolvedValue({ markdown: rewritten, persisted: true });
+    const reads = mocks.load.mock.calls.length;
+    act(() => { mocks.memoryListeners.get("owner-b")?.forEach(listener => listener()); });
+    expect(mocks.load).toHaveBeenCalledTimes(reads);
+    expect(screen.getByRole("heading", { name: "Memory" })).toBeVisible();
+    act(() => { mocks.memoryListeners.get("owner-a")?.forEach(listener => listener()); });
+    await screen.findByRole("heading", { name: "Projects" });
+    expect(screen.getByRole("heading", { level: 1, name: "My research notebook" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Facts" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Commitments" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Goals" })).toBeVisible();
+    expect(screen.getByRole("cell", { name: "Local testing" })).toBeVisible();
+    const document = screen.getByLabelText("memory.md contents");
+    expect(document.querySelector("pre code")).toHaveTextContent("synthetic_code()");
+    expect(document.querySelector("strong")).toHaveTextContent("Memory V1");
+    expect(document).toHaveTextContent("An engineering student.");
+    expect(screen.queryByText("Concise answers.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory" }));
+    expect(screen.getByRole("textbox", { name: "Memory document" })).toHaveValue(rewritten);
+  });
+
   it("renders the canonical Markdown and saves the edited document for subsequent chat context", async () => {
     render(<SoulMemoryPanel {...props} />);
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Preferences" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Edit memory.md" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "memory.md Markdown" }), { target: { value: "# Updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory" }));
+    expect(screen.getByRole("textbox", { name: "Memory document" })).toHaveFocus();
+    fireEvent.change(screen.getByRole("textbox", { name: "Memory document" }), { target: { value: "# Updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({
       userId: "owner-a", expectedMarkdown: markdown, expectedPersisted: true, markdown: "# Updated",
@@ -58,15 +111,16 @@ describe("memory.md editor", () => {
 
   it("preserves a dirty draft across automatic memory updates and conflict failures", async () => {
     const view = render(<SoulMemoryPanel {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "memory.md Markdown" }), { target: { value: "My unsaved edit" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Memory document" }), { target: { value: "My unsaved edit" } });
     mocks.revision += 1;
+    act(() => { mocks.memoryListeners.get("owner-a")?.forEach(listener => listener()); });
     view.rerender(<SoulMemoryPanel {...props} />);
-    expect(screen.getByRole("textbox", { name: "memory.md Markdown" })).toHaveValue("My unsaved edit");
+    expect(screen.getByRole("textbox", { name: "Memory document" })).toHaveValue("My unsaved edit");
     mocks.replace.mockResolvedValueOnce({ success: false, conflict: true, message: "Memory changed" });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByRole("button", { name: "Reload latest version" });
-    expect(screen.getByRole("textbox", { name: "memory.md Markdown" })).toHaveValue("My unsaved edit");
+    expect(screen.getByRole("textbox", { name: "Memory document" })).toHaveValue("My unsaved edit");
     expect(mocks.toast.success).not.toHaveBeenCalled();
   });
 
@@ -90,7 +144,7 @@ describe("memory.md editor", () => {
     expect(within(preview).queryByRole("link", { name: "Open Memory" })).toBeNull();
     // Nothing disagrees, so there is nothing to fix.
     expect(within(preview).queryByTestId("live-mirror-fix-at-source")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Edit memory.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory" }));
     expect(screen.queryByRole("region", { name: "Live memory preview" })).toBeNull();
     view.unmount();
     // Negative control: an unverified session shows neither memory.md nor the mirror.
@@ -136,7 +190,7 @@ describe("memory.md editor", () => {
 
   it("cancels editor mode through the shared Back layer before leaving Memory", async () => {
     render(<SoulMemoryPanel {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory" }));
     expect(mocks.back).not.toBeNull();
     fireEvent.change(screen.getByLabelText("Legal name"), { target: { value: "Discard this identity edit" } });
     act(() => { expect(mocks.back!()).toBe(true); });
@@ -148,8 +202,8 @@ describe("memory.md editor", () => {
     let finish!: (result: { success: boolean; markdown: string }) => void;
     mocks.replace.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<SoulMemoryPanel {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "memory.md Markdown" }), { target: { value: "Private owner A draft" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Memory document" }), { target: { value: "Private owner A draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(finish).toBeDefined());
     view.rerender(<SoulMemoryPanel {...props} verified={false} />);
@@ -169,7 +223,7 @@ describe("memory.md editor", () => {
     const view = render(<SoulMemoryPanel {...props} />);
     await screen.findByText("memory.md couldn’t be opened.");
     expect(mocks.loadContext).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Edit memory.md" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit memory" })).toBeNull();
     mocks.load.mockResolvedValueOnce({ markdown: '# Safe\n![Photo](https://example.test/tracker)\n<script>alert(1)</script>', persisted: true });
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await screen.findByRole("heading", { name: "Safe" });
@@ -220,7 +274,7 @@ describe("memory.md editor", () => {
 it("adds, edits and clears identity facts for an existing owner without onboarding", async () => {
   mocks.load.mockResolvedValue({ markdown: `${markdown}- Legal name: Old name\n- Sex: female\n`, persisted: true });
   render(<SoulMemoryPanel {...props} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit memory" }));
   fireEvent.change(screen.getByLabelText("Legal name"), { target: { value: "Current name" } });
   fireEvent.change(screen.getByLabelText("Date of birth"), { target: { value: "1998-03-14" } });
   fireEvent.change(screen.getByLabelText("Sex"), { target: { value: "" } });

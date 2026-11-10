@@ -1277,6 +1277,14 @@ until 437 runs again and leaves settled rows unchanged.
 
 ## Cloud cleanup compatibility and exit
 
+PR #9008 is a source-only UAT port of ordinary owner-bound phone linking and
+the cleanup preflight/exit corrections below. It preserves the newer #9145
+linked-account deletion flow, including outcome recheck, proof release and fresh
+subsequent verification. It changes no Firebase realm, backend deletion policy,
+database migration or deployment configuration. Completing this source PR does
+not deploy UAT or establish live SMS/account-erasure acceptance. The separate
+Dev retirement-handoff work remains outside this UAT port.
+
 Before a new GCP removal reservation, inspection qualifies the recorded owner,
 creation acknowledgement and fresh native runtime identity. A missing provenance
 record or changed runtime refuses before suspending the owner. Execution repeats

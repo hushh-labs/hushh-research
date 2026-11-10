@@ -29,7 +29,7 @@ export function useProfileNetWorthScore({
   const nwsData = nwsUnlocked && nwsFinancial.data?.key.userId === applicationOwnerId
     ? nwsFinancial.data?.data as FinancialDomain | undefined : undefined;
   const nwsReport = useMemo(() => readFinancialNws(nwsData), [nwsData]);
-  const nwsReady = nwsReport?.score != null;
+  const nwsReady = nwsReport?.netWorth != null;
   const nwsDataReady = nwsData !== undefined;
   useEffect(() => {
     if (!nwsVisible || !nwsDataReady) return;
@@ -47,9 +47,10 @@ export function useProfileNetWorthScore({
   const nwsInvestment = nwsConnections.find(([, connection]) => connection.nws_investments_available);
   const nwsStatus = nwsBusy ? "Connecting…" : nwsFailed ? "Couldn’t update the connection."
     : nwsReconnect ? "Reconnect needed"
-    : nwsReport?.score == null && nwsConnections.length > 0 ? "Score unavailable"
-    : nwsReport?.coverageReasons.includes("history_incomplete") ? "Provisional score"
-    : nwsReport?.coverageReasons.length ? "Limited coverage" : null;
+    : !nwsReady && nwsConnections.length > 0 ? "Net worth unavailable" : null;
+  const nwsCoverageStatus = nwsReport?.coverageReasons.some(reason =>
+    reason === "balance_unavailable" || reason === "holdings_unavailable" || reason === "currency_unavailable",
+  ) ? "Some balances aren’t included." : null;
 
   const startNwsLink = async (itemId?: string, product?: "liabilities" | "investments", selectAccounts?: boolean) => {
     if (!applicationOwnerId || !vaultKey || !vaultOwnerToken || nwsFlight.current) return;
@@ -105,5 +106,5 @@ export function useProfileNetWorthScore({
         } }
       : undefined;
 
-  return { report: nwsReport, status: nwsStatus, primary: nwsPrimary, secondary: nwsSecondary, unlocked: nwsUnlocked };
+  return { report: nwsReport, status: nwsStatus, coverageStatus: nwsCoverageStatus, primary: nwsPrimary, secondary: nwsSecondary, unlocked: nwsUnlocked };
 }

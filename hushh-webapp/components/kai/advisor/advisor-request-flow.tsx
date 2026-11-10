@@ -197,6 +197,9 @@ export function AdvisorRequestFlow({
               </span>
             </label>
             <div className={styles.actions}>
+              <ShellActionSurface variant="pill" disabled={busy || !!pending.current} onClick={onClose}>
+                Cancel
+              </ShellActionSurface>
               <ShellActionSurface
                 variant="pill"
                 disabled={busy || !!pending.current}

@@ -473,11 +473,12 @@ class PostgresNearbyPresenceStore:
         self._expire_due()
         return self._execute_one(
             """
-            SELECT p.*
+            SELECT p.*,
+              p.allow_connection_requests AND COALESCE(profile.phone_verified, FALSE)
+                AS can_receive_connection_requests
             FROM one_location_nearby_presences p
-            JOIN actor_identity_cache profile
+            LEFT JOIN actor_identity_cache profile
               ON profile.user_id = p.owner_user_id
-             AND profile.phone_verified = TRUE
             WHERE p.owner_user_id = :user_id
               AND p.status = 'active'
               AND p.expires_at > NOW()
@@ -523,11 +524,10 @@ class PostgresNearbyPresenceStore:
         return self._execute_many(
             """
             WITH viewer AS MATERIALIZED (
-              SELECT p.owner_user_id
+              SELECT COALESCE(profile.phone_verified, FALSE) AS phone_verified
               FROM one_location_nearby_presences p
-              JOIN actor_identity_cache profile
+              LEFT JOIN actor_identity_cache profile
                 ON profile.user_id = p.owner_user_id
-               AND profile.phone_verified = TRUE
               WHERE p.owner_user_id = :viewer_user_id
                 AND p.version = :viewer_version
                 AND p.consent_version = :consent_version
@@ -539,7 +539,8 @@ class PostgresNearbyPresenceStore:
               p.owner_user_id,
               p.participant_alias,
               p.consent_version,
-              p.allow_connection_requests,
+              p.allow_connection_requests AND viewer.phone_verified
+                AND COALESCE(profile.phone_verified, FALSE) AS can_request_connection,
               p.radius_meters,
               p.anchor_ciphertext,
               p.anchor_iv,
@@ -586,9 +587,8 @@ class PostgresNearbyPresenceStore:
              AND p.expires_at > NOW()
              AND p.anchor_cell_epoch = ANY(:cell_epochs)
              AND p.anchor_cell_token = ANY(:cell_tokens)
-            JOIN actor_identity_cache profile
+            LEFT JOIN actor_identity_cache profile
               ON profile.user_id = p.owner_user_id
-             AND profile.phone_verified = TRUE
             ORDER BY roster_rank, p.participant_alias
             LIMIT :limit
             """,
@@ -1086,7 +1086,7 @@ def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, 
         "version": int(row["version"]),
         "status": "active",
         "audience": str(row.get("audience") or "all_opted_in"),
-        "allowConnectionRequests": bool(row.get("allow_connection_requests")),
+        "allowConnectionRequests": bool(row.get("can_receive_connection_requests")),
         "consentVersion": str(row.get("consent_version") or NEARBY_PRESENCE_CONSENT_VERSION),
         "radiusMeters": int(row.get("radius_meters") or NEARBY_PRESENCE_RADIUS_METERS),
         "checkedInAt": _iso(row.get("checked_in_at")),
@@ -1151,12 +1151,12 @@ class OneLocationNearbyPresenceService:
             )
         return normalized
 
-    def _require_verified_profile(self, user_id: str) -> None:
+    def _require_verified_phone_for_connection(self, user_id: str) -> None:
         profile = self._store.get_verified_profile(user_id)
         if not profile or not bool(profile.get("phone_verified")):
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED",
-                "Verify your phone number before appearing to nearby people.",
+                "Verify your phone number to send nearby connection requests.",
                 status_code=403,
             )
 
@@ -1306,8 +1306,6 @@ class OneLocationNearbyPresenceService:
                 "Choose 30 minutes, 1 hour, or 2 hours.",
                 status_code=422,
             )
-        self._require_verified_profile(owner_user_id)
-
         point_time = _normalize_captured_at(captured_at)
         now = self._now()
         age_seconds = (now - point_time).total_seconds()
@@ -1457,7 +1455,6 @@ class OneLocationNearbyPresenceService:
 
     def get_state(self, *, user_id: str) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
-        self._require_verified_profile(owner_user_id)
         row = self._store.get_active_presence(owner_user_id)
         if not row:
             return {"presence": None, "attendees": []}
@@ -1515,7 +1512,7 @@ class OneLocationNearbyPresenceService:
                 "connected",
             }:
                 relationship = "none"
-            allows_requests = bool(candidate.get("allow_connection_requests"))
+            can_request_connection = bool(candidate.get("can_request_connection"))
             attendees.append(
                 {
                     "participantAlias": str(candidate.get("participant_alias") or ""),
@@ -1524,7 +1521,7 @@ class OneLocationNearbyPresenceService:
                         owner_user_id=str(candidate.get("owner_user_id") or ""),
                     ),
                     "relationship": relationship,
-                    "canConnect": allows_requests and relationship == "none",
+                    "canConnect": can_request_connection and relationship == "none",
                 }
             )
             if len(attendees) >= NEARBY_PRESENCE_ROSTER_LIMIT:
@@ -1618,7 +1615,6 @@ class OneLocationNearbyPresenceService:
         increment_minutes: int,
     ) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
-        self._require_verified_profile(owner_user_id)
         normalized_increment = int(increment_minutes)
         if normalized_increment not in {30, 60}:
             raise NearbyPresenceError(
@@ -1645,7 +1641,7 @@ class OneLocationNearbyPresenceService:
         participant_alias: str,
     ) -> dict[str, str]:
         owner_user_id = self._require_user(user_id)
-        self._require_verified_profile(owner_user_id)
+        self._require_verified_phone_for_connection(owner_user_id)
         raw_alias = str(participant_alias or "").strip()
         try:
             normalized_alias = str(UUID(raw_alias))

@@ -294,7 +294,7 @@ class PendingActivationCases:
         ):
             with self.subTest(defect=defect), _pending_case(self) as case:
                 if defect == "actor":
-                    case.run["actor"]["login"] = "unapproved"
+                    case.run["actor"]["type"] = "Bot"
                 elif defect == "expired":
                     case.artifact["expired"] = True
                 elif defect == "digest":

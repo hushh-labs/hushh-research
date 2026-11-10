@@ -215,6 +215,7 @@ jobs:
       - name: Verify PR target branch policy
         if: github.event_name == 'pull_request'
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -274,6 +275,7 @@ jobs:
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
+          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
           # silently resolves zero files and passes (fails open). The job
@@ -324,16 +326,17 @@ jobs:
       # the branch name, so a branch that moves mid-run cannot select lanes for
       # a commit this run does not test. Both are passed only on dispatch,
       # because v4 ignores them on a pull_request event and warns on every run.
-      # The default branch has no branch diff, so `auto` there runs `all`.
+      # Explicit release qualification keeps application core checks broad, but
+      # native work is selected against the actual candidate's changed inputs.
       - uses: dorny/paths-filter@v4
         id: filter
         if: >-
           github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' ||
-          (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
-          github.ref_name != github.event.repository.default_branch)
+          (github.event_name == 'workflow_dispatch' && ((inputs.scope == 'all' && inputs.uat_base_sha != '') ||
+          (inputs.scope == 'auto' && github.ref_name != github.event.repository.default_branch)))
         with:
           base: ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
-          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && github.sha || '' }}
+          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.uat_candidate_sha || github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -362,6 +365,23 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Governance owns these probe/compiler controllers and their exact contracts.
+              - '!consent-protocol/scripts/generate_capability_graph.py'
+              - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
+              - '!consent-protocol/scripts/verify_azure_pwm_runtime.py'
+              - '!consent-protocol/scripts/managed_vertex_readiness.py'
+              - '!consent-protocol/tests/test_pwm_runtime_probe.py'
+              - '!consent-protocol/tests/scripts/test_trust_failure_verdict.py'
+              - '!consent-protocol/tests/scripts/test_probe_drive_activity_planner.py'
+              - '!consent-protocol/tests/scripts/test_readiness_exam_runner.py'
+              - '!consent-protocol/tests/test_vertex_capability_probe.py'
+              - '!consent-protocol/tests/scripts/test_managed_provider_receipt.py'
+              - '!consent-protocol/tests/test_capability_graph_gate_compares_against_base.py'
+              - '!consent-protocol/tests/test_capability_graph_dev_phone_history.py'
+              - '!consent-protocol/tests/test_location_workflow_compatibility.py'
+              # Public risk inputs have real-artifact and policy checks in Governance.
+              - '!consent-protocol/config/email-auth/disposable-domains.txt'
+              - '!consent-protocol/config/email-auth/risk-manifest.json'
               # The required Governance main-sync check owns the local push hook.
               - '!consent-protocol/ops/monorepo/pre-push.sh'
               # Human Browser evidence is covered by unconditional docs governance.
@@ -384,6 +404,7 @@ jobs:
               - 'deploy/dev.autodeploy.backend.cloudbuild.yaml'
               - 'scripts/ops/sync_backend_runtime_secrets.py'
               - 'scripts/ops/runtime_config_retention.py'
+              - 'scripts/ops/recover_dev_cloud_removal.py'
               - 'scripts/ops/scope_commerce_runtime_policy.py'
               - 'scripts/ops/shared_files_runtime_policy.py'
               - 'scripts/ops/passkey_domain_policy.py'
@@ -395,7 +416,17 @@ jobs:
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
               - '!consent-protocol/scripts/test-ci.manifest.txt'
+              # Deployment-only writers are verified by the release-controller owner.
+              - '!scripts/ops/sync_backend_runtime_secrets.py'
+              - '!scripts/ops/runtime_config_retention.py'
+              - '!scripts/ops/upsert_gcp_secret.py'
+              - '!deploy/plg/bind_secrets.sh'
               # Synthetic release-controller tests have a focused Governance owner.
+              - '!consent-protocol/tests/test_runtime_config_retention.py'
+              - '!consent-protocol/tests/test_plg_deploy_bindings.py'
+              - '!consent-protocol/tests/test_azure_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_runtime_settings_maps.py'
               - '!consent-protocol/tests/test_direct_uat_acceptance.py'
               - '!consent-protocol/tests/test_advisors_runtime_config_wiring.py'
               - '!consent-protocol/tests/test_cloudbuild_step_arg_limit.py'
@@ -418,6 +449,9 @@ jobs:
               - '!consent-protocol/tests/test_drive_scheduler_set_snapshot.py'
               - '!consent-protocol/tests/test_drive_v1_worker_lane.py'
               - '!consent-protocol/tests/test_drive_work_drain_scheduler_contract.py'
+              - '!consent-protocol/tests/test_drive_worker_release_rollback.py'
+              - '!consent-protocol/tests/test_database_connection_ceiling.py'
+              - '!consent-protocol/tests/helpers/drive_worker_gcloud.py'
               - '!consent-protocol/tests/test_feed_stream_capacity_contract.py'
               - '!consent-protocol/tests/test_gmail_information_request_release_contract.py'
               - '!consent-protocol/tests/test_hushh_tech_client_migration.py'
@@ -446,6 +480,7 @@ jobs:
               - '!consent-protocol/tests/test_deployment_security_broker.py'
               - '!consent-protocol/tests/test_predecessor_acceptance_contract.py'
               - '!consent-protocol/tests/test_ci_status_gate_fails_closed.py'
+              - '!consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py'
               - '!consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py'
               - '!consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py'
               # Workflow-contract tests with frozen controller owners remain
@@ -453,6 +488,7 @@ jobs:
               # for these exact test/helper-only edits.
               - '!consent-protocol/tests/test_production_emergency.py'
               - '!consent-protocol/tests/test_uat_deploy_parallelism.py'
+              - '!consent-protocol/tests/test_prod_drive_deploy_contract.py'
               - '!consent-protocol/tests/helpers/document_delivery_ci.py'
               # These exact synthetic fixture paths have a focused controller
               # owner; edits to the separate phone-history consumer modules still
@@ -670,8 +706,8 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
 
-      # The dispatches the filter above did not resolve: an explicit scope, or
-      # `auto` on the default branch. `editor` follows `frontend`.
+      # Preserve explicit frontend/backend diagnostics and default-branch auto.
+      # Release scope=all uses the filter's native ownership instead.
       - id: override
         if: github.event_name == 'workflow_dispatch' && steps.filter.outcome == 'skipped'
         env:
@@ -755,7 +791,6 @@ jobs:
       - secret-scan
       - dco-check
       - pr-base-policy
-      - repo-governance
       - paths
     if: always()
     runs-on: ubuntu-24.04
@@ -774,13 +809,11 @@ jobs:
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           DCO="${{ needs['dco-check'].result }}"
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
-          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           PATHS="${{ needs.paths.result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
-          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'paths=%s\n' "$PATHS"
 
           fail=0
@@ -788,10 +821,22 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
+          # Missing/abandoned prerequisites are infrastructure interruption,
+          # never permission to launch the expensive dependent lanes.
+          for check in "secret-scan=$SECRET_SCAN" "dco-check=$DCO" "paths=$PATHS"; do
+            if [ "${check#*=}" != success ]; then
+              echo "Required prerequisite ${check%%=*}: ${check#*=}."
               fail=1
             fi
+          done
+          if [ "${{ github.event_name }}" = pull_request ] && [ "$PR_BASE_POLICY" != success ]; then
+            fail=1
+          fi
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$PATHS" "${{ needs['ui-contracts'].result }}"; do
+            case "$result" in
+              abandoned|"") echo "GitHub infrastructure interruption: a prerequisite job is ${result:-missing}; no dependent checks can be certified."; fail=1 ;;
+              failure|cancelled|timed_out) fail=1 ;;
+            esac
           done
 
 
@@ -901,7 +946,7 @@ jobs:
           WEB_TARGETED_PART: node
           WEB_TARGETED_FULL_SUITE_OWNED: "0"
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
@@ -1671,7 +1716,9 @@ jobs:
           [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          if [ "$GITHUB_REF" != 'refs/heads/uat' ]; then
+            git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          fi
 
       - name: Verify isolated source (${{ inputs.uat_candidate_sha }} ${{ inputs.uat_candidate_tree }})
         if: inputs.uat_candidate_sha != ''
@@ -1832,9 +1879,9 @@ jobs:
           fi
           if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
-              fail=1
-            fi
+            case "$result" in
+              failure|cancelled|timed_out|abandoned|"") fail=1 ;;
+            esac
           done
 
           first_failure=""
@@ -1844,6 +1891,9 @@ jobs:
               return
             fi
             case "$result" in
+              abandoned|"")
+                first_failure="$label (GitHub infrastructure interruption: ${result:-missing})"
+                ;;
               failure|cancelled|timed_out)
                 first_failure="$label ($result)"
                 ;;

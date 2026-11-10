@@ -198,7 +198,7 @@ export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
     void (async () => {
       try {
         const capabilities = await nativeDrawerAcknowledged(nativeDrawers().getCapabilities());
-        if (current) setNativeScore(capabilities.profileNetWorthScore === true);
+        if (current) setNativeScore(capabilities.profileNetWorthAmount === true);
       } catch {
         if (current) setNativeScore(false);
       }

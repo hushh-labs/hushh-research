@@ -18,6 +18,9 @@ concurrency:
 jobs:
   validate:
     name: PLG Source Validation Gate
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     services:
@@ -53,6 +56,8 @@ jobs:
 
       - name: Require governed production actor
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 authority/scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"

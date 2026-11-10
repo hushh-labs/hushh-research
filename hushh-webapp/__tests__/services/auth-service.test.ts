@@ -45,6 +45,7 @@ const {
     },
   },
   mockAuth: {
+    app: { options: { projectId: "demo-project", apiKey: "demo-key" } },
     currentUser: null as any,
     onAuthStateChanged: vi.fn(),
   },
@@ -529,6 +530,7 @@ describe("AuthService.restoreNativeSession", () => {
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     mockCapacitor.getPlatform.mockReturnValue("ios");
     mockAuth.currentUser = null;
+    mockAuth.app.options = { ...mockFirebaseApp.options };
     mockAuth.onAuthStateChanged.mockReset();
     mockGetApps.mockReturnValue([mockFirebaseApp] as any);
     mockInitializeApp.mockReturnValue(mockFirebaseApp as any);
@@ -1025,8 +1027,10 @@ describe("AuthService.restoreNativeSession", () => {
     expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
-  it("mints a web phone claim token without linking the primary Firebase user", async () => {
+  it("mints a web phone claim in the selected Auth project without linking the primary user", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.app.options = { projectId: "isolated-auth", apiKey: "isolated-auth-key" };
+    mockInitializeApp.mockReturnValue({ name: "hushh-phone-claim", options: mockAuth.app.options });
     const getIdToken = vi.fn().mockResolvedValue("phone-claim-id-token");
     vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
       "phone-credential" as any,
@@ -1046,6 +1050,7 @@ describe("AuthService.restoreNativeSession", () => {
       "claim-verification-id",
       "123456",
     );
+    expect(mockInitializeApp).toHaveBeenCalledWith(mockAuth.app.options, "hushh-phone-claim");
     expect(setPersistence).toHaveBeenCalledWith(
       mockPhoneClaimAuth,
       "in-memory-persistence",
@@ -1058,6 +1063,17 @@ describe("AuthService.restoreNativeSession", () => {
     expect(getIdToken).toHaveBeenCalledWith(true);
     expect(firebaseSignOut).toHaveBeenCalledWith(mockPhoneClaimAuth);
     expect(claimToken).toBe("phone-claim-id-token");
+  });
+
+  it("refuses a cached phone-proof app from another Auth project before sign-in", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.app.options = { projectId: "isolated-auth", apiKey: "isolated-auth-key" };
+    mockGetApps.mockReturnValue([{ ...mockFirebaseApp, name: "hushh-phone-claim" }]);
+    await expect(AuthService.getPhoneClaimIdToken({
+      verificationCode: "123456", verificationId: "claim-verification-id",
+    })).rejects.toThrow(/sign-in service changed/);
+    expect(mockSignInWithCredential).not.toHaveBeenCalled();
+    expect(mockInitializeApp).not.toHaveBeenCalled();
   });
 
   it("blocks replacing with a phone number already linked to the current user", async () => {

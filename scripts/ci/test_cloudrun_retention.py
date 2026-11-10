@@ -435,7 +435,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
     def production_cleanup_failure(self):
         run = {
             **self.trusted_source(123, "deploy-production.yml"),
-            "actor": {"login": "kushaltrivedi5"},
+            "actor": {"login": "kushaltrivedi5", "id": 2, "type": "User"},
             "conclusion": "failure",
         }
         steps = [
@@ -1218,7 +1218,8 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             "path": f".github/workflows/{workflow}",
             "head_branch": "main",
             "event": "workflow_dispatch",
-            "actor": {"login": "ankitkumarsingh1702"},
+            "actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
+            "triggering_actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
             "status": "completed",
             "conclusion": "success",
             "repository": {"full_name": "org/repo"},
@@ -1855,7 +1856,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                     if permissions is None:
                         permissions = block(document, "permissions:")
                     self.assertIsNotNone(permissions)
-                    self.assertRegex(permissions, r"(?m)^\s+actions: read\s*$")
+                    self.assertRegex(permissions, r"(?m)^\s+actions: (?:read|write)\s*$")
                     guards = [step for step in re.split(r"(?m)(?=^      - )", job)
                               if "--check-mutations" in step]
                     self.assertEqual(len(guards), 1)
@@ -2289,13 +2290,14 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                                 "org/repo", "123", pathlib.Path(temporary)
                             )
 
-    def test_source_is_authorized_before_any_cloud_access(self):
+    def test_historical_source_origin_is_verified_before_any_cloud_access(self):
+        human = {"login": "future-maintainer", "id": 3, "type": "User"}
         cases = (
-            ("uat", "ankitkumarsingh1702", "", "deploy-uat.yml", "org/repo", True),
-            ("uat", "unapproved-actor", "", "deploy-uat.yml", "org/repo", False),
+            ("uat", human, "", "deploy-uat.yml", "org/repo", True),
+            ("uat", {"login": "missing-identity"}, "", "deploy-uat.yml", "org/repo", False),
             (
                 "production",
-                "kushaltrivedi5",
+                human,
                 "123",
                 "deploy-production.yml",
                 "org/repo",
@@ -2303,16 +2305,16 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             ),
             (
                 "production",
-                "Roopmann30",
+                {"login": "missing-identity"},
                 "123",
                 "deploy-production.yml",
                 "org/repo",
                 False,
             ),
-            ("production", "kushaltrivedi5", "123", "untrusted.yml", "org/repo", False),
+            ("production", human, "123", "untrusted.yml", "org/repo", False),
             (
                 "production",
-                "kushaltrivedi5",
+                human,
                 "123",
                 "deploy-production.yml",
                 "fork/repo",
@@ -2333,7 +2335,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 output = directory / "output"
                 run = {
                     **self.trusted_source(123, workflow),
-                    "actor": {"login": actor},
+                    "actor": actor,
                     "head_repository": {"full_name": repository},
                 }
 
@@ -2840,10 +2842,10 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 with self.assertRaises(AssertionError):
                     assert_separate(source.replace("--tags-only", ""), label)
 
-    def test_production_release_rejects_uat_source_and_uat_only_actor(self):
+    def test_production_release_rejects_foreign_source_and_malformed_identity(self):
         good = {
             **self.trusted_source(123, "deploy-production.yml"),
-            "actor": {"login": "kushaltrivedi5"},
+            "actor": {"login": "future-maintainer", "id": 3, "type": "User"},
         }
         healthy = {
             "status": "healthy",

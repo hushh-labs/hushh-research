@@ -339,6 +339,25 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
 
+Personal Cloud Run backend sandboxes may explicitly set
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai`. This is accepted only on
+`backend-dev-<handle>` services in `development`/`local`, with owner-pod mode off.
+Pair it with `HUSHH_SANDBOX_AZURE_CLIENT_ID`, the canonical UUID of the dedicated
+sandbox Entra runtime application. Missing, malformed or probe-only client IDs
+are refused. The resolved identity is included in the policy fingerprint, so
+rotating it invalidates existing model bindings and readiness caches.
+The process keeps its real environment, Firebase issuer and database; only its
+managed transport uses the configured Azure account and deployment descriptors.
+It does not enable UAT's private-information approval policy. Chat, readiness and
+the model picker use `one_text_root`; the LTM Memory Manager uses the primary text
+deployment. Missing federation access fails rather than silently selecting Vertex.
+An operator must authorize the dedicated sandbox service identity in Entra and
+configure these flags through the approved personal deployment path. The Main-owned
+self-service workflow qualifies the exact current green memory-branch tip without
+a per-commit owner review. A ready older revision is not proof that a changed
+configuration was deployed. Do not relabel the sandbox as UAT
+or directly mutate a Cloud Run revision to bypass that release procedure.
+
 For exhausted Azure quota, choose a compatible provisioned Azure resource or
 deployment with available capacity and update the relevant entries in this file.
 Changing a deployment name alone does not create quota or provision a model.
@@ -347,7 +366,7 @@ back to `azure_openai` to restore Azure. One chat, its specialists and Search,
 voice and the existing managed capability ports use the selected provider.
 New Drive activity-date requests use the same selected managed planner and preserve
 their existing single interpretation stage, native retrieval and deterministic date
-checks. Both providers must pass the authored v2 planner qualification. Saved
+checks. Provider changes require the affected authored v2 planner qualification. Saved
 requests retain their processor binding and its current-authority validation.
 Azure chat may use the explicit Vertex alternate once after a classified
 transport/quota failure before any response is observed. It never replays tools
@@ -356,7 +375,9 @@ identity denials, content filtering and malformed output never trigger fallback.
 A classified token-exchange transport outage may use the same bounded alternate;
 an invalid credential or 401/403 denial cannot.
 The existing eligible Drive transport fallback retains its separate contract. A new fleet provider needs an adapter
-and complete capability qualification before selection.
+and complete capability qualification before selection. Ordinary UAT release
+readiness uses the configured provider's core proof; broader capabilities remain
+separate diagnostics under the [CI policy](./ci.md#managed-provider-readiness-policy).
 
 Validate the complete file without model calls or credentials:
 
@@ -571,7 +592,7 @@ Used by:
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
-| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both text scopes and the complete capability bundle. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
+| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both core text scopes and trust/schema proof for ordinary UAT release. Broader capability qualification is separate; see the CI readiness policy. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |
@@ -750,6 +771,11 @@ NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE --stdin` path. Keep values in process memo
 do not put them in command arguments, logs, source, environment examples or files.
 Secret provisioning grants no deploy or traffic authority. Never copy this UAT
 credential to another environment.
+
+Secret upsert retains all previous versions, including when the payload is
+unchanged. The version-inventory helper is read-only: version age does not prove
+that serving, rollback, scheduled-job or alias references are absent. Version
+destruction requires a separately qualified reference-aware cleanup operation.
 
 Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
 reject these requests, so the approved publishable token must support that existing
@@ -1325,5 +1351,5 @@ admits only explicitly approved, bounded owner summaries to the existing One
 single-turn gene in Shared placement; it does not authorize background reads,
 new task writes or provider actions. Recheck occurs before output release.
 Disable it to withdraw processing while preserving existing encrypted tasks.
-Live-model evaluation and provider rehearsal are required before promotion;
+Live-model evaluation and provider rehearsal are required before enabling this capability;
 private placement remains unavailable until its owner-direct transport qualifies.

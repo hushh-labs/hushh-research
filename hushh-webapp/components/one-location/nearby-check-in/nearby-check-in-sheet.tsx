@@ -120,10 +120,37 @@ import type {
 } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
+
+function nearbyPresenceLoadIssue(error: unknown): {
+  message: string;
+  action: "retry" | null;
+} {
+  const code = apiErrorCode(error);
+  if (error instanceof ApiError) {
+    if (error.status === 404 && code === "NEARBY_PRESENCE_UNAVAILABLE") {
+      return { message: "Nearby check-in is not available for this account.", action: null };
+    }
+    if (error.status === 401) {
+      return { message: "Your session expired. Sign in again to check in nearby.", action: null };
+    }
+    if (error.status === 429) {
+      return { message: "Too many status checks. Wait a moment and retry.", action: "retry" };
+    }
+    return {
+      message: "Nearby check-in status is temporarily unavailable. Try again shortly.",
+      action: "retry",
+    };
+  }
+  return {
+    message: "Nearby check-in could not be loaded. Check your connection and retry.",
+    action: "retry",
+  };
+}
 
 /**
  * The three stay lengths, now offered as one dropdown instead of three cells.
@@ -551,10 +578,10 @@ function NearbyPersonRow({
   const connectionUnavailable =
     cta.action === "connect" && !attendee.canConnect;
   const buttonLabel = connectionUnavailable
-    ? "Not accepting requests"
+    ? "Connect unavailable"
     : cta.label;
   const accessibleLabel = connectionUnavailable
-    ? `${attendee.displayName} is not accepting connection requests`
+    ? `Connection requests unavailable for ${attendee.displayName}`
     : cta.action === "respond"
       ? `Respond to ${attendee.displayName}'s connection request`
       : `${cta.label} with ${attendee.displayName}`;
@@ -761,7 +788,7 @@ export function NearbyCheckInSheet({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationRecovery, setLocationRecovery] =
     useState<LocationRecovery>(null);
-  const [presenceLoadError, setPresenceLoadError] = useState<string | null>(
+  const [presenceLoadError, setPresenceLoadError] = useState<ReturnType<typeof nearbyPresenceLoadIssue> | null>(
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
@@ -899,16 +926,13 @@ export function NearbyCheckInSheet({
         }
         publishState(next);
         return next;
-      } catch {
+      } catch (error) {
         if (
           !background &&
           ownerEpochRef.current === expectedOwnerEpoch &&
           presenceReadGenerationRef.current === generation
         ) {
-          const message =
-            "Nearby check-in could not be loaded. Check your connection and retry.";
-          setPresenceLoadError(message);
-          toast.error(message);
+          setPresenceLoadError(nearbyPresenceLoadIssue(error));
         }
         return "error";
       } finally {
@@ -2610,20 +2634,21 @@ export function NearbyCheckInSheet({
                 className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-3"
                 role="alert"
               >
-                <p data-location-type-role="row-description" className="text-sm text-destructive">{presenceLoadError}</p>
-                <Button data-location-type-role="compact-action"
-                  type="button"
-                  size="compact"
-                  variant="secondary"
-                  className="mt-2"
-                  disabled={loadingPresence}
-                  onClick={() => void retryPresenceLoad()}
-                >
-                  {loadingPresence ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Retry status
-                </Button>
+                <p data-location-type-role="row-description" className="text-sm text-destructive">
+                  {presenceLoadError.message}
+                </p>
+                {presenceLoadError.action === "retry" ? (
+                  <Button
+                    data-location-type-role="compact-action"
+                    type="button"
+                    size="compact"
+                    variant="secondary"
+                    className="mt-2"
+                    onClick={() => void retryPresenceLoad()}
+                  >
+                    Retry status
+                  </Button>
+                ) : null}
               </div>
             ) : null}
 
@@ -3428,7 +3453,7 @@ export function NearbyCheckInSheet({
                           Allow connection requests
                         </span>
                         <span data-location-type-role="row-description" className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                          From people checked in nearby.
+                          Available when both people have verified their phone numbers.
                         </span>
                       </span>
                       <Switch
@@ -3486,7 +3511,7 @@ export function NearbyCheckInSheet({
           </SheetHeader>
           <div className={sheetStyles.extension}>
             {([30, 60] as const).map((increment) => (
-              <Button data-location-type-role="utility-action"
+              <Button data-location-type-role="task-action"
                 key={increment}
                 type="button"
                 variant="secondary"

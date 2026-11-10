@@ -446,7 +446,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     rerender(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
 
     expect(
-      screen.getByRole("button", { name: "Their security key changed - confirm again" }),
+      screen.getByRole("button", { name: "Confirm again" }),
     ).toBeDisabled();
     expect(
       screen.getByText(/selected person's secure key changed/i),

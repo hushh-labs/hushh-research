@@ -563,8 +563,8 @@ mounted tab opens its local exact-time form.
 | --- | --- |
 | Tab panel | `top-shell-calendar-panel-invitations`, labelled by `top-shell-calendar-tab-invitations`; section accessible name **Invitations**. |
 | Response filters | Accessible **Invitation filters**; **Pending ({n})**, **Responded**, **All**. Before response: **Pending (…)**. Initial filter accepts `all` or `responded`, otherwise `pending`. Local change only; closes detail; disabled while a response settles. |
-| Pending | `response_status === "needsAction"`; heading **Needs your response**. Count is pending invitations on the selected local day, from the shared response. |
-| Responded / All | Responded includes every status other than `needsAction`; heading **Your responses**. All has heading **All invitations**. No per-filter endpoint. |
+| Pending | `response_status === "needsAction"`; heading **Needs your response** when rows exist. Count is pending invitations on the selected local day, from the shared response. |
+| Responded / All | Responded includes every status other than `needsAction`; heading **Your responses**. All has heading **All invitations**. Headings appear only when the filter has rows. No per-filter endpoint. |
 | Date | Accessible **Invitation date**; shared native date input plus **Today**, **Previous day**, **Next day**. Starts at today in the selected zone. Changing date closes selection and changes read window. Controls disable during an action. |
 | Day window | Requests UTC midnight on selected day−1 through selected day+2, then filters locally by selected civil day. All-day end date is exclusive; timed end uses end instant−1ms. Multi-day invitations can appear on each overlapping day. |
 | Read | Current ID token → `loadInvitationResource` → `GoogleCalendarService.invitations`; `time_zone,start_at,end_at`, optionally selected event/calendar IDs. `events,pending_count,unreadable_calendars,account_email` feed the list. All rows share this read. |
@@ -572,7 +572,7 @@ mounted tab opens its local exact-time form.
 | Failure | Alert **Invitations could not be loaded.** plus surfaced error message. **Retry** forces read for retryable/generic failures. Non-retry `GoogleCalendarError` offers **Allow Calendar access** → read authorization, requesting calendar-list access only for its permission reason. OAuth busy disables it. Failed read clears response instead of presenting empty success. |
 | Partial details | **Some calendars allow only free/busy access. Their invitation details and conflicts could not be checked.** from nonempty `unreadable_calendars`. |
 | List name | **Invitation list**. No separate request or provider write when focusing/expanding a row. |
-| Empty | **No pending invitations on this date.**, **No responded invitations on this date.**, **No invitations on this date.** Chat variants end **in this window.** |
+| Empty | **No pending invitations on this date.**, **No responded invitations on this date.**, **No invitations on this date.** Chat variants end **in this window.** The empty message aligns with the list and has no section heading. |
 | Row button | Accessible **Open invitation: {title}**, `aria-pressed` for selected `{calendar_id}:{id}`. Disabled during action. Click records trigger and selects that composite key; no RSVP or Mail write. |
 | Row fields | Date block; `title`; formatted `start/end`; organizer Connect profile name (matched people) → provider `displayName` → `email` → **Organizer**; optional email second line, stripped description and response. Calendar board account avatars, the Insights/Invitations account picker, booking destination and review, invitation organizers and guests use the Calendar-scoped HUSSH source. Invitation names and photos include the signed-in owner's verified primary/linked email and current Connect-visible people matched to organizer or attendee emails in the fetched event, whether connected or not; a matched person shows the name and photo Connect shows, and an unmatched person keeps the provider label or address and initials. Account surfaces additionally require the matching Google account's verified email claim. Missing, private, unverified, ambiguous and non-HUSSH people use initials. Chat and workspace use the same invitation portrait map. |
 | HUSSH person photos | The Calendar workspace reads its owner-scoped Connections list for existing account and owner context. The signed-in owner's effective photo comes from the existing identity cache and refreshes after upload/remove; verified owner aliases come from the existing owner-only alias endpoint. Invitation peer names and photos come only from the owner-bound response's bounded map of current Connect-directory matches with unique, exact verified event emails, including people in Find People who are not Connections. A stale Connection email cannot override that fresh identity check. Contact listing eligibility still applies; failed or partial lookup leaves initials. The existing Calendar account userinfo read projects `google_email_verified` only for a current matching verified Google email, without changing binding or grants. Account and auth changes clear old matches; connection changes and window focus refresh the list. Calendar does not call Google People, request a photo token or show a photo-permission prompt. New Calendar OAuth grants do not request Contacts solely for photos. Historical `guest_photo_access` and token broker contracts remain for existing clients. Only safe portrait media is rendered; broken, transparent or unavailable images leave initials readable. Google account email labels and provider marks remain distinct. Synthetic screenshots prove layout and wiring, not live profile visibility or provider availability. |
@@ -621,6 +621,11 @@ and results stay in React memory. Alternative defaults: tomorrow in selected
 zone, `09:00`–`17:00`, empty message. A chat handoff may prefill date, times and
 message. Although the handoff type includes `durationMinutes`, this form derives
 duration from exact times; there is no duration picker in this shared form.
+Board and Invitations hide the entire action section once the connected attendee
+has accepted or declined. A confirmed decline stays final if organizer Mail
+fails. The direct RSVP and workspace endpoints recheck this before preparing or
+applying a response. Reviewed Mail-only recovery and Board conflict resolution
+use their existing separate flows.
 
 | Path | Guard, content, call and effect |
 | --- | --- |
@@ -629,10 +634,10 @@ duration from exact times; there is no duration picker in this shared form.
 | **Decline & offer another time** | `calendar_invitation_offer`; disabled busy/cannot respond. Mounted workspace enters exact-time form using its own Google grants. Chat requires its vault token for the existing Mail path. Only callers that explicitly supply `onOfferTimes` use that callback instead. |
 | Cannot respond | **This calendar only allows viewing. Respond from your own Calendar invitation.** |
 | Initial decision cue | **Review your accept response before confirming.** or **Review your decline response before confirming.** Initial accepted does not automatically prepare/execute. |
-| Decline heading/help | **Why can’t you attend?**; a Calendar-only decline is available without a reason. An optional reason can accompany an explicitly reviewed organizer email. |
+| Decline heading/help | **Why can’t you attend?**; explains that declining shares the reason and sends an organiser email. |
 | Decline input | Visible/accessibility **Reason for declining**, textarea max8000 characters, no authored placeholder. Changing draft clears review/result. |
-| Decline review | **Review decline** prepares a mail-free RSVP, then **Confirm decline** performs only the Calendar response. No vault unlock or organizer message is required. |
-| Decline send | **Review decline email** in workspace (or **Decline & send email** in Chat); busy **Preparing…**; expired-review recovery **Review email again**. Disabled busy/trimmed-empty message; Chat additionally requires its existing vault token. This is an explicit send action. |
+| Decline action | **Decline** prepares grammatical reason/email and confirms internally without an email preview; **Back** returns to the event. |
+| Decline send | **Decline**, busy **Declining…**. Disabled for empty reason or missing required authority. Only confirmed RSVP plus sent Mail closes the decline dialog; partial outcomes remain visible. |
 | Offer heading/help | **Offer another time**; **Choose the exact time to propose. The duration is calculated automatically.** |
 | Offer inputs | Labels **Date**, **From**, **Until**. Accessible **Alternative date**, **Alternative start time**, **Alternative end time**. Native date/time fields; no authored placeholder. End `00:00` becomes exclusive `24:00`. |
 | Offer message | Label **Reason and message to organiser**, accessible **Message to organiser**, max8000, no placeholder. |
@@ -1698,3 +1703,17 @@ corrected against source. Publication uses the repository's existing CI checks;
 it does not turn source inspection or synthetic fixtures into live acceptance.
 No live provider, model, browser-account or native-device journey was performed
 for this reference.
+
+### Direct attendance response
+
+The reason form has Decline and Back. Decline prepares a manifest-owned polished
+organiser email and a short grammatical attendee comment, then confirms the
+existing sealed action without an intermediate email preview. The form explains
+that the organiser receives the reason and email. Chat and Calendar share this
+contract. Alternative-time responses preserve the requested date, duration and
+window; exact proposals include the verified date/time range and timezone in Mail.
+Conflict acknowledgement remains necessary; incomplete checks do not send.
+On confirmed decline and email sent, close the dialog and refresh the Board.
+Partial/unknown results remain visible. Draft failure performs no mutation.
+The legacy Calendar-only RSVP API remains available for compatible callers but
+is not the decline form's send path. No PKM behavior or authority changes.

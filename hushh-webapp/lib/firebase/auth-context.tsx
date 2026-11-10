@@ -267,6 +267,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     phone: string;
     intent: "link" | "replace";
     verificationId: string;
+    proofContext?: { expectedUserId: string; attemptId: string; signal?: AbortSignal };
   } | null>(null);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [phoneNumberStatus, setPhoneNumberStatusState] = useState<AuthContextType["phoneNumberStatus"]>("loading");
@@ -285,7 +286,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const phoneNumberRef = useRef<string | null>(null);
   const phoneVerificationOwnerRef = useRef<string | null>(null);
   const phoneVerificationEpochRef = useRef(0);
-  const phoneTransferProofRef = useRef<{ token: string; userId: string; epoch: number; phone: string } | null>(null);
+  const phoneTransferProofRef = useRef<{ token: string; userId: string; epoch: number; phone: string; transferId?: string; submitted?: boolean } | null>(null);
   const requirePhoneVerificationOwner = useCallback(
     (expectedUid: string | null | undefined, expectedEpoch: number) => {
       const liveWebUid = Capacitor.isNativePlatform()
@@ -1858,6 +1859,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         }
 
+        // Only explicit recovery may use the existing proof-only SMS transport.
+        // Ordinary linking never falls back to an isolated sign-in.
+        if (options?.transport === "sms" && currentUser.phoneNumber === phone) {
+          const context = { expectedUserId: uid, attemptId: crypto.randomUUID(), signal, resendCode: options.resendCode };
+          const verifier = isNative ? undefined : await prepareRecaptchaVerifier("recaptcha-container");
+          requirePhoneVerificationOwner(uid, epoch);
+          const result = await AuthService.startPhoneDeletionVerification(phone, verifier, context);
+          requirePhoneVerificationOwner(uid, epoch);
+          if ("phoneIdToken" in result) {
+            phoneTransferProofRef.current = { token: result.phoneIdToken, userId: uid, epoch, phone };
+            let identity: Awaited<ReturnType<typeof AccountIdentityService.claimCurrentUserPhone>>;
+            try { identity = await AccountIdentityService.claimCurrentUserPhone(currentUser, result.phoneIdToken); }
+            catch (error) {
+              requirePhoneVerificationOwner(uid, epoch);
+              // UI availability only; the retained proof and backend remain authoritative.
+              throw Object.assign(error instanceof Error ? error : new Error("Phone verification failed."), { phoneProofAvailable: true });
+            }
+            requirePhoneVerificationOwner(uid, epoch);
+            if (!AccountIdentityService.hasVerifiedPhone(identity)) throw new Error("Phone verification could not be completed.");
+            phoneRecovery.cancelNativeStart();
+            phoneTransferProofRef.current = null;
+            applyAuthUser(currentUser, principal);
+            phoneVerificationOwnerRef.current = null;
+            return { autoVerified: true, user: currentUser };
+          }
+          setPhoneVerificationAttempt({ userId: uid, epoch, phone, intent, verificationId: result.verificationId, proofContext: context });
+          return { autoVerified: false };
+        }
+
         const localFixture = !isNative && AuthService.shouldUseLocalDevPhoneVerification(phone);
         let verificationId: string | undefined;
         if (intent === "link" && !localFixture && options?.transport !== "sms") {
@@ -1924,7 +1954,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!currentUser) throw new Error("Sign in before verifying a phone number.");
 
         let verifiedUser = currentUser;
-        if (AuthService.isLocalDevPhoneVerificationId(verificationId)) {
+        if (attempt.proofContext) {
+          const retained = phoneTransferProofRef.current;
+          const token = retained?.userId === uid && retained.epoch === epoch && retained.phone === phone
+            ? retained.token : await AuthService.confirmPhoneDeletionVerification({
+              ...attempt.proofContext, verificationId, verificationCode,
+            });
+          requirePhoneVerificationOwner(uid, epoch);
+          phoneTransferProofRef.current = { token, userId: uid, epoch, phone };
+          const identity = await AccountIdentityService.claimCurrentUserPhone(currentUser, token);
+          requirePhoneVerificationOwner(uid, epoch);
+          if (!AccountIdentityService.hasVerifiedPhone(identity)) throw new Error("Phone verification could not be completed.");
+        } else if (AuthService.isLocalDevPhoneVerificationId(verificationId)) {
           verifiedUser = await AuthService.confirmLocalDevPhoneVerification({ verificationCode, verificationId });
         } else if (AuthService.isUatPhoneTestVerificationId(verificationId)) {
           const identity = await AccountIdentityService.confirmUatTestPhoneVerification(currentUser, {
@@ -1964,29 +2005,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
         applyAuthUser(verifiedUser, principal);
         phoneVerificationOwnerRef.current = null;
         return verifiedUser;
+      }).catch((error: unknown) => {
+        const proof = phoneTransferProofRef.current;
+        const available = !!attempt && proof?.userId === attempt.userId && proof.epoch === attempt.epoch &&
+          proof.phone === attempt.phone && phoneVerificationEpochRef.current === attempt.epoch && userRef.current?.uid === attempt.userId;
+        if (error instanceof Error) Object.assign(error, { phoneProofAvailable: available });
+        throw error;
       });
     },
     [applyAuthUser, finalizeLinkedProviderPhone, phoneRecovery, phoneVerificationAttempt, requirePhoneVerificationOwner],
   );
 
   const confirmPhoneTransfer = useCallback(async (): Promise<User> => {
-    throw new Error("This number is already linked to an account. Use a different number or contact support.");
-  }, []);
+    const proof = phoneTransferProofRef.current;
+    const currentUser = userRef.current;
+    if (!proof || !currentUser) throw new Error("Request a fresh real SMS code before transferring this number.");
+    requirePhoneVerificationOwner(proof.userId, proof.epoch);
+    await AccountIdentityService.transferCurrentUserPhone(currentUser, proof, () =>
+      phoneTransferProofRef.current === proof && userRef.current?.uid === currentUser.uid && phoneVerificationEpochRef.current === proof.epoch);
+    requirePhoneVerificationOwner(proof.userId, proof.epoch);
+    phoneRecovery.cancelNativeStart();
+    phoneTransferProofRef.current = null;
+    setPhoneVerificationAttempt(null);
+    phoneVerificationOwnerRef.current = null;
+    return currentUser;
+  }, [phoneRecovery, requirePhoneVerificationOwner]);
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
-    const principal = principalRef.current;
+    const releaseProof = () => {
+      phoneRecovery.cancelNativeStart();
+      phoneTransferProofRef.current = null;
+      setPhoneVerificationAttempt(null);
+      if (!Capacitor.isNativePlatform()) resetRecaptcha();
+      phoneVerificationOwnerRef.current = null;
+    };
+    // A requested deletion links nothing here; the receiving owner verifies the number again.
     return confirmLinkedDeletion(input, {
       user: () => userRef.current,
       retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
       requireOwner: requirePhoneVerificationOwner,
-      finalize: (verified) => {
-        phoneTransferProofRef.current = null;
-        setPhoneVerificationAttempt(null);
-        if (!Capacitor.isNativePlatform()) resetRecaptcha();
-        applyAuthUser(verified, principal);
-        phoneVerificationOwnerRef.current = null;
-      },
+      releaseProof,
     });
-  }, [applyAuthUser, requirePhoneVerificationOwner]);
+  }, [phoneRecovery, requirePhoneVerificationOwner]);
 
   const confirmPhoneReplacement = confirmPhoneVerification;
 

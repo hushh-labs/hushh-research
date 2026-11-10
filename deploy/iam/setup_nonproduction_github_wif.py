@@ -47,7 +47,8 @@ def record(environment: str) -> dict:
         "name": f"projects/{number}/locations/global/workloadIdentityPools/"
         f"github-actions-{environment}/providers/hushh-research-{environment}",
         "legacy": legacy,
-        "condition": f"({legacy}) || ({subject} && {branch})",
+        "condition": legacy,
+        "previous_condition": f"({legacy}) || ({subject} && {branch})",
     }
 
 
@@ -66,8 +67,8 @@ def inspect(provider: dict, expected: dict) -> str:
     condition = provider.get("attributeCondition")
     if condition == expected["condition"]:
         return "ready"
-    if condition == expected["legacy"]:
-        return "main-only"
+    if condition == expected["previous_condition"]:
+        return "branch-enabled"
     raise Refused("Provider condition changed independently; review before updating")
 
 
@@ -106,7 +107,7 @@ def reconcile(api, environment: str, *, apply: bool = False) -> dict:
     state = inspect(api("GET", path), expected)
     if state != "ready":
         raise Refused(
-            "Provider readback differs; matching-branch activation unverified"
+            "Provider readback differs; Main-only activation unverified"
         )
     return {"environment": environment, "state": state, "changed": True}
 

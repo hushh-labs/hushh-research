@@ -1798,6 +1798,22 @@ obligation age and imbalance alerts before accepting operational readiness.
 
 ## Configuration, erasure and rollback
 
+### Website payment return surface (source implementation)
+
+Funding checkout and onboarding accept the optional closed selector
+`return_surface: "website"`; omission retains One's existing return behavior.
+The website surface requires the server-owned `scope_commerce_website_origin`
+runtime policy (`SCOPE_COMMERCE_WEBSITE_ORIGIN`) and fixes its return path to
+`/profile`. Clients cannot provide a return URL. The resolved return participates
+in the existing durable provider operation request, so a retry cannot change
+its destination. Sandbox readiness accepts only the configured One or website
+origin and binds its response to the exact requested origin. Existing account
+pins, reviewer policy, fees, activation and consent remain authoritative.
+
+This source addition does not establish a configured website sandbox, deployed
+support, successful funding, or encrypted information delivery. Website returns
+are refresh hints only; financial status must be read from the ledger.
+
 [Environment and secrets](../../../docs/reference/operations/env-and-secrets.md)
 owns configuration provenance. Nonsecret lowercase `scope_commerce_*` values travel
 in `BACKEND_RUNTIME_CONFIG_JSON`; country objects hydrate as JSON. SDK and webhook
@@ -4627,3 +4643,31 @@ source hashes: 152 existing observations and 50 new observations were accepted,
 with prior history, detector and budgets unchanged. Each of the 202 observations
 still rejects one further line of growth. This is retained maintenance debt,
 not a claim that large existing modules meet the advisory budgets.
+
+### Cached pre-Connect rejection in an isolated Sandbox
+
+If Connect was enabled after an original seller-account request, Stripe may replay
+its cached HTTP 400 `Connect not enabled` response under the original idempotency
+key. Ordinary UI retries retain that key intentionally. Never edit the operation,
+seller binding, ledger, or provider metadata to force a retry.
+
+The operator-only `scripts/ops/scope_commerce_sandbox.py recover-seller-account`
+command requires the existing isolation/reviewer/state files, `--execute`, a
+`--reviewer-role primary|counterpart`, and `--failure-evidence-file`. The private
+failure attestation records `platform_account_id`, `livemode=false`, `operation_id`,
+the original `idempotency_key`, `http_status=400`, `error_class=connect_not_enabled`,
+`idempotent_replayed=true`, distinct `original_request_id` and
+`replayed_request_id`, and `verified_at` (UTC, less than one hour old). Verify those
+facts in Stripe Workbench and complete Connect setup before invoking recovery.
+Timeouts, unknown outcomes and other errors do not authorize this operation.
+
+Use the current serving configuration, dedicated test credential and both webhook
+secrets; disable dotenv loading for a hosted operator process. Recovery requires
+an existing exact test-account ledger pin and admitted reviewer. It preserves the
+original request/hash/creation time, reconciles all provider accounts first, and
+uses the ordinary durable-operation runner and seller binding. Before dispatch it
+persists one deterministic replacement transport key under the exclusive operator
+state lock, then rechecks the runner lease and 23-hour recovery window after the
+provider listing. A lost response reuses that same key and recovers the existing
+account. Never select a fresh key after uncertainty, use this command in live mode,
+or treat its operational state file as financial authority.

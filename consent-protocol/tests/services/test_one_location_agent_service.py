@@ -279,7 +279,7 @@ def test_atomic_private_share_lock_precedes_fresh_snapshot_mutation(
     class Connection:
         def execute(self, statement, params: dict):
             calls.append((str(statement), params))
-            return Result({"saved": True} if len(calls) == 3 else None)
+            return Result({"saved": True} if str(statement) == "SELECT :value AS saved" else None)
 
     @contextmanager
     def fake_connection():
@@ -298,16 +298,70 @@ def test_atomic_private_share_lock_precedes_fresh_snapshot_mutation(
         recipient_key_lock_key="one-location-recipient-key:recipient",
         pair_lock_key="one-location-grant:owner:recipient",
         mutation_sql="SELECT :value AS saved",
-        params={"value": True},
+        params={"value": True, "owner_user_id": "owner", "recipient_user_id": "recipient"},
     )
 
     assert result == {"saved": True}
-    assert "pg_advisory_xact_lock" in calls[0][0]
-    assert calls[0][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
-    assert "pg_advisory_xact_lock" in calls[1][0]
-    assert calls[1][1] == {"pair_lock_key": "one-location-grant:owner:recipient"}
-    assert calls[2] == ("SELECT :value AS saved", {"value": True})
+    assert all("pg_advisory_xact_lock_shared" in statement for statement, _ in calls[:4])
+    assert [params["user_id"] for _, params in calls[:4]] == ["owner", "recipient"] * 2
+    assert calls[4][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
+    assert calls[5][1] == {"pair_lock_key": "one-location-grant:owner:recipient"}
+    assert calls[6][0] == "SELECT :value AS saved"
     assert state["exited"] is True
+
+
+@pytest.mark.parametrize("atomic", [False, True], ids=["event-bound", "atomic-share"])
+@pytest.mark.parametrize(
+    "constraint",
+    [
+        "account_deletion_tombstone_guard",
+        "account_retired_generation_update_guard",
+        "account_identity_reference_immutable_guard",
+    ],
+)
+def test_location_mutation_classifies_only_account_deletion_guard(
+    monkeypatch: pytest.MonkeyPatch, atomic: bool, constraint: str
+) -> None:
+    driver = RuntimeError("private driver detail")
+    driver.diag = SimpleNamespace(constraint_name=constraint)
+    wrapped = RuntimeError("private SQL values")
+    wrapped.__cause__ = driver
+
+    class Connection:
+        def execute(self, statement, params):
+            if "pg_advisory_xact_lock" not in str(statement):
+                raise wrapped
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    service = OneLocationAgentService()
+    monkeypatch.setattr(one_location_service_module, "get_db_connection", fake_connection)
+
+    def write():
+        if atomic:
+            return service._execute_atomic_private_share(
+                recipient_key_lock_key="key:recipient",
+                pair_lock_key="grant:owner:recipient",
+                mutation_sql="SELECT :value",
+                params={"value": True, "owner_user_id": "owner", "recipient_user_id": "recipient"},
+            )
+        service._key_writer_connection = Connection()
+        try:
+            return service._execute_one("SELECT :value", {"value": True})
+        finally:
+            del service._key_writer_connection
+
+    if constraint != "account_identity_reference_immutable_guard":
+        with pytest.raises(OneLocationAgentError) as error:
+            write()
+        assert (error.value.status_code, error.value.code) == (409, "LOCATION_PEER_UNAVAILABLE")
+        assert "private" not in str(error.value)
+    else:
+        with pytest.raises(RuntimeError) as error:
+            write()
+        assert error.value is wrapped
 
 
 def test_recipient_key_registration_locks_before_mutation(
@@ -328,7 +382,9 @@ def test_recipient_key_registration_locks_before_mutation(
     class Connection:
         def execute(self, statement, params: dict):
             calls.append((str(statement), params))
-            return Result({"key_id": "new-key"} if len(calls) == 2 else None)
+            return Result(
+                {"key_id": "new-key"} if str(statement) == "SELECT :key_id AS key_id" else None
+            )
 
     @contextmanager
     def fake_connection():
@@ -343,13 +399,13 @@ def test_recipient_key_registration_locks_before_mutation(
     result = OneLocationAgentService()._execute_recipient_key_registration(
         recipient_key_lock_key="one-location-recipient-key:recipient",
         mutation_sql="SELECT :key_id AS key_id",
-        params={"key_id": "new-key"},
+        params={"key_id": "new-key", "user_id": "recipient"},
     )
 
     assert result == {"key_id": "new-key"}
-    assert "pg_advisory_xact_lock" in calls[0][0]
-    assert calls[0][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
-    assert calls[1] == ("SELECT :key_id AS key_id", {"key_id": "new-key"})
+    assert all("pg_advisory_xact_lock_shared" in statement for statement, _ in calls[:2])
+    assert calls[2][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
+    assert calls[3][0] == "SELECT :key_id AS key_id"
 
 
 @pytest.mark.parametrize(
@@ -482,7 +538,7 @@ def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
             {"value": True},
         ) == {"value": True}
 
-    assert len([sql for sql in calls if "pg_advisory_xact_lock" in sql]) == 2
+    assert len([sql for sql in calls if "pg_advisory_xact_lock(" in sql]) == 2
     assert not hasattr(service, "_key_writer_connection")
 
 

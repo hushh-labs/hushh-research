@@ -9,6 +9,7 @@ import { Capacitor } from "@capacitor/core";
 import { usePathname } from "next/navigation";
 import { Loader2, Lock, RefreshCw } from "@/components/icons";
 import { toast } from "sonner";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 import {
   AppPageContentRegion,
@@ -55,6 +56,7 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { roleSolid } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { withDeadline } from "@/lib/utils/with-deadline";
 import { useAuth } from "@/hooks/use-auth";
+import { DurableResourceError } from "@/lib/services/durable-resource-error";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { useHeldValue } from "@/hooks/use-held-value";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
@@ -344,7 +346,7 @@ export default function GmailReceiptsPage({
   const hasSealedReceiptAccess = Boolean(vaultOwnerToken && isVaultUnlocked);
   const receiptSyncAllowedRef = useRef(true);
 
-  const runReceiptScan = useCallback(async (_nextPage: number): Promise<boolean | null> => {
+  const runReceiptScan = useCallback(async (_nextPage: number, manual = false): Promise<boolean | null> => {
     const owner = userId; const account = receiptAccountKeyRef.current;
     if (!user || !owner || !account || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || receiptReadsClosedRef.current || !receiptSyncAllowedRef.current) return null;
     const controller = new AbortController(); receiptScanAbortRef.current = controller;
@@ -352,6 +354,10 @@ export default function GmailReceiptsPage({
     const isCurrent = () => !controller.signal.aborted && gmailOwnerIdRef.current === owner &&
       receiptAccountKeyRef.current === account && receiptLoadSequenceRef.current === sequence &&
       sealedReceiptAccessRef.current.isUnlocked && !receiptReadsClosedRef.current;
+    // Automatic entry/focus scans are not new owner attempts. Retain the
+    // original admission only for an explicit retry of this scan.
+    const attempt = manual ? captureProductAttempt("profile.gmail.sync_now", owner) : null;
+    attempt?.started();
     setLoadingReceipts(true); receiptPersistenceFailedRef.current = false;
     try {
       const result = await MailReceiptResourceService.refresh({ userId: owner, vaultKey, vaultOwnerToken,
@@ -372,9 +378,13 @@ export default function GmailReceiptsPage({
       setTotal(result.snapshot.coverage.source_count); setReceiptScanReachedLimit(!result.complete);
       if (result.complete) setReceiptCompletion(previous => ({ scope: `${owner}\u0000${account}`, count: (previous?.count ?? 0) + 1,
         generation: result.generation, revision: result.revision }));
+      if (result.complete) attempt?.settled("returned");
       return result.complete;
     } catch (error) {
       if (!isCurrent()) return null;
+      // A retired session, deadline or incomplete scan supplies no terminal
+      // result. Never turn its absence into a failure email.
+      if (!(error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))) attempt?.settled("failed");
       if ((error as { code?: string }).code === "GMAIL_RECEIPT_ACCOUNT_CHANGED") {
         void refreshGmailStatusRef.current?.({ force: true });
       }
@@ -397,11 +407,11 @@ export default function GmailReceiptsPage({
   // across Mail tabs, and a repeated action joins the running scan instead of
   // aborting it or starting another provider scan.
   const loadReceipts = useCallback(
-    (nextPage: number): Promise<boolean | null> => {
+    (nextPage: number, manual = false): Promise<boolean | null> => {
       if (receiptScanAbortRef.current && receiptScanPromiseRef.current) {
         return receiptScanPromiseRef.current;
       }
-      const scan = runReceiptScan(nextPage);
+      const scan = runReceiptScan(nextPage, manual);
       if (receiptScanAbortRef.current) receiptScanPromiseRef.current = scan;
       return scan;
     },
@@ -649,7 +659,12 @@ export default function GmailReceiptsPage({
   const retryReceiptRestore = useCallback(async () => {
     if (!historySession || !receiptAccountKey) return;
     const sequence = receiptLoadSequenceRef.current;
-    const current = () => historySession.isCurrent() && receiptLoadSequenceRef.current === sequence;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const current = () => historySession.isCurrent() && receiptAccountKeyRef.current === receiptAccountKey &&
+      receiptLoadSequenceRef.current === sequence;
+    if (!current()) return;
+    const attempt = captureProductAttempt("profile.gmail.restore_saved_receipts", historySession.userId);
+    attempt.started();
     setReceiptRestorePending(true);
     let restored = false;
     try {
@@ -657,8 +672,15 @@ export default function GmailReceiptsPage({
       if (!current()) return;
       setSavedReceiptSnapshot(saved ? { scope: receiptDisplayScope, value: saved } : null);
       setReceiptListReady(true); setReceiptRestoreFailed(false); setReceiptListError(null); restored = true;
-    } catch {
-      if (current()) { setReceiptRestoreFailed(true); setReceiptListError("Saved receipts couldn’t be opened. Try again."); }
+      if (saved && isVaultSessionEpochCurrent(vaultEpoch)) attempt.settled("returned");
+    } catch (error) {
+      if (current()) {
+        setReceiptRestoreFailed(true); setReceiptListError("Saved receipts couldn’t be opened. Try again.");
+        // Only definite local read failures supply a terminal result. A
+        // deadline, retired authority or missing snapshot does not.
+        if (isVaultSessionEpochCurrent(vaultEpoch) && error instanceof DurableResourceError &&
+          (error.code === "storage_unavailable" || error.code === "binding_invalid")) attempt.settled("failed");
+      }
     } finally { if (current()) setReceiptRestorePending(false); }
     if (current() && restored && receiptSyncAllowedRef.current) void loadReceipts(1);
   }, [historySession, receiptAccountKey, receiptDisplayScope, loadReceipts]);
@@ -1216,6 +1238,8 @@ export default function GmailReceiptsPage({
     const owner = userId;
     const vaultEpoch = snapshotVaultSessionEpoch();
     const isCurrentOwner = () => gmailOwnerIdRef.current === owner && isVaultSessionEpochCurrent(vaultEpoch);
+    const attempt = captureProductAttempt("profile.gmail.disconnect", owner);
+    attempt.started();
 
     try {
       setGmailActionBusy("disconnect");
@@ -1226,6 +1250,7 @@ export default function GmailReceiptsPage({
             if (!next || next.connected) {
               throw new Error("Mail could not be disconnected.");
             }
+            if (isCurrentOwner()) attempt.settled("returned");
             // Read once the disconnect stopped every receipt sync: one still running could have saved receipts until then.
             return Boolean(receiptAccountKey && (await withDeadline(receiptStoreVersion(owner, receiptAccountKey).catch(() => null), operationDeadline))?.revision);
           })(),
@@ -1251,8 +1276,9 @@ export default function GmailReceiptsPage({
       setTotal(0);
       setReceiptScanReachedLimit(false);
       setShowDisconnectConfirm(false);
-    } catch {
+    } catch (error) {
       if (!isCurrentOwner()) return;
+      if (!(error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))) attempt.settled("failed");
       receiptReadsClosedRef.current = false;
       console.warn("MAIL_DISCONNECT_FAILED");
     } finally {
@@ -1307,6 +1333,7 @@ export default function GmailReceiptsPage({
           cached.page < RECEIPT_SCAN_MAX_PAGES
           ? cached.page + 1
           : 1,
+        true,
       );
       if (loaded === null || !isCurrent()) return;
       if (!loaded && receiptConnectionLostRef.current) {

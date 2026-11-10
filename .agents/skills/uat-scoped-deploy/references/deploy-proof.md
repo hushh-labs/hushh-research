@@ -23,22 +23,27 @@ Main-owned workflow; it does not redefine merge or bypass semantics. New
 application source must be an exact SHA in protected `uat` history. A
 Main-only SHA is not a normal UAT source.
 
-For a direct UAT candidate, inspect prerequisites from `uat` first. In Actions,
-select **Deploy to UAT → Run workflow → uat → operation=inspect**, leaving
+For a direct UAT candidate, inspect prerequisites from `main` first. In Actions,
+select **Deploy to UAT → Run workflow → main → operation=inspect**, leaving
 release inputs at defaults. This uses the governed UAT identity for read-only
 serving observations, without a deployment record or runtime mutation. The
 summary identifies protected tip, serving base and current CI status. Wait for
 existing pending CI; investigate an existing failure before dispatching more CI.
 Only when missing qualification is reported, run full PR Validation on `uat`
-with the shown base. After success inspect again, then deploy with its exact
-current CI run, attempt and comparison base. Ordinary UAT selects the protected
-SHA directly; no manual PR-history chain or serving-commit ancestry is required. New deployments reject incomplete pins before
+with the shown base. After success retain that actual SHA, run, attempt and base.
+Inspection may show a newer protected tip; that alone must not trigger another
+qualification or silently retarget the frozen release. Deploy with the retained
+pins while current authority and serving-baseline checks still pass. Ordinary UAT selects the protected
+SHA directly; no manual PR-history chain or serving-commit ancestry is required.
+Once selected, that frozen ordinary UAT SHA remains eligible after newer merges
+while it remains in protected UAT history; CI, current authority and live-baseline
+checks still apply. Never silently substitute the new tip. New deployments reject incomplete pins before
 security/capacity jobs; security clearance and under-lock admission remain required:
 
 ```bash
-gh workflow run deploy-uat.yml --ref uat -f operation=inspect
+gh workflow run deploy-uat.yml --ref main -f operation=inspect
 gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<serving-uat-sha>
-gh workflow run deploy-uat.yml --ref uat -f scope=auto \
+gh workflow run deploy-uat.yml --ref main -f scope=auto \
   -f sha=<validated-uat-sha> -f ci_run_id=<run-id> \
   -f ci_run_attempt=<attempt> -f ci_base_sha=<serving-uat-sha>
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or update a GCP Secret Manager secret from file or stdin."""
+"""Create or update a secret without removing versions needed for recovery."""
 
 from __future__ import annotations
 
@@ -39,6 +39,26 @@ def _secret_exists(project: str, secret: str) -> bool:
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
+def _get_latest_payload(project: str, secret: str) -> str | None:
+    result = subprocess.run(
+        [
+            "gcloud",
+            "secrets",
+            "versions",
+            "access",
+            "latest",
+            f"--secret={secret}",
+            f"--project={project}",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode == 0:
+        return result.stdout
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
@@ -53,7 +73,11 @@ def main() -> int:
     else:
         payload = args.value_file.read_text(encoding="utf-8")
 
-    if not _secret_exists(args.project, args.secret):
+    if _secret_exists(args.project, args.secret):
+        current_payload = _get_latest_payload(args.project, args.secret)
+        if current_payload is not None and current_payload == payload:
+            return 0
+    else:
         _run(
             [
                 "gcloud",

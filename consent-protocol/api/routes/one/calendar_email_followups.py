@@ -40,6 +40,8 @@ from hushh_mcp.services.owner_placement_guard import hub_content_firebase, hub_c
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/one/calendar/followups", tags=["One Calendar Follow-ups"])
+# One page of the full view; the compact Insights preview shows the first two of it.
+FOLLOWUP_PAGE_SIZE = 15
 
 
 class _Selection(BaseModel):
@@ -67,6 +69,9 @@ class RequestSelection(_Selection):
 
 class ListSelection(_Selection):
     offset: int = Field(default=0, ge=0, le=100000)
+    # Which list to page: what is coming up (the default), unresolved overdue
+    # work, snoozed until later, or history (expired, finished, dismissed).
+    view: Literal["upcoming", "overdue", "snoozed", "history"] = "upcoming"
 
 
 class RequestChange(RequestSelection):
@@ -249,7 +254,9 @@ async def list_followups(
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
-        result = await store.list_conversations(monitor, limit=50, offset=payload.offset)
+        result = await store.list_conversations(
+            monitor, limit=FOLLOWUP_PAGE_SIZE, offset=payload.offset, view=payload.view
+        )
         await _require_current(store, monitor, grant)
         return result
     except Exception as exc:
@@ -287,9 +294,9 @@ async def resolve_followup(
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
-        conversation_id = await store.conversation_for_request(monitor, str(payload.request_id))
+        target = await store.resolve_request(monitor, str(payload.request_id))
         await _require_current(store, monitor, grant)
-        return {"account_id": payload.account_id, "conversation_id": conversation_id}
+        return {"account_id": payload.account_id, **target}
     except Exception as exc:
         raise _http(exc) from None
 

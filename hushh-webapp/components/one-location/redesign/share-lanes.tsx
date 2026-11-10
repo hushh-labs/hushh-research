@@ -94,7 +94,7 @@ export function ShareLaneRow({
       type="button"
       variant="ghost"
       size="compact"
-      className={cn(ACTIVE_SHARE_CHANGE_TIME_CLASSNAME, (comparison || category) && "justify-start px-0")}
+      className={cn(ACTIVE_SHARE_CHANGE_TIME_CLASSNAME, category && "justify-start px-0")}
       onClick={(event) => onChangeEndTime(event.currentTarget)}
       disabled={stopping}
       data-share-duration-grant-id={grant.id}
@@ -111,7 +111,7 @@ export function ShareLaneRow({
       data-grant-id={grant.id}
     >
       {category ? <div className="col-start-1 row-start-1 flex items-center">{avatar}</div> : null}
-      <div className={cn("min-w-0 flex-1", comparison && "flex flex-wrap items-center justify-between gap-x-2", category && (isSms ? "col-start-2 row-start-1" : "col-start-2 col-span-2 row-start-1"))}>
+      <div className={cn("min-w-0 flex-1", category && (isSms ? "col-start-2 row-start-1" : "col-start-2 col-span-2 row-start-1"))}>
         <p data-location-type-role="row-title" className={cn(
           TYPOGRAPHY_CLASSNAMES.rowLabel,
           "flex min-w-0 items-center gap-1.5 text-foreground",
@@ -136,10 +136,9 @@ export function ShareLaneRow({
             <ShareCountdownText expiresAt={grant.expiresAt} />
           )}
         </p>
-        {comparison ? changeTimeControl : null}
       </div>
-      <div className={category ? cn("flex min-w-0 items-center", isSms ? "col-start-3 row-start-1 justify-end" : "col-start-2 col-span-2 row-start-2 flex-wrap justify-between gap-x-2 gap-y-1") : comparison ? "flex shrink-0 items-center justify-end" : ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME}>
-        {!comparison ? changeTimeControl : null}
+      <div className={category ? cn("flex min-w-0 items-center", isSms ? "col-start-3 row-start-1 justify-end" : "col-start-2 col-span-2 row-start-2 flex-wrap justify-between gap-x-2 gap-y-1") : comparison ? "flex flex-wrap items-center gap-x-2" : ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME}>
+        {changeTimeControl}
         {onStop ? (
         <Button data-location-type-role="utility-action"
           type="button"
@@ -208,7 +207,7 @@ export function ActiveShareComparison({
             <SettingsGroup
               key={channel}
               testId={isSms ? "one-location-sms-shares" : "one-location-ordinary-shares"}
-              title={isSms ? <span className="text-[color:var(--app-destructive)]">SMS</span> : "Location shares"}
+              title={isSms ? "SMS" : "Location shares"}
               titleAction={<span className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, MUTED_TEXT)}>{channelGroups.length}</span>}
               headingClassName="mt-0"
               density="compact"
@@ -238,18 +237,18 @@ export function ActiveShareComparison({
   }
   return (
     <div ref={containerRef} className="@container" data-testid="one-location-share-comparison" data-share-layout="comparison">
-      <div aria-hidden="true" className={cn(
+      <div aria-hidden="true" data-testid="one-location-share-comparison-headings" className={cn(
         ACTIVE_SHARE_COMPARISON_GRID_CLASSNAME,
         TYPOGRAPHY_CLASSNAMES.rowDescription,
-        "mb-2 hidden px-4 text-[color:var(--app-secondary-label)] @min-[46rem]:grid",
+        "mb-2 hidden px-[var(--settings-row-px)] text-[color:var(--app-secondary-label)] @min-[46rem]:grid",
       )}>
-        <span>Person</span><span>Location share</span><span className="text-[color:var(--app-destructive)]">SMS</span>
+        <span>Person</span><span>Location share</span><span>SMS</span>
       </div>
       <SettingsGroup separatorInset density="compact">
         {groups.map((group) => {
           const name = recipientName(group.primaryGrant);
           return (
-            <SettingsRow key={group.counterpartUserId} className="[--settings-row-py:8px]" title={
+            <SettingsRow key={group.counterpartUserId} className="[&_[data-slot=settings-row-main]]:col-span-full" title={
               <div className={ACTIVE_SHARE_COMPARISON_GRID_CLASSNAME}>
                 <div className="flex min-w-0 items-center gap-3">
                   {renderAvatar(group, name)}
@@ -271,7 +270,7 @@ export function ActiveShareComparison({
                     </div>
                   ) : (
                   <span key={String(isSms)} className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, "hidden text-[color:var(--app-secondary-label)] @min-[46rem]:block")}>
-                    <span aria-hidden="true">—</span><span className="sr-only">No active share</span>
+                    No active share
                   </span>
                   );
                 })}

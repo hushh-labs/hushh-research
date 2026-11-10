@@ -535,7 +535,8 @@ describe("SmsContactsFlow", () => {
     // The ground is the semantic `-tint` partner, not a one-off alpha on the
     // flat token. Hand-rolled alphas are what made the same destructive ground
     // render a slightly different colour on every screen that spelled it out.
-    expect(removeButton).toHaveClass(
+    expect(removeButton).toHaveClass("min-h-11", "min-w-11");
+    expect(within(removeButton).getByText("Remove")).toHaveClass(
       "bg-[color:var(--app-destructive-tint)]",
       "text-[color:var(--app-destructive)]",
     );

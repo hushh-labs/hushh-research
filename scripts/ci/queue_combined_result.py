@@ -133,9 +133,9 @@ def _module(filename, name):
     return module
 
 
-def authority_policy(repository, branch, base):
-    """Use current protected Main authority for Dev/UAT, not candidate policy."""
-    if branch not in {"dev", "uat"}:
+def authority_policy(repository, branch, base, *, owner_admin=False):
+    """Use protected Main for Dev/UAT and the isolated Admin operator."""
+    if branch not in {"dev", "uat"} and not (branch == "uat-isolated" and owner_admin):
         return base, json.loads(git("show", f"{base}:config/ci-governance.json"))
     ref = api(f"repos/{repository}/git/ref/heads/main")
     authority = ref.get("object", {})
@@ -254,7 +254,7 @@ def authorize(repository, branch, base, included, *, policy=None, authority_revi
         approvals = owner_approval or (guard._owner_approvals(
             repository, member["number"], member["head"], protected_owners, read=api,
         ) if protected else [])
-        require(not protected or approvals, "Protected changes need Kushal or Ankit's current-head approval")
+        require(not protected or approvals, "Protected changes need the configured pipeline editors' current-head approval")
         member["protected_approvals"] = approvals
     return included
 
@@ -263,7 +263,15 @@ def snapshot():
     repository, branch, group = event_context()
     included = members(group["base_sha"], group["head_sha"], queue_entries(repository, branch), branch)
     policy_revision, policy = authority_policy(repository, branch, group["base_sha"])
-    authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import request_queue_authority
+        decision = request_queue_authority(dict(os.environ), os.environ.get("QUEUE_AUTHORIZATION_PHASE", "admission"))
+        require(all(decision.get(key) == value for key, value in {
+            "repository": repository, "branch": branch, "base": group["base_sha"], "head": group["head_sha"]}.items()),
+            "Main merge permission does not match this combined source")
+        included = decision["members"]
+    else:
+        authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
     # A replaced queue ref must not retain this run's authority.
     head_ref = str(group.get("head_ref", ""))
     require(head_ref.startswith(f"refs/heads/gh-readonly-queue/{branch}/"), "Unexpected queue ref")
@@ -408,7 +416,8 @@ def owner_admin_snapshot(number, expected_head):
     actor = api("user").get("login")
     pr = api(f"repos/{repository}/pulls/{number}")
     branch = pr.get("base", {}).get("ref")
-    require(branch in {"main", "dev", "uat"}, "Owner Admin route supports only Main/Dev/UAT")
+    require(branch in {"main", "dev", "uat", "uat-isolated"},
+            "Owner Admin route requires a governed Main, Dev or UAT destination")
     base = api(f"repos/{repository}/git/ref/heads/{branch}")["object"]["sha"]
     require(
         SHA.fullmatch(str(expected_head))
@@ -426,7 +435,10 @@ def owner_admin_snapshot(number, expected_head):
         check=True,
         timeout=90,
     )
-    policy_revision, policy = authority_policy(repository, branch, base)
+    policy_revision, policy = authority_policy(repository, branch, base, owner_admin=True)
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        policy = local_policy(policy, actor=actor, read=api)
     if branch == "main":
         main = policy["main"]
     else:
@@ -545,7 +557,16 @@ def owner_admin_merge(number, expected_head, receipt, apply=False):
             "Admin merge was not confirmed; inspect the recorded PR before any retry"
         )
     landed = observed.get("merge_commit_sha")
+    # The PR API guards the head, not our captured base. Persist confirmed
+    # landing before inspecting the combined result; never replay this merge.
+    proof.update(outcome="merged_unqualified", landed=landed, request_exit_code=exit_code)
+    receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
     commit = api(f"repos/{repository}/git/commits/{landed}")
+    proof["observed_commit"] = {
+        "tree": commit.get("tree", {}).get("sha"),
+        "parents": [parent["sha"] for parent in commit.get("parents", [])],
+    }
+    receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
     require(
         commit.get("tree", {}).get("sha") == proof["state"]["tree"]
         and [p["sha"] for p in commit.get("parents", [])]

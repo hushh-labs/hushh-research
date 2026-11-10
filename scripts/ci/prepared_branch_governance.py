@@ -10,6 +10,7 @@ comes from the authored team, never from an arbitrary template's bypass list.
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import re
@@ -42,24 +43,40 @@ def queue_rules(policy: dict, rules: list[dict]) -> list[dict]:
 
 
 def branch_policy(policy: dict, branch: str) -> dict:
-    """Project the authored Dev/UAT native-review transition without changing shared cohorts."""
+    """Project named-owner exceptions without changing shared cohorts."""
     config = policy["branch_flow"]["prepared_branches"][branch]
     source = copy.deepcopy(policy[config["policy_key"]])
+    if policy.get("authorization", {}).get("native_teams"):
+        source["native_team_authority"] = True
+    if branch == "uat-isolated":
+        source.update(
+            required_approving_reviews=1, require_code_owner_reviews=True,
+            require_last_push_approval=True, require_strict_status_checks=True,
+            require_conversation_resolution=True,
+        )
     if config.get("owner_admin_ruleset_name"):
         owners = sorted(policy["main"]["protected_pipeline_edit_users"])
-        if (branch not in {"dev", "uat"} or config["owner_admin_ruleset_name"] != f"{branch} owner validated merge"
+        if (branch not in {"dev", "uat", "uat-isolated"} or config["owner_admin_ruleset_name"] != f"{branch} owner validated merge"
                 or not owners or not set(owners) <= set(source["review_bypass_users"])):
-            raise SystemExit("Native prepared review is limited to Dev/UAT and existing protected owners")
+            raise SystemExit("Prepared Admin merge requires an approved destination and existing protected owners")
         source.update(
             owner_admin_ruleset_name=config["owner_admin_ruleset_name"],
             merge_users=sorted(source["review_bypass_users"]),
             protected_pipeline_edit_users=owners,
-            required_approving_reviews=0, require_code_owner_reviews=False,
-            require_last_push_approval=False, require_strict_status_checks=False,
             review_bypass_users=owners, review_bypass_team_slug="",
             merge_queue_bypass_users=owners, merge_queue_bypass_team_slug="",
             merge_queue_bypass_team_name="",
         )
+        if policy.get("authorization", {}).get("native_teams"):
+            source["native_team_authority"] = True
+            source["review_bypass_team_slug"] = "pipeline-editors"
+            source["merge_queue_bypass_team_slug"] = "pipeline-editors"
+            source["merge_queue_bypass_team_name"] = "pipeline-editors"
+        if branch != "uat-isolated":
+            source.update(
+                required_approving_reviews=0, require_code_owner_reviews=False,
+                require_last_push_approval=False, require_strict_status_checks=False,
+            )
     return source
 
 
@@ -76,7 +93,7 @@ def protection_payload(policy: dict) -> dict:
             "required_approving_review_count": policy["required_approving_reviews"],
             "require_last_push_approval": policy["require_last_push_approval"],
             "bypass_pull_request_allowances": {
-                "users": sorted(policy["review_bypass_users"]),
+                "users": [] if policy.get("native_team_authority") else sorted(policy["review_bypass_users"]),
                 "teams": [policy["review_bypass_team_slug"]] if policy.get("review_bypass_team_slug") else [],
                 "apps": [],
             },
@@ -165,7 +182,7 @@ STAGE_B_AUTHORITY_PATHS = (
 )
 
 
-def verify_destination_authority(branch: str, *, repo: str, read, expected=None):
+def verify_destination_authority(branch: str, *, repo: str, read, expected=None, policy=None):
     """Never relax reviews while the destination still executes stale queue authority."""
     revisions = {}
     for ref in ("main", branch):
@@ -175,6 +192,20 @@ def verify_destination_authority(branch: str, *, repo: str, read, expected=None)
         revisions[ref] = obj["sha"]
     if expected is not None and revisions["main"] != expected:
         raise SystemExit("Main authority advanced; replan before changing protections")
+    if branch == "uat-isolated":
+        # Isolated keeps classic review and strict CI. This transition only
+        # narrows existing exceptions, so its old queue code can stay in place.
+        item = read(["api", f"repos/{repo}/contents/config/ci-governance.json?ref={revisions['main']}"])
+        try:
+            content = item.get("content")
+            if (policy is None or item.get("path") != "config/ci-governance.json"
+                    or item.get("encoding") != "base64"
+                    or not isinstance(content, str) or len(content) > 350_000
+                    or json.loads(base64.b64decode("".join(content.split()), validate=True)) != policy):
+                raise ValueError("Policy mismatch")
+        except (ValueError, UnicodeError) as error:
+            raise SystemExit("Isolated Admin policy must match protected Main") from error
+        return revisions["main"]
     for path in STAGE_B_AUTHORITY_PATHS:
         objects = []
         for ref in ("main", branch):
@@ -212,14 +243,16 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
             if governance is None:
                 raise SystemExit("Native prepared review requires the existing governance verifier")
             governance.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
-            authority = verify_destination_authority(branch, repo=repo, read=read)
+            authority = verify_destination_authority(branch, repo=repo, read=read, policy=policy)
         else:
             authority = None
         if not native and source.get("require_strict_status_checks") is False and (slug or source.get("merge_queue_bypass_users")):
             raise SystemExit("Combined-result enforcement requires queue bypass to be disabled")
         team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{slug}"]) if slug else None
         actors = []
-        if native:
+        if native and source.get("native_team_authority"):
+            actors = [governance.pipeline_team_actor(read)]
+        elif native:
             for owner in source["merge_queue_bypass_users"]:
                 user = read(["api", f"users/{owner}"])
                 if user.get("login") != owner or user.get("type") != "User" or type(user.get("id")) is not int:
@@ -257,7 +290,10 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         desired = protection_payload(source)
         if native:
             legacy = protection_payload(policy[config["policy_key"]])
-            legacy["required_status_checks"]["strict"] = (current.get("required_status_checks") or {}).get("strict")
+            legacy["required_status_checks"]["strict"] = (
+                True if branch == "uat-isolated"
+                else (current.get("required_status_checks") or {}).get("strict")
+            )
             _assert_no_unowned_protection(current, legacy)
             if not _same_protection(current, desired) and not _same_protection(current, legacy):
                 raise SystemExit("Prepared review protection differs from both exact legacy and replacement policy")
@@ -271,7 +307,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         if not apply:
             continue
         if native:
-            verify_destination_authority(branch, repo=repo, read=read, expected=authority)
+            verify_destination_authority(branch, repo=repo, read=read, expected=authority, policy=policy)
             governance.reconcile_owner_admin_ruleset(policy, branch=branch, apply=True, read=read, repo=repo)
             governance.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
             governance.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read, repo=repo)
@@ -290,7 +326,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
                 raise SystemExit("Owner-only queue readback failed; classic reviews retained")
             governance.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
             governance.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read, repo=repo)
-            verify_destination_authority(branch, repo=repo, read=read, expected=authority)
+            verify_destination_authority(branch, repo=repo, read=read, expected=authority, policy=policy)
             if read(["api", endpoint]) != current:
                 raise SystemExit("Classic protection changed before mutation; peer state retained")
         if protection_changed:

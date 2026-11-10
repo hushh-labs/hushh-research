@@ -4,14 +4,14 @@
 
 ```mermaid
 flowchart LR
-  Analysis[Portfolio Analysis] --> Agent[Owner-requested Agent One review]
+  Analysis[Portfolio Analysis] --> Agent[Inline private agent review]
   Analysis --> Choose[Choose a verified advisor]
   Choose --> Approve[Approve connection and sealed Finance snapshot]
   Approve --> Pending[RIA Clients request inbox]
-  Pending --> Accept[Accept and connect atomically]
+  Pending --> Accept[Accept on the existing or newly connected edge]
   Accept --> Workspace[Participant workspace and expiring snapshot]
   Workspace --> Agree[Agree on an introduction time]
-  Agree --> Calendar[Advisor reviews and confirms Google Calendar booking]
+  Agree --> Calendar[Book the exact authorized offer or confirm a client proposal]
   Calendar --> Plan[Advisor offers monthly price and terms]
   Plan --> Checkout[Owner approves Stripe test checkout]
   Checkout --> Readback[Signed event and provider reconciliation]
@@ -19,12 +19,14 @@ flowchart LR
 
 ## Product boundaries
 
-Portfolio Analysis retains the factual analysis and adds an explicit Agent One
-review. The existing owner chat runtime receives up to six sequential batches of
-forty positions, largest first, followed by a cross-batch synthesis request. The
-UI reports supplied input coverage and missing positions; this is not an accuracy
-score or a promise that the model analyzed every position. An advisor introduction
-is available independently of model success.
+Portfolio Analysis shows charts from the saved portfolio and the active
+investing persona below Net Worth Score. Enabling automatic review approves a
+bounded portfolio summary for model processing in the current visible vault
+session. The review refreshes on saved changes to the approved source and reuses
+results for matching inputs. Owners can turn it off from Analysis. The four
+onboarding answers can support a Snapshot score when the portfolio and planning
+inputs are sufficient. The optional 13-question refinement updates the active
+persona and planning inputs.
 
 An introduction uses one explicit approval for a connection and a full saved
 Finance snapshot. It contains holdings, values, quantities and cost basis when
@@ -35,8 +37,9 @@ The snapshot is encrypted separately for the owner and advisor using the existin
 recipient-key system. Only ciphertext crosses the Finance request endpoint.
 
 The pending recipient sees the sender and introduction, not the snapshot.
-Verified RIA acceptance activates the canonical connection, its legacy read
-mirrors and the reference-only message in the same transaction. It does not grant
+Verified RIA acceptance reuses the active canonical connection. If a connection
+is needed, acceptance activates it with its legacy mirrors. The reference-only
+message and snapshot release share the same transaction. It does not grant
 trading, model-processing, Circle membership or any other data scope. Decline or
 withdraw removes the ciphertext. Repeated requests reuse the exact immutable
 request id; one pending or accepted workspace per owner/advisor pair prevents
@@ -63,20 +66,25 @@ postal-code search remains available after location permission refusal.
 
 ## Calendar and missing setup
 
-Either participant proposes a time with a real time zone; the other explicitly
-agrees. The advisor must connect Google Calendar with management permission,
-review the actual invitation and confirm through the existing one-shot Calendar
-proposal/execute boundary. The user can receive an email invitation and join
-without connecting Calendar. Both have a link to Calendar setup; missing setup
-preserves the agreed time and request.
+Either participant can propose a time. An advisor with Calendar scheduling
+permission can authorize automatic booking of an exact offer for up to 24 hours.
+A client's unchanged acceptance claims that offer once and verifies the advisor's
+placement, verified invitee, active connection, expiry and original Calendar grant
+before Google receives the create request. An expired or unapproved offer uses the
+manual booking review. The advisor reviews and explicitly confirms a client
+proposal. A counterproposal replaces the active offer and its authority.
 
-The meeting is bound to the original Google grant and a deterministic event id.
-Uncertain provider results remain unconfirmed. Check Calendar status before a
-retry; a provider-confirmed absence permits retrying only that same event id.
-Changing accounts refuses reconciliation. Cancellation is confirmed from provider
-evidence. A completed introduction can be recorded only after the confirmed end
-time. Missing invitation email, expired review, conflicts and provider failures
-leave an actionable error instead of claiming a booking.
+Both participants see their own Calendar connection and the same meeting layout.
+A client can receive an email invitation and join without connecting Calendar.
+An uncertain create can be retried with its original event ID after read-back.
+A previously confirmed event that is missing loses its Join action. Calendar
+reconciliation checks the original grant and only saves against the observed
+meeting state.
+
+After the confirmed end time either participant can schedule another meeting.
+Past meetings remain in the workspace. The advisor can mark the original
+introduction complete after its end, including after a follow-up is proposed.
+Only that completed introduction makes the optional advisor plan available.
 
 ## Monthly plan and payments
 

@@ -56,6 +56,10 @@ export function registerCalendarConnectedFixture() {
     });
     css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
     css += fs.readdirSync(outDir).filter(file => file.endsWith(".css")).map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
+    // Match the production optimization pass so dialog transforms and overflow
+    // are measured after globals and feature styles have been combined.
+    const { transform } = await import("lightningcss");
+    css = transform({ filename: "calendar-workspace.css", code: Buffer.from(css), minify: true }).code.toString();
     fs.mkdirSync(screenshotDirectory, { recursive: true });
   });
 
@@ -199,7 +203,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
       time_zone: body.time_zone, days: [], recurring: [], focus: [],
     } });
     if (routePath.endsWith("/invitations")) return route.fulfill({ json: {
-      events: fixtureEvents("2026-10-14", "standard").slice(0, 3).map((event, index) => ({ ...event,
+      events: fixtureEvents("2026-10-14", variant === "long" ? "long" : "standard").slice(0, 3).map((event, index) => ({ ...event,
         response_status: invitationResponses.get(event.id) || (index === 2 ? "declined" : "needsAction"),
         can_respond: true, conflicts: index === 0 ? [{ title: "QA Existing meeting", start: event.start, end: event.end }] : [],
         organizer: { displayName: ["Priya Mehta", "Rohan Kapoor", "Alex Chen"][index], email: `qa-organizer-${index}@example.test` },

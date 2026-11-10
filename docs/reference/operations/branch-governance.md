@@ -1,5 +1,28 @@
 # Branch Governance
 
+## Main-owned release control
+
+Dispatch Dev, UAT and Production deployments from `main`. Application sources remain
+isolated: qualified protected `dev`, protected `uat`, and approved Main content respectively.
+Run names identify the application branch and SHA; the Actions Main badge identifies
+execution authority. Merges never deploy. UAT needs no prior Dev deployment; production
+requires qualified protected Main, compatibility and rollback without preceding UAT deployment. This operations delta
+does not publish an application, run migrations or change production traffic.
+
+Current access comes only from the live GitHub teams: ordinary review/self-service uses
+`allowed-maintainers-to-approve`; environments use their `deploy-*` team; protected CI,
+fundamental guidance and emergency authorization use `pipeline-editors`. Saved usernames
+are historical evidence, never current grants. A membership lookup failure refuses the
+operation. An organization-owner role does not replace deployment-team membership.
+
+Protected PR jobs classify affected authority without receiving membership credentials.
+Native Team review and the trusted Main merge decision enforce approval. The queue requests
+current permission at admission and completion through the existing Main broker; no PR
+observer or recurring security-alert workflow runs. Explicit Main-origin deployments use
+the protected security job directly in the same run, without a second branch broker run. Current mutation boundaries also request a bounded Main-owned
+permission recheck, so revoked actors cannot keep using an earlier clearance. These
+explicit operation checks do not scan alerts or observe ordinary PR events.
+
 The canonical state-changing operator procedure is the
 [Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This page defines branch policy and governed cohorts; it does not redefine the
@@ -7,37 +30,80 @@ exact-head Admin PR landing or environment dispatch sequence.
 
 ## Visual Map
 
-UAT deployment requires an explicit landed application SHA and approved release
-PR scope. Inspection can read the protected tip and serving revisions.
+Choose a destination for the source change. Review, merge admission and deployment
+are separate decisions; belonging to one team does not grant the other decisions.
+
+| Live GitHub team | Review / merge role | Explicit deployment role |
+|---|---|---|
+| `allowed-maintainers-to-approve` | Ordinary review; eligible Dev/UAT authors may self-serve after required checks | None from this membership alone |
+| `pipeline-editors` | Required protected CI/core-guidance approval on every destination; bounded owner Admin route | Existing emergency authorization; not a substitute for the environment team |
+| `deploy-dev` | No additional merge permission | Dev |
+| `deploy-uat` | No additional merge permission | UAT and existing internal-testing operations |
+| `deploy-production` | Main merge requester | Production and public releases |
+
+```mermaid
+flowchart TB
+  change["Choose destination and open PR"] --> ci["Required core + affected CI"]
+  ci --> review{"Protected CI / core guidance change?"}
+  review -->|"Yes: every destination"| editors["pipeline-editors approval"]
+  review -->|"No"| ordinary["allowed-maintainers-to-approve<br/>Ordinary review / eligible Dev-UAT self-service"]
+  editors --> combined["Queue: prove combined result<br/>or bounded verified Admin landing"]
+  ordinary --> combined
+  combined -->|"Eligible maintainer"| dev["Protected dev"]
+  combined -->|"Eligible maintainer"| uat["Protected uat"]
+  combined -->|"deploy-production requester<br/>Main review policy still applies"| main["Protected main"]
+  dev -->|"Explicit request: qualified Dev source"| dd["Main-owned Dev workflow<br/>deploy-dev"]
+  uat -->|"Explicit request: qualified UAT source"| ud["Main-owned UAT workflow<br/>deploy-uat"]
+  main -->|"Explicit request: qualified Main content"| pd["Main-owned production workflow<br/>deploy-production"]
+```
+
+Protected approval is an additional requirement, never an ordinary-maintainer
+override. Request the applicable Team, not an individual merely for routing;
+[Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination)
+owns approval and the exact-head author exception. Outsiders cannot self-serve.
+All deployment workflows execute from trusted Main, using live environment-team
+admission and a separately frozen application source, tooling revision and images.
 
 ```mermaid
 flowchart LR
-  feature["Feature branches"] --> dev["Protected Dev"]
-  dev -->|"Selected changes and dependencies"| uat["Protected UAT"]
-  uat -->|"Exact application acceptance"| main["Main approval"]
-  main -->|"Explicit production approval"| prod["Production"]
-  operations["Governed operations / hotfix"] --> main
-  legacy["Retained legacy train"] -.->|"Reviewed reconciliation"| dev
+  main["Reviewed Main fixes"] -. "Source sync with merge task" .-> uat["Protected UAT"]
+  main -. "Source sync with merge task" .-> dev["Protected Dev"]
+  uat -. "UAT fixes: source sync with merge task" .-> dev
+  dev -->|"Select changes + dependencies by PR"| candidate["UAT candidate"]
 ```
+
+**Merges and downstream syncs deploy nothing.** The coding agent completes reviewed
+source syncs as part of the merge task; no background bot merges or deploys.
+Neither a Dev deployment before UAT nor a UAT deployment before production is
+mandatory. Each explicit release still needs its own qualified source, current
+authority, compatibility, candidate health and rollback evidence.
+
+**Combined result:** if the queue tests `H + A + B` and A fails, A stays out and B
+needs proof for `H + B`. If A lands, B needs proof against that new Head. Reuse
+only evidence matching the resulting inputs and current attempts; an earlier
+PR-head success does not certify a different combined result.
 
 ## Dev / UAT branch preparation
 
 The protected Dev branch is the configured development intake and the default
 source for governed Dev deployment. Preserve its history and qualify the exact
 candidate; an active branch does not prove that its tip is serving. The protected
-UAT tip is eligible after its approved PR scope and predecessor gates are qualified.
+UAT candidate is eligible after its exact-source CI and serving-baseline gates are qualified.
 Main remains the release-control source; this transition
 does not rewind application source or database history.
 
 UAT-focused work can use exact-source CI without a preceding Dev deployment.
-The application must be the protected UAT tip. Full CI runs on that exact commit
+Select a merged application SHA from protected UAT history. Full CI runs on that exact commit
 with `scope=all` and the observed serving application as `uat_base_sha`; the
 Main-owned deployment records a typed `uat-exact-ci` predecessor. It verifies
-canonical workflow authority, reviewed invocation configuration, complete current
+canonical workflow provenance, protected UAT source, complete current
 attempts, service scope and the actual serving baseline under the deployment
 lock. It refreshes refs and repeats admission before runtime-secret changes and
-after image builds. A later failed CI rerun, moved tip or changed baseline refuses.
-Reviewed application tests and dependencies may evolve; this follows the existing
+after image builds. A later failed required CI attempt or changed serving baseline refuses.
+A descendant UAT merge does not retarget or invalidate the selected application;
+a branch reset that removes it from protected history refuses. Legacy isolated
+UAT retains its exact-tip requirement.
+Reviewed application tests, tooling and dependencies may evolve; this follows the existing
 protected-branch trust model, not malicious-code containment.
 
 Historical acceptance and no-op receipts retain their original checks. Unknown
@@ -46,11 +112,12 @@ candidate also on Main can use its explicit UAT CI evidence; an ordinary histori
 Main release can retain Dev-backed admission. Missing Dev image evidence selects
 a source build; explicit `promote-from-dev` still requires the real accepted image.
 Historical Dev-backed receipts and direct-CI UAT receipts remain distinct and
-verifiable. Production requires the accepted UAT application and selected services;
-its historical reader does not require today's UAT tip to equal an old release.
-Cloud Build release recipes under `deploy/` remain reviewed Main authority because
-the Main-owned UAT workflow consumes them from the candidate; any candidate delta
-there refuses until the recipe change is reviewed on Main.
+verifiable. Normal production instead qualifies protected Main directly; prior UAT
+deployment is optional. The historical UAT reader and accepted-image promotion
+still verify the original application and services without requiring today's UAT tip.
+Ordinary UAT selects protected application content; privileged Cloud Build recipes
+and migration controllers must match the recorded trusted Main revision. Main retains release
+orchestration and credential clearance; isolated UAT keeps its existing parity policy.
 
 Source implementation is not a live qualification receipt. Run full exact-candidate
 CI on protected UAT and verify current admission before deployment. Ordinary
@@ -94,15 +161,16 @@ the activation PR is insufficient:
    helper. The activation PR itself cannot certify a helper fix absent from its
    base.
 4. Apply the reviewed merger/review restrictions and read back the result.
-   Ordinary queue intake is non-strict; the named owner direct route retains
-   its independent strict-CI/PR guard.
+   Dev and shared UAT queue intake is non-strict. Isolated UAT keeps strict
+   classic CI and independent review. The named owner direct route retains its
+   independent strict CI and PR guard.
 
 These are source and policy operations only. They do not deploy an application.
 
 Before enabling intake, preserve existing refs and outstanding work, prepare each
 branch from the then-current Main baseline, and apply/read back its protection.
 The existing `uat` ref must not be reset merely because its history is old.
-Default `apply-governance.py` reconciles Main/train and teams. Select prepared
+Default `apply-governance.py` reconciles Main/train safeguards without team-roster writes. Select prepared
 branches explicitly to bootstrap their complete protection and exact-ref queue
 rulesets without changing those other authorities:
 
@@ -120,34 +188,31 @@ On 26 October 2026, Dev was created from Main `b819614ccc` and both prepared
 branches' protection passed live readback. UAT history reconciliation and the
 selective-promotion authority remain separate from this protection checkpoint.
 
-Manual UAT deployment pins the protected candidate, approved PR head and both
-serving SHAs. A Main-only SHA is not a normal UAT source. Direct UAT also requires
+Manual UAT deployment pins the protected candidate, its exact CI attempt and both
+serving SHAs. The manual approved-PR chain is retained for legacy isolated UAT,
+not required for ordinary UAT. A Main-only SHA is not a normal UAT source. Direct UAT also requires
 the exact full-scope candidate run, current attempt and observed serving base.
 Historical Main-backed receipts remain readable under their original contract.
 
-For production, `sha` remains the UAT-accepted application. When approval landed
-as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
-incorporation of the application and identical complete Git trees. The workflow
-retains this mapping and still requires UAT acceptance for the application SHA.
-No ignored paths, new content or predecessor bypass are allowed. This optional
+For production, `sha` is a CI-qualified application in protected Main history.
+A prior UAT deployment is optional. When approval landed as a different Main
+merge, `main_approval_sha` requires that merge's Main smoke, incorporation of
+the application and identical complete Git trees. Functional CI and Main smoke
+are separate mandatory proofs; smoke alone cannot authorize release. Optional
+UAT-image promotion retains its accepted-image contract.
+No ignored paths, new content or functional-qualification bypass are allowed. This optional
 manual mode cannot be mixed with cadence, restoration or phone transitions.
 
-The following work remains before the UAT selection transition:
+### Release assembly and downstream completion
 
-1. Maintain Dev intake without discarding train or active branch work.
-2. Select dependency-complete changes into UAT; stabilize there and carry fixes
-   back to Dev. Keep both deployments manual. Direct UAT uses exact assembled-SHA
-   qualification; an original cherry-picked commit's receipt cannot qualify it.
-   Verify the direct route's admission and serving evidence before claiming the
-   transition is operationally complete.
-3. Promote the exact UAT-qualified application SHA through a reviewed Main
-   promotion. Record the Main approval merge separately, prove no new content was
-   introduced, and preserve service-specific acceptance and rollback.
-4. Align all selectors, scoped/native release paths and operating instructions,
-   then verify one complete release before retiring legacy routing.
-
-This preparation changes no application content, deployed traffic, image
-selection, WIF authority, scheduled cadence or capacity-maintenance behavior.
+Select dependency-complete changes into UAT or develop directly against UAT;
+qualify the exact assembled application source before explicitly deploying it.
+An original cherry-picked commit's receipt cannot qualify its new assembled tree.
+Main receives reviewed operations/hotfixes and selected product changes. Its own
+functional CI and landed smoke qualify normal production source; prior UAT
+deployment is optional. Preserve historical accepted-image proofs when reusing
+those images, and carry stable fixes downstream through reviewed source syncs.
+See [the source-sync procedure](../../../.agents/skills/repo-operations/references/maintainer-branch-freshness.md#agent-owned-downstream-completion).
 
 ## Manual emergency production
 
@@ -189,10 +254,10 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 | Lane | Source and authority |
 |---|---|
 | Dev | Feature PRs target protected `dev`; Main-owned tooling deploys an exact CI-green SHA in protected Dev history. The `ref` input locates a SHA but does not authorize a feature-only or Main-only commit. |
-| UAT | Pin the protected UAT candidate and approved release PR. Direct UAT also requires exact full-scope CI, the current attempt and the observed serving base. Historical Main-backed receipts retain their Dev-backed checks but do not authorize a new Main-only selection. |
-| Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
+| UAT | Pin the qualified application SHA in protected UAT history. Direct UAT also requires exact full-scope CI, the current attempt and the observed serving base. Historical Main-backed receipts retain their Dev-backed checks but do not authorize a new Main-only selection. |
+| Main | Review selected product or operations changes. Explicit production deployment requires functional CI and Main smoke for protected Main; no preceding UAT deployment is mandatory. Distinct application and approval SHAs require identical complete Git trees. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
-| Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
+| Production | Explicit qualified protected Main with functional CI, Main smoke, compatibility and rollback; no mandatory UAT deployment. The manual emergency source route remains separate. Automatic publication remains disabled. |
 | Legacy train | Preserve `integration/pr-train` history, protections and existing promotion PRs; do not use it as the default for new intake or silently promote all Dev work. |
 
 `scripts/ci/verify-pr-base-policy.py` retains governed maintainer Main authority
@@ -267,26 +332,31 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### Dev (fast lane)
 
-1. Dev deploys through `Deploy to Dev`, with the governed actor cohort shared
-   with UAT. After matching-branch routing qualification, dispatch from `dev`;
-   normal releases wait for the destination source sync and successful
-   `inspect-routing` readback. Historical Main receipts remain recovery evidence,
-   not a dispatch fallback. Follow the current routing receipt in the CI runbook.
+1. Dispatch `Deploy to Dev` from Main. The qualified application remains an exact
+   SHA in protected Dev history. Verify Main-origin admission through read-only
+   `inspect-routing` before claiming activation; a source merge deploys nothing.
 2. The `ref` input defaults to `dev` and only locates the application SHA. The
    selected SHA must belong to protected Dev history and carry an accepted exact
    CI result; an explicit lookup ref cannot authorize branch-only content.
-3. Dev never requires `main` ancestry or `Main Post-Merge Smoke` — `main` stays the
-   UAT → production signoff lane, and Dev proves selected changes before promotion.
+3. Dev never requires `main` ancestry or `Main Post-Merge Smoke`. Main is the
+   reviewed production source; each environment qualifies its selected source independently.
 4. Dev has no promotion authority: nothing deploys to UAT or production from dev.
 5. Full contract: [dev-fast-lane.md](./dev-fast-lane.md).
 
 ### UAT
 
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
-2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
-3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
+2. The workflow checks out that exact application. Main owns orchestration and
+   credential clearance; ordinary UAT keeps independent application/test content; privileged build
+   and migration execution remains bound to the recorded Main authority. Manifest
+   format, exact CI, migration compatibility and live-serving checks remain.
+   Legacy isolated UAT and production approval retain their existing policies.
+   Canonical Dev/UAT PR editing authority reads pinned protected Main
+   policy, matching queue/Admin admission; a stale destination roster cannot
+   block an approved editor. Candidate policy grants never authorize the PR.
+3. Manual dispatch uses current `deploy-uat` membership, independently of Main merge
    authority. Preserve the existing Dev/UAT cohorts. Main's approved merge operators
-   match its production operators, while protected edits require Kushal/Ankit.
+   match its production operators, while protected edits require pipeline-editor.
    Changing one capability does not silently grant another.
 4. Preflight requires reachability from protected UAT. Direct UAT candidates
    require exact current-branch CI and the observed serving base; source selection
@@ -302,10 +372,10 @@ Before deleting a local backup branch, classify its unique commits as:
 ### Production
 
 1. Production does not auto-deploy from branch pushes.
-2. Production deploys through governed dispatch with the exact UAT-accepted application SHA. A distinct Main approval merge must pass smoke, incorporate that application and preserve its entire tree.
+2. Production deploys through governed dispatch with an exact CI-qualified protected Main SHA; preceding UAT deployment is optional. A distinct Main approval merge must pass smoke, incorporate that application and preserve its entire tree.
 3. The workflow validates that the SHA is reachable from `origin/main`.
-4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
-5. Manual operators must be listed in `production.manual_dispatch_users`. There is no unattended release exception. Automatic release cadence is retired; commits and workflow completions do not authorize deployment. See [explicit releases](./ci.md#explicit-releases-and-retired-cadence).
+4. Both canonical functional CI and `Main Post-Merge Smoke Gate` must succeed for the exact source/approval. A newer failed or cancelled attempt refuses older green evidence; smoke alone is insufficient.
+5. Manual operators must belong to the current `deploy-production` team. There is no unattended release exception. Automatic release cadence is retired; commits and workflow completions do not authorize deployment. See [explicit releases](./ci.md#explicit-releases-and-retired-cadence).
 6. The canonical GitHub deployment environment for this lane is `production`.
 
 ## Protected Surfaces & Trust Model
@@ -350,7 +420,7 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 3. **Queue review and owner approval.** Ordinary Main PRs require independent
    current-head maintainer approval. Ordinary Dev/UAT authors may use governed
    maintainer self-service after required checks. Review-request labels alone
-   authorize neither route. Kushal or Ankit may explicitly land their own exact PR head under the
+   authorize neither route. a configured pipeline editor may explicitly land their own exact PR head under the
    [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-merger-policy-and-the-named-owner-admin-route).
    The Admin command verifies authenticated author identity, current validation
    and the exact tested merge tree; unresolved objections still block.
@@ -360,106 +430,55 @@ pipeline-editor team. For an ordinary peer review, request the maintainer team
 when needed. Do not add individual reviewer names to compensate for a routing
 failure. Follow the canonical [review-routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
 
-### Production access administration
+### Team authority and administration
 
-Production dispatch and Main merging are limited to Kushal (`kushaltrivedi5`),
-Ankit (`ankitkumarsingh1702`) and Sharukhan (`imsharukhan`) in the committed policy. Dev/UAT dispatch lists are unchanged. Protected pipeline edits require Kushal or Ankit.
-The managed teams mirror these lists; changing a team alone does not change
-workflow authority. Policy changes take effect after landing on Main.
+GitHub teams are the approved membership authority. Repository policy defines
+capabilities and safeguards; applying it must never restore a retired team member.
 
-Deploy-team members must not receive team-maintainer authority. Organization
-owners can still administer teams and repository admins can change protection;
-these are separate trust boundaries, not restrictions enforced by the deploy
-allowlist. When revoking an operator, inspect inherited team grants as well as
-direct repository permissions. A successful API mutation is insufficient:
-read back effective repository permission and organization membership.
+| Team | Capability |
+|---|---|
+| `allowed-maintainers-to-approve` | Ordinary Dev/UAT maintainer self-service and eligible peer review |
+| `pipeline-editors` | Protected CI, release policy and fundamental engineering guidance |
+| `deploy-dev` | Explicit Dev deployment |
+| `deploy-uat` | Explicit UAT deployment and internal testing |
+| `deploy-production` | Main merger admission and production/public release admission |
 
-### Concentric privilege rings
+Merging and deploying are separate decisions even where they use the same team.
+No merge deploys an application. Ordinary membership never grants protected-edit
+approval. Main and UAT fixes are carried downstream by the agent completing the
+merge, through reviewed source-only syncs.
 
-Privilege is deliberately nested. Each inner ring is a strict subset of the one
-outside it, and the boundaries are enforced, not informal:
+Only the two leadership organization owners administer membership. Other people
+retain ordinary team-member roles, with no team-maintainer or equivalent custom
+organization role. Members cannot create teams. Check effective inherited access
+and read back changes; organization ownership is not workflow deployment approval.
 
-| Ring | Team | Authority | Source of truth |
-|---|---|---|---|
-| Main merger | Explicit user restrictions | request a reviewed, verified Main merge | `main.merge_users` |
-| Pipeline editors | `pipeline-editors` | edit protected pipeline paths | `main.protected_pipeline_edit_users` |
-| Dev deploy cohort | `deploy-dev` | dispatch a dev deploy | `dev.manual_dispatch_users` |
-| UAT deploy cohort | `deploy-uat` | dispatch UAT deploy of a protected-UAT application SHA with exact current CI | `uat.manual_dispatch_users` |
-| Production deploy cohort | `deploy-production` | dispatch production deploy | `production.manual_dispatch_users` |
+Automatic per-PR/queue team-observer runs are withdrawn. Native protected-path
+review and queue exceptions still reference the pipeline-editor Team; required
+functional CI and combined-result validation remain independent. The authenticated
+Admin CLI reads current team membership before its exact-head decision.
 
-Live membership is `config/ci-governance.json` only, never transcribed into this
-table — counts here would go stale the first time someone joined. Read the file.
+Deployment Security runs only for explicitly requested releases. Legacy hosted
+source/deployment roster consumers remain transitional; do not claim all runtime
+admission is group-only. Historical observer receipts grant no new release authority.
 
-**Merging and deploying are separate capabilities.** Holding one has never implied
-the other, and this is the single most common source of confusion: GitHub reports
-a refused deploy as "maintainer but not admin", which points at GitHub's role
-model when what actually refused the actor was `assert-governed-actor.py` reading
-a list they were not on. When someone reports a permissions error, read the
-workflow log line — the refusal names the surface and the actor — not the role UI.
+For the initial native transition, preserve a live settings snapshot and run the
+current landed Main tool with `--native-team-transition <preceding-main-sha>`.
+Review its dry run, then repeat with `--apply`. It accepts only exact historical
+user exceptions or the already-installed Team state, refuses a wider editor
+cohort or concurrent change, and changes actor lists without relaxing any rule.
+An interrupted transition is reconciled from live state; never restore a revoked
+user merely to make old tooling pass. Native self-review bypass does not by itself
+guarantee GitHub queue admission; retain the exact-head Admin procedure.
 
-Invariants enforced in CI by `verify-deployment-environment-governance.py`:
+`apply-governance.py` no longer creates teams, adds/removes members or promotes
+roles. It manages repository safeguards only. Do not run an older checkout's
+roster reconciler. Access changes belong in GitHub's authorized team-management
+surface and must not require an application deployment.
 
-- **Main merge and deployment are independent.** Main's merger set matches the
-  approved production operator set, but each operation still has its own gate.
-  Dev/UAT retain their separately authored dispatch cohorts.
-- **Deployment rings nest: production ⊆ UAT ⊆ Dev.** Managed-team membership
-  remains derived from explicit policy. It cannot expand Main merge or protected
-  edit authority through an inherited bypass team.
-- **Production == approved dispatch cohort.** `production.manual_dispatch_users`
-  must match the reviewed production operator cohort; any independent widening
-  or narrowing fails the check. The policy and live team readback identify its members.
-- **Deploy identity variables are present.** Each deployment environment must
-  contain every name declared in its `required_environment_variables` policy.
-  These are GitHub environment variables consumed through `vars.*`, not
-  environment secrets. The verifier checks names only and never renders values.
-
-### Why GitHub teams mirror the config, and never the reverse
-
-Every capability above has a GitHub team. The approved reconciler applies
-`config/ci-governance.json`; membership and role changes require live readback.
-Declarations alone do not prove activation. The teams exist so people
-can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
-Deployment actor gates read committed policy. Native protected-path review uses
-the verified owner-team mirror; the reconciler verifies its exact membership
-against the same committed policy.
-
-The direction is a security property, not a preference:
-
-1. **`GITHUB_TOKEN` cannot read org membership.** The workflow `permissions:`
-   block has no `members` key — org reads are a GitHub App or PAT capability. A
-   gate that queried teams live would need a long-lived org-scoped credential
-   sitting in the production deploy path.
-2. **A live query has no safe failure mode.** It either fails closed, so a GitHub
-   org API blip blocks every production deploy, or fails open, so the gate waves
-   anyone through. Reading a committed file needs no network at all.
-3. **It would invert who can grant access.** Team membership is editable by any
-   org owner or team maintainer. `config/ci-governance.json` is editable only by
-   `protected_pipeline_edit_users`, enforced by `verify-protected-pipeline-edits.py`,
-   and only through a reviewed PR that leaves a diff in `git log`. If the gate
-   read teams live, adding someone to a team would silently grant production
-   deploy, routing straight around the control that exists to limit exactly that.
-
-Access cohorts are authored in config. Widening them requires a reviewed
-protected-path PR; native team mirrors must match that approved policy.
-
-#### Team members are `member`, never `maintainer`
-
-`apply-governance.py` adds every managed-team member at `role=member`, and demotes
-anyone found at `maintainer` on each sync. This is load-bearing:
-a team maintainer can add members to that team. Deployment and prepared-branch
-roles must therefore remain derived from reviewed policy, without an indirect
-self-service grant path. Main has no shared-team review or queue bypass under the
-combined-result policy. Protected edit authority remains Kushal/Ankit.
-
-Organization owners are the exception, and the sync skips them. GitHub reports an
-owner as a maintainer of every team they belong to and refuses to demote them
-there, so attempting it would make `apply-governance.py` report drift on every run
-and never converge — and a governance tool that always cries drift is one people
-learn to scroll past. It costs nothing in safety: an owner can edit branch
-protection and team membership directly, so the team role grants them nothing they
-did not already hold. The demotion therefore applies to exactly the population it
-matters for — org *members* who would otherwise gain a grant path they should not
-have.
+Keep deployment identities, environment bindings, current attempts, compatibility
+and rollback checks independent of membership. Environment variables are consumed
+through `vars.*`; configuration inspection reports their names, never secrets.
 
 ## Admin landing
 
@@ -467,42 +486,29 @@ Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-
 Ordinary Main merges require applicable independent review and combined-result
 queue validation. Eligible Dev/UAT authors may request their own ordinary PR's
 queue entry without blanket review. Protected CI and fundamental guidance still
-require Kushal/Ankit authority on every destination.
+require pipeline-editor authority on every destination.
 
-The named-owner Admin route lets Kushal or Ankit explicitly approve their own
-exact-head PR on Main, Dev or UAT without a second owner. Its native strict CI/PR
+The named-owner Admin route lets a configured pipeline editor explicitly approve their own
+exact-head PR on Main, Dev, UAT or isolated UAT without a second owner. Its native strict CI/PR
 guard and canonical command preserve current-base evidence, resolved conversations
 and landed-tree verification. Other maintainers use the ordinary queue.
 Historical bootstrap exceptions are not reusable approval.
 Main's actual merger/requester is restricted to its approved production cohort.
 
-### Rule: deploy-actor lists are governance, not routine config
+### Changing access and release policy
 
-Changes to `manual_dispatch_users` (UAT or production) and to the maintainer
-cohort lists are protected-surface edits: they require explicit Kushal/Ankit
-approval and the protected-edit CI guard. An owner may use the documented Main
-Admin route for an explicitly approved change; ordinary organization membership
-or deployment access does not grant protected-policy editing authority.
+Change membership through the appropriate GitHub team using an authorized
+leadership account. Verify the resulting membership and effective repository
+role. Do not edit legacy username arrays to add access or restore them over a
+revocation. During migration, inspect the active admission receipt before
+claiming a membership change has reached every runtime gate.
 
-### Adding or removing a maintainer (the one standardized procedure)
-
-`config/ci-governance.json` is the single source of truth. Editing it is the only
-thing you author. One apply command pushes it to GitHub — never edit GitHub
-settings by hand, that is what drifts (and silently leaves a "maintainer" who
-cannot actually approve on `main`).
-
-Change only the explicitly requested capability lists. Main merge authority is
-`main.merge_users`; deployment lists are separate; protected editors are Kushal
-and Ankit. Only their named owner Admin route has review/queue exceptions;
-its additional strict-CI/PR guard must be active before granting that authority.
-
-Land reviewed policy intent, then dry-run the existing reconciler. Review its
-exact proposed mutations before applying. Default reconciliation handles review
-allowances and managed teams; `--main-merge-policy` handles Main's merger/queue
-boundary after combined-result qualification. `--branch dev`, `--branch uat`
-and `--branch integration/pr-train` handle only the named existing branch.
-They do not create refs or deploy. Queue restrictions are applied before relaxed
-age checks. Read back live branch and deployment policies after application.
+Changes to capability mapping, CI permissions, protected paths and release
+safeguards remain protected PRs requiring pipeline-editor authority. Reconcile
+approved repository settings with the current `apply-governance.py`, then read
+back the specific rules and environment policies. Default reconciliation and
+`--main-merge-policy`/`--branch` are separate safeguard operations; none creates
+branches or deploys applications.
 
 ## Hotfix Playbook
 
@@ -551,11 +557,11 @@ Current operating note:
 - DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 - `integration/pr-train` and `main` both require 1 independent approval; the external community goes through PR + CI + review + queue on `integration/pr-train`
-- GitHub cannot count a self-review; only the two named owners have the explicit self-authored Admin PR route
+- GitHub cannot count a self-review; only the configured protected owners have the explicit self-authored Admin PR route
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - Author/admin status alone is not approval. An authorized owner must explicitly
   approve their captured head through Admin SOP; other PRs require ordinary review.
-- Verify every actual Main queue requester against `main.merge_users`; no shared
+- Verify every actual Main queue requester against live `deploy-production` membership; no shared
   maintainer-team bypass may widen it. With `restrict_writes_to_merge_users=false`,
   remove the classic human-only writer filter only after the reviewed Main policy
   lands and native PR, review, CI, protected-change and owner guards pass readback.
@@ -575,7 +581,7 @@ The production workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `production` | Governed production deploy lane for the operators in `production.manual_dispatch_users`; policy is the authoritative list |
+| `production` | Governed production lane authorized by live `deploy-production` membership |
 
 The UAT workflow uses one active GitHub environment name:
 
@@ -585,8 +591,8 @@ The UAT workflow uses one active GitHub environment name:
 
 Operational rules:
 
-1. Only actors listed in `production.manual_dispatch_users` may dispatch the production workflow.
-2. Main merging uses `main.merge_users`; production dispatch uses its separate explicit operator list. Neither grants the other operation.
+1. Only current members of `deploy-production` may dispatch the production workflow.
+2. Main merging and production dispatch both require live `deploy-production` membership. They remain separately requested operations; merging never deploys.
 3. `production` should not require reviewers and should not allow admin bypass.
 4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
 5. Verify both deploy lanes together with `../../../scripts/ci/verify-deployment-environment-governance.py`.

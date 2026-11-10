@@ -1,5 +1,5 @@
 name: Deploy to Production
-run-name: ${{ inputs.operation == 'verify_current' && 'VERIFY CURRENT PRODUCTION — read only' || 'Deploy to Production' }}
+run-name: ${{ inputs.operation == 'verify_current' && 'VERIFY CURRENT PRODUCTION — read only' || format('Production · source main · app {0} · scope {1}', inputs.sha || 'unselected', inputs.scope || 'all') }}
 
 on:
   workflow_dispatch:
@@ -30,7 +30,7 @@ on:
         type: string
         default: ""
       main_approval_sha:
-        description: "Optional Main merge approving identical UAT-tested application content; sha remains the exact accepted application"
+        description: "Optional Main merge approving identical CI-qualified application content; sha remains the tested application"
         required: false
         default: ""
         type: string
@@ -123,6 +123,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   # write: this workflow tags a healthy release as "last known good"
   # (scripts/ci/tag-last-known-good.sh) so a future revert check and a
   # future rollback both have a durable anchor. Scoped to pushing tags only
@@ -176,6 +177,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: write
     outputs:
       operation: ${{ steps.validate.outputs.operation }}
     steps:
@@ -218,6 +220,7 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || github.sha }}
       environment_name: production
@@ -235,6 +238,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      actions: write
     steps:
       - name: Checkout the verified Main workflow source without credentials
         uses: actions/checkout@v6
@@ -244,6 +248,8 @@ jobs:
           persist-credentials: false
       - name: Recheck trusted Main source and governed operators
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]] || exit 1
@@ -267,6 +273,7 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
       - name: Set up Cloud SDK
+        id: verification-sdk
         uses: google-github-actions/setup-gcloud@v3
       - name: Capture currently serving revisions before public health checks
         id: before
@@ -282,11 +289,11 @@ jobs:
         run: timeout --foreground 180s bash scripts/ci/cloudrun-http-health.sh https://one.hussh.ai / 3 8 2 200
       - name: Capture serving revisions after public health checks
         id: after
-        if: always()
+        if: always() && steps.verification-sdk.outcome == 'success'
         continue-on-error: true
         run: python3 scripts/ci/verify-current-production.py capture --output "$RUNNER_TEMP/prod-current-after.json"
       - name: Compare read-only Production observations
-        if: always()
+        if: always() && steps.verification-sdk.outcome == 'success'
         env:
           BACKEND_HEALTH: ${{ steps.backend-health.outcome == 'success' && 'success' || 'failed' }}
           FRONTEND_HEALTH: ${{ steps.frontend-health.outcome == 'success' && 'success' || 'failed' }}
@@ -300,6 +307,11 @@ jobs:
   deploy:
     needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope
+    permissions:
+      contents: write
+      checks: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
@@ -353,6 +365,8 @@ jobs:
 
       - name: Validate production incident boundary
         id: dispatch-authority
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Require reconciled maintenance mutations under deployment lock
@@ -365,6 +379,8 @@ jobs:
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -409,6 +425,8 @@ jobs:
         if: inputs.restoration_validation_run != ''
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY_RUN: ${{ inputs.restoration_validation_run }}
           REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
@@ -452,7 +470,7 @@ jobs:
           cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/verify-protected-pipeline-edits.py "${RUNNER_TEMP}/release-tools/"
           cp config/ci-governance.json "${RUNNER_TEMP}/release-tools/ci-governance.json"
           cp scripts/ci/production_emergency.py scripts/ci/production_auth_domain_refresh.py "${RUNNER_TEMP}/release-tools/"
-          cp scripts/ci/require-deploy-sha-on-main.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/require-deploy-sha-on-main.sh scripts/ci/promotion_approval.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-deploy-scope.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
@@ -750,7 +768,7 @@ jobs:
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
             extra=(--additional-candidate-service consent-protocol)
           fi
-          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production "${extra[@]}"
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production ${extra[@]+"${extra[@]}"}
 
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
@@ -826,7 +844,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
-      - name: Require exact-SHA UAT acceptance
+      - name: Require qualified Main source
         id: predecessor-acceptance
         if: inputs.restoration_validation_run == ''
         env:
@@ -834,14 +852,15 @@ jobs:
           RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
           RESOLVED_SCOPE: ${{ steps.scope.outputs.scope }}
           APPLICATION_SHA: ${{ inputs.sha }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
         run: |
           set -euo pipefail
           if [ "$RELEASE_MODE" = manual-emergency ]; then
             python3 scripts/ci/production_emergency.py admit \
               --scope "$RESOLVED_SCOPE" --output /tmp/prod-emergency-admission.json
           else
-            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
-              --environment uat --sha "$APPLICATION_SHA" \
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" main-source \
+              --environment production --sha "$APPLICATION_SHA" --approval-sha "$MAIN_APPROVAL_SHA" \
               --scope "$RESOLVED_SCOPE" --output /tmp/prod-predecessor-acceptance.json
           fi
 
@@ -2427,9 +2446,24 @@ jobs:
         if: inputs.frontend_auth_domain_refresh
         run: python3 "${RUNNER_TEMP}/release-tools/production_auth_domain_refresh.py" candidate --receipt /tmp/prod-emergency-admission.json --candidate "${{ steps.candidate-state.outputs.frontend_revision }}"
 
+      - name: Recheck qualified Main source before traffic
+        id: main-source-recheck
+        if: inputs.restoration_validation_run == '' && steps.dispatch-authority.outputs.mode != 'manual-emergency'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLICATION_SHA: ${{ inputs.sha }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
+          RESOLVED_SCOPE: ${{ steps.scope.outputs.scope }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" main-source \
+            --environment production --sha "$APPLICATION_SHA" --approval-sha "$MAIN_APPROVAL_SHA" \
+            --scope "$RESOLVED_SCOPE" --predecessor /tmp/prod-predecessor-acceptance.json \
+            --output /tmp/prod-main-source-rechecked.json
+
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success'))
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success')) && (inputs.restoration_validation_run != '' || steps.dispatch-authority.outputs.mode == 'manual-emergency' || steps.main-source-recheck.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2894,7 +2928,7 @@ jobs:
 
       - name: Resolve final Cloud Run state
         id: final-state
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && always() && steps.gcp-auth.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -3204,6 +3238,7 @@ jobs:
           path: |
             /tmp/phone-rollback/
             /tmp/prod-predecessor-acceptance.json
+            /tmp/prod-main-source-rechecked.json
             /tmp/prod-restoration-validation.json
             /tmp/prod-restoration-pretraffic-schema.json
             /tmp/prod-restoration-prerollback-schema.json
@@ -3322,7 +3357,7 @@ jobs:
     permissions:
       contents: read
       checks: read
-      actions: read
+      actions: write
       id-token: write
     steps:
       - name: Require current-attempt deployment security
@@ -3359,11 +3394,15 @@ jobs:
 
       - name: Validate production incident boundary
         id: dispatch-authority
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -3477,15 +3516,15 @@ jobs:
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
         run: bash scripts/ci/require-deploy-sha-on-main.sh "$DEPLOY_SHA"
 
-      - name: Require exact-SHA UAT acceptance
+      - name: Require qualified Main worker source
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py require \
-            --environment uat --sha "$DEPLOY_SHA" --scope backend \
-            --output "$RUNNER_TEMP/worker-stage/uat-acceptance.json"
+          "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py main-source \
+            --environment production --sha "$DEPLOY_SHA" --scope backend \
+            --output "$RUNNER_TEMP/worker-stage/main-qualification.json"
 
       - name: Resolve preserved production Drive mode
         id: drive-mode
@@ -3655,6 +3694,11 @@ jobs:
     needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope · Phone activation
     if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
+    permissions:
+      contents: write
+      checks: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 45
@@ -3710,6 +3754,9 @@ jobs:
             --check-mutations --state-dir "$RUNNER_TEMP/production-maintenance-guard"
 
       - name: Assert production dispatch actor policy
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
 
       - name: Validate deployment SHA against main
@@ -3737,6 +3784,7 @@ jobs:
           test -n "$DEPLOY_SERVICE_ACCOUNT"
 
       - name: Authenticate to Google Cloud
+        id: gcp-auth
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -4145,7 +4193,7 @@ jobs:
 
       - name: Resolve final Cloud Run state
         id: final-state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         run: |
           set -euo pipefail
           if [[ "${{ steps.activate-account-deletion.outcome }}" == success ]]; then
@@ -4295,6 +4343,11 @@ jobs:
     needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope · Restoration activation
     if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
+    permissions:
+      contents: write
+      checks: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     environment: production
     env:
@@ -4338,6 +4391,9 @@ jobs:
         run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Assert production dispatch actor policy
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"

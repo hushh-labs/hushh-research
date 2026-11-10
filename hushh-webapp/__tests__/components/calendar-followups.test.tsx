@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { CalendarFollowups } from "@/components/calendar/calendar-followups";
 import {
-  coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, senderName,
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, rowSummary, senderName,
 } from "@/lib/calendar/calendar-followup-presentation";
 
 const service = vi.hoisted(() => ({
@@ -85,6 +85,12 @@ describe("Follow-ups wording", () => {
     expect(primaryRequest({ preview_requests: entry.preview_requests.slice(0, 1) } as never)?.id).toBe("a");
   });
 
+  it("uses an actionable subtitle for a valuable undated document request", () => {
+    const request = { ...document, due_date: null, urgency: "none", category: "document_or_information" };
+    expect(rowSummary({ ...bList.conversations[0], preview_requests: [request] } as never).detail)
+      .toBe("Document to send · From Jhumma");
+  });
+
   it("names the sender, links the exact Gmail message and states reminders honestly", () => {
     expect(senderName('"IIT Professor" <prof@iit.example>')).toBe("IIT Professor");
     expect(senderName("prof@iit.example")).toBe("prof");
@@ -100,7 +106,8 @@ describe("Follow-ups wording", () => {
     expect(coverageNotice({ coverage: "complete", attention: null, ...base })).toBeNull();
     expect(coverageNotice({ coverage: "catching_up", attention: null, ...base })).toEqual({ tone: "quiet", text: "Catching up on your email…", action: null });
     expect(coverageNotice({ coverage: "needs_attention", attention: "reconnect_mail", ...base })?.action).toBe("reconnect");
-    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })?.action).toBe("retry");
+    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })).toBeNull();
+    expect(coverageNotice({ coverage: "needs_attention", attention: "provider_unavailable", ...base })).toBeNull();
   });
 });
 
@@ -210,16 +217,18 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
   });
 
-  it("asks the owner to act only when retrying cannot fix it, and Check again forces a retry", async () => {
+  it("keeps verified follow-ups visible and retries quietly when email coverage is partial", async () => {
     service.status.mockResolvedValue(status("account_stuck", {
       scan_state: "partial", incomplete_source_count: 1,
       coverage: { coverage: "needs_attention", attention: "retry_needed", waiting_source_count: 0, exhausted_source_count: 1, unreadable_count: 0 },
     }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_stuck" });
     render(<CalendarFollowups {...props("account_stuck")} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByText("A few emails could not be read yet.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_stuck", "synthetic-id-token", "synthetic-owner-token", { retry: true }));
+      "owner", "account_stuck", "synthetic-id-token", "synthetic-owner-token", {}, expect.any(AbortSignal)));
   });
 
   it("continues in the background once and not again on reopening", async () => {
@@ -252,11 +261,12 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.post).toHaveBeenCalledTimes(1);
   });
 
-  it("retains a failed notification link and retries the exact request", async () => {
-    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${callId}`);
+  it("retains a failed notification link and retries the resolved request", async () => {
+    const mergedId = "44444444-4444-4444-8444-444444444444";
+    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${mergedId}`);
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: callId });
     const request = (preview: typeof bList.conversations[0]["preview_requests"][number]) => ({
       ...preview, source_excerpt: "Could we have a call on 27 October", due_relation: null,
       proposed_at: null, time_zone: "Asia/Kolkata", responsibility: "owner",
@@ -269,10 +279,10 @@ describe("Calendar Insights Follow-ups card", () => {
       requests: bList.conversations[0].preview_requests.map(request),
     });
     const handled = vi.fn();
-    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={callId} onDeepLinkHandled={handled} />);
+    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={mergedId} onDeepLinkHandled={handled} />);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(await screen.findByText("Follow-ups could not be checked. Try again.")).toBeInTheDocument();
-    expect(window.location.search).toContain(callId);
+    expect(window.location.search).toContain(mergedId);
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(handled).toHaveBeenCalledOnce());
     expect(window.location.search).not.toContain("followupRequest");
@@ -313,7 +323,7 @@ describe("Calendar Insights Follow-ups card", () => {
   it("loads a notification target after the vault is unlocked", async () => {
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: documentId });
     service.detail.mockResolvedValue({
       ...bList.conversations[0], account_id: "account_B", requests: [],
     });
@@ -329,19 +339,105 @@ describe("Calendar Insights Follow-ups card", () => {
     ));
   });
 
-  it("loads additional conversations from View all", async () => {
-    service.status.mockResolvedValue(status("account_B"));
-    const first = { ...bList, total_conversations: 2, next_offset: 1 };
-    const second = { ...bList, total_conversations: 2, next_offset: null,
-      conversations: [{ ...bList.conversations[0], id: "44444444-4444-4444-8444-444444444444",
-        preview_requests: [{ ...bList.conversations[0].preview_requests[0],
-          id: "55555555-5555-4555-8555-555555555555", title: "Another document" }] }] };
-    service.list.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
-    render(<CalendarFollowups {...props("account_B", vi.fn())} expanded />);
+  it("shows one 15-conversation page at a time with server offsets", async () => {
+    service.status.mockResolvedValue(status("account_page", { coverage: {
+      coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
+      exhausted_source_count: 0, unreadable_count: 0,
+    } }));
+    const conversations = Array.from({ length: 16 }, (_, index) => ({
+      ...bList.conversations[0], id: `conversation-${index + 1}`,
+      preview_requests: [{ ...bList.conversations[0].preview_requests[0],
+        id: `request-${index + 1}`, title: `Send document ${index + 1}` }],
+    }));
+    const first = { ...bList, account_id: "account_page", total_conversations: 16,
+      next_offset: 15, conversations: conversations.slice(0, 15) };
+    const second = { ...first, next_offset: null, conversations: conversations.slice(15) };
+    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) => offset === 15 ? second : first);
+    render(<CalendarFollowups {...props("account_page", vi.fn())} expanded />);
+    expect(await screen.findByText("Send document 1")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+    expect(await screen.findByText("Send document 16")).toBeInTheDocument();
+    expect(screen.queryByText("Send document 1")).toBeNull();
+    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    expect(service.list.mock.calls.some(call => call[5] === 15)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Go to previous page" }));
+    expect(await screen.findByText("Send document 1")).toBeInTheDocument();
+    expect(screen.queryByText("Send document 16")).toBeNull();
+  });
+
+  it("opens Overdue at offset zero and restores Upcoming on collapse", async () => {
+    const account = "account_followup_views";
+    service.status.mockResolvedValue(status(account));
+    const view_counts = { upcoming: 1, overdue: 1, snoozed: 0, history: 0 };
+    const upcoming = { ...bList, account_id: account, view: "upcoming", view_counts };
+    const [entry] = bList.conversations;
+    const overdue = { ...upcoming, view: "overdue", conversations: [{
+      ...entry, preview_requests: [{ ...entry.preview_requests[0], title: "Overdue document", bucket: "overdue" }],
+    }] };
+    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, _offset, view) =>
+      view === "overdue" ? overdue : upcoming);
+    const base = props(account);
+    const screenView = render(<CalendarFollowups {...base} />);
+    expect(await screen.findByRole("button", { name: "View all" })).toBeInTheDocument();
+    screenView.rerender(<CalendarFollowups {...base} expanded />);
+    fireEvent.click(screen.getByRole("button", { name: "Overdue (1)" }));
+    expect(await screen.findByText("Overdue document")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Overdue (1)" })).toHaveAttribute("aria-pressed", "true");
+    expect(service.list.mock.calls.some(call => call[5] === 0 && call[6] === "overdue")).toBe(true);
+    screenView.rerender(<CalendarFollowups {...base} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-    expect(await screen.findByText("Another document")).toBeInTheDocument();
-    expect(service.list.mock.calls[1]?.[5]).toBe(1);
+    expect(screen.queryByText("Overdue document")).not.toBeInTheDocument();
+  });
+
+  it("re-enables pagination when a background refresh supersedes a pending page", async () => {
+    service.status.mockResolvedValue(status("account_page", { coverage: {
+      coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
+      exhausted_source_count: 0, unreadable_count: 0,
+    } }));
+    const first = { ...bList, total_conversations: 16, next_offset: 15 };
+    const second = { ...first, next_offset: null, conversations: [{
+      ...bList.conversations[0], id: "last", preview_requests: [{
+        ...bList.conversations[0].preview_requests[0], title: "Send document 16",
+      }],
+    }] };
+    let resolvePage: (page: typeof second) => void = () => {};
+    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) =>
+      offset === 15 ? new Promise<typeof second>(resolve => { resolvePage = resolve; }) : first);
+    const base = props("account_page");
+    const view = render(<CalendarFollowups {...base} expanded refreshRevision={0} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Go to next page" })).toBeDisabled());
+    view.rerender(<CalendarFollowups {...base} expanded refreshRevision={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Go to next page" })).toBeEnabled());
+    resolvePage(second);
+    await waitFor(() => expect(screen.getByText("Page 1 of 2")).toBeInTheDocument());
+    expect(screen.queryByText("Send document 16")).toBeNull();
+  });
+
+  it("keeps the compact card on its first page when collapsing during Next", async () => {
+    service.status.mockResolvedValue(status("account_page", { coverage: {
+      coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
+      exhausted_source_count: 0, unreadable_count: 0,
+    } }));
+    const first = { ...bList, total_conversations: 16, next_offset: 15 };
+    const second = { ...first, next_offset: null, conversations: [{
+      ...bList.conversations[0], id: "last", preview_requests: [{
+        ...bList.conversations[0].preview_requests[0], title: "Send document 16",
+      }],
+    }] };
+    let resolvePage: (page: typeof second) => void = () => {};
+    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) =>
+      offset === 15 ? new Promise<typeof second>(resolve => { resolvePage = resolve; }) : first);
+    const base = props("account_page");
+    const view = render(<CalendarFollowups {...base} expanded />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+    view.rerender(<CalendarFollowups {...base} expanded={false} />);
+    resolvePage(second);
+    await waitFor(() => expect(screen.getByText("Send the research document")).toBeInTheDocument());
+    expect(screen.queryByText("Send document 16")).toBeNull();
   });
 
   it("reconnecting Mail re-points the monitor even after a background rebind failed", async () => {

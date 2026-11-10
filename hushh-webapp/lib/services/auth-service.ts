@@ -36,7 +36,7 @@ import {
   User,
   onAuthStateChanged,
 } from "firebase/auth";
-import { app, auth } from "@/lib/firebase/config";
+import { auth } from "@/lib/firebase/config";
 import {
   FirebaseAuthentication,
 } from "@capacitor-firebase/authentication";
@@ -1675,7 +1675,7 @@ export class AuthService {
       const idToken = await current.getIdToken();
       requireCurrent();
       const conflict = await linkFirebasePhone({
-        apiKey: app.options.apiKey, tenantId: current.tenantId, idToken,
+        apiKey: auth.app.options.apiKey, tenantId: current.tenantId, idToken,
         uid: expectedUserId, phoneNumber,
         sessionInfo: nativeChallenge?.providerVerificationId ?? verificationId, code: verificationCode,
       });

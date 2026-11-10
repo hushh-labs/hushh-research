@@ -8,6 +8,7 @@ from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
+from hushh_mcp.services.email_oss.memory import MAX_MEMORY_CHARS
 
 STATE_EMAIL_MEMORY = "temp:one_email_memory_projection"
 STATE_EMAIL_MEMORY_COMMIT = "temp:one_email_memory_commit"
@@ -18,8 +19,8 @@ class _Projection(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     source: str = Field(pattern=r"^one_memory\.markdown$")
     owner_id: str = Field(min_length=1, max_length=256)
-    markdown: str = Field(max_length=18_000)
-    budget_chars: int = Field(default=18_000, ge=1, le=18_000)
+    markdown: str = Field(max_length=MAX_MEMORY_CHARS)
+    budget_chars: int = Field(default=MAX_MEMORY_CHARS, ge=1, le=MAX_MEMORY_CHARS)
     revision: int | None = Field(default=None, ge=0)
 
 

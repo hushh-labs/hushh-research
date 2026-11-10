@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockApiFetch } = vi.hoisted(() => ({ mockApiFetch: vi.fn() }));
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({ recordLiveActivity: vi.fn(), snapshotLiveActivityOwner: () => null }));
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: mockApiFetch },
@@ -47,10 +48,10 @@ describe("ConnectionsService", () => {
   });
 
   it("reads participant context with Firebase authentication without gaining Location authority",async()=>{
-    const payload = {person:{userId:"target",relationship:"none",displayName:"Synthetic",photoUrl:null,email:null},request:{id:"r",direction:"outgoing",status:"accepted"}};
+    const payload = {person:{userId:"target",publicPersonRef:"public-target",relationship:"none",displayName:"Synthetic",photoUrl:null,email:null},request:{id:"r",direction:"outgoing",status:"accepted"}};
     mockApiFetch.mockResolvedValue(jsonResponse(payload));
     expect(await ConnectionsService.getPersonContext({idToken:"token",counterpartUserId:"target"})).toEqual(payload);
-    expect(mockApiFetch).toHaveBeenCalledWith("/api/one/connections/target/context",expect.objectContaining({method:"GET",headers:expect.objectContaining({Authorization:"Bearer token"})}));
+    expect(mockApiFetch).toHaveBeenCalledWith("/api/one/connections/target/context",expect.objectContaining({method:"GET",cache:"no-store",headers:expect.objectContaining({Authorization:"Bearer token"})}));
   });
 
   it("surfaces a safe FastAPI detail message for contact-sync failures", async () => {

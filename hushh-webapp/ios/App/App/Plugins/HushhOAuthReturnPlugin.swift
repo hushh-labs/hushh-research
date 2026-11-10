@@ -73,7 +73,7 @@ public class HushhOAuthReturnPlugin: CAPPlugin, CAPBridgedPlugin {
               let attemptID = call.getString("attemptId"),
               attemptID.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
               let expectedUserID = call.getString("expectedUserId"),
-              Auth.auth().currentUser?.uid == expectedUserID else {
+              HushhFirebaseIdentity.auth.currentUser?.uid == expectedUserID else {
             call.reject("Connector sign-in is unavailable in this session.", "connector_oauth_unavailable")
             return
         }

@@ -15,7 +15,6 @@ import { toast } from "sonner";
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
 import { connectGmailInPlace } from "@/lib/connections/google-connect-in-place";
 import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
-import { clearMailChoice, rememberMailChoice } from "@/lib/calendar/calendar-mail-choice";
 import { connectNativeGoogleFollowupMail } from "@/lib/google/native-google-oauth";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { AskOneButton } from "@/components/agent/ask-one-button";
@@ -39,9 +38,7 @@ import {
   CALENDAR_SETUP_REGION_CLASSNAME,
   CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
-import { CalendarConnectHero, CalendarMailStep } from "@/components/calendar/calendar-connect-hero";
-import { useCalendarAddAccountFlow } from "@/components/calendar/calendar-add-account-flow";
-import { useCalendarMailStep } from "@/lib/calendar/use-calendar-mail-step";
+import { CalendarConnectHero } from "@/components/calendar/calendar-connect-hero";
 import { CalendarCompactAction } from "@/components/calendar/calendar-compact-action";
 import presentationStyles from "@/components/calendar/calendar-presentation.module.css";
 
@@ -59,6 +56,7 @@ import {
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { trackEvent } from "@/lib/observability/client";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 import { openCalendarChat } from "@/lib/calendar/calendar-chat-handoff";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -144,8 +142,6 @@ export function CalendarAgentPage({
     }));
   };
   const [busy, setBusyState] = useState(false);
-  // Optional, off by default: also look for meeting requests in email.
-  const [wantsMail, setWantsMail] = useState(false);
   const busyRef = useRef(false);
   const setBusy = (value: boolean) => { busyRef.current = value; setBusyState(value); };
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
@@ -234,7 +230,8 @@ export function CalendarAgentPage({
 
   /** The callback verified the connection before settling; keep it authoritative. */
   const applyVerifiedSuccess = (accessLevel: "read" | "manage", additional = false, targetAccountId?: string,
-    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string, onSettled?: () => void) => {
+    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string,
+    onSettled?: () => void, onVerified?: () => void) => {
     const priorAccountIds = new Set(status?.accounts?.map(account => account.account_id) || []);
     const operationOwnerId = activeOwnerIdRef.current;
     if (meetingFiles && targetAccountId) {
@@ -246,7 +243,7 @@ export function CalendarAgentPage({
         isCurrent: () => !lifetime?.signal.aborted && identityRef.current === identity &&
           activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId &&
           statusRequestRef.current === settlementRequest,
-        onVerified: setStatus,
+        onVerified: (verified) => { setStatus(verified); onVerified?.(); },
         onSettled,
       });
       return;
@@ -290,11 +287,17 @@ export function CalendarAgentPage({
     if (additional) void reconcile(2);
     else window.setTimeout(() => { void reconcile(2); }, 1500);
     morphyToast.success("Google Calendar connected.");
+    onVerified?.();
     onSettled?.();
   };
 
+  /**
+   * `mailAccess` adds Gmail to the same Google consent. It is requested only for
+   * a brand-new account (the first, or one added), never when renewing a lapsed one.
+   */
   const connect = async (accessLevel: "read" | "manage" = "manage", includeCalendarList = false, additional = false,
-    accountId?: string, includeMeetingFiles = false, meetingReturn?: CalendarMeetingReturnContext) => {
+    accountId?: string, includeMeetingFiles = false,
+    { meetingReturn, mailAccess = false }: { meetingReturn?: CalendarMeetingReturnContext; mailAccess?: boolean } = {}) => {
     if (!user || !userId || busyRef.current) return;
     const targetAccountId = accountId || "default";
     const strictMeetingUpgrade = Boolean(meetingReturn);
@@ -317,27 +320,37 @@ export function CalendarAgentPage({
         });
     const popup = attempt ? openGoogleOAuthPopup(attempt) : null;
     setBusy(true);
+    const activity = captureProductAttempt("calendar.connection.connect", operationOwnerId);
+    activity.started();
     try {
       const privateAgent = await ownerContentIsPrivate();
       if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
       if (privateAgent) {
         popup?.close();
         if (strictMeetingUpgrade) {
+          activity.settled("blocked");
           toast.error("Meeting file access is not available for private Google connections yet.");
           return;
         }
-        if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
+        if (!vaultKey || !vaultOwnerToken) {
+          activity.settled("blocked");
+          toast.error('Unlock your vault to connect Google.');
+          return;
+        }
         const outcome = await connectGoogleConnector('calendar', {
           vaultOwnerCapability: vaultOwnerToken,
           confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
           isCurrent: () => activeOwnerIdRef.current === operationOwnerId,
         });
-        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         if (!outcome.ok) {
           if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('calendar');
           else toast.error(connectRefusalMessage(outcome.code, 'Calendar'));
+          if (outcome.code === 'SIGN_IN_CANCELLED') activity.settled("cancelled");
           return;
         }
+        // The owner-authenticated connector save already acknowledged the connection.
+        activity.settled("returned");
         const current = await GoogleCalendarService.status(await user.getIdToken(), operationOwnerId);
         if (activeOwnerIdRef.current === operationOwnerId) setStatus(current);
         return;
@@ -368,6 +381,12 @@ export function CalendarAgentPage({
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
           ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
           ...(start.include_meeting_files ? { includeMeetingFiles: true } : {}),
+        }).catch((error: unknown) => {
+          if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId &&
+            error && typeof error === "object" && "code" in error && error.code === "USER_CANCELLED") {
+            activity.settled("cancelled");
+          }
+          throw error;
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
@@ -395,6 +414,7 @@ export function CalendarAgentPage({
               : "Calendar authorization did not create an active connection.",
           );
         }
+        activity.settled("returned");
         setStatus(completed);
         setBusy(false);
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
@@ -410,6 +430,7 @@ export function CalendarAgentPage({
         ...(accountId ? { accountId } : {}),
         ...(accountId ? { loginHint: status?.accounts?.find(account => account.account_id === accountId)?.google_email || undefined } : {}),
           ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
+          ...(mailAccess ? { includeMailAccess: true } : {}),
       });
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
         popup?.close();
@@ -478,8 +499,12 @@ export function CalendarAgentPage({
         // Tell a popup that cannot close itself (Google's opener policy) that
         // this page has taken over, so it can say so instead of looking stuck.
         const acknowledge = () => acknowledgeGoogleOAuthSettlement(attempt.attemptId, popup);
-        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined, includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation, acknowledge);
-        else {
+        if (settled.outcome === "succeeded") {
+          applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined,
+            includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation,
+            acknowledge, () => activity.settled("returned"));
+        } else {
+          if (settled.outcome === "cancelled") activity.settled("cancelled");
           if (settled.outcome === "failed")
             morphyToast.error(settled.message || "Google Calendar could not be connected.");
           acknowledge();
@@ -523,6 +548,8 @@ export function CalendarAgentPage({
     const operationOwnerId = userId;
     statusRequestRef.current += 1;
     setBusy(true);
+    const activity = captureProductAttempt("calendar.connection.disconnect", operationOwnerId);
+    activity.started();
     const operation = user
       .getIdToken()
       .then((idToken) => {
@@ -542,6 +569,12 @@ export function CalendarAgentPage({
     try {
       const next = await operation;
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
+      const matchingAccount = next.accounts?.find((account) => account.account_id === accountId);
+      const stillLinked = matchingAccount && (matchingAccount.connected || matchingAccount.status !== "disconnected");
+      const confirmed = accountId === "default"
+        ? next.connected === false && next.status === "disconnected" && !stillLinked
+        : Array.isArray(next.accounts) && !stillLinked;
+      if (confirmed) activity.settled("returned");
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
@@ -582,9 +615,6 @@ export function CalendarAgentPage({
   const checkingConnection = connectionPending || loading || (Boolean(user) && !status && !statusError);
   // Unknown connection evidence is a loading state, never a disconnected state.
   const showConnectHero = !connected;
-  // Only a first-ever connection offers the email choice. A lapsed grant being
-  // renewed, or an account that already exists, never asks it again.
-  const newConnection = !needsReauth && !status?.accounts?.length;
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -633,7 +663,7 @@ export function CalendarAgentPage({
       </AlertDialog>
   );
 
-  const connectMail = async (options?: { onboarding?: boolean }) => {
+  const connectMail = async () => {
     if (!user || !userId || busyRef.current) return;
     const attemptIdentity = identity;
     const cancel = new AbortController();
@@ -647,8 +677,8 @@ export function CalendarAgentPage({
     try {
       const outcome = await started.result;
       if (identityRef.current !== attemptIdentity) return;
-      if (outcome !== "connected") throw new Error(options?.onboarding ? "Mail access was not allowed. You can try again or skip this step." : "Mail sending was not enabled. Your draft is still here.");
-      morphyToast.success(options?.onboarding ? "Mail access allowed." : "Mail sending enabled. Review your message again.");
+      if (outcome !== "connected") throw new Error("Mail sending was not enabled. Your draft is still here.");
+      morphyToast.success("Mail sending enabled. Review your message again.");
     } finally {
       if (identityRef.current === attemptIdentity) { setBusy(false); setPopupWaiting(false); }
     }
@@ -747,25 +777,25 @@ export function CalendarAgentPage({
     }
   };
 
-  const { showMailStep, offerMailStep, skipMailStep, allowMailStep } = useCalendarMailStep({ identity, user, userId, connected, connectMail });
-  const { openAddAccount, dialogs: addAccountDialogs } = useCalendarAddAccountFlow({
-    identity, accounts: status?.accounts, busy, connectNewAccount: () => { void connect("manage", true, true, undefined, true); }, allowAccountMail: connectSelectedFollowupMail,
-  });
+  // A first account and an added account get the same single Google consent:
+  // Calendar, Meet files, Drive details and Gmail. Google owns the account
+  // chooser and the consent screen; there is no Hussh step in between.
+  const firstConnection = status?.status !== "needs_reauth" && !status?.accounts?.length;
+  const connectFirstAccount = () => { void connect("manage", true, false, undefined, firstConnection, { mailAccess: firstConnection }); };
 
-  if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status && !showMailStep) {
+  if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
     return <>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
-        onAddAccount={openAddAccount}
+        onAddAccount={() => { void connect("manage", true, true, undefined, true, { mailAccess: true }); }}
         onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
-        onAllowMeetingFiles={(accountId, returnContext) => { void connect("manage", true, accountId !== "default", accountId === "default" ? undefined : accountId, true, returnContext); }}
+        onAllowMeetingFiles={(accountId, returnContext) => { void connect("manage", true, accountId !== "default", accountId === "default" ? undefined : accountId, true, { meetingReturn: returnContext }); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} onFollowupMailConnect={connectSelectedFollowupMail}
         connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
-      {addAccountDialogs}
       {transitionDialog}
     </>;
   }
@@ -810,32 +840,12 @@ export function CalendarAgentPage({
               Try again
             </CalendarCompactAction>
           </div>
-        ) : showMailStep ? (
-          <CalendarMailStep
-            busy={busy}
-            onAllow={() => { void allowMailStep(); }}
-            onSkip={skipMailStep}
-          >
-            {popupWaitingNotice}
-          </CalendarMailStep>
         ) : showConnectHero ? (
           <CalendarConnectHero
             journeyVariant={journeyVariant}
             busy={busy || checkingConnection || !user}
             needsReauth={needsReauth}
-            mailChoice={newConnection ? { checked: wantsMail, onChange: setWantsMail } : undefined}
-            onConnect={() => {
-              // The email choice rides along only on a brand-new connection, and
-              // only as a remembered intent: Google's Mail permission is asked
-              // for separately, after Calendar, from the new account's card.
-              if (newConnection && wantsMail && userId) rememberMailChoice(userId, []);
-              else clearMailChoice();
-              // First-time setup asks for everything One needs in one Google
-              // consent: events, scheduling, calendar list and meeting files.
-              // Mail follows as the next setup step.
-              if (newConnection) offerMailStep();
-              void connect("manage", true, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length);
-            }}
+            onConnect={connectFirstAccount}
           >
             {popupWaitingNotice}
           </CalendarConnectHero>
@@ -923,7 +933,7 @@ export function CalendarAgentPage({
                         size="prominent"
                         className="w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
                         disabled={busy}
-                        onClick={() => { if (!status?.accounts?.length) offerMailStep(); void connect("manage", true, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length); }}
+                        onClick={connectFirstAccount}
                         data-voice-control-id="open_calendar_connector"
                         data-voice-action-id={
                           journeyVariant === "onboarding"

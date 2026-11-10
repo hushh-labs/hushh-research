@@ -323,6 +323,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         "_session_service",
         SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
+    from hushh_mcp.one_adk.email_memory_turn import STATE_EMAIL_MEMORY
     from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
@@ -335,13 +336,23 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
     )
     data = incoming(
         state={STATE_USER_ID: "forged-owner"},
-        forwarded_props={"pkmContext": "synthetic-scoped-context"},
+        forwarded_props={
+            "pkmContext": "synthetic-scoped-context",
+            "emailMemoryProjection": {
+                "source": "one_memory.markdown",
+                "owner_id": "owner-a",
+                "markdown": "synthetic-scoped-memory",
+                "budget_chars": 96_000,
+                "revision": 1,
+            },
+        },
     )
     assert await select(request({"x-hushh-consent": "HCT:synthetic"}), data) is agent_chat._agent
     assert data.state[STATE_USER_ID] == "owner-a"
     assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"
+    assert resolve_request_secret(data.state[STATE_EMAIL_MEMORY]) == "synthetic-scoped-memory"
 
 
 async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(
