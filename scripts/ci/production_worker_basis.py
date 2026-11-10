@@ -96,11 +96,14 @@ def current_release_run_id() -> str:
 def _accepted(owner, source, image, pin=None):
     _require(bool(re.fullmatch(r"[0-9a-f]{40}", source)), "candidate source is invalid")
     github = owner.GitHub()
-    accepted = (
-        github.find("uat", source, "backend")["services"]["backend"]
-        if pin is None
-        else github.accept(pin, "uat", source, "backend")
-    )
+    if pin is not None:
+        accepted = github.accept(pin, "uat", source, "backend")
+    elif source == owner.RECORDED_RECOVERY_SHA:
+        # The same-SHA completion can need a new stage after the operational
+        # tag clears. Its accepted image remains the exact recorded UAT image.
+        accepted = github.recorded_recovery_uat(source, "backend")["services"]["backend"]
+    else:
+        accepted = github.find("uat", source, "backend")["services"]["backend"]
     reference = accepted.get("image_reference", "")
     _require(
         isinstance(reference, str)
