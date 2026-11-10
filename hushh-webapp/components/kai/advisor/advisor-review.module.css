@@ -252,5 +252,50 @@
   width: 0.4rem;
   height: 0.4rem;
   border-radius: 50%;
-  background: light-dark(#28784a, #82b798);
+  background: #28784a;
+}
+
+:global(.dark) .calendarBadge > span {
+  background: #82b798;
+}
+.reviewNextStep {
+  border-radius: var(--app-card-radius-standard);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 14%, var(--card));
+  background: color-mix(in srgb, var(--app-accent) 4%, var(--card));
+}
+.reviewNextLabel {
+  color: var(--app-accent);
+  font-size: var(--type-row-description-size, 12px);
+  font-weight: 600;
+}
+
+.refinePersona {
+  color: var(--app-accent);
+  text-decoration: none;
+}
+
+.meetingConfirmed {
+  color: #28784a;
+  background: color-mix(in srgb, #28784a 10%, var(--card));
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+}
+:global(.dark) .meetingConfirmed {
+  color: #82b798;
+  background: color-mix(in srgb, #82b798 15%, var(--card));
+}
+
+.timeChoice {
+  border-radius: 0.75rem;
+  font-size: var(--type-row-description-size, 12px);
+  line-height: var(--type-row-description-line, 18px);
+}
+.timeChoice:hover {
+  background: var(--muted);
+}
+.timeChoice:has(:checked),
+.timeDone {
+  color: color-mix(in srgb, var(--app-accent) 85%, var(--foreground));
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--card));
+  border-color: transparent;
 }

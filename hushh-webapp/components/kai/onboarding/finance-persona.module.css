@@ -89,6 +89,18 @@
 .error {
   color: var(--destructive);
 }
+:is(.badge, .assessmentProgress) {
+  --persona-careful: #538168;
+  --persona-growth: #a45f73;
+  --persona-mixed: #806ba2;
+  --persona-pending: #dce0e8;
+}
+:global(.dark) :is(.badge, .assessmentProgress) {
+  --persona-careful: #82b798;
+  --persona-growth: #d38da3;
+  --persona-mixed: #ae97cc;
+  --persona-pending: #515563;
+}
 .badge {
   --persona-color: var(--muted-foreground);
   display: inline-flex;
@@ -110,16 +122,16 @@
   background: var(--persona-color);
 }
 .badge[data-persona="careful"] {
-  --persona-color: light-dark(#538168, #82b798);
+  --persona-color: var(--persona-careful);
 }
 .badge[data-persona="balanced"] {
   --persona-color: var(--app-accent);
 }
 .badge[data-persona="growth"] {
-  --persona-color: light-dark(#a45f73, #d38da3);
+  --persona-color: var(--persona-growth);
 }
 .badge[data-persona="mixed"] {
-  --persona-color: light-dark(#806ba2, #ae97cc);
+  --persona-color: var(--persona-mixed);
 }
 .reveal {
   display: grid;
@@ -155,6 +167,22 @@
   }
 }
 
+.assessmentForm {
+  gap: 0.625rem;
+  padding-block: 0.5rem 1rem;
+}
+.detailedQuestion fieldset {
+  padding: 0;
+  background: transparent;
+}
+.detailedQuestion legend {
+  font-size: var(--type-row-label-size, 14px);
+  line-height: var(--type-row-label-line, 21px);
+  padding-block: 0 0.5rem;
+}
+.detailedQuestion label {
+  font-size: var(--type-row-label-size, 14px);
+}
 .detailedQuestion {
   width: min(100%, 36rem);
   margin-inline: auto;
@@ -173,11 +201,16 @@
 .assessmentProgress span {
   height: 0.25rem;
   border-radius: 999px;
-  background: var(--border);
+  background: var(--persona-pending);
 }
 
-.assessmentProgress [data-tone="careful"] { background: light-dark(#538168, #82b798); }
+.assessmentProgress [data-tone="careful"] { background: var(--persona-careful); }
 .assessmentProgress [data-tone="balanced"] { background: var(--app-accent); }
-.assessmentProgress [data-tone="growth"] { background: light-dark(#a45f73, #d38da3); }
+.assessmentProgress [data-tone="growth"] { background: var(--persona-growth); }
 .assessmentProgress [data-tone="planning"] { background: #70869e; }
 .assessmentProgress [data-tone="unsure"] { background: var(--muted-foreground); }
+
+.assessmentProgress [data-current="true"] {
+  outline: 1px solid var(--muted-foreground);
+  outline-offset: 1px;
+}

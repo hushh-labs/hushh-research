@@ -135,7 +135,10 @@ class AdvisorMeetingService:
                     or meeting.get("proposalId") != proposal_id
                 ):
                     raise AdvisorReviewError("ADVISOR_MEETING_CHANGED", 409)
-                meeting.update(status="booking", _bookingStartedAt=datetime.now(UTC).isoformat())
+                now = datetime.now(UTC)
+                if datetime.fromisoformat(meeting["startAt"]) <= now:
+                    raise AdvisorReviewError("ADVISOR_MEETING_TIME_PASSED", 409)
+                meeting.update(status="booking", _bookingStartedAt=now.isoformat())
                 write_meeting(conn, request_id, meeting, past)
             elif action == "cancel":
                 if meeting.get("status") in {"booking", "unknown", "retryable"}:
@@ -189,6 +192,7 @@ class AdvisorMeetingService:
         self, viewer, request_id, action, expected, proposal_id, *, before_create=None
     ):
         meeting = dict(expected)
+        manual_confirmation_rejected = False
         try:
             binding = await self._check_binding(viewer, meeting)
             if action == "cancel":
@@ -202,17 +206,36 @@ class AdvisorMeetingService:
                 meeting["status"] = "cancelled"
                 meeting.pop("joinUrl", None)
             else:
+
+                async def verify_manual_confirmation():
+                    nonlocal manual_confirmation_rejected
+                    try:
+                        await self._require_shared_organizer(viewer)
+                        row = await asyncio.to_thread(
+                            self._accepted_review, viewer, request_id, expected
+                        )
+                        if datetime.fromisoformat(expected["startAt"]) <= datetime.now(UTC):
+                            raise AdvisorReviewError("ADVISOR_MEETING_TIME_PASSED", 409)
+                        if (
+                            await asyncio.to_thread(self._email, row["owner_user_id"])
+                            != expected["invitationEmail"]
+                        ):
+                            raise AdvisorReviewError("ADVISOR_INVITATION_EMAIL_REQUIRED", 409)
+                    except AdvisorReviewError:
+                        manual_confirmation_rejected = True
+                        raise
+
                 result = await self.calendar.execute(
                     user_id=viewer,
                     proposal_id=proposal_id,
-                    **({"before_create": before_create} if before_create is not None else {}),
+                    before_create=before_create or verify_manual_confirmation,
                 )
                 event = result.get("event") or {}
                 if event.get("id") != meeting["eventId"]:
                     raise AdvisorReviewError("ADVISOR_CALENDAR_UNCONFIRMED", 503)
                 meeting.update(status="confirmed", joinUrl=event.get("conference_url"))
         except Exception:
-            meeting["status"] = "unknown"
+            meeting["status"] = "agreed" if manual_confirmation_rejected else "unknown"
             await asyncio.to_thread(self._save_result, viewer, request_id, meeting, expected)
             raise
         await asyncio.to_thread(self._save_result, viewer, request_id, meeting, expected)
