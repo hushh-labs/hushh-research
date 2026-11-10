@@ -18,12 +18,61 @@ from repo_governance_plan import (
     MAX_CHANGED_BYTES,
     Check,
     REGRESSION_GROUPS,
+    RELEASE_CONTROLLER_TESTS,
+    _checks_for_selection,
     _run_checks,
     build_selection,
 )
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_hosted_protocol_ownership_removes_only_whole_module_duplicates() -> None:
+    from dataclasses import replace
+    from unittest.mock import patch
+    import repo_governance_plan as plan
+
+    selection = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": ".github/workflows/ci.yml"})
+    env = {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "pull_request", "CI_PROTOCOL_CONTROLLER_OWNER": "true"}
+    original = next(check for check in CHECKS if check.check_id == "release-controller-contracts")
+    manifest = ROOT / "consent-protocol/scripts/test-ci.manifest.txt"
+    protocol = {f"consent-protocol/{line}" for line in manifest.read_text().splitlines()
+                if line.strip() and not line.lstrip().startswith("#")}
+    checks = _checks_for_selection(selection, env)
+    reduced = next(check for check in checks if check.check_id == original.check_id)
+    remaining = tuple(path for path in RELEASE_CONTROLLER_TESTS if path not in protocol)
+    assert 0 < len(remaining) < len(RELEASE_CONTROLLER_TESTS)
+    assert reduced.argv == original.argv[:-len(RELEASE_CONTROLLER_TESTS)] + remaining
+    assert reduced.groups == original.groups
+    assert {check for check in checks if check.check_id != original.check_id} == {
+        check for check in plan._checks_for_ids(selection.check_ids) if check.check_id != original.check_id
+    }
+    # Local/diagnostic, disabled backend, draft/auth-health suppression and historical
+    # overlays retain the original owner, including missing/unknown selection metadata.
+    for safe_selection, safe_env in (
+        (selection, {**env, "GITHUB_ACTIONS": "false"}),
+        (selection, {**env, "GITHUB_EVENT_NAME": "push"}),
+        (selection, {**env, "CI_PROTOCOL_CONTROLLER_OWNER": "false"}),
+        (selection, {**env, "CI_PROTOCOL_CONTROLLER_OWNER": ""}),
+        (selection, {**env, "PRODUCTION_RECOVERY_SHA": "a" * 40}),
+        (replace(selection, error="unknown input"), env),
+        (replace(selection, level="diagnostic"), env),
+    ):
+        assert original in _checks_for_selection(safe_selection, safe_env)
+    with tempfile.TemporaryDirectory() as raw, patch.object(plan, "ROOT", Path(raw)):
+        target = Path(raw) / "consent-protocol/scripts/test-ci.manifest.txt"
+        target.parent.mkdir(parents=True)
+        test_path = Path(raw) / RELEASE_CONTROLLER_TESTS[0]
+        test_path.parent.mkdir(parents=True)
+        test_path.touch()
+        path = RELEASE_CONTROLLER_TESTS[0].removeprefix("consent-protocol/")
+        for contents in ("", f"{path}\n{path}\n", "tests/../wrong.py\n", "tests/missing.py\n", f"{path}::test_case\n"):
+            target.write_text(contents)
+            assert original in _checks_for_selection(selection, env)
+        target.write_text(f"{path}\n")
+        with patch.object(plan, "RELEASE_CONTROLLER_TESTS", (RELEASE_CONTROLLER_TESTS[0],)):
+            assert all(check.check_id != original.check_id for check in _checks_for_selection(selection, env))
 
 
 def test_unconfigured_local_run_preserves_diagnostic_plan() -> None:
@@ -53,6 +102,8 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/scripts/managed_vertex_readiness.py",
         "consent-protocol/tests/test_pwm_runtime_probe.py",
         "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
@@ -143,6 +194,9 @@ def test_document_delivery_ci_contract_paths_select_controller_owner() -> None:
 
 def test_restoration_fixture_paths_select_controller_owner_and_history_consumers() -> None:
     changed = (
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/tests/helpers/production_release_tools.py",
         "consent-protocol/tests/test_production_restoration_operation.py",
     )
@@ -163,6 +217,8 @@ def test_restoration_fixture_paths_select_controller_owner_and_history_consumers
         "consent-protocol/tests/test_production_restoration_operation.py",
         "consent-protocol/tests/test_phone_schema_origin.py",
         "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+        "consent-protocol/tests/test_phone_schema_job_history.py",
+        "consent-protocol/tests/test_phone_schema_qualification.py",
     )
     drive_suite = "consent-protocol/tests/test_prod_drive_deploy_contract.py"
     assert drive_suite in selected["release-controller-contracts"].argv
@@ -408,6 +464,7 @@ validation_finish
 
 def main() -> int:
     tests = (
+        test_hosted_protocol_ownership_removes_only_whole_module_duplicates,
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,

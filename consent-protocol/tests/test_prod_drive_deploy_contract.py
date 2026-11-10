@@ -466,6 +466,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     for companion in (
         "resolve-deploy-scope.py",
+        "production_recovery_ci.py",
         "release_acceptance_provenance.py",
         "production_emergency.py",
         "require-deploy-sha-on-main.sh",
