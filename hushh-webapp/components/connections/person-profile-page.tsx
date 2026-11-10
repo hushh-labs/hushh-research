@@ -48,6 +48,7 @@ import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/reques
 import { joinInformationLabels } from "@/lib/consent/consent-owner-copy";
 import {
   PersonProfileService,
+  PersonProfileNotFoundError,
   mergePersonScopePage,
   type PublicPersonProfile,
   type ViewerPersonProfile,
@@ -149,12 +150,16 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   const [profileState, setProfileState] = useState<{
     personRef: string;
     profile: PublicPersonProfile | null;
+    missing?: boolean;
   }>(() => ({ personRef: resolvedPersonRef, profile: initialProfile ?? PersonProfileService.peekPublic?.(resolvedPersonRef) ?? null }));
   const profile =
     profileState.personRef === resolvedPersonRef ? profileState.profile
       : initialProfile?.personRef === resolvedPersonRef ? initialProfile : null;
-  const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const profileMissing = profileState.personRef === resolvedPersonRef && profileState.missing === true;
+  const [publicReadFailed, setPublicReadFailed] = useState(false);
+  const publicProfileUnavailable = profileMissing || publicReadFailed;
   const [publicReloadToken, setPublicReloadToken] = useState(0);
+  const publicReadGeneration = useRef(0);
   const [viewerLoadError, setViewerLoadError] = useState<{
     personRef: string; viewerUid: string;
   } | null>(null);
@@ -271,15 +276,27 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   useEffect(() => {
     if (initialProfile?.personRef === resolvedPersonRef && publicReloadToken === 0) return;
     let active = true;
-    setPublicProfileUnavailable(false);
+    const generation = ++publicReadGeneration.current;
+    const isCurrent = () => active && publicReadGeneration.current === generation;
+    setPublicReadFailed(false);
     void PersonProfileService.getPublic(resolvedPersonRef)
       .then((value) => {
-        if (active) {
-          setProfileState({ personRef: resolvedPersonRef, profile: value });
-        }
+        if (isCurrent()) setProfileState({ personRef: resolvedPersonRef, profile: value });
       })
-      .catch(() => {
-        if (active) setPublicProfileUnavailable(true);
+      .catch((error: unknown) => {
+        if (!isCurrent()) return;
+        if (error instanceof PersonProfileNotFoundError) {
+          requestGeneration.current += 1;
+          viewerReadGeneration.current += 1;
+          relationshipReadGeneration.current += 1;
+          setProfileState({ personRef: resolvedPersonRef, profile: null, missing: true });
+          setViewerProfileState((current) => ({ ...current, profile: null }));
+          setDisplayState((current) => ({ ...current, profile: null }));
+          setRelationshipState(null);
+          setReviewOpen(false);
+          return;
+        }
+        setPublicReadFailed(true);
       });
     return () => {
       active = false;
@@ -409,7 +426,10 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       setViewerReloadToken((value) => value + 1);
     };
     const unsubscribe = subscribeToConnectionGraphChanges((event) => {
-      if (event.userId === userId) refresh();
+      if (event.userId !== userId) return;
+      publicReadGeneration.current += 1;
+      setPublicReloadToken((value) => value + 1);
+      refresh();
     });
     const onPush = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
@@ -761,7 +781,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   }, [viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
-    viewerProfile && !embedded
+    profile && viewerProfile && !embedded
       ? {
           screenId: "one_person_profile",
           title: "Person profile",
@@ -786,7 +806,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   );
 
   usePublishVoiceSurfaceMetadata(
-    reviewOpen
+    profile && reviewOpen
       ? {
           screenId: "one_person_profile",
           title: "Review information request",
@@ -820,7 +840,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
           <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : undefined}>
             {publicProfileUnavailable ? "This profile is unavailable." : "Loading profile…"}
           </p>
-          {publicProfileUnavailable ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
+          {publicProfileUnavailable && !profileMissing ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
         </div>
       </AppPageShell>
     );

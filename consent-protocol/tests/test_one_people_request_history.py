@@ -10,6 +10,23 @@ from hushh_mcp.services.person_profile_service import PersonProfileNotFoundError
 PERSON_REF = "11111111-1111-4111-8111-111111111111"
 
 
+def test_public_profile_uses_the_same_404_for_missing_profiles_and_invalid_refs(monkeypatch):
+    from unittest.mock import Mock
+
+    service = Mock()
+    service.get_public_profile.side_effect = PersonProfileNotFoundError("not found")
+    monkeypatch.setattr(people, "_service", lambda: service)
+    app = FastAPI()
+    app.include_router(people.public_router)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    missing = client.get(f"/api/public/people/{PERSON_REF}")
+    invalid = client.get("/api/public/people/invalid")
+    assert missing.status_code == invalid.status_code == 404
+    assert missing.json() == invalid.json() == {"detail": "Person profile was not found."}
+    service.get_public_profile.assert_called_once_with(PERSON_REF)
+
+
 def test_relationship_read_is_independent_and_keeps_internal_identity_private(monkeypatch):
     from unittest.mock import Mock
 
