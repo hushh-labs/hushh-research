@@ -63,10 +63,13 @@ def load_operational(owner, args):
     if not requested:
         if (
             args.environment == "production"
-            and not args.verify_source_only
             and getattr(args, "release_run_id", "") == str(recovery.FRONTEND_RUN)
+            and (not args.verify_source_only or getattr(args, "staged_worker_run_id", ""))
         ):
-            return active(owner, recovery.ROLLBACK_RUN, recovery.ROLLBACK_ATTEMPT)
+            return active(
+                owner, recovery.ROLLBACK_RUN, recovery.ROLLBACK_ATTEMPT,
+                live=not args.verify_source_only,
+            )
         return None
     if args.verify_source_only:
         return source_operational(owner, args)
@@ -144,6 +147,7 @@ def find_source(owner, args, repository, *, require_live=None):
     if (
         found is not None
         and args.environment == "production"
+        and not args.verify_source_only
         and args.operational_anchor is not None
         and found[0] == recovery.FRONTEND_RUN
     ):
