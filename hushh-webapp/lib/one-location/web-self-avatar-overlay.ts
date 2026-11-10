@@ -53,17 +53,25 @@ export async function createWebSelfAvatarOverlay(
     await map.removeMarker(id);
   }
 
+  return createWebAvatarOverlay(renderer, "overlayMouseTarget");
+}
+
+/** Position avatar DOM on a Maps JS map the caller already owns. */
+export function createWebAvatarOverlay(
+  renderer: google.maps.Map,
+  pane: "markerLayer" | "overlayMouseTarget",
+): WebSelfAvatarOverlay {
   const element = document.createElement("div");
   element.style.position = "absolute";
   element.style.left = "0";
   element.style.top = "0";
   element.style.display = "none";
-  let point: google.maps.LatLng | null = null;
+  let point: google.maps.LatLngLiteral | null = null;
   let disposed = false;
   const overlay = new google.maps.OverlayView();
   overlay.onAdd = () => {
-    overlay.getPanes()?.overlayMouseTarget.appendChild(element);
-    google.maps.OverlayView.preventMapHitsFrom(element);
+    overlay.getPanes()?.[pane].appendChild(element);
+    if (pane === "overlayMouseTarget") google.maps.OverlayView.preventMapHitsFrom(element);
   };
   overlay.draw = () => {
     if (disposed || !point) return;
@@ -78,7 +86,7 @@ export async function createWebSelfAvatarOverlay(
     element,
     setPoint(next) {
       if (disposed) return;
-      point = new google.maps.LatLng(next.latitude, next.longitude);
+      point = { lat: next.latitude, lng: next.longitude };
       overlay.draw();
     },
     destroy() {

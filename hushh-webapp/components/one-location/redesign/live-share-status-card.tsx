@@ -249,6 +249,7 @@ export function LiveShareStatusCard({
   const singleGrant = status.grantCount === 1 && Boolean(status.stoppableGrantId);
   const canChangeDuration =
     singleGrant && !status.singleGrantIsSms && Boolean(onChangeDuration);
+  const shareMoreOnly = Boolean(onShareMore) && !canChangeDuration;
 
   // Seconds only matter inside the last hour. Above that they are noise, and a
   // once-a-second re-render for a 24-hour share is waste.
@@ -342,7 +343,8 @@ export function LiveShareStatusCard({
 
         {singleGrant && onStop ? (
           <Button
-            variant="ghost"
+            variant="link"
+            disableHoverRipple
             size="sm"
             onClick={runChildAction(onStop)}
             disabled={stopBusy}
@@ -361,7 +363,8 @@ export function LiveShareStatusCard({
           </Button>
         ) : (
           <Button
-            variant="ghost"
+            variant="link"
+            disableHoverRipple
             size="sm"
             onClick={runChildAction(onManage)}
             className={cn(
@@ -473,13 +476,14 @@ export function LiveShareStatusCard({
 
       {onShareMore || canChangeDuration ? (
         // Content-width actions wrap at narrow widths without shrinking targets.
-        <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
+        <div className={cn(LIVE_SHARE_FOOTER_ROW_CLASSNAME, shareMoreOnly && "items-start justify-start")}>
           {onShareMore ? (
             <Button
               type="button"
               onClick={runChildAction(onShareMore)}
               className={cn(
                 LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+                shareMoreOnly && "w-auto px-4",
                 "inline-flex items-center justify-center font-[family-name:var(--font-app-body)] tracking-normal transition-[background-color,transform]",
               )}
               data-ui-contract="occlusion-sensitive"
@@ -494,6 +498,7 @@ export function LiveShareStatusCard({
             <Button
               type="button"
               variant="secondary"
+              size="standard"
               onClick={runDurationAction(onChangeDuration)}
               className={cn(
                 LIVE_SHARE_ACTION_CLASSNAME,
@@ -502,7 +507,7 @@ export function LiveShareStatusCard({
               )}
               data-ui-contract="occlusion-sensitive"
               data-ui-role="control"
-              data-ui-id="location-live-share-duration" data-location-type-role="compact-action"
+              data-ui-id="location-live-share-duration"
               data-testid="one-location-live-share-change-time"
             >
               {openEnded ? "Set an end time" : "Change end time"}

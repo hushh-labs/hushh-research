@@ -144,6 +144,29 @@ describe("projectToMapBox", () => {
 });
 
 describe("layoutMapNameLabels", () => {
+  it("gives the selected venue room for a typical cafe name on a narrow phone", () => {
+    const text = "HARSH FAST FOOD & CAFE";
+    const place: MapNameLabelCandidate = { ...person("venue", 0, 0, text), kind: "place" };
+    const [label] = layoutMapNameLabels({
+      labels: [place], camera: camera(), viewport: { width: 320, height: 400 },
+    });
+    expect(label.text).toBe(text);
+    expect(label.maxWidthPx).toBeGreaterThanOrEqual(220);
+    expect(label.x - label.maxWidthPx! / 2).toBeGreaterThanOrEqual(8);
+    expect(label.x + label.maxWidthPx! / 2).toBeLessThanOrEqual(312);
+  });
+
+  it("limits long venue names to the space clear of the desktop drawer", () => {
+    const text = "A very long hotel and cafe name with several words ".repeat(4);
+    const place: MapNameLabelCandidate = { ...person("venue", 0, 0, text), kind: "place" };
+    const [label] = layoutMapNameLabels({
+      labels: [place], camera: camera(), viewport: { width: 800, height: 400, insetRight: 320 },
+    });
+    expect(label.text).toBe(text);
+    expect(label.maxWidthPx).toBe(144);
+    expect(label.x + label.maxWidthPx! / 2).toBe(472);
+  });
+
   it("reserves the renderer avatar even when its own name pill is omitted", () => {
     const options = {
       // This person's pill lands on the owner's avatar, despite their pin
