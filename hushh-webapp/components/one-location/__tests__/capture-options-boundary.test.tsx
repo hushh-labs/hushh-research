@@ -81,22 +81,21 @@ describe("One Location capture-options boundary", () => {
     }
   });
 
-  it("an in-flight capture is not handed to a caller demanding a fresh fix", () => {
+  it("bypasses in-flight capture for freshness and measurement requirements", () => {
     const source = read("components/one-location/location-immersive-map.tsx");
 
     // Deduplication is right for cached-eligible callers and wrong for a
     // check-in anchor that must describe where the user is standing now.
     expect(source).toContain(
-      "options?.maxAgeMs !== 0 &&\n        !options?.fresh",
+      "options?.maxAgeMs !== 0 &&\n        !options?.fresh &&\n        !options?.requireMeasurement",
     );
-    expect(source).toContain("!options?.requireMeasurement");
   });
 
-  it("the check-in confirmation anchors on a current fix, not a stale one", () => {
+  it("manual and command check-in both request a current measured fix", () => {
     const source = parse("components/one-location/nearby-check-in/nearby-check-in-sheet.tsx");
     const captures = nodes(source, ts.isCallExpression)
       .filter(call => call.expression.getText() === "captureCurrentPosition" && call.arguments.length > 0);
-    expect(captures.length).toBeGreaterThan(0);
+    expect(captures).toHaveLength(2);
     for (const capture of captures) {
       for (const branch of optionBranches(capture.arguments[0]!)) {
         expect(ts.isObjectLiteralExpression(branch)).toBe(true);

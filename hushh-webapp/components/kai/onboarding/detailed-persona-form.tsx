@@ -11,6 +11,8 @@ import type { PersonaPreferences } from "@/lib/kai/investing-persona";
 import { FinancePersonaReveal } from "./finance-persona-form";
 import styles from "./finance-persona.module.css";
 
+const answerTones = ["careful", "balanced", "growth"] as const;
+
 export function DetailedPersonaForm({
   initial,
   onSave,
@@ -120,8 +122,7 @@ export function DetailedPersonaForm({
       >
         {detailedPersonaQuestions.map(({ prompt }, index) => {
           const answer = answers[index];
-          const tone = answer === undefined ? "future" : answer === null ? "unsure"
-            : index >= 8 ? "planning" : (["careful", "balanced", "growth"] as const)[answer];
+          const tone = answer === undefined ? "future" : answer === null ? "unsure" : answerTones[answer];
           return <span key={prompt} data-tone={tone} data-current={index === step ? "true" : undefined} aria-hidden="true" />;
         })}
       </div>
