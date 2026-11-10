@@ -685,10 +685,19 @@ for (const width of [320, 393, 768]) {
     const rows = page.getByTestId("connect-my-connections-group").getByTestId("connect-person-row");
 
     // The list is part of the page: not a scroller, not a scroll trap.
-    expect(await list.evaluate((node) => {
-      const s = getComputedStyle(node);
-      return { overflowY: s.overflowY, overscroll: s.overscrollBehaviorY, own: node.scrollHeight - node.clientHeight };
-    })).toEqual({ overflowY: "visible", overscroll: "auto", own: 0 });
+    const supportsOverscroll = await page.evaluate(() =>
+      CSS.supports("overscroll-behavior-y", "contain"),
+    );
+    const listStyle = await list.evaluate(node => {
+      const style = getComputedStyle(node);
+      return {
+        overflowY: style.overflowY,
+        overscroll: style.getPropertyValue("overscroll-behavior-y"),
+        own: node.scrollHeight - node.clientHeight,
+      };
+    });
+    expect(listStyle).toMatchObject({ overflowY: "visible", own: 0 });
+    if (supportsOverscroll) expect(listStyle.overscroll).toBe("auto");
 
     const wheelFromRow = async () => {
       const box = await rows.nth(3).boundingBox();
@@ -729,9 +738,11 @@ for (const width of [320, 393, 768]) {
 
     // Negative control: the old markup (a capped list that contains its
     // overscroll) swallows the same gesture, so the assertion above can fail.
-    await root.evaluate((node) => { node.scrollTop = 0; });
-    await list.evaluate((node) => node.classList.add("max-h-[min(60dvh,28rem)]", "overflow-y-auto", "overscroll-contain"));
-    expect(await wheelFromRow()).toBeLessThan(maxScroll / 2);
+    if (supportsOverscroll) {
+      await root.evaluate((node) => { node.scrollTop = 0; });
+      await list.evaluate((node) => node.classList.add("max-h-[min(60dvh,28rem)]", "overflow-y-auto", "overscroll-contain"));
+      expect(await wheelFromRow()).toBeLessThan(maxScroll / 2);
+    }
   });
 }
 

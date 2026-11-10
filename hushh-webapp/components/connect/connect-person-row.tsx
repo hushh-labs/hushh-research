@@ -58,7 +58,9 @@ export function ConnectPersonRow({
     <>
       {/* Centered on the text block, as in Feed's rows: pinned to the top it sat above
           a one-line name and half a line above a name with a second line. */}
-      <span className="grid w-[30px] place-items-center self-center">{leading}</span>
+      <span data-slot="settings-row-leading" className="grid w-[30px] place-items-center self-center">
+        {leading}
+      </span>
       <span data-slot="settings-row-identity" className="min-w-0">
         <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
           <span data-slot="settings-row-title" className="min-w-0 [overflow-wrap:anywhere]">
