@@ -987,7 +987,7 @@ rehearsal; it does not change the existing advisory rollback policy.
 
 ### Managed-provider readiness policy
 
-Ordinary UAT deployment requires the configured provider's **core** proof: One chat
+Ordinary deployment requires the configured provider's **core** proof. UAT verifies One chat
 and Drive text scopes, current authority, structured output, attribution/schema,
 candidate health, compatibility and rollback. The exact candidate image, runtime
 identity, run/attempt and configuration bind that proof. Trust failures always block;
@@ -1005,7 +1005,18 @@ uses core when the candidate recipe supports it; older approved candidates retai
 full qualification. Full provider diagnostics remain explicit, using the existing
 probe producers with `MANAGED_READINESS_MODE=full` under their admitted runtime
 identity; they do not replace core release evidence. `run_live_model_checks` retains
-its separate PKM/RIA meaning. Dev and production behavior is unchanged by this correction.
+its separate PKM/RIA meaning.
+
+Dev and production keep their own configured Vertex ADC model and project. Candidates
+with common-core contract version 2 prove a real, nonempty ADK chat response at that
+exact target; secondary modalities are not run. Older images retain full qualification.
+A source declaration permits requesting core but cannot certify the image: its terminal
+report must acknowledge the mode/version, environment, configuration and active chat
+result. The collector binds those results to the exact build, immutable image and runtime
+identity. It does not select or change providers outside UAT. The isolated Dev commerce
+target retains its existing full checks until separately qualified. Build failure still
+blocks deployment; asynchronous build submission preserves the exact failed build ID
+for diagnosis and receipt collection.
 
 For a policy-changing release candidate, run the retained functional/core set once
 on the completed candidate, plus affected security and release contracts. Do not
