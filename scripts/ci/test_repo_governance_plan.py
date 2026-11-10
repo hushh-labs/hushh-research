@@ -403,17 +403,24 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
         observed.append((argv, kwargs.get("env", {})))
         return {"ok": True}
     with tempfile.TemporaryDirectory() as raw, patch.object(local, "_run", side_effect=run), \
-         patch.object(local, "_protected", return_value=(True, "approved")):
-        context = {"number": 1, "body": None, "author": "owner", "base_ref": "main",
+         patch.object(local, "_protected", return_value=(True, "approved")), \
+         patch.dict(os.environ, {"CAPABILITY_GRAPH_BASE_REF": "origin/main"}):
+        context = {"number": 1, "body": None, "author": "owner", "base_ref": "uat",
                    "base": "a" * 40, "head_ref": "fix/change", "head": "b" * 40,
                    "repository": "owner/repo", "files_path": Path(raw) / "files",
-                   "files": ["hushh-webapp/app/page.tsx"], "lanes": {"frontend": True, "backend": False}}
+                   "files": ["hushh-webapp/app/page.tsx"], "lanes": {"frontend": True, "backend": True}}
         checks, _ = local._focused(None, context, Path(raw), stream=False)
         assert all(result["ok"] for result in checks.values())
     targeted = [env for argv, env in observed if argv[-1] == "web-targeted"]
     assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
     assert not any(argv[-1] == "integration" for argv, _ in observed)
     assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
+    for stage in ("governance", "web-core", "web-targeted", "web-full-suite", "protocol", "mcp-package"):
+        command = "repo-governance-check.sh" if stage == "governance" else "orchestrate.sh"
+        selected = [env for argv, env in observed
+                    if (stage == "governance" and argv[-1].endswith(command)) or argv[-1] == stage]
+        assert len(selected) == 1
+        assert selected[0]["CAPABILITY_GRAPH_BASE_REF"] == context["base"]
     # The operator report must not instruct agents to run a retired required lane.
     context.update(branch="fix/change", url=None, lane_warning=None)
     output = io.StringIO()
