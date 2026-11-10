@@ -313,6 +313,7 @@ jobs:
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
+          CI_PROTOCOL_CONTROLLER_OWNER: ${{ inputs.production_recovery_sha == '' && needs.paths.outputs.backend_required || 'false' }}
           CAPABILITY_GRAPH_BASE_REF: ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
@@ -343,6 +344,7 @@ jobs:
     outputs:
       frontend: ${{ steps.resolve.outputs.frontend }}
       backend: ${{ steps.resolve.outputs.backend }}
+      backend_required: ${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || steps.resolve.outputs.auth_health_only == 'true') && 'false' || steps.resolve.outputs.backend }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       editor: ${{ steps.resolve.outputs.editor }}
@@ -846,7 +848,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       frontend: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.frontend }}
-      backend: ${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || needs.paths.outputs.auth_health_only == 'true') && 'false' || needs.paths.outputs.backend }}
+      backend: ${{ needs.paths.outputs.backend_required }}
       ios: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.ios }}
       android: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.android }}
       editor: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.editor }}
