@@ -178,7 +178,7 @@ jobs:
           '
             # Run the candidate release controls with signing credentials only
             # when they agree with the Main dispatch revision. Test-only selectors
-            # and the uninvoked phone diagnostic are not signing/build inputs.
+            # and browser diagnostics unused by the archive are not signing/build inputs.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
               .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
@@ -193,7 +193,8 @@ jobs:
               ':(glob)scripts/ci/*appstore*' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' || {
+              ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/verify-signed-in-routes.mjs' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }
