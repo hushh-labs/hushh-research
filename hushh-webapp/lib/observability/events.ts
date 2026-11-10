@@ -848,6 +848,7 @@ export interface EventPayloadMap {
   one_location_sos_triggered: {
     route_id: RouteId;
     result: EventResult;
+    duration_ms_bucket?: DurationBucket;
     /** People selected to alert. */
     selected_count: number;
     /** People whose device was actually alerted. Zero means the alert failed. */

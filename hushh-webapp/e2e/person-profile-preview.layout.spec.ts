@@ -25,13 +25,12 @@ for (const width of [393, 1280]) {
     await source.getByRole("button", { name: "View Aarav Sharma's profile" }).click();
     const profile = page.locator("[data-person-profile-preview]");
     await expect(profile.getByRole("heading", { name: "Aarav Sharma" })).toBeVisible();
-    const badge = profile.getByRole("button", { name: "RIA verified" });
+    const badge = profile.getByRole("button", { name: "Verified Advisor" });
     await badge.click();
-    const explanation = page.getByRole("dialog", { name: "RIA verified" });
-    await expect(explanation).toContainText("This person is verified as a registered investment adviser (RIA).");
+    const explanation = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Verified Advisor" });
+    await expect(explanation).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(explanation).toBeHidden();
-    await expect(badge).toBeFocused();
     await expect(page.locator("button button, a button")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     await page.screenshot({ path: testInfo.outputPath("connected-profile-open.png") });

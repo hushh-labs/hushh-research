@@ -66,7 +66,7 @@ export function CirclePhotoEditor({ circleId, photoUrl, canEdit, onUpdate, onOpe
               } catch { if (current === epoch.current) setError("Couldn’t open your photos. Try again."); }
               finally { if (current === epoch.current) setPicking(false); }
             }}><ImageIcon className="size-4" />{picking ? "Opening photos…" : "Choose photo"}</Button>
-            {draft ? <Button variant="ghost" className="min-h-11" disabled={busy || picking} onClick={() => setDraft(null)}><Trash2 className="size-4" />Remove photo</Button> : null}
+            {draft ? <Button variant="ghost" className="min-h-11 text-destructive hover:text-destructive" disabled={busy || picking} onClick={() => setDraft(null)}><Trash2 inheritColor className="size-4" />Remove photo</Button> : null}
           </div>
           {error ? <p data-profile-role="description" role="alert" className="text-center text-sm text-destructive">{error}</p> : null}
           <div className="flex w-full justify-center gap-2">

@@ -341,10 +341,10 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await expect(page.locator("body")).toHaveAttribute("data-sent-count", "1");
   await expect(page.locator("body")).toHaveAttribute("data-sent-note", "Come get me");
   await expect(page.getByRole("textbox")).toHaveCount(0);
-  await page.getByRole("button", { name: "Stop Save My Soul alert" }).click();
+  await page.getByRole("button", { name: "Stop SMS alert" }).click();
   const stopDialog = page.getByRole("alertdialog");
   await expect(stopDialog).toHaveAttribute("data-location-type-scale", "connect");
-  const stopTitle = await stopDialog.getByText("Stop Save My Soul alert?").evaluate((node) => {
+  const stopTitle = await stopDialog.getByText("Stop SMS alert?").evaluate((node) => {
     const style = getComputedStyle(node);
     return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
   });
