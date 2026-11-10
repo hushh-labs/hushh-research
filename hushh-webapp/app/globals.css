@@ -6861,12 +6861,6 @@ html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([da
   visibility: hidden;
   pointer-events: none;
 }
-/* Messages keeps the shared stack inside the conversation's grid column. */
-@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
-  [data-messages-dock] {
-    padding-inline-start: calc(var(--app-messages-sidebar-width) + var(--app-bottom-shell-inline-inset));
-  }
-}
 html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
