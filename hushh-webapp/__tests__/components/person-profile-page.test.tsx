@@ -131,6 +131,28 @@ describe("PersonProfilePage native profile route", () => {
     expect(screen.queryByText("friend@example.test")).toBeNull();
   });
 
+  it("retires an open deleted profile and ignores an older successful identity read", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    const { PersonProfileNotFoundError } = await import("@/lib/services/person-profile-service");
+    const cached = { personRef: "actual-public-ref", displayName: "Actual Person", photoUrl: null, verifiedRole: null };
+    let resolveOld!: (profile: typeof cached) => void;
+    mocks.peekPublic.mockReturnValue(cached);
+    mocks.getPublic
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockRejectedValueOnce(new PersonProfileNotFoundError("This profile is unavailable."));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Actual Person" });
+
+    act(() => { window.dispatchEvent(new CustomEvent(CONNECTION_GRAPH_CHANGED_EVENT, {
+      detail: { userId: "viewer", changedAt: 1 },
+    })); });
+    expect(await screen.findByRole("alert")).toHaveTextContent("This profile is unavailable.");
+    await act(async () => { resolveOld(cached); });
+    expect(screen.queryByRole("heading", { name: "Actual Person" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share profile" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("uses the real iOS pathname person ref when native serves the static export shell", async () => {
     render(
       <PersonProfilePage
