@@ -14,9 +14,8 @@ import re
 from collections.abc import Iterable, Sequence
 from typing import Literal, Protocol, TypeVar
 
-# UAT v3 introduced stricter Calendar relevance. v4 retains those rules and
-# adds scheduled events, date effects and validated replacement references.
-ASSESSMENT_VERSION = 4
+# v5 distills the title for Calendar and requires grounded timing for automated obligations.
+ASSESSMENT_VERSION = 5
 
 Relevance = Literal["actionable", "informational", "uncertain"]
 Category = Literal[

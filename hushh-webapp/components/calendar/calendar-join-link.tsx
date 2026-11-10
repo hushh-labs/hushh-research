@@ -1,5 +1,6 @@
 "use client";
 
+import presentationStyles from "./calendar-presentation.module.css";
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
@@ -38,7 +39,7 @@ export function CalendarJoinLink({ url, accountEmail, label = "Join meeting", ar
   return <>
     <a ref={trigger} href={meeting.href} target="_blank" rel="noopener noreferrer" className={className} aria-label={ariaLabel} onClick={event => { event.preventDefault(); prepareLaunch(); }}>{children || label}</a>
     <Dialog modal open={Boolean(launch)} onOpenChange={open => { if (!open) setLaunch(null); }}>
-      <DialogContent className="w-[min(calc(100vw-2rem),24rem)] gap-3 p-5" onCloseAutoFocus={event => {
+      <DialogContent className={`w-[min(calc(100vw-2rem),24rem)] gap-3 p-5 ${presentationStyles.portal}`} data-connect-type-scale="page" onCloseAutoFocus={event => {
         event.preventDefault();
         trigger.current?.focus();
       }}>

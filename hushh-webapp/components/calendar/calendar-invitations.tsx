@@ -125,7 +125,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
           })}</ul>}
         </div>
         <Dialog modal open={Boolean(selected)} onOpenChange={open => { if (!open) close(); }}>
-          <DialogContent className={styles.calendarTypography} data-profile-type-scale="calendar" srDescription="Review this invitation and choose your response." onEscapeKeyDown={event => { if (actionBusyRef.current) event.preventDefault(); }} onInteractOutside={event => { if (actionBusyRef.current) event.preventDefault(); }} onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }}>
+          <DialogContent className={presentationStyles.portal} data-connect-type-scale="page" srDescription="Review this invitation and choose your response." onEscapeKeyDown={event => { if (actionBusyRef.current) event.preventDefault(); }} onInteractOutside={event => { if (actionBusyRef.current) event.preventDefault(); }} onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }}>
           <DialogTitle className="sr-only">Invitation details</DialogTitle>
           {selected ? <div className={styles.detailPane}>
           <Button variant="ghost" size="compact" className={`${styles.back} ${presentationStyles.utility}`} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>

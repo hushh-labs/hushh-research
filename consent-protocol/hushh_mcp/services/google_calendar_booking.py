@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -40,7 +42,8 @@ async def board_booking_state(
     status_reader = getattr(owner, "calendar_accounts_status", None)
     if not callable(status_reader):
         raise GoogleConnectionError("Calendar account review is unavailable", status_code=503)
-    status = await status_reader(user_id=user_id)
+    read_status = partial(status_reader, include_pictures=False)
+    status = await read_status(user_id=user_id)
     accounts = status.get("accounts")
     checked = plan.get("checked_account_ids")
     if (
@@ -61,25 +64,36 @@ async def board_booking_state(
         raise GoogleConnectionError("Calendar selection changed", status_code=409)
     start = datetime.fromisoformat(plan["start_at"].replace("Z", "+00:00"))
     end = datetime.fromisoformat(plan["end_at"].replace("Z", "+00:00"))
+    # The board bounds the selection at three independently scoped accounts.
+    # Join all reads before verifying the complete snapshot or admitting a write.
+    results = await asyncio.gather(
+        *(
+            _account_snapshot(
+                calendar,
+                owner=owner,
+                user_id=user_id,
+                plan=plan,
+                account=account,
+                override=overrides.get(account["account_id"]),
+                start=start,
+                end=end,
+            )
+            for account in accounts
+        ),
+        return_exceptions=True,
+    )
     snapshots: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
-    for account in accounts:
-        snapshot, busy = await _account_snapshot(
-            calendar,
-            owner=owner,
-            user_id=user_id,
-            plan=plan,
-            account=account,
-            override=overrides.get(account["account_id"]),
-            start=start,
-            end=end,
-        )
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+        snapshot, busy = result
         snapshots.append(snapshot)
         conflicts.extend(busy)
     await _verify_board_snapshot(
         owner=owner,
         user_id=user_id,
-        status_reader=status_reader,
+        status_reader=read_status,
         accounts=accounts,
         snapshots=snapshots,
         reviewed=plan.get("board_accounts"),

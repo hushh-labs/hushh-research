@@ -80,10 +80,6 @@ export type FollowupRequest = FollowupPreviewRequest & {
 export type FollowupDetail = Omit<FollowupConversation, "request_count" | "active_count" | "preview_requests"> & {
   account_id: string; requests: FollowupRequest[];
 };
-export type FollowupSource = {
-  request_id: string; account_id: string; subject: string; sender: string;
-  body: string; internal_date_ms: number; gmail_message_id?: string;
-};
 /** `pending` means one bounded step finished and the scan has more to do now. */
 export type FollowupScanResult = { state?: "pending" | "partial" | "complete" | "not_due" } | undefined;
 export type FollowupSourceLink = { request_id: string; account_id: string; gmail_message_id: string };
@@ -150,14 +146,6 @@ export class CalendarFollowupsService {
     validateAccount(value, accountId);
     if (value.id !== conversationId || !Array.isArray(value.requests) || value.requests.some(item => !isRecord(item) || !validUuid(item.id) || !Number.isInteger(item.revision)))
       throw new Error("Follow-up details were incomplete.");
-    return value;
-  }
-
-  static async source(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<FollowupSource> {
-    if (!validUuid(requestId)) throw new Error("Choose a valid request.");
-    const value = await this.post<FollowupSource>("source", { user_id: userId, account_id: accountId, request_id: requestId }, idToken, ownerToken, signal);
-    validateAccount(value, accountId);
-    if (value.request_id !== requestId || typeof value.body !== "string" || typeof value.subject !== "string") throw new Error("Source email was incomplete.");
     return value;
   }
 

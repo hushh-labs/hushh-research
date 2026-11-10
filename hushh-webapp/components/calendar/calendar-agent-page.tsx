@@ -636,7 +636,7 @@ export function CalendarAgentPage({
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
-        <AlertDialogContent size="sm" className={presentationStyles.portal} data-profile-type-scale="calendar" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
+        <AlertDialogContent size="sm" className={presentationStyles.portal} data-connect-type-scale="page" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -805,7 +805,8 @@ export function CalendarAgentPage({
       data-profile-type-scale="page"
       width="reading"
       headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
-      className={CALENDAR_SETUP_SHELL_CLASSNAME}
+      className={`${CALENDAR_SETUP_SHELL_CLASSNAME} ${presentationStyles.scope}`}
+      data-connect-type-scale="page"
       nativeTest={{
         routeId: journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
         marker: journeyVariant === "onboarding" ? "native-route-one-setup-calendar" : "native-route-calendar",

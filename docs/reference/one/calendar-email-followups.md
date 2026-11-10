@@ -63,7 +63,7 @@ Request states are `needs_review`, `pending`, `done`, `snoozed`, `dismissed`, `c
 | Required declaration | Contract |
 | --- | --- |
 | Owning agent and manifest | Existing `agent_email`; new tool-free `agent_email_followup_extractor` child in `consent-protocol/hushh_mcp/agents/email/agent.yaml`. |
-| Output | `FollowupChunkAssessmentV1` under assessment version 4 adds `after_date` and offered `supersedes_request_id` to ordered request candidates with exact source evidence. |
+| Output | `FollowupChunkAssessmentV1` under assessment version 5 returns distilled Calendar action titles, typed dates and date effects, offered replacement IDs, and separate exact source evidence. |
 | Validator | Admit only offered message, thread and section refs; prove exact excerpt membership and global offset; reject duplicate durable identities, out-of-order update refs, unsupported time zones and malformed output. It does not create a request or due instant by interpreting sender text itself. |
 | Live evaluation before promotion | Run a consented, held-out owner-mail fixture and opt-in pilot before enabling the monitor outside development. Require 100% source attribution, no automatic send/booking/PKM effects, and reviewed precision/recall for multi-request, tail, correction and ambiguous-date cases. Keep the feature kill switch closed until the result is recorded. |
 
@@ -71,15 +71,17 @@ A date worded "before 26 October" is exclusive: with a one-day lead the reminder
 
 ## Review and action contract
 
-Calendar Insights renders one compact Follow-ups card for its selected account, above Executive snapshot. It shows at most two conversations; View all presents server-backed pages of 15 conversations with Previous and Next controls. The compact card shows Upcoming and the expanded view can switch between four views. Each row is one specific action, its verified date or useful undated context, the sender's name, and one Review action; further actions from the same email are grouped as "1 more in this email". The detail surface shows the requested action and verified date, a brief link-free excerpt, the reminder status, Mark done, Snooze and Change reminder, and Review meeting for a proposal. Open original email is a normal link to the exact Gmail message (the server returns only the message reference and reads nothing); View email text shows the sanitized body, with links, tracking URLs and image markers removed. A reminder target opens its account and focuses the current request after a fresh read. A delivered reminder for a folded request follows the same-account link to its survivor. The card distinguishes mail not connected, monitoring off, loading, empty, catching up (quiet text) and needs attention (one sentence with one action); stale same-account content stays visible during a background refresh, and an incomplete scan is never presented as empty or complete.
+Calendar Insights shows up to two upcoming conversations in Follow-ups. View all opens paged Upcoming, Overdue, and Snoozed lists. A row shows the assessed action and verified timing, with a count for other actions. History remains an internal classification for expired and closed requests. The centered Review dialog shows active actions and verified timing or linked Calendar context. Original email opens the exact account-scoped Gmail message. Calendar Review does not fetch email bodies or display source excerpts, subject lines, or sender addresses.
 
-Mark done, reminder edits, Snooze, and Dismiss return committed revisions before the UI claims success. A proposed call stays `not_booked`. Review meeting passes the selected account and available details to the existing Calendar booking preview; any missing details are requested. Opening a review never executes the proposal. Only the existing explicit confirm path can create an event, and its returned provider event ID is the booked outcome.
+Swipe right to Keep or left to Remove. Keyboard users can use Right Arrow or Delete on the row. Keep leaves the request and its reminder in place. Remove asks for confirmation and dismisses only the displayed request by its current revision. Other requests from the same conversation remain available. Mark done and Reminder are the two default review actions for tasks. Review meeting opens the existing booking form. Schedule meeting confirms those details and submits one event.
 
 ## Temporal eligibility, restated obligations and reassessment
 
-Status: source contract for assessment version 4 and migration 454. Source and
-disposable-PostgreSQL tests prove the host's enforcement; they do not establish how a
-live model judges real mail, and no shared database has had 454 applied.
+Assessment version 5 tightens eligibility for automated obligations. The Calendar list
+and detail show only current assessments, and the existing bounded reassessment
+revisits older visible requests within the approved period. The read projection keeps
+legacy response keys for compatibility and leaves raw evidence fields empty.
+The live model remains subject to the evaluation gate above.
 
 **Which list a request is in** is computed from the clock and the stored verdict on every
 read, in SQL, before the page is chosen, so an expired item can never occupy a slot that

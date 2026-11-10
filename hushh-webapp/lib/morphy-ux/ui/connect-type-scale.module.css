@@ -1,0 +1,30 @@
+/* Connect v14 type scale. Geometry remains with the consuming workspace. */
+.scale {
+  --type-row-label-size: 14px;
+  --type-row-label-weight: 550;
+  --type-row-label-line: 21px;
+  --type-row-label-compact-size: var(--type-row-label-size);
+  --type-row-label-compact-weight: var(--type-row-label-weight);
+  --type-row-label-compact-line: var(--type-row-label-line);
+  --type-row-description-size: 12px;
+  --type-row-description-weight: 400;
+  --type-row-description-line: 18px;
+  --type-row-description-compact-size: var(--type-row-description-size);
+  --type-row-description-compact-line: var(--type-row-description-line);
+  --type-section-label-size: 14px;
+  --type-section-label-weight: 600;
+  --type-section-label-line: 22px;
+  --type-form-label-size: 15px;
+  --type-form-label-weight: 550;
+  --type-form-label-line: 22px;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-weight: 550;
+  --type-compact-button-label-line: 18px;
+  font-family: var(--font-app-body), system-ui, sans-serif;
+}
+
+@media (max-width: 620px) {
+  .scale { --type-input-value-size: 16px; }
+}

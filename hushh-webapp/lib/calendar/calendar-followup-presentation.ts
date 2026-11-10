@@ -12,13 +12,6 @@ import type {
 
 const ACTIVE = new Set(["needs_review", "pending", "snoozed"]);
 
-export function senderName(value: string): string {
-  const name = (value.split("<")[0] ?? "").trim().replace(/^"|"$/g, "");
-  if (name && !name.includes("@")) return name;
-  const address = value.match(/<([^>]+)>/)?.[1] ?? value;
-  return address.split("@")[0] || value;
-}
-
 export function shortDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(`${value.slice(0, 10)}T12:00:00Z`);
@@ -84,17 +77,14 @@ export function primaryRequest(entry: Pick<FollowupConversation, "preview_reques
   })[0];
 }
 
-export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string; more: number } {
-  const next = primaryRequest(entry);
-  const active = next?.bucket ? entry.active_count : entry.preview_requests.filter(isActive).length || entry.active_count;
-  const when = next ? dueText(next, zone) : "Needs review";
-  const context = when === "No date given"
-    ? next?.category === "document_or_information" ? "Document to send"
-      : next?.category === "meeting_request" || next?.category === "schedule_change" ? "Meeting to arrange"
-      : "Action to review"
-    : when === "Urgent · No date given" ? "ASAP" : when;
-  const detail = [context, `From ${senderName(entry.sender)}`].join(" · ");
-  return { title: next?.title || entry.subject, detail, more: Math.max(0, active - 1) };
+export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string } {
+  const request = primaryRequest(entry);
+  if (!request) return { title: "Follow-up", detail: "" };
+  const more = Math.max(0, entry.active_count - 1);
+  return {
+    title: request.title,
+    detail: [dueText(request, zone), more ? `+${more} more` : null].filter(Boolean).join(" · "),
+  };
 }
 
 export function reminderText(request: FollowupRequest, zone: string): string {

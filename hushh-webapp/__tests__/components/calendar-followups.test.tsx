@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode } from "react";
 import { CalendarFollowups } from "@/components/calendar/calendar-followups";
 import {
-  coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, rowSummary, senderName,
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, rowSummary,
 } from "@/lib/calendar/calendar-followup-presentation";
 
 const service = vi.hoisted(() => ({
@@ -11,10 +10,6 @@ const service = vi.hoisted(() => ({
   resolve: vi.fn(), post: vi.fn(), change: vi.fn(), scan: vi.fn(),
 }));
 vi.mock("@/lib/services/calendar-followups-service", () => ({ CalendarFollowupsService: service }));
-vi.mock("@/components/app-ui/settings-ui", () => ({
-  AdaptiveDetailSurface: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div role="dialog">{children}</div> : null,
-}));
-
 const conversationId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 const callId = "33333333-3333-4333-8333-333333333333";
@@ -85,15 +80,13 @@ describe("Follow-ups wording", () => {
     expect(primaryRequest({ preview_requests: entry.preview_requests.slice(0, 1) } as never)?.id).toBe("a");
   });
 
-  it("uses an actionable subtitle for a valuable undated document request", () => {
+  it("shows date status without repeating the action or sender", () => {
     const request = { ...document, due_date: null, urgency: "none", category: "document_or_information" };
     expect(rowSummary({ ...bList.conversations[0], preview_requests: [request] } as never).detail)
-      .toBe("Document to send · From Jhumma");
+      .toBe("No date given · +1 more");
   });
 
-  it("names the sender, links the exact Gmail message and states reminders honestly", () => {
-    expect(senderName('"IIT Professor" <prof@iit.example>')).toBe("IIT Professor");
-    expect(senderName("prof@iit.example")).toBe("prof");
+  it("links the exact Gmail message and states reminders honestly", () => {
     expect(gmailMessageUrl("owner@example.test", "18c0ffee")).toBe("https://mail.google.com/mail/u/owner%40example.test/#all/18c0ffee");
     const request = { ...document, state: "pending", reminder_at: null, reminder_status: "none", source_excerpt: "", time_zone: null, responsibility: "owner", source_internal_date_ms: 0, revision: 1, booking_state: null };
     expect(reminderText(request as never, "Asia/Kolkata")).toBe("No reminder set");
@@ -147,8 +140,8 @@ describe("Calendar Insights Follow-ups card", () => {
     await waitFor(() => expect(service.scan).toHaveBeenCalledTimes(1));
     service.scan.mockClear(); service.post.mockClear();
     view.rerender(<CalendarFollowups key="account_C" {...props("account_C", onConnectMail)} />);
-    expect(await screen.findByText("Find meeting requests and reminders in my email.")).toBeInTheDocument();
-    expect(screen.getByText(/one extra permission to read account_C@example.test/)).toBeInTheDocument();
+    expect(await screen.findByText("Find Calendar follow-ups in email.")).toBeInTheDocument();
+    expect(screen.getByText(/check account_C@example.test/)).toBeInTheDocument();
     expect(screen.queryByText("Send the research document")).not.toBeInTheDocument();
     // One action both asks for Mail and turns monitoring on: no second "Enable" step.
     fireEvent.click(screen.getByRole("button", { name: "Allow email access" }));
@@ -168,7 +161,7 @@ describe("Calendar Insights Follow-ups card", () => {
     const onConnectMail = vi.fn(async () => true);
     service.post.mockResolvedValue({ account_id: "account_granted" });
     render(<CalendarFollowups {...props("account_granted", onConnectMail)} />);
-    expect(await screen.findByText(/already has read access to account_granted@example.test/)).toBeInTheDocument();
+    expect(await screen.findByText(/check account_granted@example.test/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Connect Mail|Allow email access/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true }), expect.anything(), expect.anything()));
@@ -189,7 +182,7 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.getByText("Send document 2")).toBeInTheDocument();
     expect(screen.queryByText("Send document 3")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Review / })).toHaveLength(2);
-    expect(screen.getAllByText(/From Prof$/)).toHaveLength(2);
+    expect(screen.queryByText(/From Prof$/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View all" })).toBeInTheDocument();
   });
 
@@ -198,8 +191,7 @@ describe("Calendar Insights Follow-ups card", () => {
     service.list.mockResolvedValue(bList);
     render(<CalendarFollowups {...props("account_B")} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
-    expect(screen.getByText("1 more in this email")).toBeInTheDocument();
-    expect(screen.getByText(/Due before .*26 · From Jhumma/)).toBeInTheDocument();
+    expect(screen.getByText(/Due before .*26 · \+1 more/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Review / })).toHaveLength(1);
   });
 
@@ -295,7 +287,7 @@ describe("Calendar Insights Follow-ups card", () => {
     window.history.replaceState(null, "", "/one/calendar");
   });
 
-  it("opens the exact original email and shows only a brief sanitized excerpt", async () => {
+  it("links the original email and reviews the Calendar action without mail content", async () => {
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);
     service.detail.mockResolvedValue({
@@ -312,12 +304,14 @@ describe("Calendar Insights Follow-ups card", () => {
     const link = await screen.findByRole("link", { name: /Open original email/ });
     expect(link).toHaveAttribute("href", "https://mail.google.com/mail/u/account_B%40example.test/#all/18c0ffee");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    expect(screen.getByText(/Please send the signed document/)).toBeInTheDocument();
+    expect(screen.queryByText(/Please send the signed document/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Research document and call|View email text/)).not.toBeInTheDocument();
+    expect(service.source).not.toHaveBeenCalled();
     // An email that is about a meeting already on Calendar points at it.
-    expect(screen.getByText(/About: Hushh Growth Sync/)).toBeInTheDocument();
-    expect(screen.getByText("No reminder set")).toBeInTheDocument();
+    expect(screen.getByText(/Hushh Growth Sync/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mark done" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Snooze 1 day" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reminder", exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Snooze 1 day" })).not.toBeInTheDocument();
   });
 
   it("loads a notification target after the vault is unlocked", async () => {
