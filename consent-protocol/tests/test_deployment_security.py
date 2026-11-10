@@ -248,7 +248,18 @@ class DeploymentSecurityTest(unittest.TestCase):
                             ("${{ github.token }}", "${{ secrets.GITHUB_TOKEN }}"),
                         )
                         permissions = job.get("permissions", workflow.get("permissions", {}))
-                        self.assertEqual(permissions.get("actions"), "write")
+                        if "wait-uat-capacity.py" in step.get("run", ""):
+                            self.assertEqual(permissions.get("actions"), "read")
+                            self.assertEqual(
+                                env.get("RELEASE_AUTHORIZATION"),
+                                "${{ needs.deployment-security.outputs.authorization }}",
+                            )
+                            self.assertEqual(
+                                env.get("RELEASE_APPLICATION_SHA"),
+                                "${{ needs.deployment-security.outputs.application_sha }}",
+                            )
+                        else:
+                            self.assertEqual(permissions.get("actions"), "write")
 
     def test_read_only_inspection_exception_rejects_mutation_or_release_credentials(self):
         import yaml

@@ -318,7 +318,7 @@ jobs:
     timeout-minutes: 7
     permissions:
       contents: read
-      actions: write
+      actions: read
       checks: read
       pull-requests: read
       id-token: write
@@ -364,6 +364,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_ATTEMPT: ${{ inputs.ci_run_attempt }}

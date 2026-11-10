@@ -181,6 +181,7 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
     assert "cloudrun-retention" not in selection.check_ids
     assert "agent-orchestration" not in selection.check_ids
     assert "web-lane-partition" not in selection.check_ids
+    assert "governance-teams" not in selection.check_ids
     # Owning package/fixture changes retain the topology check without turning
     # ordinary package edits into the entire release-controller regression group.
     from repo_governance_plan import WEB_LANE_INPUTS
@@ -190,11 +191,23 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
         assert "web-lane-partition" in selected.check_ids
         if path == "hushh-webapp/package.json":
             assert "release-controller-contracts" not in selected.check_ids
+
+    for path in ("scripts/ci/apply-governance-teams.py", "scripts/ci/test_apply_governance_teams.py"):
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert "governance-teams" in selected.check_ids
     for level, path in (("release", "hushh-webapp/app/page.tsx"),
                         ("focused", "unknown-root/runtime.py"),
                         ("focused", ".github/workflows/ci.yml")):
         selected = build_selection({"CI_VALIDATION_LEVEL": level, "CI_CHANGED_FILES": path})
         assert "web-lane-partition" in selected.check_ids
+
+
+def test_hyphenated_memory_gate_has_the_same_controller_owner_as_its_tests() -> None:
+    for path in ("scripts/ci/live-memory-source-gate.py", "scripts/ci/test_live_memory_pr_context.py"):
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+        assert selected.groups == ("controller",)
+        assert "live-memory-source" in selected.check_ids
 
 
 def test_affected_unit_selector_test_is_a_controller_owner() -> None:
@@ -402,6 +415,7 @@ def main() -> int:
         test_production_emergency_authority_test_selects_controller_owner,
         test_restoration_fixture_paths_select_controller_owner_and_history_consumers,
         test_known_product_path_does_not_expand_critical_groups,
+        test_hyphenated_memory_gate_has_the_same_controller_owner_as_its_tests,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
         test_bad_or_missing_change_list_fails_conservatively,

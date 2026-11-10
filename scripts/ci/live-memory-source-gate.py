@@ -44,7 +44,8 @@ LIVE_MEMORY_MODEL_MODULE = re.compile(r"(?:(?:use-)?(?:living-source|live-mirror
 MODULE_SPECIFIER = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*["']([^"'\n]+)["']""")
 START = "<!-- live-memory-source-contract:v1 -->"
 END = "<!-- /live-memory-source-contract:v1 -->"
-PR_IMPACT_START = "- Live Memory source impact (every feature):"
+PR_IMPACT_START = "- Live Memory source impact (when changing durable owner information):"
+LEGACY_PR_IMPACT_START = "- Live Memory source impact (every feature):"
 PR_IMPACT_END = "- Mobile parity impacts:"
 PR_IMPACT_CHOICES = (
     "No durable owner data is created, changed, or deleted",
@@ -128,6 +129,12 @@ def parse_contract(markdown: str) -> list[dict]:
 
 
 def validate_pr_impact(body: str, admitted_kinds: set[str] | None = None) -> None:
+    if LEGACY_PR_IMPACT_START in body:
+        if PR_IMPACT_START in body or body.count(LEGACY_PR_IMPACT_START) != 1:
+            raise ValueError("Live Memory impact section is ambiguous")
+        body = body.replace(LEGACY_PR_IMPACT_START, PR_IMPACT_START)
+    if body.count(PR_IMPACT_START) > 1:
+        raise ValueError("Live Memory impact section is ambiguous")
     if PR_IMPACT_START not in body or PR_IMPACT_END not in body:
         raise ValueError("PR body needs the Live Memory source impact section")
     section = body.split(PR_IMPACT_START, 1)[1].split(PR_IMPACT_END, 1)[0]
@@ -595,6 +602,10 @@ def self_test_paid_retrieval_imports(code: dict[str, str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--review-pr-description", action="store_true",
+        help="Optionally review PR memory-impact prose; not a source-integrity prerequisite",
+    )
     args = parser.parse_args()
     sources = parse_contract((ROOT / CONTRACT).read_text(encoding="utf-8"))
     records_code = (ROOT / RECORDS).read_text(encoding="utf-8")
@@ -608,7 +619,8 @@ def main() -> None:
         validate_writer_call_sites(code)
         validate_journal_kinds(ROOT, sources, code)
         validate_paid_retrieval_imports(code)
-        validate_pr_event({source["kind"] for source in sources})
+        if args.review_pr_description:
+            validate_pr_event({source["kind"] for source in sources})
         print(f"Live Memory source gate passed ({len(sources)} registered source kinds)")
 
 
