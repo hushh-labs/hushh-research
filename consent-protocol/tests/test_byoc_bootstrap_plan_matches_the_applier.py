@@ -274,3 +274,40 @@ def test_gmail_may_publish_into_only_the_owner_specific_oauth_topic(monkeypatch)
             "note": "consume source delivery for bounded dead-letter forwarding",
         }
     ]
+
+
+def test_only_isolated_dev_creation_shortens_new_resource_retention(monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.services.user_gcp_bootstrap import BootstrapError
+
+    monkeypatch.setattr(
+        runtime_settings, "get_app_runtime_settings", lambda: SimpleNamespace(environment="dev")
+    )
+    monkeypatch.setattr(
+        runtime_settings,
+        "get_firebase_credential_settings",
+        lambda: SimpleNamespace(auth_project_id="hushh-pda-dev"),
+    )
+    _, plan = _plan()
+    calls = UserGcpBootstrap(project=_PROJECT).plan_calls(plan)
+    assert (
+        next(c for c in calls if c["step"] == "kms_key")["body"]["destroyScheduledDuration"]
+        == "86400s"
+    )
+    bucket = next(c for c in calls if c["step"] == "cmek_bucket")
+    assert bucket["body"]["softDeletePolicy"] == {"retentionDurationSeconds": "0"}
+    assert bucket["method"] == "POST" and bucket["tolerate"] == [409]
+    monkeypatch.setattr(
+        runtime_settings, "get_app_runtime_settings", lambda: SimpleNamespace(environment="uat")
+    )
+    with pytest.raises(BootstrapError, match="not admitted"):
+        UserGcpBootstrap(project=_PROJECT).plan_calls(plan)
+    _, other = _plan()
+    assert all(
+        "destroyScheduledDuration" not in r and "softDeletePolicy" not in r
+        for r in other["resources"]
+    )

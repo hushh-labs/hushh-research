@@ -723,7 +723,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
               return { outcome: "unavailable" };
             }
           } catch { return { outcome: "unavailable" }; }
-          return { outcome: "terminal", code: "account_deleted" };
+          return { outcome: "terminal", code: recovery.confirmedCleanup.cloud_cleanup?.state === "pending"
+            ? "account_deleted_cloud_pending" : "account_deleted" };
         }
         // Registration replaces the terminal sign-out that would have purged
         // the departed owner's device state, so purge it here instead.

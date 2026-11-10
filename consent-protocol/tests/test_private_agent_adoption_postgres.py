@@ -101,6 +101,74 @@ def test_isolated_firebase_erasure_survives_complete_foundation_adoption(replay_
         cursor.execute(qualification_sql(required=True))
 
 
+def test_cloud_retirement_survives_full_replay_and_refuses_contract_drift(replay_pg, monkeypatch):
+    from db.account_cloud_retirement_adoption import PINS, qualification_sql
+
+    connection, _database = canonical_database(replay_pg, monkeypatch)
+    with closing(connection), connection.cursor() as cursor:
+        core = build_manifest_entries(
+            MIGRATIONS,
+            [
+                FOUNDATION,
+                "421_cloud_removal_recovery.sql",
+                "423_account_shared_provider_authority.sql",
+                "437_account_legacy_generation_settlement.sql",
+            ],
+        )
+        cloud = build_manifest_entries(
+            MIGRATIONS / "parked",
+            [
+                "985_legacy_cloud_removal_recovery.sql",
+                "986_legacy_cloud_removal_resume.sql",
+                "987_account_firebase_erasure.sql",
+                "988_account_cloud_retirement.sql",
+            ],
+        )
+        for entry in [*core, *cloud]:
+            cursor.execute(execution_sql(entry))
+        before = {}
+        for signature in PINS:
+            cursor.execute("SELECT pg_get_functiondef(%s::regprocedure)", (signature,))
+            before[signature] = cursor.fetchone()[0]
+        [generations] = build_manifest_entries(MIGRATIONS, ["419_account_generations.sql"])
+        for entry in [generations, *core, *cloud]:
+            try:
+                cursor.execute(execution_sql(entry))
+            except psycopg2.Error as exc:
+                raise AssertionError(
+                    f"Replay {entry.filename}: {exc.diag.message_primary}"
+                ) from exc
+        cursor.execute(qualification_sql(required=True))
+        for signature, body in before.items():
+            cursor.execute("SELECT pg_get_functiondef(%s::regprocedure)", (signature,))
+            assert cursor.fetchone()[0] == body
+        for mutation in (
+            "ALTER FUNCTION account_cloud_retirement_ready(text,text) VOLATILE",
+            "GRANT EXECUTE ON FUNCTION account_cloud_retirement_contract_version() TO PUBLIC",
+        ):
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(mutation)
+                try:
+                    cursor.execute(execution_sql(core[0]))
+                except psycopg2.errors.RaiseException as refused:
+                    assert "Cloud retirement" in refused.diag.message_primary
+                else:
+                    pytest.fail(f"Cloud retirement did not refuse: {mutation}")
+            finally:
+                cursor.execute("ROLLBACK")
+        # The complete419 DDL policy immediately reinstalls a disabled guard.
+        # Verify that protection instead of claiming the tamper persisted.
+        cursor.execute(
+            "ALTER TABLE personal_agent_cloud_removals DISABLE TRIGGER account_retired_generation_update"
+        )
+        cursor.execute(
+            "SELECT tgenabled FROM pg_trigger WHERE tgrelid='personal_agent_cloud_removals'::regclass AND tgname='account_retired_generation_update'"
+        )
+        assert cursor.fetchone()[0] == "O"
+        cursor.execute(qualification_sql(required=True))
+
+
 def assert_absent_guard_qualification_blocks_concurrent_install(connection, server, database):
     with connection.cursor() as cursor:
         cursor.execute(

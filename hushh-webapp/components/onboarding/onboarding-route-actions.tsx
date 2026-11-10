@@ -83,7 +83,7 @@ export function OnboardingRouteActions() {
     setDeleteConfirmOpen(true);
   }
 
-  async function handleDeleteAccount() {
+  async function handleDeleteAccount(reviewedCloudPlanSha256?: string) {
     const owner = snapshotValidatedAuthSessionPrincipal();
     if (!user || !owner || owner.firebaseUid !== user.uid || owner.ownerId !== userId || deletionRunning.current) return;
 
@@ -111,6 +111,7 @@ export function OnboardingRouteActions() {
             vaultOwnerToken: resolution.token,
             sessionUser: user,
             vaultKey,
+            ...(reviewedCloudPlanSha256 ? { reviewedCloudPlanSha256 } : {}),
           }),
           {
             loading: "Deleting your account...",
@@ -192,7 +193,7 @@ export function OnboardingRouteActions() {
             <AlertDialogTitle>{DELETE_ACCOUNT_DIALOG_TITLE}</AlertDialogTitle>
             <AlertDialogDescription>
               {cloudCleanupRequired
-                ? "Cloud cleanup is required before account deletion."
+                ? "Review cloud cleanup to continue account deletion."
                 : DELETE_ACCOUNT_DIALOG_DESCRIPTION}
             </AlertDialogDescription>
           </AlertDialogHeader>

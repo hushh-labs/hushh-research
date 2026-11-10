@@ -869,6 +869,60 @@ def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_dri
     )
     target_execute(_successor_qualification())
 
+    # Install the deferred-erasure successor on the actual Files owner topology,
+    # then replay the foundation without losing its five immutable preimages.
+    from db.account_cloud_retirement_adoption import qualification_sql as retirement_qualification
+    from db.legacy_cloud_removal_adoption import qualification_sql as legacy_qualification
+
+    # Native Dev's bounded administrator owns both lifecycle families. This
+    # canonical fixture originally transferred only the hosted family.
+    target_execute("""DO $$ DECLARE o record; BEGIN
+      FOR o IN SELECT c.oid::regclass AS name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+       WHERE n.nspname='public' AND c.relkind IN ('r','p') LOOP
+       EXECUTE format('ALTER TABLE %s OWNER TO hushh_uat_app',o.name); END LOOP;
+      FOR o IN SELECT p.oid::regprocedure AS name FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.prokind='f' AND NOT EXISTS(
+        SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') LOOP
+       EXECUTE format('ALTER FUNCTION %s OWNER TO hushh_uat_app',o.name); END LOOP;
+    END $$""")
+    retirement_entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        (
+            "423_account_shared_provider_authority.sql",
+            "437_account_legacy_generation_settlement.sql",
+        ),
+    ) + build_manifest_entries(
+        ROOT / "db/migrations/parked",
+        (
+            "985_legacy_cloud_removal_recovery.sql",
+            "986_legacy_cloud_removal_resume.sql",
+            "987_account_firebase_erasure.sql",
+            "988_account_cloud_retirement.sql",
+        ),
+    )
+    for entry in retirement_entries:
+        target_execute(execution_sql(entry))
+    target_execute(retirement_qualification(required=True))
+    target_execute(legacy_qualification(resume_required=True))
+    target_execute(_successor_qualification())
+    asyncio.run(replay_as("hushh_uat_app", entries))
+    target_execute(retirement_qualification(required=True))
+    target_execute(_successor_qualification())
+    assert (
+        target_execute(
+            "SELECT signature,definition FROM public.hosted_files_executor_976_rollback_source ORDER BY signature"
+        )
+        == marker_before
+    )
+    target_execute(
+        (ROOT / "db/migrations/rollback/988_account_cloud_retirement.rollback.sql").read_text()
+    )
+    target_execute(_successor_qualification())
+    assert (
+        _readiness_cases._custody_family_catalog(target_connection, custody_family)
+        == custody_before
+    )
+
     monkeypatch.setattr(
         custody_qualification,
         "DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256",

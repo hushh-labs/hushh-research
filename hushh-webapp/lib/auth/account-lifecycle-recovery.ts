@@ -29,7 +29,9 @@ export async function resolveAccountLifecycleRecovery(idToken: string, deadlineM
         if (operation?.state === "complete") {
           knownTerminal = {outcome: "terminal", code: "account_deleted"};
           confirmedCleanup = operation;
-          if (operation.identity_removed) return { ...knownTerminal, confirmedCleanup: operation };
+          if (operation.identity_removed) return { ...knownTerminal,
+            code: operation.cloud_cleanup?.state === "pending" ? "account_deleted_cloud_pending" : "account_deleted",
+            confirmedCleanup: operation };
         }
         else if (operation) return {outcome: "unavailable", cleanup: operation};
       }

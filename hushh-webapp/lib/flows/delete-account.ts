@@ -306,6 +306,7 @@ export async function executeVerifiedAccountDeletion(params: {
   vaultKey?: string | null;
   owner?: AccountDeletionOwner;
   isCurrent?: () => boolean;
+  reviewedCloudPlanSha256?: string;
 }): Promise<void> {
   const owner = params.owner ?? captureAccountDeletionOwner(params.userId);
   if (params.sessionUser.uid !== owner.firebaseUid || owner.ownerId !== params.userId) {
@@ -326,7 +327,9 @@ export async function executeVerifiedAccountDeletion(params: {
     sessionUser: params.sessionUser,
     owner,
     isCurrent,
-    performDeletion: () => AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent),
+    performDeletion: () => params.reviewedCloudPlanSha256
+      ? AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent, params.reviewedCloudPlanSha256)
+      : AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent),
   });
 }
 
@@ -522,6 +525,8 @@ async function executeAccountDeletion(params: {
     dispatchAuthSessionInvalidated({
       code: result.details?.firebase_auth_user === "identity_retained"
         ? "account_deletion_identity_retained"
+        : result.ready_to_start_fresh === true && result.cloud_cleanup?.state === "pending"
+        ? "account_deleted_cloud_pending"
         : result.ready_to_start_fresh === true
         ? "account_deleted_ready_to_start_fresh"
         : result.ready_to_start_fresh === false

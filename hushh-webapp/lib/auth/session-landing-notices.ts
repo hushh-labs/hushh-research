@@ -18,6 +18,11 @@ export const LANDING_NOTICES: Record<
     message: "This account’s information was deleted. Contact support if you cannot start again.",
     toastId: "auth-session-account-deleted",
   },
+  account_deleted_cloud_pending: {
+    code: "account_deleted_cloud_pending",
+    message: "Your account is deleted. Some cloud resources are awaiting permanent deletion.",
+    toastId: "auth-session-account-deleted-cloud-pending",
+  },
   account_deleted_ready_to_start_fresh: {
     code: "account_deleted_ready_to_start_fresh",
     message: "Your old account is deleted. Continue below to start fresh.",

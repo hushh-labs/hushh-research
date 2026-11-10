@@ -13,9 +13,9 @@ import base64
 import contextlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -114,6 +114,27 @@ def retained(engine, owner: str, attempt: str):
     from hushh_mcp.services.legacy_cloud_removal import _require
 
     with engine.connect() as conn:
+        installed = conn.execute(
+            text(
+                "SELECT to_regprocedure('public.account_cloud_retirement_retained(text)') IS NOT NULL"
+            )
+        ).scalar_one()
+        if installed:
+            frozen = (
+                conn.execute(
+                    text("""SELECT retirement_handoff->'reservation' AS reservation,
+              snapshot_sha256,public.effective_erasure_substrate_inventory(retirement_handoff->'reservation') AS inventory,
+              recovery,true AS retired_cleanup,completed_at
+              FROM personal_agent_cloud_removals WHERE user_id=:owner AND attempt_id=:attempt
+               AND retirement_handoff IS NOT NULL AND cancelled_at IS NULL
+               AND public.account_cloud_retirement_handoff_valid(user_id,retirement_handoff)"""),
+                    {"owner": owner, "attempt": attempt},
+                )
+                .mappings()
+                .first()
+            )
+            if frozen is not None:
+                return dict(frozen)
         # Resolve the exact retained application owner through the canonical
         # generation service. An email or raw Firebase UID never selects a row.
         identity = AccountGenerationService.identity_in_transaction(conn, owner)
@@ -150,13 +171,13 @@ def retained(engine, owner: str, attempt: str):
 
 
 def owner_credentials(args):
-    from google.oauth2.credentials import Credentials
     import requests
+    from google.oauth2.credentials import Credentials
 
     from hushh_mcp.services.legacy_cloud_removal import _require
 
     _require(args.account is not None and "@" in args.account)
-    response = subprocess.run(
+    response = subprocess.run(  # noqa: S603 - Reviewed operator CLI path; verified named Google account below.
         [
             args.gcloud,
             "auth",
@@ -197,6 +218,7 @@ def execute(args, engine, source, reservation, credentials, started_pipe):
     )
     from hushh_mcp.services.legacy_cloud_removal_executor import LegacyGcpRemoval
     from hushh_mcp.services.legacy_cloud_removal_native import RecoverySession
+    from hushh_mcp.services.legacy_cloud_removal_teardown import delete_remaining
     from hushh_mcp.services.legacy_cloud_removal_writer import (
         admit_disabled_writer_compute,
         cached_writer_probe,
@@ -204,7 +226,6 @@ def execute(args, engine, source, reservation, credentials, started_pipe):
         qualify_writer_after_compute,
         verify_disabled_writer,
     )
-    from hushh_mcp.services.legacy_cloud_removal_teardown import delete_remaining
 
     raw = engine.raw_connection()
     conn = raw.driver_connection
@@ -383,7 +404,14 @@ def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
-        choices=("inspect", "prepare", "adopt-operator", "execute", "status"),
+        choices=(
+            "inspect",
+            "prepare",
+            "adopt-operator",
+            "execute",
+            "status",
+            "owner-authority-template",
+        ),
         nargs="?",
         default="inspect",
     )
@@ -401,49 +429,11 @@ def arguments():
 
 
 def supervise(journal, payload):
-    from hushh_mcp.services.legacy_cloud_removal import record_supervised_exit
+    from hushh_mcp.services.legacy_cloud_removal import supervise_removal
 
-    read_fd, write_fd = os.pipe()
-    payload["startedFd"] = write_fd
-    process = subprocess.Popen(
-        [sys.executable, __file__, "--internal-worker"],
-        stdin=subprocess.PIPE,
-        pass_fds=(write_fd,),
-        cwd=ROOT,
-        text=True,
+    return supervise_removal(
+        journal, payload, command=[sys.executable, __file__, "--internal-worker"], cwd=ROOT
     )
-    os.close(write_fd)
-    recorded = False
-    try:
-        with os.fdopen(read_fd) as pipe:
-            process.stdin.write(json.dumps(payload))
-            process.stdin.close()
-            started = json.loads(pipe.readline(4096))
-        status = record_supervised_exit(journal, process, started)
-        recorded = True
-        return status
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=40)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=40)
-        if not recorded:
-            # EOF or cancellation can lose the pipe receipt after SQL retained
-            # it. Join the real child, then recover only this invocation's start.
-            started = next(
-                (
-                    event["receipt"]
-                    for event in journal.read()["events"]
-                    if event["stage"] == "executor_started"
-                    and event["receipt"]["executionId"] == payload["args"]["execution_id"]
-                ),
-                None,
-            )
-            if started is not None:
-                record_supervised_exit(journal, process, started)
 
 
 def main():
@@ -465,10 +455,57 @@ def main():
     with dev_database(args.port, readonly=not mutation) as (engine, source):
         row = retained(engine, args.owner, args.attempt)
         _require(row["reservation"]["registrySnapshot"]["user_cloud_project"] == args.project)
-        if args.action == "status":
-            print(json.dumps({"source": source, "recovery": row["recovery"]}, default=str))
+        if args.action == "owner-authority-template":
+            from cloud_removal_owner_authority import render_owner_authority_template
+
+            _require(row["recovery"] is not None)
+            print(render_owner_authority_template(row["recovery"]), end="")
             return 0
+        if args.action == "status":
+            print(
+                json.dumps(
+                    {
+                        "source": source,
+                        "recovery": row["recovery"],
+                        "cloudErasureComplete": row.get("completed_at") is not None,
+                    },
+                    default=str,
+                )
+            )
+            return 0
+        if row.get("completed_at") is not None:
+            print(
+                json.dumps(
+                    {
+                        "attempt": args.attempt,
+                        "cloudErasureComplete": True,
+                        "providerRequests": 0,
+                    }
+                )
+            )
+            return 0
+        _require(not (row.get("retired_cleanup") and args.action == "prepare"))
         credentials = owner_credentials(args)
+        if args.action == "inspect" and row.get("retired_cleanup"):
+            from hushh_mcp.services.legacy_cloud_removal_native import (
+                verify_retired_plan,
+            )
+
+            with RecoverySession(token=credentials.token, project=args.project) as session:
+                verify_retired_plan(
+                    session, reservation=row["reservation"], recovery=row["recovery"]
+                )
+            print(
+                json.dumps(
+                    {
+                        "planSha256": row["recovery"]["planSha256"],
+                        "plan": row["recovery"]["plan"],
+                        "retiredCleanup": True,
+                    },
+                    indent=2,
+                )
+            )
+            return 0
         if args.action == "inspect":
             with RecoverySession(token=credentials.token, project=args.project) as session:
                 plan = observe_plan(
@@ -500,9 +537,6 @@ def main():
         with engine.begin() as conn:
             from sqlalchemy import text
 
-            from db.legacy_cloud_removal_adoption import qualification_sql
-
-            conn.execute(text(qualification_sql(resume_required=True)))
         raw = engine.raw_connection()
         raw.driver_connection.autocommit = True
         try:
@@ -549,25 +583,41 @@ def main():
                 # Freeze all original coordinates. Only the source and read time
                 # differ; SQL additionally requires fresh approval and reconciled
                 # pre-data workers/provider requests under the same CAS prefix.
-                with RecoverySession(token=credentials.token, project=args.project) as session:
-                    current = observe_plan(
-                        session,
-                        reservation=row["reservation"],
-                        inventory=row["inventory"],
-                        snapshot_hash=row["snapshot_sha256"],
-                        source_revision=source,
-                        actor=args.account,
+                if row.get("retired_cleanup"):
+                    from hushh_mcp.services.legacy_cloud_removal_native import (
+                        verify_retired_plan,
                     )
-                original = journal.read()["plan"]
-                _require(
-                    {k: v for k, v in current.items() if k not in {"sourceRevision", "observedAt"}}
-                    == {
-                        k: v
-                        for k, v in original.items()
-                        if k not in {"sourceRevision", "observedAt"}
-                    },
-                    "CLOUD_REMOVAL_PLACEMENT_CHANGED",
-                )
+
+                    with RecoverySession(token=credentials.token, project=args.project) as session:
+                        verify_retired_plan(
+                            session,
+                            reservation=row["reservation"],
+                            recovery=journal.read(),
+                        )
+                else:
+                    with RecoverySession(token=credentials.token, project=args.project) as session:
+                        current = observe_plan(
+                            session,
+                            reservation=row["reservation"],
+                            inventory=row["inventory"],
+                            snapshot_hash=row["snapshot_sha256"],
+                            source_revision=source,
+                            actor=args.account,
+                        )
+                    original = journal.read()["plan"]
+                    _require(
+                        {
+                            k: v
+                            for k, v in current.items()
+                            if k not in {"sourceRevision", "observedAt"}
+                        }
+                        == {
+                            k: v
+                            for k, v in original.items()
+                            if k not in {"sourceRevision", "observedAt"}
+                        },
+                        "CLOUD_REMOVAL_PLACEMENT_CHANGED",
+                    )
                 previous = operator_source(journal.read())
                 if previous != current_source:
                     journal.append(
@@ -593,7 +643,35 @@ def main():
             }
             payload["args"]["plan"] = str(args.plan) if args.plan else None
             status = supervise(journal, payload)
-            print(json.dumps({"workerExit": status, "attempt": args.attempt}))
+            complete = False
+            if status == 0 and row.get("retired_cleanup"):
+                # supervise() has joined the real worker and retained its exit.
+                # SQL still requires every native settlement; retention returns false.
+                with engine.begin() as conn:
+                    from sqlalchemy import text
+
+                    complete = (
+                        conn.execute(
+                            text(
+                                "SELECT public.finalize_personal_agent_cloud_removal(:owner,:attempt,:digest)"
+                            ),
+                            {
+                                "owner": args.owner,
+                                "attempt": args.attempt,
+                                "digest": args.manifest_sha256,
+                            },
+                        ).scalar_one()
+                        is True
+                    )
+            print(
+                json.dumps(
+                    {
+                        "workerExit": status,
+                        "attempt": args.attempt,
+                        "cloudErasureComplete": complete,
+                    }
+                )
+            )
             return status
         finally:
             raw.close()
@@ -611,6 +689,7 @@ if __name__ == "__main__":
         ):
             require_operator_source(payload["source"])
             from sqlalchemy import text
+
             from db.legacy_cloud_removal_adoption import qualification_sql
 
             with engine.begin() as conn:

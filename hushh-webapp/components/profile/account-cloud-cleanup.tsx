@@ -33,7 +33,7 @@ type Props = {
   userId: string;
   token: string | null;
   onUnlock: () => void;
-  onFinish: () => Promise<unknown>;
+  onFinish: (reviewedCloudPlanSha256?: string) => Promise<unknown>;
   onCancel?: () => void;
   onLeave?: () => Promise<void>;
   purpose?: CloudCleanupPurpose;
@@ -148,25 +148,36 @@ function CleanupTerms({ view, busy, approve }: { view: CloudCleanupView; busy: b
 export function AccountCloudCleanup(props: Props) {
   const { view, busy, run, capture } = useCloudCleanup(props);
   const [finishing, setFinishing] = useState(false);
+  const [retirementAccepted, setRetirementAccepted] = useState(false);
+  useEffect(() => setRetirementAccepted(false), [view?.operationId, view?.retirementReview?.plan_sha256]);
   const finishingRef = useRef(false);
-  const finish = async () => {
+  const finish = async (reviewedCloudPlanSha256?: string) => {
     if (finishingRef.current) return;
+    if (reviewedCloudPlanSha256 && (!props.continueAccountDeletion || !retirementAccepted ||
+        reviewedCloudPlanSha256 !== view?.retirementReview?.plan_sha256)) return;
     finishingRef.current = true; setFinishing(true);
     const isCurrent = capture();
     try {
       if (!isCurrent()) return;
-      if (props.purpose === "remove_cloud") {
+      if (reviewedCloudPlanSha256 || props.purpose === "remove_cloud") {
         const auth = await resolveDeleteAccountAuth({ userId: props.userId, existingVaultOwnerToken: props.token });
         if (!isCurrent()) return;
         if (auth.kind === "needs_unlock") { props.onUnlock(); return; }
         if (!view) return;
+        if (reviewedCloudPlanSha256) {
+          if (isCurrent()) await props.onFinish(reviewedCloudPlanSha256);
+          return;
+        }
         await morphyToast.promise(finishCloudRemoval(auth.token, view), {
           loading: "Finishing cloud removal…", success: () => isCurrent() ? props.continueAccountDeletion ? "Cloud removed. Continuing account deletion…" : "Cloud removed. Your Hussh account is kept." : null,
           error: (error) => isCurrent() ? cloudCleanupErrorMessage(error) : null,
         }).unwrap();
       }
       if (isCurrent()) await props.onFinish();
-    } catch { /* The operation toast owns failure; its recovery state is retained. */ }
+    } catch (error) {
+      if (reviewedCloudPlanSha256 && isCurrent()) morphyToast.error(cloudCleanupErrorMessage(error));
+      // The existing cloud-operation toast owns non-retirement failures.
+    }
     finally { finishingRef.current = false; setFinishing(false); }
   };
   if (!isAzureSignInAvailable()) return <p className="text-sm text-muted-foreground">Continue cloud cleanup on the Hussh website.</p>;
@@ -201,6 +212,15 @@ export function AccountCloudCleanup(props: Props) {
         {waitingForRetention || executing ? null : view.approvalRequired ? <CleanupTerms key={`${view.operationId}:${view.planDigest}`} view={view} busy={busy} approve={(group) => void run("approve", group)} />
           : <p className="text-sm text-muted-foreground">{view.legacyRecovery ? "Your approval is saved. Cleanup progress will appear here; you can close this view or sign out." : gcp ? "Your reviewed request can be performed or resumed." : "Your exact cleanup plan is approved. Continue with Microsoft to perform or resume it."}</p>}
       </> : <p className="text-sm text-muted-foreground">{gcp ? "Inspect the resources recorded for your agent, then review what will be removed." : "Sign in to Microsoft for a read-only inspection, then return here to review."}</p>}
+    {props.continueAccountDeletion && view?.retirementReview ? <div className="space-y-2">
+      <p className="text-sm">You can delete your account while cloud cleanup continues.</p>
+      <label className="flex min-h-11 items-center gap-3 text-sm"><Checkbox checked={retirementAccepted}
+        onCheckedChange={(checked) => setRetirementAccepted(checked === true)} />I understand protected cloud copies are still awaiting permanent deletion.</label>
+      <Button variant="destructive" className="min-h-11" disabled={!retirementAccepted || busy || finishing || executing}
+        data-testid="cloud-cleanup-retire-account" onClick={() => { if (view.retirementReview) void finish(view.retirementReview.plan_sha256); }}>
+        Delete account now
+      </Button>
+    </div> : null}
     <AlertDialogFooter className="flex-wrap gap-2">
       {props.onLeave ? <Button className="min-h-11" variant="outline" onClick={() => void props.onLeave?.()}>Sign out</Button> : null}
       {keepAccount && view?.canCancel && props.onCancel ? <Button className="min-h-11" variant="outline" disabled={busy || finishing} onClick={() => void run("cancel")}>Cancel removal and resume agent</Button> : null}

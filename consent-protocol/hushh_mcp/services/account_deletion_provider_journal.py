@@ -92,7 +92,18 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             state = "waiting_for_provider"
         else:
             state = "cleaning_up"
+        from hushh_mcp.services.account_cloud_retirement import summary_in_transaction
+
+        cloud_cleanup = summary_in_transaction(
+            conn, owner_hash=row["user_id_hash"], cleanup_id=str(row["provider_cleanup_id"])
+        )
+        # The current isolated Firebase contract proves local erasure and native
+        # identity absence together. A provider wait is independent of admission.
+        account_deleted = state == "complete" and row["identity_removed"] is True
         return {
+            "account_deleted": account_deleted,
+            "ready_to_start_fresh": account_deleted,
+            **({"cloud_cleanup": cloud_cleanup} if cloud_cleanup is not None else {}),
             "id": str(row["provider_cleanup_id"]),
             "owner_hash": row["user_id_hash"],
             "owner_id": row["account_owner_id"] if state != "complete" else None,

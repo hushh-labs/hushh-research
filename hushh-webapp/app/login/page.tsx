@@ -1,7 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 import { AuthStep } from "@/components/onboarding/AuthStep";
@@ -15,13 +17,26 @@ import {
 
 function LoginContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const [freshSelected, setFreshSelected] = useState(false);
   const [deletionNotice] = useState(() => {
     const notice = readAuthSessionLandingNotice(searchParams);
-    return notice?.code === "account_deleted" || notice?.code === "account_deleted_ready_to_start_fresh" ||
+    return notice?.code === "account_deleted_cloud_pending" || notice?.code === "account_deleted" || notice?.code === "account_deleted_ready_to_start_fresh" ||
       notice?.code === "account_deletion_finishing" || notice?.code === "account_deletion_requested" || notice?.code === "account_deletion_identity_retained" ||
       notice?.code === "account_deletion_uncertain"
       ? notice
       : null;
+  });
+  const canChooseFresh = deletionNotice?.code === "account_deleted_cloud_pending" && !freshSelected;
+  useLocalOnboardingActionHandler("auth.deletion_start_fresh", async () => {
+    if (!canChooseFresh) return { status: "blocked", summary: "Fresh sign-in is not on this screen." };
+    setFreshSelected(true);
+    return { status: "succeeded", summary: "Choose your sign-in to start fresh." };
+  });
+  useLocalOnboardingActionHandler("auth.deletion_done", async () => {
+    if (!canChooseFresh) return { status: "blocked", summary: "Deletion confirmation is not on this screen." };
+    router.replace("/");
+    return { status: "started", summary: "Opening welcome.", routeAfter: "/" };
   });
   const consumedNoticeRef = useRef<string | null>(null);
   const searchParamsString = searchParams.toString();
@@ -46,7 +61,7 @@ function LoginContent() {
     const notice = readAuthSessionLandingNotice(searchParams);
     if (notice) {
       const showNotice =
-        notice.code === "account_deleted" ||
+        notice.code === "account_deleted_cloud_pending" || notice.code === "account_deleted" ||
         notice.code === "account_deleted_ready_to_start_fresh"
           ? toast.success
           : notice.code === "account_deletion_requested"
@@ -78,7 +93,14 @@ function LoginContent() {
           {deletionNotice.message}
         </div>
       )}
-      <AuthStep redirectPath={redirectPath} compact />
+      {canChooseFresh ? (
+        <div className="mx-auto mt-5 flex max-w-[28rem] gap-3 px-4">
+          <Button type="button" data-voice-control-id="login_deletion_start_fresh"
+            onClick={() => setFreshSelected(true)}>Start fresh</Button>
+          <Button type="button" variant="outline" data-voice-control-id="login_deletion_done"
+            onClick={() => router.replace("/")}>Done</Button>
+        </div>
+      ) : <AuthStep redirectPath={redirectPath} compact />}
     </>
   );
 }

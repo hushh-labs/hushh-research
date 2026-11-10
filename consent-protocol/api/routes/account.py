@@ -1623,6 +1623,7 @@ class DeleteAccountRequest(BaseModel):
     )
     cleanup: AccountCloudCleanupRequest | None = None
     continuation_id: UUID | None = None
+    reviewed_cloud_plan_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class EmailAliasVerificationStartRequest(BaseModel):
@@ -2248,6 +2249,12 @@ async def delete_account(
         if target != "both":
             raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
         return await account_cloud_cleanup(user_id, payload.cleanup)
+    if payload and payload.reviewed_cloud_plan_sha256:
+        if target != "both":
+            raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
+        return await _perform_account_deletion(
+            user_id, target=target, reviewed_cloud_plan_sha256=payload.reviewed_cloud_plan_sha256
+        )
     return await _perform_account_deletion(user_id, target=target)
 
 
@@ -2275,6 +2282,7 @@ async def _delete_account_result(
     target: str,
     reviewed_inventory_sha256: str | None = None,
     accept_local_erasure: bool = False,
+    reviewed_cloud_plan_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Preserve the erasure service's result, including a definite pre-transaction failure."""
     service = AccountService()
@@ -2287,6 +2295,8 @@ async def _delete_account_result(
             if reviewed_inventory_sha256 is not None or accept_local_erasure
             else {}
         )
+        if reviewed_cloud_plan_sha256 is not None:
+            review_kwargs["reviewed_cloud_plan_sha256"] = reviewed_cloud_plan_sha256
         return cast(
             dict[str, Any], await service.delete_account(user_id, target=target, **review_kwargs)
         )
@@ -2310,6 +2320,7 @@ async def _perform_account_deletion(
     target: str,
     reviewed_inventory_sha256: str | None = None,
     accept_local_erasure: bool = False,
+    reviewed_cloud_plan_sha256: str | None = None,
 ):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
@@ -2318,6 +2329,11 @@ async def _perform_account_deletion(
         target=target,
         reviewed_inventory_sha256=reviewed_inventory_sha256,
         accept_local_erasure=accept_local_erasure,
+        **(
+            {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+            if reviewed_cloud_plan_sha256 is not None
+            else {}
+        ),
     )
 
     if result.get("success") is True and result.get("cleanup_pending") is True:

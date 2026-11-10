@@ -176,10 +176,18 @@ class CloudRemovalStore(AzureTeardownStore):
                 "FROM jsonb_array_elements(CAST(:plan AS jsonb)->'resources') r",
                 {"plan": json.dumps(recovery["plan"])},
             )
-            return recovery_view(
+            view = recovery_view(
                 {**recovery, "qualifiedComplete": qualified is True},
                 identity_hashes=identity_hashes,
             )
+            import asyncio
+
+            from hushh_mcp.services.account_cloud_retirement import review_for_owner
+
+            review = await asyncio.to_thread(review_for_owner, owner)
+            if review is not None:
+                view["retirementReview"] = review
+            return view
         review = operation.get("review") or {}
         row = await self.registry.get(owner) or {}
         snapshot = (

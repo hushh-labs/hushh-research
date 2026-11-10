@@ -826,6 +826,20 @@ class UserGcpBackend:
                 service=name,
                 bucket=bucket,
             )
+        from hushh_mcp.runtime_settings import (
+            get_app_runtime_settings,
+            get_firebase_credential_settings,
+        )
+
+        if (
+            get_app_runtime_settings().environment == "dev"
+            and get_firebase_credential_settings().auth_project_id == "hushh-pda-dev"
+        ):
+            for resource in plan["resources"]:
+                if resource["type"] == "kms_key":
+                    resource["destroyScheduledDuration"] = "86400s"
+                elif resource["type"] == "gcs_bucket":
+                    resource["softDeletePolicy"] = {"retentionDurationSeconds": "0"}
         return self._private_bootstrap_plan(plan, spec)
 
     def _private_bootstrap_plan(self, plan: dict[str, Any], spec: PodSpec) -> dict[str, Any]:

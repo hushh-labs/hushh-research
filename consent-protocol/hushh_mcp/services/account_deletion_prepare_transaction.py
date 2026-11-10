@@ -16,6 +16,7 @@ def prepare_full_account_cleanup_transaction(
     requested_target: str,
     reviewed_inventory_sha256: str | None,
     accept_local_erasure: bool,
+    reviewed_cloud_plan_sha256: str | None = None,
     admission_check: Callable[[Any], None] | None = None,
 ):
     """Lock the owner, recheck the reviewed inventory, and persist the intent."""
@@ -37,6 +38,11 @@ def prepare_full_account_cleanup_transaction(
             requested_target=requested_target,
             reviewed_inventory_sha256=reviewed_inventory_sha256,
             accept_local_erasure=accept_local_erasure,
+            **(
+                {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                if reviewed_cloud_plan_sha256 is not None
+                else {}
+            ),
         )
         if admission_check is not None:
             admission_check(conn)

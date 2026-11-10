@@ -215,3 +215,19 @@ it("keeps refresh available without offering another execution while cleanup is 
   fireEvent.click(screen.getByRole("button", { name: "Cleanup in progress" }));
   expect(mocks.begin).not.toHaveBeenCalled();
 });
+
+it("retires only the reviewed account after explicit acknowledgement without finalizing cloud erasure", async () => {
+  const review = {operation_id: plan.operationId, plan_sha256: plan.planDigest,
+    project_id: "synthetic-project", project_number: "123456789012", resource_count: 1};
+  mocks.read.mockResolvedValue({...plan, provider: "gcp", approvalRequired: false,
+    legacyRecovery: true, retirementReview: review});
+  const onFinish = vi.fn().mockResolvedValue(undefined);
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only"
+    provider="gcp" continueAccountDeletion onUnlock={vi.fn()} onFinish={onFinish} />);
+  const action = await screen.findByRole("button", {name: "Delete account now"});
+  expect(action).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(action);
+  await waitFor(() => expect(onFinish).toHaveBeenCalledWith(review.plan_sha256));
+  expect(mocks.begin).not.toHaveBeenCalled(); expect(mocks.finishCloud).not.toHaveBeenCalled();
+});

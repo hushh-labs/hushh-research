@@ -6,7 +6,7 @@ import type { AccountCleanupOperation } from "./account-cleanup-operation";
 import type { AuthSessionInvalidationCode } from "./session-invalidation";
 
 const DEPARTED_ACCOUNT_CODES: ReadonlySet<AuthSessionInvalidationCode> = new Set([
-  "account_not_found", "account_deleted", "account_deleted_ready_to_start_fresh",
+  "account_not_found", "account_deleted", "account_deleted_ready_to_start_fresh", "account_deleted_cloud_pending",
   "account_deletion_finishing", "account_deletion_identity_retained",
 ]);
 

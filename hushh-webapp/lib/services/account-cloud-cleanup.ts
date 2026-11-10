@@ -4,6 +4,14 @@ import { parseAzureAuthorizationStart } from "./azure-byoc-contract";
 
 export type CloudCleanupPurpose = "account" | "remove_cloud";
 
+export type CloudRetirementReview = {
+  operation_id: string;
+  plan_sha256: string;
+  project_id: string;
+  project_number: string;
+  resource_count: number;
+};
+
 export type CloudCleanupView = {
   operationId: string;
   planDigest: string | null;
@@ -26,6 +34,7 @@ export type CloudCleanupView = {
   executionStarted?: boolean;
   legacyRecovery?: boolean;
   nextEligibleAt?: string | null;
+  retirementReview?: CloudRetirementReview;
 };
 
 type CleanupRequest =
@@ -143,6 +152,13 @@ export function parseCloudCleanupView(value: unknown): CloudCleanupView {
       scope: resource.scope as CloudCleanupView["resources"][number]["scope"],
     };
   });
+  const retirement = data.retirementReview == null ? undefined : record(data.retirementReview);
+  if (retirement && (data.provider !== "gcp" || retirement.operation_id !== operationId || retirement.plan_sha256 !== planDigest ||
+      typeof retirement.plan_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(retirement.plan_sha256) ||
+      typeof retirement.project_id !== "string" || !/^[a-z][a-z0-9-]{4,61}[a-z0-9]$/.test(retirement.project_id) ||
+      typeof retirement.project_number !== "string" || !/^[0-9]{6,32}$/.test(retirement.project_number) ||
+      typeof retirement.resource_count !== "number" || !Number.isSafeInteger(retirement.resource_count) || retirement.resource_count < 1 || retirement.resource_count !== total))
+    throw new Error("CLOUD_CLEANUP_RESPONSE_INVALID");
   return {
     operationId,
     planDigest: planDigest as string | null,
@@ -162,6 +178,7 @@ export function parseCloudCleanupView(value: unknown): CloudCleanupView {
     ...(data.provider ? { provider: data.provider as "gcp" | "azure" } : {}),
     ...(typeof data.confirmation === "string" ? { confirmation: data.confirmation } : {}),
     ...(typeof data.keepAccount === "boolean" ? { keepAccount: data.keepAccount } : {}),
+    ...(retirement ? { retirementReview: retirement as CloudRetirementReview } : {}),
   };
 }
 
