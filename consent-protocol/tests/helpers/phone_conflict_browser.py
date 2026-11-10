@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
 ROOT = Path(__file__).resolve().parents[2]
 
 PHONE = "+16505550101"
@@ -163,8 +165,18 @@ async def _assert_linked_deleted(conn, recorded, baseline):
         PHONE,
     )
     assert owner == OWNERS["receiving-a"]
-    # The holder's final erasure removed its deletion receipt with it.
-    assert await conn.fetchval("SELECT count(*) FROM account_phone_linked_deletions") == 0
+    # The holder's final erasure detaches its spent receipt: the proof stays
+    # single-use, the requester can still read it, and no holder identity remains.
+    receipts = await conn.fetch(
+        """SELECT state,requester_user_id,target_user_id,requester_hash,target_hash,
+        phone_digest FROM account_phone_linked_deletions WHERE proof_event_digest IS NOT NULL"""
+    )
+    assert len(receipts) == 1 and receipts[0]["state"] == "admitted"
+    assert receipts[0]["requester_user_id"] == OWNERS["receiving-a"]
+    assert receipts[0]["requester_hash"] == account_deletion_user_hash(OWNERS["receiving-a"])
+    assert receipts[0]["target_user_id"] is None
+    assert receipts[0]["target_hash"] == account_deletion_user_hash(OWNERS["previous"])
+    assert receipts[0]["phone_digest"] == "hmac-sha256:" + "0" * 64
     assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0
     assert recorded.unlink_count == 0
 
