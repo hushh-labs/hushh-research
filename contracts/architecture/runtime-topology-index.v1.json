@@ -1335,12 +1335,13 @@
       "exact_tables": [
         "advisor_review_requests",
         "advisor_review_subscriptions",
-        "advisor_billing_cleanup"
+        "advisor_billing_cleanup",
+        "advisor_review_payments"
       ],
       "id": "finance_advisor_handshake",
       "lifecycle_status": "release_schema_qualification",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans."
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request, participant-scoped review workspaces, Calendar time agreement and test-only one-time Stripe payments."
     },
     {
       "data_class": "personal_encrypted",
@@ -7325,11 +7326,11 @@
     "action_gateway": "72e3e740b34d9fd368a11f159ef35b57e6a624b07905af665ba16ae71dcccca8",
     "agent_registry": "6236327d663e26e0f15180631e24290b6ba5ffd2d5272374a72d719afab46a7b",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "551405058e5751604f013ea1ba8969261421d0c9ba0c219444ef8bed008e6123",
+    "data_plane": "acfadba537b60dbe3d86a3ab4f60fba090f0f7c3b5b557ef715f5118b5d4707f",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ee3a87017fc16dde5f853a4b95e828491237fefd05db4c1b751c4079538ed965",
     "route_index": "0d32a282a3f4a7bac0068dd1cb467d9e15407160978219e209400a42f4e80e06",
-    "route_layout": "2e0171e65699ef0f238571dd1df1d9bcb0540afe31cb6a74c01aa79b110576f1",
+    "route_layout": "97b3be2f6f4d592b34981e68d51c23e4dd9b898e56c2c1b66c1c198fe13621b9",
     "surface_map": "05fb3a72dc51d23ead351ddc3ea015ca087c36d718eaaec2f4e801c26dd9f4cc",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"

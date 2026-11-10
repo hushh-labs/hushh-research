@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { ShellActionSurface, SHELL_PILL_TRIGGER_CLASSNAME } from "@/components/app-ui/shell-action-surface";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { buildDirectMessageRoute } from "@/lib/navigation/routes";
 import { AdvisorReviewService } from "@/lib/advisor-review/service";
 import type {
@@ -26,11 +28,11 @@ import styles from "./advisor-review.module.css";
 
 type ReviewPage = "meeting" | "portfolio" | "plan";
 
-const pageTitles: Record<ReviewPage, string> = {
-  meeting: "Meetings",
-  portfolio: "Shared portfolio",
-  plan: "Advisor plan",
-};
+const reviewPages: { value: ReviewPage; label: string }[] = [
+  { value: "meeting", label: "Meeting" },
+  { value: "portfolio", label: "Portfolio" },
+  { value: "plan", label: "Plan" },
+];
 
 const closedReviewTitles = {
   declined: "Request declined",
@@ -43,16 +45,19 @@ export function AdvisorWorkspace({
   id,
   context,
   onClose,
+  openPlan = false,
 }: {
   id: string;
   context: FinanceShareContext;
   onClose: () => void;
+  openPlan?: boolean;
 }) {
   const [review, setReview] = useState<AdvisorReview | null>(null);
   const [snapshot, setSnapshot] = useState<AdvisorSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [detail, setDetail] = useState<ReviewPage | null>(null);
+  const [detail, setDetail] = useState<ReviewPage | null>(openPlan ? "plan" : null);
+  const tabSetId = `advisor-review-${useId()}`;
   const [endAction, setEndAction] = useState<"withdraw" | "stop" | null>(null);
   const live = useRef(true);
   const work = useRef(false);
@@ -61,22 +66,15 @@ export function AdvisorWorkspace({
   const deadline = useRef<number | null>(null);
   const accepted = review?.status === "accepted";
   const pending = review?.status === "pending";
-  const page = accepted ? detail : !pending && review?.plan && detail === "plan" ? detail : null;
-  const pageContent = useRef<HTMLDivElement>(null);
-  const previousPage = useRef<ReviewPage | null>(null);
-  useEffect(() => {
-    if (page !== previousPage.current) {
-      previousPage.current = page;
-      pageContent.current?.focus();
-    }
-  }, [page]);
+  const page = detail ?? "meeting";
+  const closedPlan = !accepted && !pending && Boolean(review?.plan) && detail === "plan";
   const pathname = usePathname();
   const back = () => {
     if (work.current) return;
-    if (page) setDetail(null);
+    if (closedPlan) setDetail(null);
     else onClose();
   };
-  useBackLayer(pathname, page ? 3 : 2, () => {
+  useBackLayer(pathname, closedPlan ? 3 : 2, () => {
     back();
     return true;
   });
@@ -163,19 +161,26 @@ export function AdvisorWorkspace({
   };
   const incoming = review?.direction === "received";
   const person = incoming ? review?.ownerName : review?.advisorName;
+  const selectPage = (value: string) => {
+    if (work.current || endAction !== null) return;
+    const next = reviewPages.find((option) => option.value === value);
+    if (next) setDetail(next.value);
+  };
+  const navigationDisabled = busy || endAction !== null;
   return (
     <KaiControlSurface
       open
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
-      title={page ? pageTitles[page] : "Advisor review"}
+      title={closedPlan ? "Advisor plan" : "Advisor review"}
       description={person}
       presentation="sheet"
-      surfaceClassName={`${finance.detail} ${styles.handshakeSheet}`}
-      footer={review && (page || pending || accepted) ? (
+      surfaceClassName={`${finance.detail} ${styles.handshakeSheet}${accepted ? ` ${styles.handshakeTabbedSheet}` : ""}`}
+      bodyClassName={accepted ? styles.handshakeTabbedBody : undefined}
+      footer={review && (closedPlan || pending || accepted) ? (
         <div className={styles.handshakeFooter}>
-          {page ? (
+          {closedPlan ? (
             <ShellActionSurface variant="pill" disabled={busy} onClick={back}>Back</ShellActionSurface>
           ) : pending ? incoming ? (
             <>
@@ -193,11 +198,19 @@ export function AdvisorWorkspace({
               Cancel request
             </ShellActionSurface>
           ) : (
-            <ShellActionSurface
-              variant="pill" rippleEffect="fill" disabled={busy}
-              wrapperClassName={styles.handshakeForward} className={styles.handshakePrimary}
-              onClick={() => setDetail("meeting")}
-            >{review.meeting ? "View meeting" : "Choose a time"}</ShellActionSurface>
+            <>
+              <Link className={`${SHELL_PILL_TRIGGER_CLASSNAME} min-h-11 ui-text-compact-button-label`}
+                href={buildDirectMessageRoute({ personRef: incoming ? review.ownerPersonRef : review.advisorPersonRef })}>
+                Messages
+              </Link>
+              {!incoming ? (
+                <ShellActionSurface variant="pill" wrapperClassName={styles.handshakeForward}
+                  className="app-critical-action-outline min-h-11 ui-text-compact-button-label"
+                  aria-label="Stop advisor review" disabled={busy} onClick={() => setEndAction("stop")}>
+                  Stop
+                </ShellActionSurface>
+              ) : null}
+            </>
           )}
         </div>
       ) : undefined}
@@ -215,26 +228,10 @@ export function AdvisorWorkspace({
         </div>
       ) : null}
       {review ? (
-        <div ref={pageContent} tabIndex={-1} className={styles.stack}>
-          {page === "meeting" ? (
-            <AdvisorMeetingPanel review={review} context={context} busy={busy} run={run} />
-          ) : page === "plan" ? (
-            <AdvisorPlanPanel key={review.planRevision} review={review} context={context} busy={busy} run={run} />
-          ) : page === "portfolio" ? (
-            <>
-              {review.snapshotAvailable ? (
-                <p className="ui-text-helper-text">
-                  Shared until {new Date(review.expiresAt).toLocaleString()}
-                </p>
-              ) : null}
-              {review.snapshotAvailable && snapshot ? (
-                <AdvisorSnapshotView snapshot={snapshot} />
-              ) : (
-                <p role="status">
-                  {review.snapshotAvailable && !error ? "Opening the shared portfolio…" : "Portfolio details are unavailable."}
-                </p>
-              )}
-            </>
+        <div className={`${styles.stack}${accepted ? ` ${styles.handshakeTabLayout}` : ""}`}>
+          {closedPlan ? (
+             <AdvisorPlanPanel key={review.planRevision} review={review} context={context} busy={busy} run={run}
+               refreshPaymentOnOpen={openPlan} />
           ) : review.status === "pending" ? (
             <>
               <h3 className="ui-text-section-label">{incoming ? "Review this request" : "Waiting for the advisor"}</h3>
@@ -248,26 +245,28 @@ export function AdvisorWorkspace({
             </>
           ) : review.status === "accepted" ? (
             <>
-              <h3 className="ui-text-section-label">Request accepted</h3>
-              <SettingsGroup embedded separatorInset rowSizing="uniform">
-                <SettingsRow title="Shared portfolio" chevron onClick={() => setDetail("portfolio")} />
-                <SettingsRow title="Messages" asChild chevron>
-                  <Link href={buildDirectMessageRoute({
-                    personRef: incoming ? review.ownerPersonRef : review.advisorPersonRef,
-                  })} />
-                </SettingsRow>
-                <SettingsRow title="Advisor plan" chevron onClick={() => setDetail("plan")} />
-              </SettingsGroup>
-              {!incoming ? (
-                <SettingsGroup embedded rowSizing="uniform">
-                  <SettingsRow
-                    title={review.snapshotAvailable ? "Stop sharing portfolio" : "End advisor review"}
-                    tone="destructive"
-                    disabled={busy}
-                    onClick={() => setEndAction("stop")}
-                  />
-                </SettingsGroup>
-              ) : null}
+              <SegmentedTabs value={page} options={reviewPages} tabSetId={tabSetId}
+                className="shrink-0" ariaLabel="Advisor review sections" disabled={navigationDisabled} onValueChange={selectPage} />
+              <SwipeViews activeValue={page} options={reviewPages} tabSetId={tabSetId}
+                disabled={navigationDisabled} onSelectionChange={selectPage}
+                viewportMinHeight="0px" className={styles.handshakePager}
+                preserveControlActivationAfterSwipe>
+                <AdvisorMeetingPanel review={review} context={context} busy={busy} run={run} />
+                <div className={styles.stack}>
+                  {review.snapshotAvailable ? (
+                    <p className="ui-text-helper-text">Shared until {new Date(review.expiresAt).toLocaleString()}</p>
+                  ) : null}
+                  {review.snapshotAvailable && snapshot ? (
+                    <AdvisorSnapshotView snapshot={snapshot} />
+                  ) : (
+                    <p role="status">
+                      {review.snapshotAvailable && !error ? "Opening the shared portfolio…" : "Portfolio details are unavailable."}
+                    </p>
+                  )}
+                </div>
+                <AdvisorPlanPanel key={review.planRevision} review={review} context={context} busy={busy} run={run}
+                  active={page === "plan"} refreshPaymentOnOpen={openPlan} />
+              </SwipeViews>
             </>
           ) : (
             <>
@@ -290,7 +289,7 @@ export function AdvisorWorkspace({
             <AlertDialogTitle>{endAction === "stop" ? "Stop sharing your portfolio?" : "Cancel advisor request?"}</AlertDialogTitle>
             <AlertDialogDescription>
               {endAction === "stop"
-                ? "This ends the review and the advisor’s portfolio access. Existing meetings, subscriptions and your connection are managed separately."
+                ? "This ends the review and the advisor’s portfolio access. Existing meetings, payments and your connection are managed separately."
                 : "The advisor will no longer be able to accept this request or open your snapshot."}
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -276,6 +276,8 @@ POST /api/one/finance/advisor-reviews/{request_id}/meeting/decision
 POST /api/one/finance/advisor-reviews/{request_id}/plan
 POST /api/one/finance/advisor-reviews/{request_id}/checkout
 DELETE,GET /api/one/finance/advisor-reviews/{request_id}/billing
+GET /api/one/finance/advisor-reviews/{request_id}/sandbox-payout
+POST /api/one/finance/advisor-reviews/{request_id}/sandbox-payout/{action}
 GET /api/one/messages/unread-count
 POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options

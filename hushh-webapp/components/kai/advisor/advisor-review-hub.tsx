@@ -53,6 +53,7 @@ export function AdvisorReviewHub({
     const next = new URLSearchParams(search.toString());
     if (value) next.set("advisorReview", value);
     else next.delete("advisorReview");
+    next.delete("advisorSection");
     router.replace(`${pathname}${next.size ? `?${next}` : ""}`, {
       scroll: false,
     });
@@ -214,6 +215,7 @@ export function AdvisorReviewHub({
           key={`${id}:${workspaceKey}`}
           id={id}
           context={context}
+          openPlan={search.get("advisorSection") === "plan"}
           onClose={() => select(null)}
         />
       ) : null}

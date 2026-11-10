@@ -145,7 +145,7 @@ export function AdvisorDurationPicker({ value, onChange, disabled }: {
   value: string; onChange: (value: string) => void; disabled: boolean;
 }) {
   return <Select value={value} onValueChange={onChange} disabled={disabled}>
-    <SelectTrigger aria-label="Duration" className="min-h-11 w-fit min-w-0 gap-2"><SelectValue /></SelectTrigger>
+    <SelectTrigger aria-label="Duration" className={`${fieldClass} gap-2`}><SelectValue /></SelectTrigger>
     <SelectContent className={menuClass}>
       {["15", "30", "60"].map((part) => <SelectItem key={part} value={part} className="rounded-lg">{part} minutes</SelectItem>)}
     </SelectContent>
@@ -173,14 +173,14 @@ export function AdvisorTimeZonePicker({ value, deviceZone, date, time, onChange,
     <Popover modal open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <ShellActionSurface type="button" variant="pill" aria-label={`Time zone, ${selected.city}, ${selected.offset}`}
-          disabled={disabled} className={`${fieldClass} justify-between`}>
+          disabled={disabled} className={`${fieldClass} justify-between`} contentClassName="w-full">
           <span className="min-w-0 flex-1 truncate text-left">{selected.city}</span>
-          <span className="shrink-0 ui-text-row-description">{selected.offset}</span>
+          <span className="hidden shrink-0 ui-text-row-description min-[480px]:inline">{selected.offset}</span>
           <ChevronDown aria-hidden className="size-4 shrink-0" />
         </ShellActionSurface>
       </PopoverTrigger>
-      <PopoverContent align="start" withBackdrop={false} aria-label="Choose time zone"
-        className="w-[var(--radix-popover-trigger-width)] rounded-[var(--app-card-radius-compact)] p-1">
+      <PopoverContent align="end" withBackdrop={false} aria-label="Choose time zone"
+        className="w-80 max-w-[calc(100vw-2rem)] rounded-[var(--app-card-radius-compact)] p-1">
         <Command>
           <CommandInput aria-label="Search time zone" placeholder="Search city or time zone" />
           <CommandList className="max-h-40 touch-pan-y overscroll-contain" data-vaul-no-drag>

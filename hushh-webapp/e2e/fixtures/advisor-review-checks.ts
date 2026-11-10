@@ -61,16 +61,46 @@ export function registerAdvisorReviewChecks(
     await page.evaluate(() => { document.body.dataset.advisorStage = "accepted"; });
     await page.getByRole("button", { name: "Open sample outgoing request" }).click();
     const review = page.getByRole("dialog", { name: /Advisor review/ });
-    await review.getByRole("button", { name: "Shared portfolio" }).click();
-    const portfolio = page.getByRole("dialog", { name: "Shared portfolio" });
-    await expect(portfolio.getByRole("heading", { name: "Finance snapshot" })).toBeVisible();
-    await portfolio.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(review.getByRole("button", { name: "Choose date" })).toBeVisible();
+    const pager = review.locator('[data-swipe-views-root="true"]');
+    const frame = await review.evaluateHandle(async (el) => {
+      await Promise.all(el.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
+      const initial = el.getBoundingClientRect();
+      let shift = 0;
+      let frameId = 0;
+      const sample = () => {
+        const next = el.getBoundingClientRect();
+        shift = Math.max(shift, Math.abs(next.height - initial.height), Math.abs(next.top - initial.top));
+        frameId = requestAnimationFrame(sample);
+      };
+      frameId = requestAnimationFrame(sample);
+      return { stop: () => { cancelAnimationFrame(frameId); return shift; } };
+    });
+    const swipe = async (forward: boolean) => {
+      const box = (await pager.boundingBox())!;
+      const y = box.y + 12;
+      await page.mouse.move(box.x + box.width * (forward ? 0.8 : 0.2), y);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * (forward ? 0.2 : 0.8), y, { steps: 15 });
+      await page.mouse.up();
+    };
+    await swipe(true);
+    await expect(review.getByRole("tab", { name: "Portfolio" })).toHaveAttribute("aria-selected", "true");
+    await expect(review.getByRole("heading", { name: "Finance snapshot" })).toBeVisible();
+    await swipe(false);
+    await expect(review.getByRole("tab", { name: "Meeting" })).toHaveAttribute("aria-selected", "true");
+    await review.getByRole("tab", { name: "Plan", exact: true }).click();
+    await expect(review.getByRole("tab", { name: "Plan", exact: true })).toHaveAttribute("aria-selected", "true");
+    await review.getByRole("tab", { name: "Meeting" }).click();
+    await expect(review.getByRole("tab", { name: "Meeting" })).toHaveAttribute("aria-selected", "true");
+    expect(await frame.evaluate((trace) => trace.stop())).toBeLessThanOrEqual(1);
+    await frame.dispose();
     await review.screenshot({ path: info.outputPath("advisor-client-review.png") });
-    await review.getByRole("button", { name: "Stop sharing portfolio" }).click();
+    await review.getByRole("button", { name: "Stop advisor review" }).click();
     const confirm = page.getByRole("alertdialog", { name: "Stop sharing your portfolio?" });
     await confirm.getByRole("button", { name: "Stop sharing", exact: true }).click();
     await expect(review.getByRole("heading", { name: "Portfolio sharing stopped" })).toBeVisible();
-    await expect(review.getByRole("button", { name: "Shared portfolio" })).toHaveCount(0);
+    await expect(review.getByRole("tab", { name: "Portfolio" })).toHaveCount(0);
   });
 
   for (const width of [393, 960]) {
@@ -209,8 +239,7 @@ export function registerAdvisorReviewChecks(
     await mount(page, isMobile ? 393 : 960);
     await page.getByRole("button", { name: "Open sample advisor request" }).click();
     await page.getByRole("button", { name: "Accept & connect" }).click();
-    await page.getByRole("button", { name: "Choose a time", exact: true }).click();
-    const workspace = page.getByRole("dialog", { name: "Meetings" });
+    const workspace = page.getByRole("dialog", { name: "Advisor review" });
     const readPicker = (name: string) => workspace.getByRole("button", { name, exact: true }).evaluate((button) => {
       const label = button.firstElementChild!;
       const style = getComputedStyle(label);
@@ -257,11 +286,15 @@ export function registerAdvisorReviewChecks(
     await page.keyboard.press("Escape");
     await expect(chosenTime).toBeVisible();
     await workspace.getByText(/^Meeting options/).click();
-    await workspace.getByRole("combobox", { name: "Duration" }).click();
+    const duration = workspace.getByRole("combobox", { name: "Duration" });
+    const zone = workspace.getByRole("button", { name: /^Time zone,/ });
+    const [durationBox, zoneBox] = await Promise.all([duration.boundingBox(), zone.boundingBox()]);
+    expect(Math.abs(durationBox!.y - zoneBox!.y)).toBeLessThan(1);
+    expect(zoneBox!.x).toBeGreaterThanOrEqual(durationBox!.x + durationBox!.width - 1);
+    await duration.click();
     const durations = page.getByRole("listbox");
     expect(await durations.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThan(8);
     await durations.getByRole("option", { name: "60 minutes" }).click();
-    const zone = workspace.getByRole("button", { name: /^Time zone,/ });
     await zone.click();
     const timeZones = page.getByRole("dialog", { name: "Choose time zone" }).getByRole("listbox");
     await expect(timeZones).toBeVisible();
@@ -291,8 +324,7 @@ export function registerAdvisorReviewChecks(
     await mount(page, 393);
     await page.evaluate(() => { document.body.dataset.advisorMeeting = "confirmed"; });
     await page.getByRole("button", { name: "Open sample agreed meeting" }).click();
-    await page.getByRole("button", { name: "View meeting", exact: true }).click();
-    const workspace = page.getByRole("dialog", { name: "Meetings" });
+    const workspace = page.getByRole("dialog", { name: "Advisor review" });
     await expect(workspace.getByRole("link", { name: "Connect Calendar" })).toBeVisible();
     await page.evaluate(() => {
       document.body.dataset.advisorCalendar = "connected";
@@ -335,9 +367,9 @@ export function registerAdvisorReviewChecks(
           await page.evaluate(() => document.body.dataset.advisorDecrypts),
         ).toBeUndefined();
         await dialog.getByRole("button", { name: "Accept & connect" }).click();
-        await expect(dialog.getByRole("button", { name: "Choose a time", exact: true })).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "Choose date", exact: true })).toBeVisible();
         await expect(dialog.getByRole("heading", { name: "Finance snapshot" })).toHaveCount(0);
-        await dialog.getByRole("button", { name: "Shared portfolio" }).click();
+        await dialog.getByRole("tab", { name: "Portfolio", exact: true }).click();
         await expect(
           dialog.getByRole("heading", { name: "Finance snapshot" }),
         ).toBeVisible();
@@ -346,17 +378,13 @@ export function registerAdvisorReviewChecks(
             .getByRole("heading", { name: "Finance snapshot" })
             .evaluate((el) => getComputedStyle(el).fontSize),
         ).toBe("14px");
-        await dialog.getByRole("button", { name: "Back", exact: true }).click();
-        await dialog.getByRole("button", { name: "Choose a time", exact: true }).click();
+        await dialog.getByRole("tab", { name: "Meeting", exact: true }).click();
         await expect(
           dialog.getByRole("link", { name: "Connect Calendar" }),
         ).toHaveAttribute("href", "/one/calendar");
-        await dialog.getByRole("button", { name: "Back", exact: true }).click();
-        await dialog.getByRole("button", { name: "Advisor plan", exact: true }).click();
-        await expect(
-          dialog.getByRole("link", { name: "Finish Stripe setup" }),
-        ).toHaveAttribute("href", "/one/profile/payouts");
-        await dialog.getByRole("button", { name: "Back", exact: true }).click();
+        await dialog.getByRole("tab", { name: "Plan", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Set up test payouts" })).toBeEnabled();
+        await dialog.getByRole("tab", { name: "Meeting", exact: true }).click();
         const titleBox = (await dialog.getByRole("heading", { name: "Advisor review", exact: true }).boundingBox())!;
         const closeBox = (await dialog.getByRole("button", { name: "Close", exact: true }).boundingBox())!;
         expect(Math.abs(titleBox.y + titleBox.height / 2 - closeBox.y - closeBox.height / 2)).toBeLessThan(8);
@@ -417,7 +445,6 @@ export function registerAdvisorReviewChecks(
         await page
           .getByRole("button", { name: "Open sample agreed meeting" })
           .click();
-        await page.getByRole("button", { name: "View meeting", exact: true }).click();
         await page
           .getByRole("dialog")
           .getByRole("button", { name: "Review Calendar booking" })

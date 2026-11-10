@@ -50,9 +50,9 @@ class MeetingTime(StrictObject):
 class AdvisorPlan(StrictObject):
     amountCents: StrictInt = Field(ge=100, le=100000)
     currency: Literal["usd"] = "usd"
-    services: str = Field(min_length=20, max_length=1500)
-    cancellationTerms: str = Field(min_length=20, max_length=1500)
-    interval: Literal["month"] = "month"
+    services: str = Field(default="", max_length=1500)
+    cancellationTerms: str = Field(default="", max_length=1500)
+    interval: Literal["one_time"]
 
     @field_validator("services", "cancellationTerms", mode="before")
     @classmethod
@@ -62,12 +62,12 @@ class AdvisorPlan(StrictObject):
 
 class PlanCheckout(StrictObject):
     planRevision: StrictInt = Field(ge=1)
-    acceptRecurringPayment: StrictBool
+    acceptPayment: StrictBool
 
     @model_validator(mode="after")
     def confirmed(self):
-        if not self.acceptRecurringPayment:
-            raise ValueError("Recurring payment approval is required")
+        if not self.acceptPayment:
+            raise ValueError("Payment approval is required")
         return self
 
 
