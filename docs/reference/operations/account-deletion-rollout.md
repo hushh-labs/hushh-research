@@ -1274,3 +1274,17 @@ works. Operators identify legacy settlements as rows whose `cleanup_operation`
 equals `account_legacy_cleanup_reference(identity_hash, generation)`. Both
 rollbacks refuse (forward recovery). A replay of 419 restores its stricter guard
 until 437 runs again and leaves settled rows unchanged.
+
+## Previously revoked Google Drive connections
+
+A disconnected Google Drive row can retain its successful revocation receipt
+after its credential has been removed. The account cleanup worker accepts
+that receipt for the exact owner, inventory reference, and row revision.
+It records the existing revocation during its claim without contacting Google.
+A parked operation resumes automatically once this receipt qualifies its
+entire inventory. Failed or uncertain revocations and other unresolved items
+retain their existing safeguards.
+
+UAT overlay 455 adds the receipt check while keeping the cleanup producer at
+version 2. Keep the expanded validator during an application rollback so
+completed erasure remains valid for same-sign-in enrollment.

@@ -269,16 +269,38 @@ def claim_due(*, limit: int = 5) -> list[ProviderCleanupClaim]:
     bounded = max(1, min(int(limit), 10))
     with get_db_connection() as conn:
         conn.execute(_LIMITS)
+        # The worker may run before the additive SQL migration during a rollout.
+        prior_drive_supported = conn.execute(
+            text("""
+            SELECT to_regprocedure('public.account_cleanup_prior_drive_reference(text,jsonb,jsonb)')
+                IS NOT NULL
+        """)
+        ).scalar_one()
+        prior_drive_reference = (
+            "public.account_cleanup_prior_drive_reference("
+            "account_owner_id,provider_cleanup_inventory,provider_cleanup_receipt)"
+            if prior_drive_supported
+            else "NULL::text"
+        )
         rows = (
             conn.execute(
-                text("""SELECT user_id_hash,account_owner_id,firebase_uid,provider_cleanup_requested_target,
-            provider_cleanup_id,provider_cleanup_inventory,provider_cleanup_receipt
+                text(f"""SELECT user_id_hash,account_owner_id,firebase_uid,provider_cleanup_requested_target,
+            provider_cleanup_id,provider_cleanup_inventory,provider_cleanup_receipt,prior.reference
             FROM account_deletion_tombstones
-            WHERE erasure_phase='provider_cleanup' AND provider_cleanup_next_attempt_at<=now()
-              AND (cleanup_status IN ('pending','retry_pending') OR
-                (cleanup_status='running' AND cleanup_claimed_at<now()-interval '5 minutes'))
+            CROSS JOIN LATERAL (SELECT {prior_drive_reference} AS reference) prior
+            WHERE erasure_phase='provider_cleanup' AND (
+              (provider_cleanup_next_attempt_at<=now() AND
+                (cleanup_status IN ('pending','retry_pending') OR
+                 (cleanup_status='running' AND cleanup_claimed_at<now()-interval '5 minutes')))
+              OR (provider_cleanup_next_attempt_at IS NULL AND cleanup_status='quarantined'
+                AND cleanup_last_classification='provider_action_required'
+                AND prior.reference IS NOT NULL
+                AND public.account_provider_cleanup_qualified(
+                  jsonb_set(provider_cleanup_receipt,ARRAY['items',coalesce(prior.reference,''),'revocation'],'"revoked"'),
+                  provider_cleanup_inventory,user_id_hash,provider_cleanup_id))
+            )
             ORDER BY provider_cleanup_next_attempt_at,user_id_hash
-            LIMIT :limit FOR UPDATE SKIP LOCKED"""),
+            LIMIT :limit FOR UPDATE OF account_deletion_tombstones SKIP LOCKED"""),  # nosec B608 - static SQL expressions only.
                 {"limit": bounded},
             )
             .mappings()
@@ -287,6 +309,10 @@ def claim_due(*, limit: int = 5) -> list[ProviderCleanupClaim]:
         claims = []
         for row in rows:
             receipt = copy.deepcopy(row["provider_cleanup_receipt"])
+            if row["reference"] is not None:
+                # The exact live Drive row carries a confirmed disconnect. Store
+                # it with this claim so a parked operation can resume only once.
+                receipt["items"][row["reference"]]["revocation"] = "revoked"
             # No effect is replayed merely because its lease expired. A worker
             # may have died after provider acceptance but before recording it.
             for item in receipt["items"].values():
