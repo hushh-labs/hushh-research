@@ -1000,6 +1000,16 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
 
     # Every consumer of this inert fixture belongs to the same focused owner;
     # adding a consumer cannot silently leave fixture-only changes uncovered.
+    calendar_fixture = "consent-protocol/tests/helpers/calendar_followup_scheduler.py"
+    assert not backend.match_file(calendar_fixture)
+    calendar_plan = _governance_plan((calendar_fixture,))
+    assert calendar_plan["selection_error"] is None
+    calendar_commands = {row["id"]: row["argv"] for row in calendar_plan["commands"]}
+    assert (
+        "consent-protocol/tests/test_calendar_followup_scheduler_contract.py"
+        in calendar_commands["release-controller-contracts"]
+    )
+
     fixture = "consent-protocol/tests/helpers/plg_qualification.py"
     assert not backend.match_file(fixture)
     fixture_plan = _governance_plan((fixture,))

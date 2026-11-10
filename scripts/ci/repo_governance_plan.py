@@ -369,6 +369,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/scripts/generate_capability_graph.py",
         "consent-protocol/tests/helpers/capability_graph_fixture.py",
         "consent-protocol/tests/helpers/plg_qualification.py",
+        "consent-protocol/tests/helpers/calendar_followup_scheduler.py",
     }:
         return frozenset({"controller"}), None
     if path == "consent-protocol/tests/test_memory_judge.py":
