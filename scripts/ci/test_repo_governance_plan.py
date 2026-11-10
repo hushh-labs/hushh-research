@@ -145,6 +145,9 @@ def test_document_delivery_ci_contract_paths_select_controller_owner() -> None:
 
 def test_restoration_fixture_paths_select_controller_owner_and_history_consumers() -> None:
     changed = (
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/tests/helpers/production_release_tools.py",
         "consent-protocol/tests/test_production_restoration_operation.py",
     )
@@ -165,6 +168,8 @@ def test_restoration_fixture_paths_select_controller_owner_and_history_consumers
         "consent-protocol/tests/test_production_restoration_operation.py",
         "consent-protocol/tests/test_phone_schema_origin.py",
         "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+        "consent-protocol/tests/test_phone_schema_job_history.py",
+        "consent-protocol/tests/test_phone_schema_qualification.py",
     )
     drive_suite = "consent-protocol/tests/test_prod_drive_deploy_contract.py"
     assert drive_suite in selected["release-controller-contracts"].argv

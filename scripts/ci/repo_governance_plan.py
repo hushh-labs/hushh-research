@@ -90,6 +90,9 @@ RELEASE_CONTROLLER_TESTS = (
 )
 RESTORATION_FIXTURE_INPUTS = frozenset(
     {
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/tests/helpers/production_release_tools.py",
         "consent-protocol/tests/test_production_restoration_operation.py",
     }
@@ -98,6 +101,8 @@ RESTORATION_FIXTURE_TESTS = (
     "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_phone_schema_origin.py",
     "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+    "consent-protocol/tests/test_phone_schema_job_history.py",
+    "consent-protocol/tests/test_phone_schema_qualification.py",
 )
 
 
