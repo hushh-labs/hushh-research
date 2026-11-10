@@ -20,6 +20,8 @@ DRIVE_PRODUCTION_TOOLS = (
 
 
 CI_PRODUCTION_TOOLS = (
+    "await-prebuilt-image.sh",
+    "capture_managed_provider_receipt.py",
     "production_auth_domain_refresh.py",
     "uat-retention-maintenance.py",
     "retention_publication.py",

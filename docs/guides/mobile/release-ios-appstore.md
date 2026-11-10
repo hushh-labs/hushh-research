@@ -11,7 +11,7 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One command prepares a Hussh One iOS release from an exact green `main` SHA,
-wires it to the selected **UAT (default) or production backend** and that target's Firebase
+wires it to the selected **production backend by default** and that target's Firebase
 configuration, signs it with the
 **production APNs entitlement** via Apple-managed signing, uploads it to **App Store Connect**, sets the version's
 **"What's New"** text, attaches the build, and (opt-in, one click) **submits it for public Apple
@@ -20,44 +20,18 @@ Submission is not publication. Manual release remains the default; an explicitly
 `--submit --ack-blockers --release-after-approval` also selects Apple's `AFTER_APPROVAL`
 release type. Report Apple review and public availability as separate states.
 
-The authorized [automatic release cadence](../../reference/operations/ci.md#automatic-native-release-cadence)
-uses the same pipeline after every fourth distinct healthy UAT deployment
-(TestFlight qualifies every second). It pins
-one green `main` commit, overlaps the production deployment with archive work,
-joins the exact healthy production run before upload, submits for Apple review
-and selects publication after approval. While an existing version awaits review,
-Ubuntu admission defers the latest candidate without allocating a Mac; the hourly
-observer revisits it. Privacy/export attestations and configured production App
-Review sign-in information remain required. New automatic releases yield to
-queued/running UAT and only one release bundle runs at a time; production
-deploy/archive remain a parallel pair. Pending releases stay outside runners and
-retry when UAT finishes, even after a failed UAT run. Existing releases are never
-cancelled. This reduces shared-pool contention but cannot reserve GitHub-hosted
-runner slots. Manual invocation defaults are unchanged.
+Releases are explicit. A source merge, environment deployment, counter or prior beta
+upload does not authorize an App Store release. Historical cadence receipts remain
+readable but cannot trigger new publication.
 
-Automatic packaging accepts Apple's historical numeric versions such as `1.0`
-for ordering. Source and selected packaging versions remain strict `x.y.z`.
-The complete iOS prerelease-version inventory supplies a minimum packaging
-version too, so automatic releases do not fall behind a manual TestFlight upload.
-Ambiguous latest records, or reuse that would equate a legacy editable version
-with a different canonical version string, stop in Ubuntu preflight for inspection.
-
-GitHub-native monitoring runs inside the existing cadence observer and reports to
-the bot-owned `UAT release monitor` issue. It works while developer computers are
-off and adds no UAT dependency or separate monitoring job. The existing certified
-counter survives the 4/8 to 2/4 transition; already issued requests keep their
-original source and authority. See the CI reference for transition and alert
-semantics.
-
-> **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
-> production-backed release, explicitly select `backend_target=production`, verify that backend's
-> deployed SHA, and distribute the *same uploaded build* through `ship-ios-testflight.yml` with `upload_run_id` set.
-> Changing targets changes which database the person reaches; it is not a cosmetic build option.
+New App Store builds target production. Explicit UAT is a legacy diagnostic option.
+Changing the backend changes which database a person reaches; it requires reviewed
+information-continuity and recovery decisions before public rollout.
 
 ### Backend target (`backend_target`, added 2026-09-29)
 
 The workflow input `backend_target` (dispatcher flag `--backend`) chooses the backend the binary
-talks to. `uat` is the historical default. `production` builds a binary
+talks to. `production` is the default and builds a binary
 for `https://one.hushh.ai` and the production API:
 
 - The production workload identity (`environment: production`, from `main`) reads
@@ -69,8 +43,7 @@ for `https://one.hushh.ai` and the production API:
   UAT. The selected native plist must match that target's project, sender and
   bundle; web/native app IDs may differ. PROD and UAT projects need not match.
 - Public submission (`submit_for_review=true`) or automatic public release
-  (`release_after_approval=true`) requires `backend_target=production`. UAT remains the
-  historical build default so a dispatcher cannot silently redirect customer data.
+  (`release_after_approval=true`) requires `backend_target=production`. UAT is explicit legacy diagnostic mode; this default change does not authorize an installed-user migration.
 - The run refuses if the production `BACKEND_URL` resolves to a UAT or loopback host, and the
   project is prepared with `ios:prepare:prod`. That ends in `verify-ios-bundled-backend.sh`, which
   requires every native plugin's `backendUrl` to equal the production backend.
@@ -82,7 +55,8 @@ for `https://one.hushh.ai` and the production API:
   production-backed release as a decision about those people's information, not only a build flag.
 - **TestFlight for the same binary:** every non-dry run also uploads a `testflight-upload-receipt`
   artifact. `gh workflow run ship-ios-testflight.yml --ref main -f upload_run_id=<App Store run id>`
-  then distributes that exact build to the internal and external TestFlight groups.
+  then distributes that exact build to the configured internal TestFlight group.
+  External beta distribution and review are separate explicit operations.
   Without `upload_run_id`, `ship-ios-testflight.yml` builds a new UAT binary.
   Use recovery mode for a production-backed upload so its backend stays unchanged.
 
@@ -147,7 +121,7 @@ For production-backed TestFlight, use the upload and resume path above.
 - **Runner:** GitHub-hosted `macos-15`, Xcode 26.3 — GCP has no macOS instances and local builds
   hang inside iCloud Drive, so only the *dispatch* runs on your machine; the Apple build runs in CI.
 - **Target:** bundle `com.hushh.app`, marketing version from `MARKETING_VERSION` in the pbxproj
-  (`1.4.0` on 2026-09-29), `backend_target` backend (default **UAT**) + Firebase (`hushh-pda`),
+  `backend_target` backend (default **production**) + that target's verified Firebase identity,
   ASC app id `6757718917`.
 
 ## The final command
@@ -207,7 +181,7 @@ For a public submit it demands you type `submit`, not just `yes`.
 | `sha` (required) | Exact green `main` SHA to release. |
 | `marketing_version` | Optional packaging version such as `1.4.1`; empty uses the exact source project's committed version. |
 | `dry_run` | Archive + sign only; no upload, no ASC changes. |
-| `backend_target` | `uat` (default) or `production`; prove the matching deployed backend before dispatch. |
+| `backend_target` | `production` (default); explicit `uat` is legacy diagnostic mode. Prove the matching deployed backend before dispatch. |
 | `whats_new` | "What's New in This Version" (defaults to a generic note). |
 | `submit_for_review` | **IRREVERSIBLE.** Upload, set What's New, attach, and **SUBMIT** for public review. Unchecked = stop after attaching the build. |
 | `release_after_approval` | Publish automatically after Apple approval; requires an explicitly authorized review submission. Default keeps manual release. |
@@ -224,8 +198,8 @@ The workflow runs these in order and **fails immediately with a clear error** at
 export/upload, or version/build validation):
 
 1. **Assert dispatch origin.** Refuses to run unless triggered from `main`.
-2. **Checkout + actor policy.** `assert-governed-actor.py --surface production` — only operators in
-   `config/ci-governance.json` → `production.manual_dispatch_users` may dispatch. (The
+2. **Checkout + actor policy.** `assert-governed-actor.py --surface production` — only current members of
+   `deploy-production` may dispatch. (The
    App Store Connect workflow is a production surface regardless of the binary's backend.)
 3. **Validate the release SHA.** `require-deploy-sha-on-main.sh` confirms the SHA is on `main` and
    passed the required check (`Main Post-Merge Smoke Gate`), then checks it out detached.
@@ -327,8 +301,8 @@ materialize/decode steps.
 
 ### Actor authorization
 
-`config/ci-governance.json` → `production.manual_dispatch_users` is the sole current actor
-allowlist. Never transcribe operator names into this runbook; the workflow enforces the live policy.
+Live `deploy-production` membership grants release authority. The trusted Main admission
+checks the operator and rerunner; saved rosters and organization-admin status are not substitutes.
 
 ### Apple account
 

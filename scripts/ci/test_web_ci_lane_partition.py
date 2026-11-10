@@ -435,6 +435,20 @@ def test_full_suite_shards_run_verifiers_once() -> None:
         assert code == 2 and not calls, f"shard spec {bad!r} was accepted"
 
 
+def test_unit_lane_reports_independent_failures_and_stops_on_interruption() -> None:
+    for status in (23, 124, 130):
+        code, calls, output = _run(FULL_SUITE, {
+            "NPM_STUB_FAIL": "verify:voice-gateway", "NPM_STUB_EXIT": str(status),
+        })
+        assert code == (1 if status == 23 else status), output[-2000:]
+        if status == 23:
+            assert "run verify:capability-graph" in calls, calls
+            assert "run test:ci -- --maxWorkers=2" in calls, calls
+            assert "Voice gateway (exit 23)" in output, output[-2000:]
+        else:
+            assert calls == ["run verify:voice-gateway"], calls
+
+
 def test_full_suite_bootstraps_parser_before_plan_and_skips_when_available() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         stub_dir = Path(tmp) / "bin"
@@ -687,6 +701,7 @@ def main() -> int:
         test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
         test_layout_overlap_retains_selected_coverage_and_failure_propagation,
         test_full_suite_shards_run_verifiers_once,
+        test_unit_lane_reports_independent_failures_and_stops_on_interruption,
         test_full_suite_bootstraps_parser_before_plan_and_skips_when_available,
         test_workflow_schedules_focused_jobs_and_database_pair,
         test_browser_shard_setting_is_validated_before_any_pack,

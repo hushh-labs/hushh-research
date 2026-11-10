@@ -139,20 +139,6 @@ def _context(args: argparse.Namespace, temp: Path) -> dict[str, Any]:
             "files": files, "files_path": changed, "lanes": lanes, "lane_warning": lane_warning}
 
 
-def _validate_body(body: str) -> None:
-    ci = REPO_ROOT / "scripts/ci"
-    sys.path.insert(0, str(ci))
-    spec = importlib.util.spec_from_file_location("live_memory_source_gate", ci / "live-memory-source-gate.py")
-    if spec is None or spec.loader is None:
-        raise ValueError("Live Memory impact validator could not be loaded")
-    gate = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(gate)
-    declared = {row["kind"] for row in gate.parse_contract((REPO_ROOT / gate.CONTRACT).read_text())}
-    kinds, _ = gate.registered_kinds((REPO_ROOT / gate.RECORDS).read_text(), (REPO_ROOT / gate.SYNC).read_text())
-    if declared != kinds: raise ValueError("Live Memory kinds do not match registered sources")
-    gate.validate_pr_impact(body, kinds)
-
-
 def _workflow_filters() -> dict[str, list[str]]:
     lines = (REPO_ROOT / ".github/workflows/ci.yml").read_text().splitlines()
     marks = [i for i, line in enumerate(lines) if re.fullmatch(r"\s*filters:\s*\|\s*", line)]
@@ -247,11 +233,6 @@ def _focused(args: argparse.Namespace, c: dict[str, Any], temp: Path, *, stream:
         checks["protected_edits"] = {"ok": ok, "stdout_tail": message}
     except (OSError, ValueError, ImportError, json.JSONDecodeError) as exc:
         checks["protected_edits"] = {"ok": False, "stderr_tail": str(exc)}
-    try:
-        if c["body"] is None: raise ValueError("Supply --pr or --body-file; Live Memory impact is unverified")
-        _validate_body(c["body"]); checks["pr_live_memory_impact"] = {"ok": True}
-    except (OSError, ValueError, ImportError) as exc:
-        checks["pr_live_memory_impact"] = {"ok": False, "required_input": c["body"] is None, "stderr_tail": str(exc)}
     run("dco", ["bash", "scripts/ci/check-dco-signoff.sh"])
     event_env = {"GITHUB_EVENT_NAME": "pull_request" if c["body"] is not None else "local",
                  "GITHUB_EVENT_PATH": str(event_path) if c["body"] is not None else None,
@@ -309,7 +290,7 @@ def main() -> int:
     )
     parser.add_argument("--base-ref", help="Target branch used to select focused local checks.")
     parser.add_argument("--pr", type=int, help="Read the current PR metadata and body from GitHub.")
-    parser.add_argument("--body-file", help="Read the proposed PR body for Live Memory impact validation.")
+    parser.add_argument("--body-file", help="Read optional PR review context; structural memory checks do not depend on prose.")
     parser.add_argument("--diagnostic", action="store_true", help="Run the full historical local CI mirror.")
     parser.add_argument("--include-advisory", action="store_true", help="Include advisory checks in diagnostic mode.")
     parser.add_argument("--report-path", help="Optional path for a machine-readable report.")
@@ -347,7 +328,7 @@ def main() -> int:
                 browser_validation="explicit diagnostic only; not executed locally",
                 include_advisory=False, commands=commands, checks=checks,
                 next_actions=["Open or update the pull request after all focused checks pass." if ok
-                              else "Resolve failed checks or provide the missing PR body before proceeding."],
+                              else "Resolve the reported failed checks before proceeding."],
             )
             if args.report_path:
                 report_path = Path(args.report_path)

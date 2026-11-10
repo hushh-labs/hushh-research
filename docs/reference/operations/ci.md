@@ -26,10 +26,17 @@ Every step calling `assert-governed-actor.py` supplies its existing job token
 and requires `actions: write` for the bounded Main permission request. Forwarded
 clearance does not replace that current-operation recheck. Keep the App key and
 security-alert credential inside the protected Main job.
-The same requirement applies to authored nested callers: UAT capacity waiting,
-PLG frontend finalization and production incident dispatch. Cloud-read-only
-preflight jobs still need Actions dispatch permission for their Main authorization
-request; candidate build jobs remain unprivileged.
+The same requirement applies to mutation callers, including PLG frontend
+finalization and production incident dispatch. UAT's read-only capacity wait
+instead validates the security job's exact-source, current-attempt authorization
+directly and needs only Actions read access. It does not request another broker
+run. Deployment still refreshes live membership before mutation; candidate build
+jobs remain unprivileged.
+
+Pass the two protected security secrets by their declared names at every reusable
+workflow hop: `GH_SECURITY_ALERTS_TOKEN` and `CI_TEAM_APP_PRIVATE_KEY`. Keep both
+required mappings; a thin caller lacking an environment is not a reason to remove
+them. Do not replace these bindings with broad secret inheritance.
 
 Explicit Dev/UAT release CI uses the verified serving comparison through the
 existing `uat_base_sha` input (`scope=all`). For Dev, supply the accepted Dev
@@ -617,9 +624,11 @@ isolation and elapsed time on the hosted candidate before claiming a speedup.
 
 ### Failure causes and next improvements
 
-- **PR preparation:** missing Live Memory impact declarations and an unauthorized
-  protected-policy edit produced valid early refusals. Use the current PR template
-  and existing governance preflight before publication; retain those checks.
+- **PR preparation:** protected-policy edits require the applicable team approval.
+  Live Memory PR prose is optional review context, not source-integrity authority;
+  `live-memory-source-gate.py` still validates registration, writer ownership,
+  journal parity and paid-retrieval isolation. Its `--review-pr-description` mode
+  is an explicit diagnostic. Historical prose-only refusals are not the current policy.
   [Missing declaration](https://github.com/hushh-labs/hushh-research/actions/runs/39169067111),
   [protected-policy refusal](https://github.com/hushh-labs/hushh-research/actions/runs/39149416659).
 - **Browser fixtures and behavior:** a source extractor could no longer locate the
@@ -1002,7 +1011,7 @@ rehearsal; it does not change the existing advisory rollback policy.
 
 ### Managed-provider readiness policy
 
-Ordinary UAT deployment requires the configured provider's **core** proof: One chat
+Ordinary deployment requires the configured provider's **core** proof. UAT verifies One chat
 and Drive text scopes, current authority, structured output, attribution/schema,
 candidate health, compatibility and rollback. The exact candidate image, runtime
 identity, run/attempt and configuration bind that proof. Trust failures always block;
@@ -1020,7 +1029,18 @@ uses core when the candidate recipe supports it; older approved candidates retai
 full qualification. Full provider diagnostics remain explicit, using the existing
 probe producers with `MANAGED_READINESS_MODE=full` under their admitted runtime
 identity; they do not replace core release evidence. `run_live_model_checks` retains
-its separate PKM/RIA meaning. Dev and production behavior is unchanged by this correction.
+its separate PKM/RIA meaning.
+
+Dev and production keep their own configured Vertex ADC model and project. Candidates
+with common-core contract version 2 prove a real, nonempty ADK chat response at that
+exact target; secondary modalities are not run. Older images retain full qualification.
+A source declaration permits requesting core but cannot certify the image: its terminal
+report must acknowledge the mode/version, environment, configuration and active chat
+result. The collector binds those results to the exact build, immutable image and runtime
+identity. It does not select or change providers outside UAT. The isolated Dev commerce
+target retains its existing full checks until separately qualified. Build failure still
+blocks deployment; asynchronous build submission preserves the exact failed build ID
+for diagnosis and receipt collection.
 
 For a policy-changing release candidate, run the retained functional/core set once
 on the completed candidate, plus affected security and release contracts. Do not
