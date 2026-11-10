@@ -87,7 +87,7 @@ export function registerFinanceScreenChecks(
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
         const review = overview.getByTestId("portfolio-briefing");
-        await expect(review.getByText("Snapshot score").locator("..")).toContainText("72 / 100");
+        await expect(review.getByText("Portfolio score").locator("..")).toContainText("72 / 100");
         await expect(review.getByText("Separate the cash you’ll need from the cash you can invest.")).toBeVisible();
         const performance = overview.getByTestId("portfolio-performance");
         await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();

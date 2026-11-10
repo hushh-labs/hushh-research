@@ -42,6 +42,7 @@ import { clearAgentChatHistoryCache, warmAgentChatHistoryCache } from "@/lib/age
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -247,6 +248,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     // Read from refs so event-listeners registered at mount time always see
     // the latest values — never stale closure captures.
     const lockedUserId = vaultUserIdRef.current;
+    if (lockedUserId) MessagesDraftService.lock(lockedUserId);
     const lockedOwnerToken = storedVaultOwnerTokenRef.current;
     sessionEpochRef.current += 1;
     advanceVaultSessionEpoch();
@@ -342,6 +344,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       console.log(
         "🔒 [VaultProvider] Auth identity changed - clearing vault memory...",
       );
+      void MessagesDraftService.clearForUser(vaultUserId).catch(() => undefined);
       lockVault();
     }
   }, [

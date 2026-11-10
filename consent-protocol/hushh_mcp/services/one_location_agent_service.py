@@ -9691,6 +9691,54 @@ class OneLocationAgentService:
         )
         return [payload for row in rows if (payload := self._grant_payload(row))]
 
+    def list_recent_received_sms_alerts(self, *, recipient_user_id: str) -> list[dict[str, Any]]:
+        # The durable share event is created at first encrypted publication.
+        # Neither grant creation nor subsequent location heartbeats qualify.
+        rows = self._execute_many(
+            """
+            SELECT g.id, g.owner_user_id, g.recipient_user_id, g.expires_at,
+                   o.display_name AS owner_display_name
+            FROM one_location_share_grants g
+            JOIN system_push_outbox p
+              ON p.source_kind = 'share' AND p.source_id = g.id
+              AND p.source_revision = '' AND p.recipient_user_id = g.recipient_user_id
+            LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+            WHERE g.recipient_user_id = :recipient_user_id
+              AND g.owner_user_id <> g.recipient_user_id
+              AND g.status = 'active'
+              AND (g.expires_at IS NULL OR g.expires_at > now())
+              AND g.latest_envelope_id IS NOT NULL
+              AND p.created_at >= now() - interval '2 minutes'
+              AND p.expires_at > now()
+              AND COALESCE(NULLIF(BTRIM(g.metadata->>'share_kind'), ''),
+                CASE WHEN g.metadata->>'reason' = 'sos_panic' THEN 'sos' ELSE 'share' END) = 'sos'
+              AND EXISTS (
+                SELECT 1 FROM one_location_recipient_keys k
+                WHERE k.user_id = g.recipient_user_id AND k.key_id = g.recipient_key_id
+                  AND k.status = 'active'
+              )
+            ORDER BY p.created_at DESC, g.id
+            LIMIT 20
+            """,
+            {"recipient_user_id": recipient_user_id},
+        )
+        alerts = []
+        for row in rows:
+            alert = {
+                "type": "location_share_created",
+                "grant_id": str(row["id"]),
+                "owner_user_id": row["owner_user_id"],
+                "user_id": row["recipient_user_id"],
+                "share_kind": "sos",
+                "owner_display_label": _identity_notification_label(
+                    {"user_id": row["owner_user_id"], "display_name": row.get("owner_display_name")}
+                ),
+            }
+            if expiry := _iso(row.get("expires_at")):
+                alert["expires_at"] = expiry
+            alerts.append(alert)
+        return alerts
+
     def list_pending_owner_requests(self, *, owner_user_id: str) -> list[dict[str, Any]]:
         """The owner's own pending access requests -- see list_active_owner_grants."""
         self._expire_stale_requests(owner_user_id)

@@ -20,8 +20,8 @@ import styles from "./circle-messages-pane.module.css";
 import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
 import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 
-function GroupAvatar({ photoUrl }: { photoUrl?: string | null }) {
-  return <span className={styles.groupAvatar} aria-hidden="true">
+function GroupAvatar({ photoUrl, header = false }: { photoUrl?: string | null; header?: boolean }) {
+  return <span className={`${styles.groupAvatar} ${header ? styles.headerAvatar : ""}`} aria-hidden="true">
     <span className={styles.groupAvatarFront}>{photoUrl ? <Image src={photoUrl} alt="" width={33} height={33} unoptimized /> : <UsersRound className="size-5" />}</span>
   </span>;
 }
@@ -167,6 +167,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
         <p>No matching circles</p><p>Try another name.</p>
       </div> : null}
       {visibleCircles.map((circle) => <button key={circle.id} type="button" className={styles.row}
+        aria-current={selectedId === circle.id ? "true" : undefined}
         data-selected={selectedId === circle.id || undefined} onClick={() => {
           setSelectedId(circle.id);
           writeLastMessagesSelection(ownerId, { lane: "circles", circleId: circle.id });
@@ -181,9 +182,9 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
       {selected && session ? <>
         <header className={peopleStyles.threadHeader}>
           <div className={peopleStyles.threadHeaderContent}>
-          <ShellActionSurface className={`${styles.back} !size-11`} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></ShellActionSurface>
+          <ShellActionSurface className={`${peopleStyles.backButton} ${styles.back} !size-11`} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></ShellActionSurface>
           <div className={peopleStyles.threadIdentity}>
-          <GroupAvatar photoUrl={selected.photoUrl} />
+          <GroupAvatar photoUrl={selected.photoUrl} header />
           <div className={peopleStyles.threadTitle}><h2>{selected.name}</h2><p>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</p></div>
           </div>
           <div className={peopleStyles.threadHeaderActions}>{profileAction}</div>

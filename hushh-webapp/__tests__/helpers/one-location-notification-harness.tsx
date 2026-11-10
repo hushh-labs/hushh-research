@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     getPendingEmergencySmsAlarms: vi.fn(),
     addNotificationListener: vi.fn(),
     getState: vi.fn(),
+    getRecentSmsAlerts: vi.fn(),
     startTask: vi.fn(),
     completeTask: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
@@ -111,7 +112,10 @@ vi.mock("@/lib/notifications", () => ({
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
-  OneLocationService: { getState: mocks.getState },
+  OneLocationService: {
+    getState: mocks.getState,
+    getRecentSmsAlerts: mocks.getRecentSmsAlerts,
+  },
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -249,6 +253,7 @@ beforeEach(() => {
   mocks.getPendingEmergencySmsAlarms.mockResolvedValue({ grantIds: [], acknowledgedGrantIds: [] });
   mocks.addNotificationListener.mockResolvedValue({ remove: vi.fn().mockResolvedValue(undefined) });
   mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
+  mocks.getRecentSmsAlerts.mockResolvedValue([]);
   mocks.remotePkmListener = null;
 });
 

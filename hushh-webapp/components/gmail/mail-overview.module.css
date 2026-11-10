@@ -30,6 +30,26 @@
   }
 }
 
+/* Desktop placement only; the existing mobile stack and card motion stay intact. */
+@media (min-width: 768px) {
+  section.overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+    column-gap: 32px;
+  }
+
+  .copy { grid-column: 1; grid-row: 1; align-self: end; }
+  .chat { grid-column: 1; grid-row: 2; align-self: start; }
+
+  .preview {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    width: 100%;
+    align-self: center;
+    justify-self: end;
+  }
+}
+
 /* Touch and reduced-motion users always see all three cards. */
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .card {

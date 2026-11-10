@@ -280,9 +280,9 @@ export const useOptionalOneLocationInteractionSurface = () => null;
 export const app = null;
 export const auth = { currentUser: user };
 export const DirectMessagesService = {
-  routeHref: async (input: { personRef: string }) => {
+  routeSelection: async (input: { personRef: string }) => {
     document.body.dataset.messageRecipient = input.personRef;
-    return "/one/messages?token=dm1.fixture";
+    return { token: "dm1.fixture", kind: "person", ref: input.personRef };
   },
 };
 export const getRecaptchaVerifier = noop;

@@ -32,7 +32,7 @@ describe("portfolio briefing", () => {
   it("offers analysis when a saved score is unavailable", () => {
     const open = vi.fn();
     render(<PortfolioBriefing onOpen={open} />);
-    expect(screen.getByText("Snapshot score")).toBeVisible();
+    expect(screen.getByText("Portfolio score")).toBeVisible();
     expect(screen.getByText("Unavailable")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "View analysis" }));
     expect(open).toHaveBeenCalledOnce();
@@ -127,7 +127,7 @@ describe("portfolio briefing", () => {
     const open = vi.fn();
     const { rerender } = render(<SavedPortfolioBriefing source={{ kind: "statement", snapshotId: "first" }} onOpen={open} />);
     expect(await screen.findByText("Check your cash needs.")).toBeVisible();
-    expect(screen.getByText("Snapshot score").nextElementSibling).toHaveTextContent("0 / 100");
+    expect(screen.getByText("Portfolio score").nextElementSibling).toHaveTextContent("0 / 100");
     rerender(<SavedPortfolioBriefing source={{ kind: "statement", snapshotId: "second" }} onOpen={open} />);
     await waitFor(() => expect(reviewMocks.readInput).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "owner" }),

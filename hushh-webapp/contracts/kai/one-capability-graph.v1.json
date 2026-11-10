@@ -30558,632 +30558,9 @@
     },
     {
       "aliases": [
-        "Send a real SMS code",
-        "send a real SMS code"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.send_real_sms",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.send_real_sms",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.send_real_sms",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Send a real SMS code",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Use this number on this account",
-        "use this number on this account"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.transfer_review",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Review a transfer after fresh real SMS verification; no account information moves or is erased.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.transfer_review",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.transfer_review",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Use this number on this account",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Confirm phone transfer",
-        "confirm phone transfer"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.transfer_confirm",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Explicit human confirmation moves only the phone link; pending work must settle before completion.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.transfer_confirm",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.transfer_confirm",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Confirm phone transfer",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Recover my previous account",
-        "recover my previous account"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.recover",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Open the existing Google or Apple sign-in to recover the previous account without exposing its identity.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.recover",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.recover",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Recover my previous account",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
         "Delete my previous account",
-        "delete my previous account"
+        "delete my previous account",
+        "review previous account deletion"
       ],
       "authorization": {
         "guard_ids": [
@@ -31209,16 +30586,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "phone_mandate.delete_previous",
+      "capability_id": "phone_mandate.review_previous_deletion",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Open an in-place review to delete the account currently linked to this verified number. Deletion needs the number's fresh code and an explicit acknowledgement; while in-place deletion is unavailable it opens previous-account sign-in instead.",
+      "description": "Opens an in-place review to delete the account currently linked to this verified number when the number's fresh SMS proof was retained; otherwise, or when in-place deletion is unavailable, it opens previous-account sign-in instead. Deletion needs a separate explicit confirmation. This action never deletes an account.",
       "execution": {
-        "binding_ref": "render:phone_mandate.delete_previous",
+        "binding_ref": "render:phone_mandate.review_previous_deletion",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -31231,7 +30608,7 @@
           "target": ""
         }
       },
-      "goal_id": "goal.phone_mandate.delete_previous",
+      "goal_id": "goal.phone_mandate.review_previous_deletion",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -31312,7 +30689,8 @@
       "required_entities": [],
       "search_keywords": [
         "phone",
-        "recovery"
+        "previous account",
+        "deletion review"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -31338,8 +30716,8 @@
     },
     {
       "aliases": [
-        "Delete and continue",
-        "delete and continue"
+        "Delete that account",
+        "delete that account"
       ],
       "authorization": {
         "guard_ids": [
@@ -31372,7 +30750,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Explicit human confirmation deletes the account linked to this number with its fresh code, then verifies the number on this account. It cannot be undone.",
+      "description": "Explicit human confirmation requests permanent deletion of the account linked to this number using its retained fresh SMS proof. A requested deletion is not erasure and does not link the number here; the number is verified again after it is released.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_confirm",
         "executor": {
@@ -31405,7 +30783,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Delete and continue",
+      "label": "Delete that account",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -31468,7 +30846,7 @@
       "required_entities": [],
       "search_keywords": [
         "phone",
-        "recovery"
+        "deletion review"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -31494,8 +30872,166 @@
     },
     {
       "aliases": [
-        "Cancel deletion review",
-        "cancel deletion review"
+        "Check again",
+        "check again",
+        "check the deletion request"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.delete_previous_check",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reads back a deletion confirmation that was sent but not confirmed, without sending the confirmation or its proof again; it deletes nothing, cancels nothing and links no number.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.delete_previous_check",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.delete_previous_check",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Check again",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "deletion review"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Cancel",
+        "cancel deletion review",
+        "go back from deletion review"
       ],
       "authorization": {
         "guard_ids": [
@@ -31528,7 +31064,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Return to recovery choices before confirmation; an unconfirmed deletion keeps the review open until its status settles.",
+      "description": "Cancels the deletion review before a confirmation takes effect and returns to the occupied-number choices, including after a definite refusal that can be retried; while a confirmation request is in flight it waits for the request to settle. After a confirmation whose outcome is unknown, or once the proof is spent or expired, Back returns to number entry instead.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_cancel",
         "executor": {
@@ -31561,7 +31097,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Cancel deletion review",
+      "label": "Cancel",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -31624,7 +31160,7 @@
       "required_entities": [],
       "search_keywords": [
         "phone",
-        "recovery"
+        "deletion review"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -31684,7 +31220,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Return to number entry after the code used for deletion expired; nothing is deleted.",
+      "description": "Returns to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing, links no number and asks the server to cancel an operation that was not admitted.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_verify_again",
         "executor": {
@@ -31780,164 +31316,7 @@
       "required_entities": [],
       "search_keywords": [
         "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Review previous device access",
-        "review previous device access"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.review_previous_devices",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.review_previous_devices",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.review_previous_devices",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Review previous device access",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery",
-        "devices"
+        "deletion review"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -31997,7 +31376,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Retire this phone attempt and return to number entry before a transfer has been dispatched.",
+      "description": "Returns to phone entry without changing the existing email account that owns an occupied number.",
       "execution": {
         "binding_ref": "render:phone_mandate.change_number",
         "executor": {
@@ -32031,162 +31410,6 @@
       },
       "kind": "action",
       "label": "Use a different number",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Cancel phone transfer review",
-        "cancel phone transfer review"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.transfer_cancel",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Return to recovery choices before confirmation; pending transfers cannot be cancelled.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.transfer_cancel",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.transfer_cancel",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Cancel phone transfer review",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -50420,7 +49643,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "9fbfa6367de772a4b1ff4585",
+      "brain_revision": "3a04bd40a1e2408c052baba8",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -53290,7 +52513,7 @@
           "label": "Location backend inventory"
         }
       ],
-      "known_unbound_implementation_count": 77,
+      "known_unbound_implementation_count": 78,
       "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
       "package_id": "location.brain",
       "package_version": 2,
@@ -53356,7 +52579,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "e4fd442db42bb958c4ca06d87fdaa29e09c89788c2eacf6f695e01c4704a7a27",
+      "projection_digest": "54a103a79b72233707dca01190d6e94e67dcf3d473ef5800d6dc3ceef1018f76",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53366,7 +52589,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "23ee4dd00d4cce9f785425aed5f6a2adfe63b6ece39cbf0fd8b2c2fde2dd8443",
+        "capability_graph_evolution": "824b5cc651bc57180cb2101adcc61e08b5ad3ea3d5f01561ecac819c0a82d3bf",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -53375,7 +52598,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "63d103b4ab44f723",
+      "source_revision": "397e42888f424c55",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -54893,7 +54116,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "63d103b4ab44f723",
+    "source_revision": "397e42888f424c55",
     "web": {
       "actions": [
         {
@@ -54936,7 +54159,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "a268b333470ead6c949139fa286aee7602518cc7ce6a58527633855fb22d6e1d",
+      "projection_digest": "9131e6d12981fe423b2fa88c4e95264817f330fd434a1c05477116c8ff2d4092",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54946,7 +54169,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "23ee4dd00d4cce9f785425aed5f6a2adfe63b6ece39cbf0fd8b2c2fde2dd8443",
+        "capability_graph_evolution": "824b5cc651bc57180cb2101adcc61e08b5ad3ea3d5f01561ecac819c0a82d3bf",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -54955,7 +54178,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "63d103b4ab44f723",
+      "source_revision": "397e42888f424c55",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -56512,7 +55735,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "63d103b4ab44f723",
+  "revision": "397e42888f424c55",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -58506,37 +57729,20 @@
     }
   ],
   "semantic_diff": {
-    "added": [
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.recover",
-      "actions:phone_mandate.review_previous_devices",
-      "actions:phone_mandate.send_real_sms",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
-    ],
+    "added": [],
     "breaking": [],
     "changed": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again"
+      "brains:location",
+      "services:service.location",
+      "workflows:workflow.setup.location"
     ],
-    "compatible": [],
-    "deprecated": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_check",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again",
-      "actions:phone_mandate.review_previous_deletion"
+    "compatible": [
+      "workflows:workflow.setup.location"
     ],
+    "deprecated": [],
     "from_revision": "c32cf5e00a63cfc1",
     "migrated": [],
-    "removed": [
-      "actions:phone_mandate.delete_previous_check",
-      "actions:phone_mandate.review_previous_deletion"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -60129,6 +59335,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_recent_received_sms_alerts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_recent_received_sms_alerts",
+          "path": "/api/one/location/sms-alerts/recent",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.get_location_sms_contacts",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -60494,7 +59710,7 @@
       "capability_id": "service.location",
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
-        "blocked_endpoint_count": 77,
+        "blocked_endpoint_count": 78,
         "declared_capability_count": 73
       },
       "completion": {
@@ -60506,7 +59722,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 77,
+          "discovered_endpoint_count": 78,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -60605,7 +59821,7 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "9fbfa6367de772a4b1ff4585",
+        "brain_revision": "3a04bd40a1e2408c052baba8",
         "catalog_status": "complete_and_compiled",
         "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "package_id": "location.brain",
@@ -60894,21 +60110,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "23ee4dd00d4cce9f785425aed5f6a2adfe63b6ece39cbf0fd8b2c2fde2dd8443",
+    "capability_graph_evolution": "824b5cc651bc57180cb2101adcc61e08b5ad3ea3d5f01561ecac819c0a82d3bf",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "b6dfdcb0320eed1889fe95af59e639908bf1130722b2f7d39a6be0b779601754",
+    "kai_action_gateway": "2ab12ce02dcd9e7c44eb14f25bc9d6e7a62ee6764d61637497cc2a9eb8fdaa9f",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "6236327d663e26e0f15180631e24290b6ba5ffd2d5272374a72d719afab46a7b",
-    "route_orchestration_index": "0d32a282a3f4a7bac0068dd1cb467d9e15407160978219e209400a42f4e80e06",
+    "route_orchestration_index": "2cf09d1f281d70589f0300ededf21ff1a0fc56ae4bbd76037b5773f3b8dbf169",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "63d103b4ab44f723",
+  "source_revision": "397e42888f424c55",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "63d103b4ab44f723",
+    "current_graph_revision": "397e42888f424c55",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -61104,7 +60320,6 @@
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
-          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
@@ -61220,7 +60435,6 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
-          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -61435,7 +60649,6 @@
           "7ba2d5afaf467baa",
           "7e725415993cda04",
           "7fe68d8f752aa842",
-          "7ff1992abef8e4a7",
           "8052e8fc866f98cd",
           "81c8e85c85e36f6f",
           "83fa96225592a2c4",
@@ -61479,7 +60692,6 @@
           "b28721bce54d8cdf",
           "b78352783d3460bc",
           "bab8cfa1aa259f7c",
-          "bd1c53cb4aea9d77",
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
           "c32cf5e00a63cfc1",
@@ -61545,14 +60757,12 @@
           "76f6e343ee7c02b3",
           "775c9fab0b9bed32",
           "7ba2d5afaf467baa",
-          "7ff1992abef8e4a7",
           "81c8e85c85e36f6f",
           "83fa96225592a2c4",
           "8ec20520da73103b",
           "975965c04f634896",
           "aba723a8b59080fc",
           "b255ff5e653c1324",
-          "bd1c53cb4aea9d77",
           "c32cf5e00a63cfc1",
           "c3c7eced230a2281",
           "d5e9a310061c3485",
@@ -62090,7 +61300,6 @@
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
-          "7ff1992abef8e4a7",
           "8052e8fc866f98cd",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
@@ -62185,7 +61394,6 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
-          "bd1c53cb4aea9d77",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bf818f0b3141079a",
@@ -62381,7 +61589,6 @@
           "76f6e343ee7c02b3",
           "775c9fab0b9bed32",
           "7ba2d5afaf467baa",
-          "7ff1992abef8e4a7",
           "81c8e85c85e36f6f",
           "83fa96225592a2c4",
           "8b2c2ce0335c1211",
@@ -62390,7 +61597,6 @@
           "aba723a8b59080fc",
           "b255ff5e653c1324",
           "bab8cfa1aa259f7c",
-          "bd1c53cb4aea9d77",
           "c32cf5e00a63cfc1",
           "c3c7eced230a2281",
           "d5e9a310061c3485",
@@ -62985,7 +62191,6 @@
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
-          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
@@ -63101,7 +62306,6 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
-          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -63421,7 +62625,6 @@
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
-          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
@@ -63536,7 +62739,6 @@
           "b9a924f682184910",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
-          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -63658,7 +62860,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "0771acb921eb2e35924fdb845b87c93ff4919bd3dd6092ae95d9c760aeab61c9",
+        "workflow_digest": "2039f4f18867cdd3152a48a9494eb1e0d8fd11cc91d4b57ae548141ad1978f4e",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -63855,7 +63057,6 @@
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
-          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
@@ -63971,7 +63172,6 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
-          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -66044,6 +65244,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_recent_received_sms_alerts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_recent_received_sms_alerts",
+          "path": "/api/one/location/sms-alerts/recent",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.get_location_sms_contacts",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -67817,7 +67027,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 77,
+            "discovered_endpoint_count": 78,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"

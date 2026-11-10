@@ -22,6 +22,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 import { describe, expect, it } from "vitest";
 
@@ -31,25 +32,53 @@ function read(relativePath: string) {
   return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
 }
 
+function parse(relativePath: string) {
+  return ts.createSourceFile(relativePath, read(relativePath), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+}
+
+function nodes<T extends ts.Node>(root: ts.Node, matches: (node: ts.Node) => node is T): T[] {
+  const result: T[] = [];
+  function visit(node: ts.Node) {
+    if (matches(node)) result.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(root);
+  return result;
+}
+
+function captureCallback(name: string) {
+  const declaration = nodes(parse("components/one-location/location-immersive-map.tsx"), ts.isVariableDeclaration)
+    .find(node => ts.isIdentifier(node.name) && node.name.text === name);
+  const initializer = declaration?.initializer;
+  expect(initializer && ts.isCallExpression(initializer)).toBeTruthy();
+  const callback = (initializer as ts.CallExpression).arguments[0]!;
+  expect(ts.isArrowFunction(callback)).toBe(true);
+  return callback as ts.ArrowFunction;
+}
+
+function optionBranches(expression: ts.Expression): ts.Expression[] {
+  if (ts.isParenthesizedExpression(expression)) return optionBranches(expression.expression);
+  if (ts.isConditionalExpression(expression)) {
+    return [...optionBranches(expression.whenTrue), ...optionBranches(expression.whenFalse)];
+  }
+  return [expression];
+}
+
 describe("One Location capture-options boundary", () => {
   it("the map's capture forwarders declare and pass their options", () => {
-    const source = read("components/one-location/location-immersive-map.tsx");
-
-    // Declared with the parameter — a zero-arity declaration is the bug.
-    expect(source).toContain(
-      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n      requireMeasurement?: boolean;\n    }): Promise<PlainLocationPoint> => {",
-    );
-    expect(source).toContain(
-      "async (options?: { maxAgeMs?: number; fresh?: boolean; requireMeasurement?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
-    );
-
-    // And actually forwarded to the service, not dropped.
-    expect(source).toContain(
-      "OneLocationService.captureCurrentPosition(options)",
-    );
-    expect(source).not.toContain(
-      "const captureAndRememberCurrentLocation = useCallback(async () => {",
-    );
+    for (const [name, target] of [
+      ["captureCurrentLocation", "OneLocationService.captureCurrentPosition"],
+      ["captureAndRememberCurrentLocation", "captureCurrentLocation"],
+    ]) {
+      const callback = captureCallback(name!);
+      // TypeScript permits dropping this argument; require the actual binding
+      // to reach the next owner without fixing a formatting or field count.
+      expect(callback.parameters.length).toBeGreaterThan(0);
+      const binding = callback.parameters[0]!.name.getText();
+      const forwarded = nodes(callback, ts.isCallExpression)
+        .find(call => call.expression.getText().replace(/\s/g, "") === target);
+      expect(forwarded?.arguments[0]?.getText()).toBe(binding);
+    }
   });
 
   it("bypasses in-flight capture for freshness and measurement requirements", () => {
@@ -63,22 +92,30 @@ describe("One Location capture-options boundary", () => {
   });
 
   it("manual and command check-in both request a current measured fix", () => {
-    const source = read(
-      "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
-    );
-    const measuredCaptures = source.match(
-      /captureCurrentPosition\(forceNew\s*\?\s*\{ maxAgeMs: 0, requireMeasurement: true \}\s*:\s*\{ fresh: true, requireMeasurement: true \}\)/g,
-    );
-    expect(measuredCaptures).toHaveLength(2);
+    const source = parse("components/one-location/nearby-check-in/nearby-check-in-sheet.tsx");
+    const captures = nodes(source, ts.isCallExpression)
+      .filter(call => call.expression.getText() === "captureCurrentPosition" && call.arguments.length > 0);
+    expect(captures).toHaveLength(2);
+    for (const capture of captures) {
+      for (const branch of optionBranches(capture.arguments[0]!)) {
+        expect(ts.isObjectLiteralExpression(branch)).toBe(true);
+        const options = new Map((branch as ts.ObjectLiteralExpression).properties
+          .filter(ts.isPropertyAssignment).map(property => [property.name.getText(), property.initializer.getText()]));
+        expect(options.get("requireMeasurement")).toBe("true");
+        expect(options.get("fresh") === "true" || options.get("maxAgeMs") === "0").toBe(true);
+      }
+    }
   });
 
   it("the check-in sheet's prop type accepts options at all", () => {
-    const source = read(
-      "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
-    );
-    expect(source).toContain(
-      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n    requireMeasurement?: boolean;\n  }) => Promise<PlainLocationPoint>;",
-    );
+    const source = parse("components/one-location/nearby-check-in/nearby-check-in-sheet.tsx");
+    const prop = nodes(source, ts.isPropertySignature).find(node => node.name.getText() === "captureCurrentPosition");
+    expect(prop?.type && ts.isFunctionTypeNode(prop.type)).toBeTruthy();
+    const parameter = (prop!.type as ts.FunctionTypeNode).parameters[0];
+    expect(parameter).toBeDefined();
+    expect(parameter?.type && ts.isTypeLiteralNode(parameter.type)).toBeTruthy();
+    const fields = (parameter!.type as ts.TypeLiteralNode).members.map(member => member.name?.getText());
+    expect(fields).toEqual(expect.arrayContaining(["maxAgeMs", "fresh", "requireMeasurement"]));
   });
 });
 
