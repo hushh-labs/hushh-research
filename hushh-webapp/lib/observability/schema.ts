@@ -166,6 +166,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     ...BASE_ALLOWED_KEYS,
     "route_id",
     "result",
+    "duration_ms_bucket",
     "selected_count",
     "reached_count",
     "unreachable_count",

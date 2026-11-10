@@ -111,7 +111,7 @@ export function ConnectCircleRow({
           onClick={onDestructive}
         >
           {action === "delete" ? (
-            <Trash2 aria-hidden="true" className="size-4" />
+            <Trash2 inheritColor aria-hidden="true" className="size-4" />
           ) : (
             <LogOut aria-hidden="true" className="size-4" />
           )}
