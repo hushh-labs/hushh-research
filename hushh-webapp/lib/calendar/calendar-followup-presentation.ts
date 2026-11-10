@@ -46,6 +46,9 @@ export function dueText(request: FollowupPreviewRequest, zone = "UTC"): string {
     return time ? `${day}, ${time} · Proposed` : `${day} · Time to confirm`;
   }
   const day = shortDate(request.due_date);
+  if (day && request.bucket === "overdue") return `Overdue · was due ${day}`;
+  if (day && request.bucket === "history" && request.after_date === "lapses" && isActive(request)) return `Ended ${day}`;
+  if (day && request.category === "scheduled_event") return `On ${day}`;
   if (day) return request.due_relation === "before" ? `Due before ${day}` : `Due ${day}`;
   if (request.urgency === "asap") return "Urgent · No date given";
   return "No date given";
@@ -67,6 +70,8 @@ function categoryRank(category: FollowupPreviewRequest["category"]): number {
  * conversations the same way, so the row and the order agree.
  */
 export function primaryRequest(entry: Pick<FollowupConversation, "preview_requests">): FollowupPreviewRequest | undefined {
+  const first = entry.preview_requests[0];
+  if (first?.bucket) return first;
   const active = entry.preview_requests.filter(isActive);
   const pool = active.length ? active : entry.preview_requests;
   return [...pool].sort((left, right) => {
@@ -81,7 +86,7 @@ export function primaryRequest(entry: Pick<FollowupConversation, "preview_reques
 
 export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string; more: number } {
   const next = primaryRequest(entry);
-  const active = entry.preview_requests.filter(isActive).length || entry.active_count;
+  const active = next?.bucket ? entry.active_count : entry.preview_requests.filter(isActive).length || entry.active_count;
   const when = next ? dueText(next, zone) : "Needs review";
   const context = when === "No date given"
     ? next?.category === "document_or_information" ? "Document to send"

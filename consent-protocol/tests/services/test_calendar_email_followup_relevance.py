@@ -16,6 +16,7 @@ import pytest
 from hushh_mcp.services.calendar_email_followup_extraction import (
     ValidatedCandidate,
     assess_complete_message,
+    validate_chunk,
 )
 from hushh_mcp.services.calendar_email_followup_reader import (
     CompleteMailMessage,
@@ -24,6 +25,8 @@ from hushh_mcp.services.calendar_email_followup_reader import (
 )
 from hushh_mcp.services.calendar_email_followup_reconcile import reconcile_candidates
 from hushh_mcp.services.calendar_email_followup_relevance import (
+    same_obligation_wording,
+    same_sender_domain,
     sanitize_excerpt,
     sanitize_source_body,
 )
@@ -457,3 +460,163 @@ def test_source_text_hides_tracking_links_and_image_markers_but_keeps_the_words(
     assert SECURITY_SENTENCE in shown
     excerpt = sanitize_excerpt(SECURITY_ALERT + " " + "x" * 600)
     assert len(excerpt) <= 241 and "https://" not in excerpt
+
+
+# --- Contract 3: date effect, scheduled events and replacement -----------------
+# A varied table of synthetic model verdicts. The model is mocked: these cases
+# prove what the host enforces around a verdict, never how a live model judges
+# an email. Wording and dates differ across rows on purpose.
+
+_OFFERED = "11111111-2222-4333-8444-555555555555"
+_CASES = [
+    # (quote, overrides, expected drop reason or None, expected after_date)
+    (
+        "Your practical test is fixed for 3 December 2026.",
+        {
+            "category": "scheduled_event",
+            "due_date": "2026-12-03",
+            "due_relation": "on",
+            "after_date": "lapses",
+        },
+        None,
+        "lapses",
+    ),
+    (
+        "Registrations close on 9 January 2027.",
+        {
+            "category": "assigned_task",
+            "due_date": "2027-01-09",
+            "due_relation": "on",
+            "after_date": "lapses",
+        },
+        None,
+        "lapses",
+    ),
+    (
+        "Please pay invoice 88 by 28 February.",
+        {
+            "category": "deliverable_deadline",
+            "due_date": "2027-02-28",
+            "due_relation": "by",
+            "after_date": "owed",
+        },
+        None,
+        "owed",
+    ),
+    (
+        "Offer ends 14 February: upgrade now.",
+        {"relevance": "informational", "category": "marketing", "due_date": "2027-02-14"},
+        "not_calendar_relevant",
+        None,
+    ),
+    (
+        "Your interview has been scheduled; we will confirm the day.",
+        {"category": "scheduled_event"},
+        "undated_scheduled_event",
+        None,
+    ),
+    (
+        "The vendor will send the invoice by 5 March.",
+        {"category": "assigned_task", "due_date": "2027-03-05", "responsibility": "other"},
+        "not_owner_responsibility",
+        None,
+    ),
+    (
+        "Urgent: review the exposed credentials today.",
+        {"category": "account_security", "urgency": "asap"},
+        "not_calendar_relevant",
+        None,
+    ),
+    (
+        "Might need a reply at some point.",
+        {"relevance": "uncertain", "category": "response_needed"},
+        "not_calendar_relevant",
+        None,
+    ),
+]
+
+
+def _verdict(quote: str, body: str, **overrides) -> dict:
+    return {
+        "local_index": 0,
+        "section_index": 0,
+        "kind": "deadline",
+        "quote_start": body.index(quote),
+        "source_quote": quote,
+        "title": quote[:40],
+        "responsibility": "owner",
+        "ambiguities": [],
+        "relevance": "actionable",
+        "category": "assigned_task",
+        "evidence_reason": "The message asks the owner for something tied to a date.",
+        **overrides,
+    }
+
+
+@pytest.mark.parametrize(("quote", "overrides", "dropped", "after_date"), _CASES)
+def test_host_enforces_the_date_effect_and_scheduled_event_verdicts(
+    quote, overrides, dropped, after_date
+):
+    body = f"Hello.\n\n{quote}\n\nThanks."
+    message = _message(body, subject="Notice", sender="Notices <notices@example.test>")
+    drops: dict[str, int] = {}
+    kept, _ = validate_chunk(
+        message=message,
+        section=message.sections[0],
+        payload={"candidates": [_verdict(quote, body, **overrides)], "updates": []},
+        prior_request_ids=set(),
+        evidence_key=b"k" * 32,
+        drops=drops,
+    )
+    if dropped:
+        assert kept == [] and drops == {dropped: 1}
+    else:
+        assert [item.after_date for item in kept] == [after_date] and drops == {}
+
+
+@pytest.mark.parametrize(
+    ("claimed", "offered", "supersedes", "drops"),
+    [
+        (_OFFERED, {_OFFERED}, _OFFERED, {}),
+        # An ID the model was never offered is not a replacement: the item is kept as
+        # its own request and the claim is counted, never silently merged.
+        (_OFFERED, set(), None, {"unsupported_replacement": 1}),
+    ],
+)
+def test_a_replacement_is_honoured_only_for_an_offered_request(claimed, offered, supersedes, drops):
+    quote = "The deadline is now 20 November."
+    body = f"Hello.\n\n{quote}\n"
+    message = _message(body, subject="Update", sender="Notices <notices@example.test>")
+    counts: dict[str, int] = {}
+    kept, _ = validate_chunk(
+        message=message,
+        section=message.sections[0],
+        payload={
+            "candidates": [
+                _verdict(
+                    quote,
+                    body,
+                    due_date="2026-11-20",
+                    due_relation="by",
+                    supersedes_request_id=claimed,
+                )
+            ],
+            "updates": [],
+        },
+        prior_request_ids=offered,
+        evidence_key=b"k" * 32,
+        drops=counts,
+    )
+    assert [item.supersedes_request_id for item in kept] == [supersedes] and counts == drops
+
+
+def test_same_obligation_wording_needs_the_same_numbers_and_sender_domain():
+    assert same_obligation_wording(
+        "Register for July 2026 exam", "Register for July 2026 NPTEL exam"
+    )
+    assert not same_obligation_wording("Submit assignment 1", "Submit assignment 2")
+    assert not same_obligation_wording("Register for 2026 exam", "Register for 2027 exam")
+    assert not same_obligation_wording("Send the report", "Book the venue")
+    assert same_sender_domain("A <a@nptel.ac.in>", "B <b@exams.nptel.ac.in>")
+    assert not same_sender_domain("A <a@nptel.ac.in>", "B <b@nptel.com>")
+    assert not same_sender_domain("Someone without an address", "B <b@nptel.ac.in>")

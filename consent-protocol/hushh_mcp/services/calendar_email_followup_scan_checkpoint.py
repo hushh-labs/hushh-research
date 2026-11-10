@@ -14,6 +14,7 @@ from hushh_mcp.services.calendar_email_followup_coverage import (
     source_backoff_seconds,
     source_exhausted,
 )
+from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
 from hushh_mcp.services.calendar_email_followup_store import CalendarEmailFollowupStore, Monitor
 
 
@@ -31,6 +32,7 @@ def _initial_checkpoint(
     start_ms = int(monitor.historical_start_at.timestamp() * 1000)
     return {
         "version": 1,
+        "assessment_version": ASSESSMENT_VERSION,
         "mode": "bootstrap",
         # Gap recovery narrows this to the unsynchronized period; a first scan
         # always covers the owner's whole approved period.
@@ -115,7 +117,11 @@ def _clear_incomplete_thread(checkpoint: dict[str, Any], thread_id: str) -> None
 
 
 def _upgrade_checkpoint(checkpoint: dict[str, Any]) -> dict[str, Any]:
-    """Fill fields added after a checkpoint was sealed; never drops a cursor."""
+    """Restart partial extraction after a contract change, preserving scan progress."""
+    if checkpoint.get("assessment_version") != ASSESSMENT_VERSION:
+        _clear_message(checkpoint)
+        checkpoint["reassess_seen"] = {}
+        checkpoint["assessment_version"] = ASSESSMENT_VERSION
     for key, default in (
         ("partial_candidates", []),
         ("partial_updates", []),

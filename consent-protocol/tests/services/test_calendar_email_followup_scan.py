@@ -231,6 +231,51 @@ async def test_reassessment_queues_the_next_stale_threads_instead_of_idling():
     assert (checkpoint["mode"], store.state) == ("history", "complete")
 
 
+@pytest.mark.parametrize("prior_version", [None, 3])
+def test_assessment_upgrade_restarts_only_the_partial_message(prior_version):
+    from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
+    from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
+        _initial_checkpoint,
+        _upgrade_checkpoint,
+    )
+
+    checkpoint = _initial_checkpoint(_Store().current, snapshot_ms=0, history_id="100")
+    cursors = {
+        "mode": "reassess",
+        "page_token": "current-page",
+        "next_page_token": "next-page",
+        "pending_threads": ["thread-a", "thread-b"],
+        "thread_index": 1,
+        "thread_messages": ["message-a", "message-b"],
+        "message_index": 1,
+        "retry_cursor": 2,
+        "incomplete_sources": {"thread-a": {"retry_at_ms": 500}},
+    }
+    checkpoint.update(
+        cursors,
+        section_index=2,
+        partial_candidates=[{"title": "old-format"}],
+        partial_updates=[{"kind": "old-update"}],
+        partial_drops={"old": 1},
+        partial_body_digest="old-digest",
+        reassess_seen={"thread-b": 2},
+    )
+    if prior_version is None:
+        checkpoint.pop("assessment_version")
+    else:
+        checkpoint["assessment_version"] = prior_version
+
+    upgraded = _upgrade_checkpoint(checkpoint)
+    assert {key: upgraded[key] for key in cursors} == cursors
+    assert upgraded["assessment_version"] == ASSESSMENT_VERSION
+    assert upgraded["section_index"] == 0
+    assert upgraded["partial_candidates"] == upgraded["partial_updates"] == []
+    assert upgraded["partial_drops"] == upgraded["reassess_seen"] == {}
+    assert upgraded["partial_body_digest"] is None
+    upgraded["section_index"] = 1
+    assert _upgrade_checkpoint(upgraded)["section_index"] == 1
+
+
 def test_old_exhausted_source_is_retried_without_delaying_mail_history():
     from datetime import timedelta
 

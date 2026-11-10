@@ -36,11 +36,11 @@ Monitoring stays the independent, default-off preference above. After connecting
 4. The existing Email agent runtime owns a new tool-free, typed extraction child. It returns turn-local request indices for distinct actions, deadlines, and proposed meetings, with the source message/thread reference, exact supporting excerpt, original due wording, parsed instant only when supported, responsibility, ambiguity reason, and same-thread update references. The server mints durable request IDs from the exact owner/account/message identity, validated global evidence span, kind, and a stable evidence discriminator. The host validates offered source IDs, excerpt membership, section offsets, chronology, schema, and time-zone format. It may reject malformed output; it does not replace a successful semantic decision with keywords or regexes.
 5. A later message can correct, cancel, or complete one request without automatically changing its siblings. Unknown date, responsibility, duration, or time zone is labelled `needs_review`; the service does not invent urgency or a meeting event. Email content can propose a review item only. It cannot execute tools, send mail, book Calendar, or write Chat, Memory, or PKM.
 
-## Calendar relevance (assessment version 3)
+## Calendar relevance (assessment version 4)
 
 The extractor is told what a Calendar follow-up is. It returns, for every candidate, a relevance verdict (`actionable`, `informational` or `uncertain`), a Calendar category (`meeting_request`, `schedule_change`, `document_or_information`, `deliverable_deadline`, `response_needed` or `assigned_task`), who asked, a short reason grounded in the quoted text, and optional urgency and meeting state. The host admits a candidate only when the verdict is explicitly `actionable`, the category is allowed, evidence exists, and responsibility does not belong to someone else. `uncertain` is deliberately kept off the owner's list. The authored assessment now asks for consequential professional commitments: documents or files to send, deadlines or explicit urgency, meeting requests, scheduling proposals, and project or client updates requiring action around a real commitment. A specific professional document request or meeting ask can be valuable without an exact date. LinkedIn and generic social requests, routine PR review notifications without a concrete dated or urgent assignment, vague undated responses, security alerts, OAuth notices, marketing, receipts, status-only mail, Calendar invitations, quoted earlier requests and signatures are excluded. The model decides from the request and its commitment, not a sender-domain or subject keyword rule.
 
-Within one conversation, two candidates are one obligation only when they have the same kind, the same verified dates and strongly overlapping titles (Jaccard overlap of the normalized words of at least one half); the more complete, earlier statement is kept. Different kinds or dates, such as a document due 26 October and a call on 27 October, keep their own identity and state. Urgency is `asap`, `time_bound` or `none` and never implies a due date: an undated "ASAP" stays `needs_review` with no invented deadline. A proposed meeting is `meeting_state=proposed` and is never described as scheduled. Rows assessed under versions 1 or 2 are reassessed in bounded background steps. A row that is no longer relevant is suppressed (`suppressed_at`, `suppression_reason`), its reminder is cleared and its Feed events are removed. Nothing is deleted; owner decisions are retained, and a still-relevant row is upgraded in place.
+Within one conversation, two candidates are one obligation only when they have the same kind, the same verified dates and strongly overlapping titles (Jaccard overlap of the normalized words of at least one half); the more complete, earlier statement is kept. Different kinds or dates, such as a document due 26 October and a call on 27 October, keep their own identity and state. Urgency is `asap`, `time_bound` or `none` and never implies a due date: an undated "ASAP" stays `needs_review` with no invented deadline. A proposed meeting is `meeting_state=proposed` and is never described as scheduled. Older assessments on visible requests follow the bounded reassessment rules below.
 
 ## Incremental sync and incomplete scans
 
@@ -63,7 +63,7 @@ Request states are `needs_review`, `pending`, `done`, `snoozed`, `dismissed`, `c
 | Required declaration | Contract |
 | --- | --- |
 | Owning agent and manifest | Existing `agent_email`; new tool-free `agent_email_followup_extractor` child in `consent-protocol/hushh_mcp/agents/email/agent.yaml`. |
-| Output | `FollowupChunkAssessmentV1`: ordered, distinct request candidates and same-thread update references, each with exact source excerpt, local index, kind, original wording, supported zoned time or explicit ambiguity, and section identity. |
+| Output | `FollowupChunkAssessmentV1` under assessment version 4 adds `after_date` and offered `supersedes_request_id` to ordered request candidates with exact source evidence. |
 | Validator | Admit only offered message, thread and section refs; prove exact excerpt membership and global offset; reject duplicate durable identities, out-of-order update refs, unsupported time zones and malformed output. It does not create a request or due instant by interpreting sender text itself. |
 | Live evaluation before promotion | Run a consented, held-out owner-mail fixture and opt-in pilot before enabling the monitor outside development. Require 100% source attribution, no automatic send/booking/PKM effects, and reviewed precision/recall for multi-request, tail, correction and ambiguous-date cases. Keep the feature kill switch closed until the result is recorded. |
 
@@ -71,9 +71,86 @@ A date worded "before 26 October" is exclusive: with a one-day lead the reminder
 
 ## Review and action contract
 
-Calendar Insights renders one compact Follow-ups card for its selected account, above Executive snapshot. It shows at most two conversations; View all presents server-backed pages of 15 conversations with Previous and Next controls. Verified dates lead, followed by explicit urgency; document/deadline and meeting commitments lead within each group. Each row is one specific action, its verified date or useful undated context, the sender's name, and one Review action; further actions from the same email are grouped as "1 more in this email". The detail surface shows the requested action and verified date, a brief link-free excerpt, the reminder status, Mark done, Snooze and Change reminder, and Review meeting for a proposal. Open original email is a normal link to the exact Gmail message (the server returns only the message reference and reads nothing); View email text shows the sanitized body, with links, tracking URLs and image markers removed. A reminder target opens its account and focuses the exact request after a current read. The card distinguishes mail not connected, monitoring off, loading, empty, catching up (quiet text) and needs attention (one sentence with one action); stale same-account content stays visible during a background refresh, and an incomplete scan is never presented as empty or complete.
+Calendar Insights renders one compact Follow-ups card for its selected account, above Executive snapshot. It shows at most two conversations; View all presents server-backed pages of 15 conversations with Previous and Next controls. The compact card shows Upcoming and the expanded view can switch between four views. Each row is one specific action, its verified date or useful undated context, the sender's name, and one Review action; further actions from the same email are grouped as "1 more in this email". The detail surface shows the requested action and verified date, a brief link-free excerpt, the reminder status, Mark done, Snooze and Change reminder, and Review meeting for a proposal. Open original email is a normal link to the exact Gmail message (the server returns only the message reference and reads nothing); View email text shows the sanitized body, with links, tracking URLs and image markers removed. A reminder target opens its account and focuses the current request after a fresh read. A delivered reminder for a folded request follows the same-account link to its survivor. The card distinguishes mail not connected, monitoring off, loading, empty, catching up (quiet text) and needs attention (one sentence with one action); stale same-account content stays visible during a background refresh, and an incomplete scan is never presented as empty or complete.
 
 Mark done, reminder edits, Snooze, and Dismiss return committed revisions before the UI claims success. A proposed call stays `not_booked`. Review meeting passes the selected account and available details to the existing Calendar booking preview; any missing details are requested. Opening a review never executes the proposal. Only the existing explicit confirm path can create an event, and its returned provider event ID is the booked outcome.
+
+## Temporal eligibility, restated obligations and reassessment
+
+Status: source contract for assessment version 4 and migration 454. Source and
+disposable-PostgreSQL tests prove the host's enforcement; they do not establish how a
+live model judges real mail, and no shared database has had 454 applied.
+
+**Which list a request is in** is computed from the clock and the stored verdict on every
+read, in SQL, before the page is chosen, so an expired item can never occupy a slot that
+is then hidden by the client. Nothing is marked done, dismissed or deleted because a date
+passed. The owner's local day comes from the monitor's time zone. A deadline stated as
+"before" a date passes at the start of that date, matching reminder expiry.
+
+| View | A live, un-merged request is in it when |
+| --- | --- |
+| `upcoming` (default) | dated today or later with an unpassed deadline; or undated, the owner's or urgent, and first seen within 45 days |
+| `overdue` | past its deadline, the owner's own, not a meeting proposal, and `after_date` is `owed` or `unspecified` |
+| `snoozed` | snoozed until a time that has not come; it returns to its date-based list when that time passes |
+| `history` | closed by the owner or its source; a lapsed opportunity (`after_date=lapses`); a past meeting proposal; work that is not the owner's; an undated ask older than 45 days |
+
+Earlier rows default to `after_date=unspecified`. A past non-meeting obligation
+assigned to the owner remains Overdue when its date effect is unknown. `upcoming` is ranked by
+verified urgency or a deadline within seven days, then later dates, then undated work; within
+that, owner-assigned work first, then the earlier date, then fewer recorded ambiguities (the
+only confidence signal the ledger holds). The full view pages 15 conversations
+(`FOLLOWUP_PAGE_SIZE`); the compact Insights card shows the first two of `upcoming`.
+
+**Semantic contract.** The extraction child decides what is asked of the owner, whether the
+date is an event or a deadline, and what passing the date means. The new typed fields are
+`category=scheduled_event` (a confirmed test or appointment, its own request with its own
+date, never the registration deadline), `after_date` (`owed`, `lapses`, `unspecified`) and
+`supersedes_request_id`. The host only validates: an event with no date is dropped; a
+replacement is honoured only for a request ID the model was offered, and an unknown ID
+leaves the candidate as its own request. Promotions, plan or product notices, security
+findings and unassigned automated mail remain excluded by the model's relevance verdict; a
+date or the word urgent never admits a request.
+
+**One obligation, many emails.** A request that restates another is folded into the earliest
+one (`merged_into`, hidden from lists, own sealed source kept) only when owner, account,
+kind, category, responsibility, date relation, dates and sender domain agree, and the titles
+share the same numbers and contain no conflicting terms. Each absorbed request must match
+the survivor itself. A model-named replacement also needs the same conversation and kind,
+matching wording, and a message newer than the target's latest source revision. Two
+candidates claiming one request replace nothing.
+Ambiguous matches stay separate. Done, dismissed, a future snooze and a future manual
+reminder move onto the survivor; a merged request keeps no reminder, so one obligation
+alerts once.
+
+**Reassessment is bounded.** Raising the assessment version re-reads only messages that
+still back a visible request created under an older version, through the existing
+`reassess` scan mode and its checkpoints (scan progress is preserved). A message that
+backs no visible request was already judged not to be Calendar work and is never re-read;
+there is no mailbox rescan. A reassessed request is upgraded in place with its state,
+reminders and manual choices untouched, or hidden (`suppressed_at`, reason
+`reassessed_not_relevant`) when the current contract no longer supports it.
+**Older suppressed records are not reconsidered automatically.** If the new contract is
+suspected of having been too strict about them, reconsideration must be a targeted,
+owner-visible action over a named message set, not a rescan; none is built here.
+
+**Migration 454** (`454_calendar_email_followup_temporal.sql`) is additive: `after_date`
+(defaulted), `merged_into`, the `scheduled_event` category and two partial indexes. The
+previous producer's INSERT shape still works against the expanded schema. Its rollback
+hides scheduled events instead of deleting them and drops the two columns, so a
+rolled-back row reads `unspecified`; the rollback is not zero-loss once real
+assessment history exists. The UAT port adds 454 after its existing release head 451.
+The migration owner reconfirms numbering against the latest target before release.
+
+**Stage B handoff.** The read-only Chat boundary is unchanged: nothing here adds a Chat
+tool, proposal or write. Scope request-level discovery to the authenticated owner,
+selected Calendar account, current monitor generation and current Mail grant. Use the
+admitted turn clock and read only `suppressed_at IS NULL AND merged_into IS NULL`. The
+read can use `after_date` and the `bucket` projection (`upcoming|overdue|snoozed|history`)
+directly. Treat `view` as an optional parameter defaulting to `upcoming`. The list reports
+`view_counts` across all four views and paginates conversations. Detail exposes
+the request's `bucket`, `after_date` and `repeat_count`. Existing reminder links resolve
+to the current same-account `request_id`. The separate `/source/link` route returns an
+exact Gmail reference with a current grant check.
 
 ## Acceptance and rollout gates
 
