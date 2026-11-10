@@ -9104,6 +9104,15 @@ body[data-persona-surface="ria"] {
   white-space: nowrap !important;
 }
 
+/* Check-In labels can include a recipient count. Let the full-width action
+   grow if enlarged text cannot fit on a single line. */
+[data-location-action-fit],
+[data-location-action-fit] .ui-text-button-label {
+  min-width: 0;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
 /* Connect's directory headings and contact-sync action are peers even though
    they use different primitives. Keep one control voice on every viewport. */
 .connect-section-control-label {

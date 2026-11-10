@@ -47,13 +47,13 @@ test.beforeAll(async () => {
   });
   css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
-async function mount(page: Page, dark = false, workspace = false) {
+async function mount(page: Page, dark = false, workspace = false, inviteCode = false) {
   await page.route("http://localhost/fixture-person-*.webp", (route) => {
     const index = Number(route.request().url().match(/person-(\d+)/)![1]);
     return route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${index + 1}.webp`)) });
   });
   await page.route("http://localhost/circle-chat-fixture*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`http://localhost/circle-chat-fixture${workspace ? "?workspace=1" : ""}`);
+  await page.goto(`http://localhost/circle-chat-fixture${workspace ? `?workspace=1${inviteCode ? "&inviteCode=1" : ""}` : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
@@ -81,6 +81,55 @@ async function openMessageOptions(page: Page, message: Locator) {
 }
 
 registerCircleChatKeyboardCases({ mount, openMessageOptions });
+
+for (const { width, dark } of [{ width: 320, dark: false }, { width: 393, dark: true }, { width: 768, dark: false }]) {
+  test(`Invite code keeps a compact action hierarchy at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, dark, true, true);
+    await page.getByRole("tab", { name: "Members", exact: true }).click();
+    await page.getByTestId("one-location-circle-invite-code-row").click();
+    const sheet = page.getByRole("dialog", { name: "Invite code", exact: true });
+    const share = sheet.getByRole("button", { name: "Share invite", exact: true });
+    const copy = sheet.getByRole("button", { name: "Copy code", exact: true });
+    const replace = sheet.getByRole("button", { name: "Replace code", exact: true });
+    await expect(share).toBeVisible();
+    const actions = await sheet.locator('[data-ui-role="flow-actions"] button').evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const box = button.getBoundingClientRect();
+        const style = getComputedStyle(button);
+        const icon = button.querySelector("svg");
+        return {
+          priority: button.closest("[data-action-priority]")?.getAttribute("data-action-priority"),
+          width: box.width,
+          height: box.height,
+          contained: box.left >= 0 && box.right <= innerWidth && button.scrollWidth <= button.clientWidth + 1,
+          fill: style.backgroundColor,
+          color: style.color,
+          iconFill: icon ? getComputedStyle(icon).fill : null,
+        };
+      }),
+    );
+    expect(actions.map(({ priority }) => priority)).toEqual(["primary", "secondary", "tertiary"]);
+    expect(actions.every(({ width: w, height, contained }) => w >= 44 && height >= 44 && contained)).toBe(true);
+    expect(actions.every(({ width: w }) => w < 180)).toBe(true);
+    expect(actions[0].iconFill).toBe(actions[0].color);
+    expect(actions[0].fill).not.toBe("rgba(0, 0, 0, 0)");
+    expect(actions[1].fill).toBe("rgba(0, 0, 0, 0)");
+    expect(actions[2].fill).toBe("rgba(0, 0, 0, 0)");
+
+    await replace.scrollIntoViewIfNeeded();
+    const before = (await replace.boundingBox())!;
+    await replace.hover();
+    await expect(replace).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const after = (await replace.boundingBox())!;
+    expect(after.width).toBeCloseTo(before.width, 0);
+    expect(after.height).toBeCloseTo(before.height, 0);
+    await copy.focus();
+    await page.keyboard.press("Tab");
+    await expect(replace).toBeFocused();
+    await sheet.screenshot({ path: testInfo.outputPath("invite-code-hierarchy.png") });
+  });
+}
 
 for (const width of [320, 393, 768, 1440]) test(`short circle messages keep timestamps inline at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });

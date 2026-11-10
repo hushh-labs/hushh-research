@@ -5,6 +5,10 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { HelperText, MediumRowLabel } from "@/components/app-ui/typography";
 
+/** Quiet dismissal and tertiary actions retain their hit area and focus ring. */
+export const QUIET_FLOW_ACTION_CLASSNAME =
+  "border-transparent bg-transparent text-[color:var(--app-accent)] shadow-none transition-[color,opacity] hover:bg-transparent hover:text-[color:var(--app-accent-hover)] active:opacity-75";
+
 type FlowActionGroupProps = {
   primary: ReactNode;
   secondary?: ReactNode;

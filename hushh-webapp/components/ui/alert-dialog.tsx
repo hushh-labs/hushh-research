@@ -209,10 +209,11 @@ function AlertDialogCancel({
   className,
   variant = "outline",
   size = "default",
+  disableHoverRipple = false,
   children,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel> &
-  Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
+  Pick<React.ComponentProps<typeof Button>, "variant" | "size" | "disableHoverRipple">) {
   const ripple = rippleVariantForButtonVariant(variant)
   return (
     <Button variant={variant} size={size} asChild showRipple={false}>
@@ -224,7 +225,7 @@ function AlertDialogCancel({
         <span className="relative z-10 inline-flex items-center justify-center gap-2">
           {children}
         </span>
-        <MaterialRipple variant={ripple.variant} effect={ripple.effect} className="z-0" />
+        <MaterialRipple variant={ripple.variant} effect={ripple.effect} disableHover={disableHoverRipple} className="z-0" />
       </AlertDialogPrimitive.Cancel>
     </Button>
   )

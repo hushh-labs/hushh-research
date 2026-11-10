@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { cn } from "@/lib/utils";
+import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { DirectoryMutualLine } from "@/components/connect/connect-person-row";
 import { ConnectionsService, type NetworkPerson } from "@/lib/services/connections-service";
@@ -48,7 +50,7 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
   };
   return <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 px-2.5 py-1.5 sm:gap-x-3 sm:px-3">
     <div className="min-w-0">
-      <button type="button" data-network-person={person.publicPersonRef} aria-label={`Open ${name}'s profile`} className="flex min-h-11 w-full items-center gap-2 rounded-lg py-1 text-left focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:hover:bg-muted/50" onClick={event => onOpen(event.currentTarget)}>
+      <button type="button" data-network-person={person.publicPersonRef} aria-label={`Open ${name}'s profile`} className={cn("flex min-h-11 w-full items-center gap-2 rounded-lg py-1 text-left focus-visible:ring-2 focus-visible:ring-ring", PERSON_ROW_FEEDBACK_CLASSNAME)} onClick={event => onOpen(event.currentTarget)}>
         <ConnectionPersonAvatar label={name} photoUrl={person.photoUrl} size="list" className="size-9" />
         <span className="min-w-0 text-sm leading-snug font-medium [overflow-wrap:anywhere] sm:text-base">
           {name}{person.networkDegree ? <> <span className="whitespace-nowrap text-xs font-normal text-muted-foreground">· {person.networkDegree === 1 ? "1st" : person.networkDegree === 2 ? "2nd" : "3rd"}</span></> : null}

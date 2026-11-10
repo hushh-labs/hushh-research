@@ -136,7 +136,8 @@ import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-
 import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
+import { FlowActionGroup, QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import {
   ConnectionsService,
   type ConnectionAudience,
@@ -3019,7 +3020,8 @@ export default function ConnectPageClient() {
           useWebDirectoryPopover ? "rounded-[12px]" : "rounded-[10px]",
           active
             ? "font-semibold text-[color:var(--app-accent)]"
-            : "font-normal text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+            : "font-normal text-[color:var(--app-primary-label)]",
+          PERSON_ROW_FEEDBACK_CLASSNAME,
         )}
         onClick={() => {
           setTab(option.value);
@@ -4219,7 +4221,8 @@ export default function ConnectPageClient() {
                     variant="none"
                     effect="fade"
                     size="standard"
-                    className="min-w-[96px]"
+                    className={cn("min-w-[96px]", QUIET_FLOW_ACTION_CLASSNAME)}
+                    disableHoverRipple
                     disabled={isConnectingMultiple}
                     onClick={closeBatchConnectDraft}
                   >
@@ -4248,7 +4251,7 @@ export default function ConnectPageClient() {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel size="standard" disabled={Boolean(busyId)}>
+              <AlertDialogCancel variant="ghost" size="standard" disableHoverRipple className={QUIET_FLOW_ACTION_CLASSNAME} disabled={Boolean(busyId)}>
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
@@ -4288,7 +4291,8 @@ export default function ConnectPageClient() {
                 variant="none"
                 effect="fade"
                 size="compact"
-                className="text-muted-foreground hover:bg-muted"
+                className={QUIET_FLOW_ACTION_CLASSNAME}
+                disableHoverRipple
                 onClick={() => setShowLimitBanner(false)}
               >
                 Cancel
