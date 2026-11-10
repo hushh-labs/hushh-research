@@ -817,48 +817,103 @@ describe("onboarding code presentation", () => {
 
 
 describe("phone conflict recovery", () => {
-  it.each(["PHONE_ALREADY_VERIFIED", "PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "credential-already-in-use", "auth/phone-number-already-exists"])("keeps an occupied phone on its existing email account: %s", async code => {
-    const transfer = vi.fn(); const remove = vi.fn(); const recover = vi.fn(); const reviewDeletion = vi.fn();
-    const flow = renderPhoneVerificationFlow({ confirmTransfer: transfer, confirmLinkedDeletion: remove, recoverPreviousAccount: recover,
-      deletePreviousAccount: reviewDeletion,
-      confirmVerification: vi.fn().mockRejectedValue(code.startsWith("PHONE_") ? new ApiError("Conflict", 409, { detail: { code } }) : Object.assign(new Error("Occupied"), { code })) });
-    const otp = await reachCodeStep(flow.startVerification);
-    fireEvent.change(otp, { target: { value: "123456" } }); fireEvent.submit(otp.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
-    expect(reviewDeletion).toHaveBeenCalledWith("+16505550101");
-    expect(recover).not.toHaveBeenCalled();
-    for (const label of ["Use this number on this account", "Send a real SMS code", "Recover my previous account", "Sign in to existing account", "Review previous device access", "Account options"]) {
-      expect(screen.queryByRole("button", { name: label })).toBeNull();
+  it("requires explicit transfer review and confirmation while preserving the old account", async () => {
+    const transfer = vi.fn().mockResolvedValue({ uid: "receiving-user" });
+    const flow = renderPhoneVerificationFlow({ confirmTransfer: transfer, confirmVerification: vi.fn().mockRejectedValue(
+      Object.assign(new ApiError("Conflict", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }), { phoneProofAvailable: true })) });
+    const code = await reachCodeStep(flow.startVerification);
+    fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
+    expect(transfer).not.toHaveBeenCalled();
+    expect(screen.getByText(/moving the phone link keeps both accounts, files and vaults/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(transfer).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use this number on this account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm phone transfer" }));
+    await waitFor(() => expect(flow.onCompleted).toHaveBeenCalledWith({ uid: "receiving-user" }));
+    expect(transfer).toHaveBeenCalledOnce();
+  });
+  it("recovery never transfers and provider failure never opens account conflict choices", async () => {
+    const recover = vi.fn(); const transfer = vi.fn();
+    const flow = renderPhoneVerificationFlow({ confirmTransfer: transfer, recoverPreviousAccount: recover, confirmVerification: vi.fn().mockRejectedValue(
+      Object.assign(new ApiError("Conflict", 409, { detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }), { phoneProofAvailable: true })) });
+    const code = await reachCodeStep(flow.startVerification);
+    fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Recover my previous account" }));
+    expect(recover).toHaveBeenCalledOnce(); expect(transfer).not.toHaveBeenCalled();
+    expect(flow.onCompleted).not.toHaveBeenCalled(); flow.unmount();
+    const outage = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(new ApiError("Unavailable", 503, { code: "DATABASE_UNAVAILABLE" })) });
+    const next = await reachCodeStep(outage.startVerification);
+    fireEvent.change(next, { target: { value: "123456" } }); fireEvent.submit(next.closest("form")!);
+    await waitFor(() => expect(outage.confirmVerification).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("button", { name: "Use this number on this account" })).not.toBeInTheDocument();
+  });
+  it.each([
+    ["start", "credential-already-in-use"],
+    ["start", "auth/phone-number-already-exists"],
+    ["confirm", "credential-already-in-use"],
+    ["confirm", "auth/phone-number-already-exists"],
+  ])("opens the choices for a provider ownership error on %s (%s) without enabling a transfer", async (handler, code) => {
+    const owned = Object.assign(new Error("That number is already on another Hussh account."), { code });
+    const flow = renderPhoneVerificationFlow(handler === "start"
+      ? { startVerification: vi.fn().mockRejectedValue(owned), confirmTransfer: vi.fn() }
+      : { confirmVerification: vi.fn().mockRejectedValue(owned), confirmTransfer: vi.fn() });
+    if (handler === "start") {
+      fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), { target: { value: "6505550101" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    } else {
+      const entry = await reachCodeStep(flow.startVerification);
+      fireEvent.change(entry, { target: { value: "123456" } }); fireEvent.submit(entry.closest("form")!);
     }
-    expect(transfer).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled(); expect(flow.onCompleted).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "Recover my previous account" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete my previous account" })).toBeEnabled();
+    // A provider error carries no retained proof, so only a fresh real SMS can lead to a transfer.
+    expect(screen.getByRole("button", { name: "Use this number on this account" })).toBeDisabled();
+    const sent = flow.startVerification.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Send a real SMS code" }));
+    await waitFor(() => expect(flow.startVerification).toHaveBeenCalledTimes(sent + 1));
+    expect(flow.onCompleted).not.toHaveBeenCalled();
   });
-  it("admits deletion review once and refuses a callback retained after its owner retires", async () => {
-    let finish!: () => void;
-    let ownerCurrent = true;
-    const review = vi.fn().mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
-    const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "link", isCurrent: () => ownerCurrent,
-      startVerification: vi.fn().mockResolvedValue({ autoVerified: false }), deletePreviousAccount: review,
-      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Conflict", 409, { code: "PHONE_ALREADY_VERIFIED" })), onCompleted: vi.fn() }));
-    await act(async () => { await result.current.handleStartVerification(false, "+16505550101"); });
-    await act(async () => { await result.current.submitVerificationCode("123456", { notify: false }); });
-    const retained = result.current.reviewPreviousDeletion;
-    let pending!: Promise<void>;
-    act(() => { pending = retained(); void retained(); });
-    expect(review).toHaveBeenCalledExactlyOnceWith("+16505550101");
-    expect(result.current.busy).toBe(true);
-    await act(async () => { finish(); await pending; });
-    ownerCurrent = false;
-    await act(async () => { await retained(); });
-    expect(review).toHaveBeenCalledOnce();
-  });
-  it("returns from an occupied number to phone entry through Back", async () => {
+  // Boundary guard: only ownership conflicts open the choices, never other provider errors.
+  it.each(["provider-already-linked", "auth/invalid-verification-code", "account-exists-with-different-credential"])(
+    "keeps code entry for the non-ownership provider error %s", async code => {
+      const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(Object.assign(new Error("x"), { code })) });
+      const entry = await reachCodeStep(flow.startVerification);
+      fireEvent.change(entry, { target: { value: "123456" } }); fireEvent.submit(entry.closest("form")!);
+      await waitFor(() => expect(flow.confirmVerification).toHaveBeenCalledOnce());
+      expect(screen.queryByRole("button", { name: "Recover my previous account" })).not.toBeInTheDocument();
+    });
+});
+
+
+describe("phone transfer temporal and Back contracts", () => {
+  it("rejects retained review confirmation after Back and consumes Back while pending", async () => {
+    const transfer = vi.fn().mockRejectedValue(new ApiError("pending", 503, { code: "PHONE_TRANSFER_IN_PROGRESS" }));
     const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",
       startVerification: vi.fn().mockResolvedValue({ autoVerified: false }),
-      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Conflict", 409, { code: "PHONE_ALREADY_VERIFIED" })), onCompleted: vi.fn() }));
+      confirmVerification: vi.fn().mockRejectedValue(Object.assign(new ApiError("conflict", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }), { phoneProofAvailable: true })),
+      confirmTransfer: transfer, onCompleted: vi.fn() }));
     await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
     await act(async () => { await result.current.submitVerificationCode("123456", { notify: false }); });
     expect(result.current.conflict).toBe("choices");
+    act(() => { result.current.reviewTransfer(); });
+    const retainedConfirm = result.current.handleTransfer;
+    act(() => { result.current.returnToPhoneNumber(); });
+    expect(result.current.conflict).toBe("choices");
+    await act(async () => { await retainedConfirm(); });
+    expect(transfer).not.toHaveBeenCalled();
+    act(() => { result.current.reviewTransfer(); });
+    await act(async () => { await result.current.handleTransfer(); });
+    expect(result.current.transferPending).toBe(true);
     act(() => { expect(result.current.returnToPhoneNumber()).toBe(true); });
-    expect(result.current.conflict).toBeNull(); expect(result.current.step).toBe("phone");
+    expect(result.current.conflict).toBe("review");
+    expect(transfer).toHaveBeenCalledTimes(1);
+  });
+  it("shared test conflicts cannot offer a transfer without real SMS proof", async () => {
+    const { startVerification } = renderPhoneVerificationFlow({ startVerification: vi.fn().mockRejectedValue(new ApiError("test number in use", 409, { code: "PHONE_TEST_NUMBER_IN_USE" })), confirmTransfer: vi.fn() });
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), { target: { value: "6505550101" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    expect(await screen.findByRole("button", { name: "Use this number on this account" })).toBeDisabled();
+    expect(startVerification).toHaveBeenCalledTimes(1);
   });
 });

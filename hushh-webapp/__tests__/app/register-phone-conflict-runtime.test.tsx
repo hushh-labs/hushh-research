@@ -55,6 +55,10 @@ describe("register-phone conflict runtime", () => {
   afterEach(cleanupWebAuthMocks);
 
   it("survives real reCAPTCHA setup, phone claim conflict and Back without replacing React-owned DOM", async () => {
+    mocks.phoneLinkConfirm.mockImplementationOnce(async ({ onConflictProof }) => {
+      onConflictProof("verified-conflict-proof");
+      throw Object.assign(new Error("Phone held"), { code: "credential-already-in-use" });
+    });
     const navigate = vi.fn();
     render(<Boundary><AuthProvider><AgentRuntimeStateProvider>
       <PhoneMandatePageContent /><RuntimeProbe /><Navbar /><AppEdgeBackGesture />
@@ -66,8 +70,12 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    await screen.findByRole("button", { name: "Delete my previous account" });
+    const review = await screen.findByRole("button", { name: "Use this number on this account" });
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:phone_conflict:back"));
+    fireEvent.click(review);
+    await screen.findByRole("heading", { name: "Use this number on this account?" });
+    fireEvent.click(screen.getByRole("button", { name: "Shell Back" }));
+    await screen.findByRole("heading", { name: "This number is linked to another account" });
     fireEvent.click(screen.getByRole("button", { name: "Shell Back" }));
     await screen.findByRole("textbox", { name: "Phone number" });
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:none:no_back"));
@@ -75,16 +83,30 @@ describe("register-phone conflict runtime", () => {
     expect(screen.queryByText("Phone render failed")).toBeNull();
     expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
     expect(mocks.identityClaim).not.toHaveBeenCalled();
-    expect(mocks.phoneFinalize).toHaveBeenCalledOnce();
-    expect(fetch).toHaveBeenCalledWith("/api/account/identity/refresh?require_success=true", expect.objectContaining({ method: "POST", body: JSON.stringify({ verified_phone_number: "+16505550101" }) }));
+    expect(mocks.phoneFinalize).not.toHaveBeenCalled();
+    expect(mocks.phoneLinkConfirm).toHaveBeenCalledOnce();
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
-  it.each(["delete"] as const)("creates a server-bound %s review continuation before leaving the current account", async (action) => {
+  it("requires explicit fresh SMS when ordinary linking succeeds but the app claim conflicts", async () => {
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    const phone = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phone, { target: { value: "6505550101" } });
+    fireEvent.submit(phone.closest("form")!);
+    const code = await screen.findByRole("textbox", { name: "One-time code" });
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.submit(code.closest("form")!);
+    expect(await screen.findByRole("button", { name: "Use this number on this account" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send a real SMS code" })).toBeEnabled();
+    expect(mocks.phoneFinalize).toHaveBeenCalledOnce();
+    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
+  });
+  it.each(["recover", "delete", "revoke"] as const)("creates a server-bound %s continuation before leaving the current account", async (action) => {
     const continuationId = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/phone/recovery/continuations")
       ? Response.json({ continuation_id: continuationId, state: "awaiting_previous_sign_in", expires_at: "2099-01-01T00:00:00Z" })
-      : String(url).endsWith("/linked-account/deletions")
+      // While in-place deletion is off (production today), Delete keeps the sign-in handoff.
+      : String(url).endsWith("/phone/linked-account/deletions")
         ? Response.json({ detail: { code: "PHONE_LINKED_DELETION_UNAVAILABLE" } }, { status: 503 })
         : Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 }));
     render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
@@ -94,7 +116,7 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
+    fireEvent.click(await screen.findByRole("button", { name: action === "delete" ? "Delete my previous account" : action === "revoke" ? "Review previous device access" : "Recover my previous account" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/account/phone/recovery/continuations", expect.objectContaining({
       method: "POST", body: JSON.stringify({ action, phone_number: "+16505550101" }),
     })));
@@ -104,59 +126,30 @@ describe("register-phone conflict runtime", () => {
     expect(destination.searchParams.get("redirect")).toBe(`/register-phone?recovery=${continuationId}`);
     expect(destination.href).not.toContain("6505550101");
     expect(destination.href).not.toContain("123456");
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/linked-account/deletions/confirm") || String(url).includes("/delete-lost-vault"))).toBe(false);
   });
-  it("@feature_account_deletion requests in-place deletion with the retained SMS proof and never claims the number with it", async () => {
-    mocks.phoneLinkConfirm.mockImplementationOnce(async ({ onConflictProof }) => {
+  it("deletes the linked account in place with the retained SMS proof, then claims the number", async () => {
+    const operation = "d2a5e0f0-8c5e-4f2c-9a51-3f0d6b5f9a11";
+    const bodies: Record<string, unknown>[] = [];
+    let claims = 0;
+    const identity = await vi.importActual<typeof import("@/lib/services/account-identity-service")>("@/lib/services/account-identity-service");
+    const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
+    Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone });
+    mocks.identityClaim.mockImplementation(identity.AccountIdentityService.claimCurrentUserPhone.bind(identity.AccountIdentityService));
+    mocks.phoneLinkConfirm.mockImplementation(async ({ onConflictProof }) => {
       onConflictProof("phone-id-token");
-      throw Object.assign(new Error("Phone held"), { code: "credential-already-in-use" });
+      throw Object.assign(new Error("Phone is held by another Firebase identity"), { code: "auth/credential-already-in-use" });
     });
-    const operation = "5f0c2a64-3c1e-4f5a-9f43-2a8f0c8e7b11";
-    vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/linked-account/deletions")
-      ? Response.json({ operation_id: operation, state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport: "sms" })
-      : String(url).endsWith("/linked-account/deletions/confirm")
-        ? Response.json({ operation_id: operation, state: "admitted" })
-        : Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 }));
-    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
-    const phone = await screen.findByRole("textbox", { name: "Phone number" });
-    fireEvent.change(phone, { target: { value: "6505550101" } });
-    fireEvent.submit(phone.closest("form")!);
-    const code = await screen.findByRole("textbox", { name: "One-time code" });
-    fireEvent.change(code, { target: { value: "123456" } });
-    fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
-    const remove = await screen.findByRole("button", { name: "Delete that account" });
-    expect(remove).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
-    fireEvent.click(remove); fireEvent.click(remove);
-    await screen.findByRole("heading", { name: "Deletion requested" });
-    const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => ({ url: String(url), body: String(init?.body ?? "") }));
-    const confirms = calls.filter(call => call.url.endsWith("/linked-account/deletions/confirm"));
-    expect(confirms).toHaveLength(1);
-    expect(JSON.parse(confirms[0]!.body)).toEqual({ operation_id: operation, phone_number: "+16505550101", confirmed: true, phone_id_token: "phone-id-token" });
-    // Negative control: the spent proof belongs to the previous holder and never claims the number here.
-    expect(calls.filter(call => call.url.endsWith("/api/account/phone/claim"))).toHaveLength(0);
-    expect(calls.some(call => call.url.includes("/recovery/continuations"))).toBe(false);
-    expect(mocks.replaceDocument).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Verify this number again" }));
-    await screen.findByRole("textbox", { name: "Phone number" });
-    expect(mocks.routerReplace).not.toHaveBeenCalled();
-  });
-  it("@feature_account_deletion reads a lost confirmation back with Check again and never sends it twice", async () => {
-    mocks.phoneLinkConfirm.mockImplementationOnce(async ({ onConflictProof }) => {
-      onConflictProof("phone-id-token");
-      throw Object.assign(new Error("Phone held"), { code: "credential-already-in-use" });
-    });
-    const operation = "5f0c2a64-3c1e-4f5a-9f43-2a8f0c8e7b12";
-    let admitted = false;
-    vi.mocked(fetch).mockImplementation(async (url) => {
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
       const path = String(url);
-      if (path.endsWith("/linked-account/deletions")) {
+      if (init?.body) bodies.push({ path, ...JSON.parse(String(init.body)) });
+      if (path.endsWith("/phone/linked-account/deletions")) {
         return Response.json({ operation_id: operation, state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport: "sms" });
       }
-      // The confirmation's response is lost; the server may still be running it.
-      if (path.endsWith("/linked-account/deletions/confirm")) throw new TypeError("Failed to fetch");
-      if (path.endsWith(`/linked-account/deletions/${operation}`)) return Response.json({ operation_id: operation, state: admitted ? "admitted" : "prepared" });
+      if (path.endsWith("/phone/linked-account/deletions/confirm")) return Response.json({ operation_id: operation, state: "admitted" });
+      if (path.endsWith("/phone/claim") && ++claims === 1) {
+        return Response.json({ success: true, user_id: "account-owner", phone_verified: true,
+          identity: { user_id: "account-owner", phone_number: "+16505550101", phone_verified: true } });
+      }
       return Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 });
     });
     render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
@@ -167,23 +160,74 @@ describe("register-phone conflict runtime", () => {
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
     fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "I understand this can’t be undone." }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete that account" }));
-    // "prepared" after a lost response can still be admitted: unconfirmed, with no Cancel and no second confirmation.
-    const check = await screen.findByRole("button", { name: "Check again" }, { timeout: 4_000 });
-    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete that account" })).toBeNull();
-    admitted = true;
-    fireEvent.click(check);
-    await screen.findByRole("heading", { name: "Deletion requested" });
-    const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => ({ url: String(url), method: init?.method ?? "GET", body: String(init?.body ?? "") }));
-    // Negative control: the old Check again sent the proof in a second confirmation.
-    expect(calls.filter(call => call.url.endsWith("/linked-account/deletions/confirm"))).toHaveLength(1);
-    const reads = calls.filter(call => call.url.endsWith(`/linked-account/deletions/${operation}`));
-    expect(reads.length).toBeGreaterThanOrEqual(2);
-    expect(reads.every(call => call.method === "GET" && !call.body.includes("phone-id-token"))).toBe(true);
-    expect(calls.filter(call => call.url.endsWith("/api/account/phone/claim"))).toHaveLength(0);
-  }, 10_000);
+    await screen.findByRole("heading", { name: "Delete the account linked to ••01?" });
+    const remove = screen.getByRole("button", { name: "Delete and continue" });
+    expect(remove).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
+    fireEvent.click(remove);
+    await waitFor(() => expect(claims).toBe(1));
+    expect(bodies.find(body => String(body.path).endsWith("/deletions/confirm"))).toEqual({
+      path: "/api/account/phone/linked-account/deletions/confirm", operation_id: operation,
+      phone_number: "+16505550101", confirmed: true, phone_id_token: "phone-id-token",
+    });
+    // The verified provider-conflict proof serves deletion and the single follow-up claim.
+    expect(mocks.phoneLinkConfirm).toHaveBeenCalledOnce();
+    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
+    expect(bodies.some(body => String(body.path).endsWith("/phone/recovery/continuations"))).toBe(false);
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
+  });
+  it.each(["manual", "instant", "retry save"] as const)("keeps Dev's explicit %s SMS recovery and owner-approved transfer for a partially saved phone", async proofMode => {
+    const identity = await vi.importActual<typeof import("@/lib/services/account-identity-service")>("@/lib/services/account-identity-service");
+    const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
+    const { AuthService } = await import("@/lib/services/auth-service");
+    const { AccountIdentityService } = await import("@/lib/services/account-identity-service");
+    mocks.firebaseUser = makeUser("account-owner", "+16505550101");
+    const sendProof = vi.fn().mockResolvedValue(proofMode === "instant" ? { phoneIdToken: "fresh-recovery-proof" } : { verificationId: "fresh-proof-challenge" });
+    const confirmProof = vi.fn().mockResolvedValue("fresh-recovery-proof");
+    Object.assign(AuthService, { startPhoneDeletionVerification: sendProof, confirmPhoneDeletionVerification: confirmProof });
+    Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone, phoneTransferRequest: api.ApiService.phoneTransferRequest });
+    Object.assign(AccountIdentityService, { transferCurrentUserPhone: identity.AccountIdentityService.transferCurrentUserPhone.bind(identity.AccountIdentityService) });
+    mocks.identityClaim.mockImplementation(identity.AccountIdentityService.claimCurrentUserPhone.bind(identity.AccountIdentityService));
+    const bodies: { path: string; [key: string]: unknown }[] = [];
+    let claims = 0;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (init?.body) bodies.push({ path, ...JSON.parse(String(init.body)) });
+      if (path.endsWith("/phone/claim") && ++claims === 1 && proofMode === "retry save") return Response.json({ detail: { code: "PHONE_IDENTITY_SAVE_FAILED" } }, { status: 503 });
+      if (path.endsWith("/phone/transfer/prepare")) return Response.json({ transfer_id: "verified-transfer" });
+      if (path.endsWith("/phone/transfer/confirm")) return Response.json({ transfer_status: "completed", identity: {
+        user_id: "account-owner", phone_verified: true, phone_number: "+16505550101",
+      } });
+      return Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 });
+    });
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    const phone = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phone, { target: { value: "6505550101" } });
+    fireEvent.submit(phone.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Send a real SMS code" }));
+    if (proofMode !== "instant") {
+      const code = await screen.findByRole("textbox", { name: "One-time code" });
+      fireEvent.change(code, { target: { value: "123456" } });
+      fireEvent.submit(code.closest("form")!);
+      if (proofMode === "retry save") {
+        await waitFor(() => expect(claims).toBe(1));
+        await waitFor(() => expect(code.closest("form")!.querySelector('button[type="submit"]')).not.toBeDisabled());
+        fireEvent.submit(code.closest("form")!);
+      }
+    }
+    fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm phone transfer" }));
+    await waitFor(() => expect(bodies.some(body => body.path.endsWith("/phone/transfer/confirm"))).toBe(true));
+    expect(bodies.filter(body => body.path.includes("/phone/transfer/"))).toEqual([
+      { path: "/api/account/phone/transfer/prepare", phone_id_token: "fresh-recovery-proof", expected_user_id: "account-owner" },
+      { path: "/api/account/phone/transfer/confirm", phone_id_token: "fresh-recovery-proof", expected_user_id: "account-owner", transfer_id: "verified-transfer", confirmed: true },
+    ]);
+    expect(sendProof).toHaveBeenCalledOnce();
+    expect(confirmProof).toHaveBeenCalledTimes(proofMode === "instant" ? 0 : 1);
+    expect(mocks.phoneLinkStart).not.toHaveBeenCalled();
+    expect(mocks.phoneLinkConfirm).not.toHaveBeenCalled();
+    expect(bodies.some(body => body.path.includes("/deletions"))).toBe(false);
+  });
   it("keeps a wrong-owner continuation generic and never dispatches deletion", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     window.history.replaceState({}, "", `/register-phone?recovery=${id}`);
@@ -196,13 +240,13 @@ describe("register-phone conflict runtime", () => {
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
-  it("@feature_account_deletion @trace_loop returns to phone entry without permitting another email to delete the existing account", async () => {
+  it("@feature_account_deletion @trace_loop leaves the previous-account sign-in loop for the number's in-place choices", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     window.history.replaceState({}, "", `/register-phone?recovery=${id}`);
     vi.mocked(fetch).mockResolvedValue(Response.json({continuation_id: id, state: "awaiting_previous_sign_in"}));
     render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
-    fireEvent.click(await screen.findByRole("button", { name: "Use a different number" }));
-    // Back to phone entry; another account cannot delete the phone's holder.
+    fireEvent.click(await screen.findByRole("button", { name: "Verify the number here" }));
+    // Back to this account's phone form, where Delete my previous account runs in place; no sign-out handoff.
     expect(mocks.routerReplace).toHaveBeenCalledWith("/register-phone");
     expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
