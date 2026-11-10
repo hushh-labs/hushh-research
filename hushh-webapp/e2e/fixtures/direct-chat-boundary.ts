@@ -70,9 +70,10 @@ const fixture = {
   releaseReaction: () => { delayReaction = false; settleReaction?.(); settleReaction = null; },
   holdOlder: () => { delayOlder = true; }, olderPending: () => olderPending,
   releaseOlder: () => { delayOlder = false; settleOlder?.(); settleOlder = null; },
-  quoteOldest: () => {
+  quoteOldest: (messageId?: string) => {
     const items = rows.get("maya")!;
-    items.at(-1)!.replyTo = { id: items[0]!.id, content: items[0]!.content, senderIsViewer: false, deletedForEveryoneAt: null };
+    const message = messageId ? items.find(item => item.id === messageId)! : items.at(-1)!;
+    message.replyTo = { id: items[0]!.id, content: items[0]!.content, senderIsViewer: false, deletedForEveryoneAt: null };
     dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: "maya", messageId: "quote", source: "sse" });
   },
   addPhoto: () => {

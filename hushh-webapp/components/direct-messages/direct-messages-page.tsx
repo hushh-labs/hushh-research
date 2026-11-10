@@ -1554,7 +1554,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const top = list.scrollTop + target.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - target.offsetHeight) / 2;
     atBottomRef.current = false;
     list.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    target.tabIndex = -1; target.focus({ preventScroll: true });
+    const bubble = target.querySelector<HTMLElement>("[data-chat-bubble]") ?? target;
+    bubble.tabIndex = -1; bubble.focus({ preventScroll: true });
     setJumpTarget(null);
   }, [jumpTarget, messages, messageSearchQuery]);
 
