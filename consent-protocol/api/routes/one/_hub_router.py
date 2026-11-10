@@ -18,7 +18,6 @@ from .calendar import router as calendar_router
 from .calendar_email_followup_drain import router as calendar_email_followup_drain_router
 from .calendar_email_followups import router as calendar_email_followups_router
 from .calendar_workspace import router as calendar_workspace_router
-from .calls import router as calls_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
 from .circle_chat import router as circle_chat_router
@@ -100,7 +99,6 @@ router.include_router(connections_router)
 router.include_router(connection_presence_router)
 router.include_router(area_discovery_router)
 router.include_router(messages_router)
-router.include_router(calls_router)
 router.include_router(wallet_card_access_router)
 router.include_router(finance_sharing_router)
 router.include_router(calendar_router)

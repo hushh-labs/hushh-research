@@ -1,7 +1,5 @@
 # Hussh One Index
 
-People communication: [disabled People calling implementation](./people-calling.md).
-
 ## Visual Map
 
 ```mermaid

@@ -12,7 +12,7 @@ export type DirectMessagesUpdatedDetail = {
   userId: string;
   conversationId: string | null;
   messageId: string | null;
-  source: "send" | "fcm" | "sse" | "read" | "delete" | "call";
+  source: "send" | "fcm" | "sse" | "read" | "delete";
   changedAt: number;
 };
 
@@ -32,7 +32,7 @@ function normalizeDetail(
   const userId = String(value?.userId || "").trim();
   if (!userId) return null;
   const source = value?.source;
-  if (source !== "send" && source !== "fcm" && source !== "sse" && source !== "read" && source !== "delete" && source !== "call") {
+  if (source !== "send" && source !== "fcm" && source !== "sse" && source !== "read" && source !== "delete") {
     return null;
   }
   const changedAt = Number(value?.changedAt);

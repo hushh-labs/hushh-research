@@ -47,9 +47,6 @@ _GMAIL_RESOURCE_PATH_RE = re.compile(
     r"(/(?:messages|threads|drafts)/)[^/?\s\"'<>]+(?:/attachments/[^/?\s\"'<>]+)?",
     re.IGNORECASE,
 )
-_APNS_DEVICE_PATH_RE = re.compile(
-    r"(https://api(?:\.sandbox)?\.push\.apple\.com/3/device/)[^/?\s\"'<>]+", re.IGNORECASE
-)
 
 _SQL_PARAMS_MARKER = "[parameters:"
 _SQL_BACKGROUND_MARKER = "(Background on this error at:"
@@ -162,7 +159,6 @@ def _redact_sql_bound_parameters(value: str) -> str:
 def _redact_sensitive_substrings(value: str) -> str:
     redacted = _TOKEN_VALUE_RE.sub(REDACTED, value)
     redacted = _CHAT_KEY_VALUE_RE.sub(REDACTED, redacted)
-    redacted = _APNS_DEVICE_PATH_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
     redacted = _DRIVE_PERMISSION_PATH_RE.sub(
         lambda match: f"{match.group(1)}{REDACTED}{match.group(2)}{REDACTED}", redacted
     )
@@ -264,14 +260,6 @@ class SensitiveLogFilter(logging.Filter):
     """Redact secrets from runtime log records before handler formatting."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.name.startswith(("httpcore", "hpack", "h2")) and record.levelno <= logging.DEBUG:
-            # HTTP/2 debug events contain raw byte header tuples, including
-            # Authorization and APNs token paths. Their format is not a stable
-            # privacy contract; retain aggregate INFO outcomes instead.
-            record.msg = "HTTP transport debug content=" + REDACTED
-            record.args = ()
-            record.exc_info = None
-            record.exc_text = None
         sdk_record = record.name.startswith(("google_adk.", "google.adk.", "ag_ui_adk."))
         if sdk_record and record.exc_info:
             record.msg = (
