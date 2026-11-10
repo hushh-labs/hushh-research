@@ -1594,21 +1594,8 @@ binding) commits nothing and is final for that operation; a raised outcome is
 settled only from the committed full-account tombstone and is never dispatched
 again. An explicit OTP claim no longer treats a holder with a committed
 full-account deletion as an owner; background hydration and provisional
-phone-orphan intents never release a binding. Erasure of either account detaches
-that owner's raw reference from consumed receipts after its tombstone exists and
-keeps the hashed receipt and consumed proof-event digest; unconsumed operations
-cascade. Only fresh real-SMS proof authorizes deletion; the SMS deadline is
-rechecked after lock waits and under final admission. Rollback refuses to drop
-retained receipts.
-
-Real-SMS admission does not mean erasure or release of the native phone binding.
-The consumed proof belongs to the previous Firebase UID; it must never reach
-the receiving account's same-owner claim writer. The interface reports deletion
-requested, keeps the receiving account unverified and offers fresh verification
-or an exit to another number. Shared Firebase may still retain the old binding
-after local erasure; waiting alone does not make it available. Isolated Dev
-identity erasure and a fresh same-owner link require their separate native
-proofs. The configured-test continuation remains separately qualified.
+phone-orphan intents never release a binding. Erasure of either account cascades
+its receipts. Rollback refuses to drop retained receipts.
 
 Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE

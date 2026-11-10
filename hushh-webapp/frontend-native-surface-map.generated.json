@@ -1930,8 +1930,6 @@
       },
       "voice_action_contract_file": "app/login/page.voice-action-contract.json",
       "voice_action_contract_ids": [
-        "auth.deletion_done",
-        "auth.deletion_start_fresh",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",
@@ -9949,7 +9947,6 @@
         "phone_mandate.close_country_picker",
         "phone_mandate.delete_previous",
         "phone_mandate.delete_previous_cancel",
-        "phone_mandate.delete_previous_check",
         "phone_mandate.delete_previous_confirm",
         "phone_mandate.delete_previous_verify_again",
         "phone_mandate.recover",
@@ -11082,5 +11079,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "f0e707935a8d078dd50c0e7b2ed8e88d89fd3503713c7ace5d1d90ccf99f5f77"
+  "content_sha256": "6e69e214707d0a1d583ee853483c08f021c1d8199d1d3a3dbab7992828bba4ba"
 }
