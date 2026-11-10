@@ -207,7 +207,6 @@
 .assessmentProgress [data-tone="careful"] { background: var(--persona-careful); }
 .assessmentProgress [data-tone="balanced"] { background: var(--app-accent); }
 .assessmentProgress [data-tone="growth"] { background: var(--persona-growth); }
-.assessmentProgress [data-tone="planning"] { background: #70869e; }
 .assessmentProgress [data-tone="unsure"] { background: var(--muted-foreground); }
 
 .assessmentProgress [data-current="true"] {

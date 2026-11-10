@@ -117,6 +117,29 @@ export function registerAdvisorReviewChecks(
       await dialog.getByRole("radio", { name: "I can accept large swings over time" }).check();
       expect(await colors()).toEqual(["rgb(164, 95, 115)", ...Array(12).fill("rgb(220, 224, 232)")]);
       await dialog.screenshot({ path: info.outputPath("refine-persona.png") });
+
+      const answers = dialog.getByRole("radio");
+      const next = dialog.getByRole("button", { name: "Continue", exact: true });
+      const answerColors: string[] = [];
+      for (const answer of [0, 1, 2]) {
+        await answers.nth(answer).check();
+        answerColors.push((await colors())[0]!);
+      }
+      expect(new Set(answerColors).size).toBe(3);
+      await next.click();
+      for (let index = 1; index < 13; index++) {
+        if (index >= 8) {
+          for (const answer of [0, 1, 2]) {
+            await answers.nth(answer).check();
+            expect((await colors())[index]).toBe(answerColors[answer]);
+          }
+          await answers.nth(3).check();
+          await expect(dashes.nth(index)).toHaveAttribute("data-tone", "unsure");
+        } else {
+          await answers.nth(2).check();
+        }
+        if (index < 12) await next.click();
+      }
       await page.keyboard.press("Escape");
       await expect(dialog).toHaveCount(0);
 
