@@ -99,19 +99,15 @@ async function expectSharedDockFrame(page: Page) {
     const root = document.documentElement;
     const shell = document.querySelector("[data-app-bottom-shell]")!;
     const style = getComputedStyle(shell);
-    const canvas = document.querySelector("[data-direct-message-page]")!.getBoundingClientRect();
-    const sidebar = Array.from(document.querySelectorAll("[data-direct-message-page] aside"))
-      .map(node => node.getBoundingClientRect()).find(box => box.width > 0 && box.right < canvas.right);
     return {
-      start: sidebar?.right ?? canvas.left,
-      end: canvas.right,
+      width: root.clientWidth,
       maxWidth: parseFloat(getComputedStyle(root).getPropertyValue("--app-bottom-shell-max-width")),
       inset: 2 * parseFloat(style.paddingRight),
     };
   });
   const dock = (await page.locator("[data-bottom-shell-motion-stack]").boundingBox())!;
-  expect(Math.abs(dock.x + dock.width / 2 - (shared.start + shared.end) / 2), "Messages footer follows the conversation pane").toBeLessThanOrEqual(1);
-  expect(Math.abs(dock.width - Math.min(shared.maxWidth, shared.end - shared.start - shared.inset)), "Messages uses the shared footer width cap within its pane").toBeLessThanOrEqual(1);
+  expect(Math.abs(dock.x + dock.width / 2 - shared.width / 2), "Messages footer follows the shared viewport center").toBeLessThanOrEqual(1);
+  expect(Math.abs(dock.width - Math.min(shared.maxWidth, shared.width - shared.inset)), "Messages uses the shared footer width cap and insets").toBeLessThanOrEqual(1);
   for (const selector of ["[data-bottom-shell-navigation-slot]", "[data-agent-bar-shell]"]) {
     const bar = (await page.locator(selector).boundingBox())!;
     expect(Math.abs(bar.x - dock.x)).toBeLessThanOrEqual(1);
