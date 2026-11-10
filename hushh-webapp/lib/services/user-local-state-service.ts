@@ -1,6 +1,7 @@
 "use client";
 
 import { forgetMailAttentionDismissals } from "@/lib/agent/mail-attention-dismissals";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { forgetFeedDeviceState } from "@/lib/feed/feed-clear-watermark";
 import { forgetLocationMemory } from "@/lib/one-location/location-grant-memory";
 import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-service";
@@ -56,6 +57,8 @@ export class UserLocalStateService {
 
   static async clearForUser(userId: string, options: { deleteDurableReceipts?: boolean } = {}): Promise<void> {
     if (!userId) return;
+    const messageDraftCleanup = MessagesDraftService.clearForUser(userId);
+    void messageDraftCleanup.catch(() => undefined);
 
     // Confirmed Reset/delete only; ordinary sign-out/disconnect retains saved
     // receipts. Purge also fences old writes and removes pending PKM jobs.
@@ -91,6 +94,7 @@ export class UserLocalStateService {
     forgetLocationMemory(userId);
 
     const tasks: Array<Promise<unknown>> = [
+      messageDraftCleanup,
       PreVaultOnboardingService.clear(userId),
       FinanceSetupDraftService.clear(userId),
       KaiNavTourLocalService.clear(userId),

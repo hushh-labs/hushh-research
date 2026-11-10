@@ -642,3 +642,13 @@ it("blocks undecodable image bytes until removed, keeping the text draft availab
   expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Photo caption");
   expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
 });
+
+it("retires a mounted editor when the owner's Circle membership incarnation changes", async () => {
+  api.state.mockResolvedValue({ unreadCount: 1, latestSequence: 1, members: [], rosterVersion: "v1", muted: false, membershipJoinedAt: "2026-10-02T10:00:00Z" });
+  render(<CircleChat session={session} circleName="Friends" initialOpen />);
+  const editor = await screen.findByRole("textbox", { name: "Message", exact: true });
+  fireEvent.change(editor, { target: { value: "from the previous membership" } });
+  api.state.mockResolvedValue({ unreadCount: 0, latestSequence: 1, members: [], rosterVersion: "v2", muted: false, membershipJoinedAt: "2026-10-03T10:00:00Z" });
+  act(() => window.dispatchEvent(new Event("online")));
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Message", exact: true })).toHaveValue(""));
+});
