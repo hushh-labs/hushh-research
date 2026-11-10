@@ -3,36 +3,6 @@ name: repo-operations
 description: Use when working on Hussh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.
 ---
 
-## Main-owned release control
-
-Dispatch Dev, UAT and Production deployments from `main`. Application sources remain
-isolated: qualified protected `dev`, protected `uat`, and approved Main content respectively.
-Run names identify the application branch and SHA; the Actions Main badge identifies
-execution authority. Merges never deploy. UAT needs no prior Dev deployment; production
-requires qualified protected Main, compatibility and rollback without preceding UAT deployment. This operations delta
-does not publish an application, run migrations or change production traffic.
-
-Current access comes only from the live GitHub teams: ordinary review/self-service uses
-`allowed-maintainers-to-approve`; environments use their `deploy-*` team; protected CI,
-fundamental guidance and emergency authorization use `pipeline-editors`. Saved usernames
-are historical evidence, never current grants. A membership lookup failure refuses the
-operation. An organization-owner role does not replace deployment-team membership.
-
-Protected PR jobs classify affected authority without receiving membership credentials.
-Native Team review and the trusted Main merge decision enforce approval. The queue requests
-current permission at admission and completion through the existing Main broker; no PR
-observer or recurring security-alert workflow runs. Explicit Main-origin deployments use
-the protected security job directly in the same run, without a second branch broker run. Current mutation boundaries also request a bounded Main-owned
-permission recheck, so revoked actors cannot keep using an earlier clearance. These
-explicit operation checks do not scan alerts or observe ordinary PR events.
-
-Environment-scoped security secrets require explicit named pass-through at every
-reusable-workflow hop, including thin caller → implementation → security job.
-Keep both names declared and required; their values remain in `ci-security`.
-Do not remove those mappings because the caller has no environment, or replace
-them with broad secret inheritance. The existing deployment-security contract
-tests own this boundary.
-
 # Hussh Repo Operations Skill
 
 ## Purpose and Trigger
@@ -85,6 +55,8 @@ Non-owned surfaces:
 8. `.agents/skills/repo-operations/references/anti-rationalization.md`
 
 ## Workflow
+
+Follow [Main-owned release control](../../../docs/reference/operations/ci.md#main-owned-release-control) for live-team authority, exact-source admission and protected secret pass-through. Workflow execution stays on Main; application sources remain isolated; a merge never deploys.
 
 Private GCP hosting shares one immutable image. Follow `deployment-standard.md` and the dev runbook's hosted-pilot section: rendered assignments or shared inference readiness never replace durable admission, the spend ceiling, per-owner identity/custody and reconciled cleanup. The runbook also owns managed-operator erasure, frozen inspection and exact approved writer-operation readback. Its failed-bucket reconciliation procedure preserves the original journal and requires native absence before a same-name retry. Use [independent Dev publication](../../../docs/reference/operations/dev-pod-first-light-runbook.md#independent-dev-pod-publication) for separate artifact preparation and coordinated, qualified catalog activation.
 

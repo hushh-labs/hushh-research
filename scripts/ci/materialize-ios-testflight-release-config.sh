@@ -10,6 +10,11 @@ PROJECT_ID="${GCP_PROJECT_ID:-hushh-pda-uat}"
 GITHUB_ENV_PATH="${GITHUB_ENV:-}"
 RUNNER_TEMP_PATH="${RUNNER_TEMP:-}"
 PRIVACY_CONTRACT_VERSION="${ONE_VOICE_PRIVACY_CONTRACT_VERSION:-one-voice-privacy-v2}"
+INTERNAL_ONLY="${TESTFLIGHT_INTERNAL_ONLY:-false}"
+case "$INTERNAL_ONLY" in
+  true|false) ;;
+  *) echo "TESTFLIGHT_INTERNAL_ONLY must be true or false." >&2; exit 2 ;;
+esac
 
 if [[ -z "$GITHUB_ENV_PATH" || -z "$RUNNER_TEMP_PATH" ]]; then
   echo "materialize-ios-testflight-release-config requires GitHub Actions runner paths." >&2
@@ -47,14 +52,16 @@ for secret in \
   APPSTORE_CONNECT_KEY_ID \
   APPSTORE_CONNECT_ISSUER_ID \
   APPSTORE_CONNECT_INTERNAL_TESTFLIGHT_GROUP_ID \
-  APPSTORE_CONNECT_EXTERNAL_TESTFLIGHT_GROUP_ID \
-  APPSTORE_CONNECT_BETA_REVIEW_CONTACT_JSON \
-  APPSTORE_CONNECT_BETA_REVIEW_NOTES \
   APPSTORE_CONNECT_PRIVACY_DECLARATION_CONTRACT_VERSION \
   APPSTORE_CONNECT_EXPORT_COMPLIANCE_APPROVED \
   APPSTORE_CONNECT_VOICE_PROVIDER_PRIVACY_APPROVED; do
   require_secret "$secret"
 done
+if [[ "$INTERNAL_ONLY" == false ]]; then
+  for secret in APPSTORE_CONNECT_EXTERNAL_TESTFLIGHT_GROUP_ID APPSTORE_CONNECT_BETA_REVIEW_CONTACT_JSON APPSTORE_CONNECT_BETA_REVIEW_NOTES; do
+    require_secret "$secret"
+  done
+fi
 
 privacy_contract="$(read_secret APPSTORE_CONNECT_PRIVACY_DECLARATION_CONTRACT_VERSION)"
 if [[ "$privacy_contract" != "$PRIVACY_CONTRACT_VERSION" ]]; then
@@ -67,8 +74,11 @@ require_exact_true APPSTORE_CONNECT_VOICE_PROVIDER_PRIVACY_APPROVED
 key_id="$(read_secret APPSTORE_CONNECT_KEY_ID)"
 issuer_id="$(read_secret APPSTORE_CONNECT_ISSUER_ID)"
 internal_group="$(read_secret APPSTORE_CONNECT_INTERNAL_TESTFLIGHT_GROUP_ID)"
-external_group="$(read_secret APPSTORE_CONNECT_EXTERNAL_TESTFLIGHT_GROUP_ID)"
-if [[ -z "$key_id" || -z "$issuer_id" || -z "$internal_group" || -z "$external_group" ]]; then
+external_group=""
+if [[ "$INTERNAL_ONLY" == false ]]; then
+  external_group="$(read_secret APPSTORE_CONNECT_EXTERNAL_TESTFLIGHT_GROUP_ID)"
+fi
+if [[ -z "$key_id" || -z "$issuer_id" || -z "$internal_group" || ( "$INTERNAL_ONLY" == false && -z "$external_group" ) ]]; then
   echo "App Store Connect release identifiers must be non-empty." >&2
   exit 1
 fi
@@ -82,14 +92,16 @@ key_path="$RUNNER_TEMP_PATH/asc.p8"
 contact_path="$RUNNER_TEMP_PATH/asc-beta-review-contact.json"
 notes_path="$RUNNER_TEMP_PATH/asc-beta-review-notes.txt"
 read_secret APPSTORE_CONNECT_API_KEY_P8_B64 | openssl base64 -d -A > "$key_path"
-read_secret APPSTORE_CONNECT_BETA_REVIEW_CONTACT_JSON > "$contact_path"
-read_secret APPSTORE_CONNECT_BETA_REVIEW_NOTES > "$notes_path"
-chmod 600 "$key_path" "$contact_path" "$notes_path"
+chmod 600 "$key_path"
 
 if ! grep -q "BEGIN PRIVATE KEY" "$key_path"; then
   echo "App Store Connect signing key is not a valid PEM .p8." >&2
   exit 1
 fi
+if [[ "$INTERNAL_ONLY" == false ]]; then
+read_secret APPSTORE_CONNECT_BETA_REVIEW_CONTACT_JSON > "$contact_path"
+read_secret APPSTORE_CONNECT_BETA_REVIEW_NOTES > "$notes_path"
+chmod 600 "$contact_path" "$notes_path"
 if ! python3 - "$contact_path" "$notes_path" <<'PY'
 import json
 import pathlib
@@ -106,15 +118,18 @@ then
   echo "Beta review contact or notes are incomplete." >&2
   exit 1
 fi
+fi
 
 for value in "$key_id" "$issuer_id" "$internal_group" "$external_group"; do
-  echo "::add-mask::$value"
+  [[ -z "$value" ]] || echo "::add-mask::$value"
 done
 put_env ASC_KEY_ID "$key_id"
 put_env ASC_ISSUER_ID "$issuer_id"
 put_env ASC_INTERNAL_GROUP_ID "$internal_group"
-put_env ASC_EXTERNAL_GROUP_ID "$external_group"
-put_env ASC_BETA_REVIEW_CONTACT_PATH "$contact_path"
-put_env ASC_BETA_REVIEW_NOTES_PATH "$notes_path"
+if [[ "$INTERNAL_ONLY" == false ]]; then
+  put_env ASC_EXTERNAL_GROUP_ID "$external_group"
+  put_env ASC_BETA_REVIEW_CONTACT_PATH "$contact_path"
+  put_env ASC_BETA_REVIEW_NOTES_PATH "$notes_path"
+fi
 
-echo "Validated protected TestFlight groups, beta-review information, and privacy attestations."
+echo "Validated protected TestFlight configuration and privacy attestations (internal-only: $INTERNAL_ONLY)."

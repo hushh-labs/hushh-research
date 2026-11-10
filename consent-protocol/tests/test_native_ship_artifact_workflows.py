@@ -1,5 +1,6 @@
 """Keep dry-run native artifacts tied to one gated main commit without store upload."""
 
+import base64
 import hashlib
 import json
 import os
@@ -16,6 +17,56 @@ ROOT = Path(__file__).resolve().parents[2]
 
 SECURITY_STEP = "Require current-attempt deployment security"
 FROZEN_REQUEST_SHA = "${{ inputs.sha || needs.deployment-security.outputs.application_sha }}"
+
+
+@pytest.mark.parametrize(
+    "internal_only,privacy,expected",
+    [("true", "true", 0), ("false", "true", 1), ("true", "false", 1)],
+)
+def test_internal_testflight_materialization_needs_no_external_review_configuration(
+    tmp_path: Path,
+    internal_only: str,
+    privacy: str,
+    expected: int,
+) -> None:
+    binary = tmp_path / "bin/gcloud"
+    binary.parent.mkdir()
+    key = base64.b64encode(b"-----BEGIN PRIVATE KEY-----\nsynthetic\n").decode()
+    binary.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CONFIG_CALLS"\n'
+        'case "$*" in\n'
+        "  *EXTERNAL_TESTFLIGHT*|*BETA_REVIEW*) exit 1;;\n"
+        '  *"secrets describe"*) exit 0;;\n'
+        f'  *API_KEY_P8_B64*) printf "%s" "{key}";;\n'
+        "  *PRIVACY_DECLARATION*) printf one-voice-privacy-v2;;\n"
+        '  *APPROVED*) printf "%s" "$CONFIG_PRIVACY";;\n'
+        "  *) printf synthetic-id;;\nesac\n"
+    )
+    binary.chmod(0o700)
+    env_file, calls = tmp_path / "environment", tmp_path / "calls"
+    result = subprocess.run(  # noqa: S603 -- fixed repo script, synthetic provider only
+        ["bash", str(ROOT / "scripts/ci/materialize-ios-testflight-release-config.sh")],
+        env={
+            **os.environ,
+            "PATH": f"{binary.parent}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_ENV": str(env_file),
+            "CONFIG_CALLS": str(calls),
+            "CONFIG_PRIVACY": privacy,
+            "TESTFLIGHT_INTERNAL_ONLY": internal_only,
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr
+    if internal_only == "true":
+        assert "EXTERNAL_TESTFLIGHT" not in calls.read_text()
+        assert "BETA_REVIEW" not in calls.read_text()
+    if expected == 0:
+        assert "ASC_INTERNAL_GROUP_ID=synthetic-id" in env_file.read_text()
+        assert "ASC_EXTERNAL_GROUP_ID" not in env_file.read_text()
+        assert not (tmp_path / "asc-beta-review-contact.json").exists()
 
 
 def _workflow(name: str) -> dict:
@@ -449,7 +500,7 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
     assert "inputs.dry_run != true" in distribution["if"]
     for name in (
         "Wait for valid TestFlight processing",
-        "Attach the same valid build to both TestFlight groups",
+        "Attach the valid build to internal TestFlight testers",
         "Upload redacted release evidence",
     ):
         assert "inputs.dry_run != true" in _named(distribution["steps"], name)["if"]

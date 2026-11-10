@@ -347,13 +347,13 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
         observed.append((argv, kwargs.get("env", {})))
         return {"ok": True}
     with tempfile.TemporaryDirectory() as raw, patch.object(local, "_run", side_effect=run), \
-         patch.object(local, "_protected", return_value=(True, "approved")), \
-         patch.object(local, "_validate_body"):
-        context = {"number": 1, "body": "reviewed", "author": "owner", "base_ref": "main",
+         patch.object(local, "_protected", return_value=(True, "approved")):
+        context = {"number": 1, "body": None, "author": "owner", "base_ref": "main",
                    "base": "a" * 40, "head_ref": "fix/change", "head": "b" * 40,
                    "repository": "owner/repo", "files_path": Path(raw) / "files",
                    "files": ["hushh-webapp/app/page.tsx"], "lanes": {"frontend": True, "backend": False}}
-        local._focused(None, context, Path(raw), stream=False)
+        checks, _ = local._focused(None, context, Path(raw), stream=False)
+        assert all(result["ok"] for result in checks.values())
     targeted = [env for argv, env in observed if argv[-1] == "web-targeted"]
     assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
     assert not any(argv[-1] == "integration" for argv, _ in observed)
