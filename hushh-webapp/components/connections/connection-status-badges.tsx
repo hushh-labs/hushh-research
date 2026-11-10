@@ -2,31 +2,57 @@
 
 import { useState } from "react";
 import { BadgeCheck, ContactsBookIcon } from "@/components/icons";
+import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-function ConnectionStatusBadge({ verified }: { verified?: boolean }) {
+export const CONNECTION_BADGE_DESCRIPTIONS = {
+  advisor: "Hussh verified this person's advisor profile.",
+  contacts: "You connected with this person through a match from your synced contacts.",
+} as const;
+
+export function ConnectionStatusBadge({ verified, interactive = true, className, iconClassName }: {
+  verified?: boolean;
+  interactive?: boolean;
+  className?: string;
+  iconClassName?: string;
+}) {
   const label = verified ? "Verified Advisor" : "Via contacts";
-  const explanation = verified
-    ? "RIA verified (registered investment adviser)"
-    : "Connected through a contact from your address book";
+  const description = verified ? CONNECTION_BADGE_DESCRIPTIONS.advisor : CONNECTION_BADGE_DESCRIPTIONS.contacts;
   const Icon = verified ? BadgeCheck : ContactsBookIcon;
+  const badgeClassName = cn("inline-grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground", className);
+  const glyph = <Icon aria-hidden="true" className={cn("size-4", verified && "text-[color:var(--app-success,#16a34a)]", iconClassName)} />;
   const [open, setOpen] = useState(false);
 
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          className="inline-grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-        >
-          <Icon aria-hidden="true" className={verified ? "size-4 text-[color:var(--app-success)]" : "size-4"} />
-        </button>
+        {interactive ? (
+          <button
+            type="button"
+            aria-label={label}
+            className={cn(badgeClassName, "focus-visible:ring-2 focus-visible:ring-ring")}
+            onClick={() => setOpen(true)}
+            onBlur={() => setOpen(false)}
+          >
+            {glyph}
+          </button>
+        ) : (
+          <span
+            role="img"
+            aria-label={verified ? "Verified advisor" : "Connected from your contacts"}
+            className={cn(badgeClassName, "pointer-events-auto")}
+          >
+            {glyph}
+          </span>
+        )}
       </TooltipTrigger>
-      <TooltipContent sideOffset={4} collisionPadding={12} className="max-w-56">
-        {label} · {explanation}
+      <TooltipContent
+        sideOffset={4}
+        collisionPadding={12}
+        className="max-w-[min(14rem,calc(100vw_-_1.5rem))] text-left"
+      >
+        <span className="block font-semibold">{label}</span>
+        <span className="mt-0.5 block">{description}</span>
       </TooltipContent>
     </Tooltip>
   );

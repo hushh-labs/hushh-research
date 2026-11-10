@@ -186,6 +186,7 @@ export function LivingCirclePanel({
             name: connectPersonName(member),
             photoUrl: member.photoUrl,
             verified: Boolean(member.isRia),
+            fromContacts: member.connectedFromContacts,
             publicPersonRef: member.publicPersonRef,
           }))}
           totalCount={orbitMemberCount}

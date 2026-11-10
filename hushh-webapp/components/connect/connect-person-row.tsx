@@ -26,7 +26,6 @@ export function ConnectPersonRow({
   leading,
   leadingInteractive = false,
   title,
-  titleSupplement,
   description,
   supplement,
   trailing,
@@ -40,7 +39,6 @@ export function ConnectPersonRow({
   leading: ReactNode;
   leadingInteractive?: boolean;
   title: ReactNode;
-  titleSupplement?: ReactNode;
   /** Relationship context, such as a connected date. Omitted when empty. */
   description?: ReactNode;
   /** An optional control that belongs under the text column but cannot sit inside the open control. */
@@ -53,7 +51,7 @@ export function ConnectPersonRow({
   testId?: string;
   className?: string;
 }) {
-  const IdentityControl = leadingInteractive || titleSupplement || supplement ? PersonSelectionSurface : "button";
+  const IdentityControl = leadingInteractive || supplement ? PersonSelectionSurface : "button";
   const identity = (
     <>
       {/* Centered on the text block, as in Feed's rows: pinned to the top it sat above
@@ -66,7 +64,6 @@ export function ConnectPersonRow({
           <span data-slot="settings-row-title" className="min-w-0 [overflow-wrap:anywhere]">
             {title}
           </span>
-          {titleSupplement}
         </span>
         {description || supplement ? (
           <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">

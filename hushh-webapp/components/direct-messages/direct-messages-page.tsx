@@ -2693,7 +2693,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 if (onSelect) onSelect({ kind: "person", ref: person.publicPersonRef });
                 else void navigateDirectMessage(router, { personRef: person.publicPersonRef });
               }}>
-              <ConnectionPersonAvatar userId={person.userId} label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
+              <ConnectionPersonAvatar
+                userId={person.userId}
+                label={person.displayName || "Connection"}
+                photoUrl={person.photoUrl}
+                verified={person.isRia}
+                fromContacts={person.connectedFromContacts}
+                size="list"
+              />
               <span>{person.displayName || "Connection"}</span>
             </PersonSelectionSurface>)}
             {newChatHasMore ? <Button type="button" variant="none" effect="fade" className={cn(styles.newChatMore, quietStyles.action)} disabled={newChatLoading}

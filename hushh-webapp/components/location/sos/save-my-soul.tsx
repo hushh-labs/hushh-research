@@ -30,6 +30,7 @@ import {
   UserRoundPlus,
 } from "@/components/icons";
 
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
@@ -43,7 +44,6 @@ import {
   SUBCARD_SURFACE,
 } from "@/lib/morphy-ux/tokens/surfaces";
 import {
-  AvatarBubble,
   EmptyState,
   StatusPill,
   TaskFlowHeader,
@@ -100,17 +100,6 @@ const SOS_TOOLS = new Set([
   "add_emergency_contact",
   "remove_emergency_contact",
 ]);
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1)
-    return (parts[0] ?? "").slice(0, 2).toUpperCase() || "?";
-  return (
-    `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase() ||
-    "?"
-  );
-}
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value)
@@ -841,10 +830,14 @@ export function SaveMySoul() {
                       )}
                       data-testid="sos-contact"
                     >
-                      <AvatarBubble userId={contact.userId}
-                        initials={initialsFor(contact.displayName)}
-                        imageUrl={contact.photoUrl}
-                        size={36}
+                      <ConnectionPersonAvatar
+                        userId={contact.userId}
+                        label={contact.displayName}
+                        photoUrl={contact.photoUrl}
+                        verified={contact.isRia}
+                        fromContacts={contact.connectedFromContacts}
+                        size="compact"
+                        className="!size-9"
                       />
                       <div className="min-w-0 flex-1">
                         <p className="ui-text-row-label-emphasized truncate">

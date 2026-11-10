@@ -135,7 +135,7 @@ The action opens the existing picker; its final confirmation retains its primary
 | Control or state | Result and product boundary |
 | --- | --- |
 | **My connections N / Find people** | Tabs appear in that order with discovery selected by default. My connections shows one paged list of accepted relationships in server order with its own search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
-| **Connection source icons** | Icon-only controls show **Verified Advisor** or **Via contacts** on hover, focus or tap. Verification describes the person. Contacts describes a match from the viewer's synced contacts. A connection can show both. Verification and mutual metadata share a compact row when available. Escape dismisses the tooltip. |
+| **Connection source icons** | My connections and My RIAs put **Verified Advisor** and **Via contacts** on the avatar. Hovering either icon explains how the status was earned. Advisor verification describes the person's verified advisor profile. Contacts describes a connection made through a match from the viewer's synced contacts. The Connect icons also show the explanation on focus or tap. A connection can show both. Escape dismisses the tooltip. |
 | **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |
@@ -150,7 +150,7 @@ The action opens the existing picker; its final confirmation retains its primary
 | **Cancel** on outgoing request | Withdraws the still-pending request; busy feedback remains in the same action slot. |
 | **Respond** on incoming request | Opens pending Consent Center review; does not accept merely by navigating. |
 | **Connected** | Relationship status, not a second connection mutation. |
-| **Explore your network** | Sits beside **Find people** and opens the **Your network** dialog. Closing the dialog returns focus to the trigger without switching connection views. |
+| **Explore your network** | Appears below directory search in **Find people** and opens the **Your network** dialog. Closing the dialog returns focus to the trigger without switching connection views. |
 | Mutual connections | One mutual opens its public profile directly. More than one opens the paginated shared-connections list through `?mutuals=<public person reference>`, including when the preview is unavailable. Every visible mutual has an independent profile control. Back from that profile restores the same mutual list, loaded pages and scroll; Back again restores Find people with its query, directory filter, loaded rows and scroll. Memory is scoped to the signed-in account and authentication session, expires after 15 minutes, and is never persisted. Refresh rechecks current graph and identity eligibility; a visited list remains a list if relationships change, and failed refreshes retain useful rows with Retry. Graph totals can include identities unavailable to view; the list explains that difference. |
 | **Load more people / Retry loading people** | Automatic scroll loading with manual fallback, 20 per page; preserves rows during retry. |
 | **Invite them to One** | Empty People search only, with a usable invite URL: native/Web Share or clipboard fallback. Cancellation is silent. Not offered in RIAs; an empty search does not prove someone lacks an account. |
@@ -896,8 +896,9 @@ Source: [Messages](../../components/direct-messages/direct-messages-page.tsx),
 
 ## Network discovery and profile journeys
 
-Find people includes **Explore your network**, a shared list with exact viewer-relative
-1st, 2nd and 3rd degree filters and paginated name search. A missing degree is not
+In Find people, **Explore your network** is a separate text action below the
+directory search. It opens a shared list with exact viewer-relative 1st, 2nd and
+3rd degree filters and paginated name search. A missing degree is not
 proof that someone is outside the network. Mutuals always mean active direct
 neighbors shared by the viewer and the target: zero has no control, one opens the
 available profile (resolving a missing preview through one mutual page), and more

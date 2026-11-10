@@ -65,6 +65,7 @@ export type AskPerson = {
   photoUrl: string | null;
   relationship: ConnectionRelationship;
   verified: boolean;
+  fromContacts?: boolean;
 };
 
 type ResolveStatus = "idle" | "loading" | "ready" | "not_found" | "error";
@@ -78,7 +79,8 @@ function fromRecipient(recipient: OneLocationRecipient): AskPerson {
     name: recipient.displayName,
     photoUrl: recipient.photoUrl ?? null,
     relationship: "connected",
-    verified: recipient.phoneVerified,
+    verified: recipient.isRia === true,
+    fromContacts: recipient.connectedFromContacts,
   };
 }
 
@@ -147,7 +149,7 @@ export function useAskPerson(
           name: context.person.displayName || "This person",
           photoUrl: context.person.photoUrl,
           relationship: context.person.relationship,
-          verified: false,
+          verified: context.person.isRia === true,
         });
         setStatus("ready");
       } catch {
@@ -381,6 +383,7 @@ export function AskForLocationFlow({
               label={person.name}
               photoUrl={person.photoUrl}
               verified={person.verified}
+              fromContacts={person.fromContacts}
             />
             <div className="min-w-0 flex-1">
               <p className="ui-text-row-label-emphasized truncate">

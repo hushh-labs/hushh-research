@@ -9,6 +9,7 @@ import {
   ContactsBookIcon,
   Check,
   ChevronDown,
+  ChevronRight,
   Loader2,
   RefreshCw,
   MoreHorizontal,
@@ -3117,6 +3118,28 @@ export default function ConnectPageClient() {
     </div>
   );
 
+  const exploreNetworkAction = (
+    <div className="flex justify-start sm:justify-end">
+      <Button
+        type="button"
+        variant="none"
+        effect="fade"
+        size="compact"
+        aria-haspopup="dialog"
+        data-voice-control-id="connect-explore-network"
+        className={cn(
+          CONNECT_INLINE_BUTTON_CLASSNAME,
+          CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+          "!text-[color:var(--app-accent)]",
+        )}
+        onClick={(event) => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}
+      >
+        Explore your network
+        <ChevronRight aria-hidden="true" className="ml-1 size-4 shrink-0" />
+      </Button>
+    </div>
+  );
+
   if (mutualPersonRef) return <MutualConnectionsList key={`${userId}:${mutualPersonRef}`} personRef={mutualPersonRef} href={`${ROUTES.CONNECT}?${searchParams.toString()}`} />;
 
   const rememberDirectory = () => saveConnectListMemory(userId, "directory", {
@@ -3228,25 +3251,20 @@ export default function ConnectPageClient() {
                       className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}
                     >
                       <Tabs value={connectionView} onValueChange={setConnectionView} className={styles.connectionViews}>
-                        <div className={styles.viewNavigation}>
-                          <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
-                            <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
-                              <span>{connectionsHeadingLabel}</span>{connectionsLoaded ? <span className={styles.connectionTabCount}>{connectionsTotalCount}</span> : null}
-                            </TabsTrigger>
-                            <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
-                          </TabsList>
-                          <button
-                            type="button"
-                            aria-haspopup="dialog"
-                            data-voice-control-id="connect-explore-network"
-                            className={cn("ui-text-form-label", styles.networkTrigger)}
-                            onClick={event => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}
-                          >
-                            Explore your network
-                          </button>
-                        </div>
+                        <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
+                          <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
+                            <span>{connectionsHeadingLabel}</span>{connectionsLoaded ? <span className={styles.connectionTabCount}>{connectionsTotalCount}</span> : null}
+                          </TabsTrigger>
+                          <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
+                        </TabsList>
                         <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
-                          {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
+                          {tab === "nearby" ? (
+                            <div className="space-y-3">
+                              <div>{directorySelector}</div>
+                              {exploreNetworkAction}
+                              <NearbyDirectories getIdToken={getIdToken} />
+                            </div>
+                          ) : (
                             <SettingsGroup
                               testId="connect-directory-group"
                               headingClassName={cn(
@@ -3405,6 +3423,7 @@ export default function ConnectPageClient() {
                                 </div>
                               }
                             >
+                              {exploreNetworkAction}
                               {loading && people.length === 0 ? (
                                 <SettingsRow
                                   title="Finding people…"
@@ -3864,8 +3883,12 @@ export default function ConnectPageClient() {
                                         fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
                                         photoUrl={connection.photoUrl ?? null}
                                         label={connectionName}
+                                        verified={connection.isRia === true}
+                                        fromContacts={connection.connectedFromContacts === true}
+                                        showBadgeDetails
                                       />
                                     }
+                                    leadingInteractive={connection.isRia === true || connection.connectedFromContacts === true}
                                     title={connectionName}
                                     description={
                                       connection.createdAt &&
@@ -3876,12 +3899,6 @@ export default function ConnectPageClient() {
                                         : "Connected"
                                     }
                                     voiceLabel={connectionName}
-                                    titleSupplement={connection.isRia === true || connection.connectedFromContacts === true ? (
-                                      <ConnectionStatusBadges
-                                        riaVerified={connection.isRia === true}
-                                        fromContacts={connection.connectedFromContacts === true}
-                                      />
-                                    ) : undefined}
                                     openLabel={`Open ${connectionName}'s profile`}
                                     onOpen={
                                       connection.publicPersonRef
