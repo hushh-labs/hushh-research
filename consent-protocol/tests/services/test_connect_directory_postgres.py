@@ -27,7 +27,13 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
+from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
 
 OWNER = "owner"
 
@@ -213,6 +219,64 @@ def _requested(conn: Connection, requester: str, addressee: str, status: str = "
         ),
         {"requester": requester, "addressee": addressee, "status": status},
     )
+
+
+def test_deleted_people_are_excluded_before_connections_pagination(connection, monkeypatch):
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+            USING public_person_ref::UUID;
+        ALTER TABLE connections ADD COLUMN id TEXT DEFAULT gen_random_uuid()::text;
+        ALTER TABLE connections ADD COLUMN created_at TIMESTAMPTZ DEFAULT now();
+        CREATE TABLE connection_origins (
+            connection_id TEXT, status TEXT, origin_kind TEXT, source_ref TEXT
+        );
+        CREATE TABLE account_deletion_tombstones (user_id_hash TEXT PRIMARY KEY);
+    """)
+    )
+    for owner, name in [("retired", "Aardvark Person"), ("active", "Zebra Person")]:
+        _person(connection, owner, name)
+        _connected(connection, owner)
+    retired_ref = str(uuid4())
+    active_ref = str(uuid4())
+    for owner, person_ref in [("retired", retired_ref), ("active", active_ref)]:
+        connection.execute(
+            text(
+                "UPDATE actor_profiles SET public_person_ref=CAST(:ref AS UUID) WHERE user_id=:owner"
+            ),
+            {"ref": person_ref, "owner": owner},
+        )
+
+    def execute_many(sql, params):
+        return [dict(row) for row in connection.execute(text(sql), params).mappings()]
+
+    graph = ConnectionsService()
+    monkeypatch.setattr(graph, "_execute_many", execute_many)
+    profile = PersonProfileService(connections=graph, consent_db=object())
+    monkeypatch.setattr(
+        profile, "_execute_one", lambda sql, params: next(iter(execute_many(sql, params)), None)
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.person_profile_service.active_directory_user_ids",
+        lambda owners, **_: set(owners),
+    )
+
+    # An active control proves the same rows and pagination really were eligible.
+    assert graph.list_connections_page(OWNER, limit=1)["items"][0]["userId"] == "retired"
+    assert profile.get_public_profile(retired_ref)["displayName"] == "Aardvark Person"
+    connection.execute(
+        text("INSERT INTO account_deletion_tombstones (user_id_hash) VALUES (:hash)"),
+        {"hash": account_deletion_user_hash("retired")},
+    )
+
+    page = graph.list_connections_page(OWNER, limit=1)
+    assert [row["userId"] for row in page["items"]] == ["active"]
+    assert page["totalCount"] == 1
+    assert page["hasMore"] is False
+    assert [row["userId"] for row in graph.list_connections(OWNER)] == ["active"]
+    with pytest.raises(PersonProfileNotFoundError):
+        profile.get_public_profile(retired_ref)
+    assert profile.get_public_profile(active_ref)["displayName"] == "Zebra Person"
 
 
 def _network(connection: Connection):

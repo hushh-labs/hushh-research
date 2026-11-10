@@ -39,7 +39,8 @@ const RESET = "event: feed_reset\ndata: {}\n\n";
 const changed = (id: string) => `event: feed_changed\nid: e\ndata: {"request_id":"${id}"}\n\n`;
 const PAYOUT = `event: payout_changed\ndata: {"kinds":["wallet"],"request_ids":["${REQUEST}"]}\n\n`;
 const ALL_KINDS = [...PAYOUT_KINDS];
-const FULL = { general: true, consent: true, reconcileSms: true };
+const PERIODIC_REPAIR = { general: true, consent: true, reconcileSms: true };
+const FULL = { ...PERIODIC_REPAIR, reconcileConnections: true };
 const targeted = (requestId: string) => ({ general: false, consent: true, requestId });
 const encoder = new TextEncoder();
 
@@ -271,8 +272,8 @@ describe("document feed stream manager", () => {
     await tick();
     expect(manager.phase()).toBe("backoff");
     manager.repairIfUncovered();
-    expect(deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith(FULL);
-    // Not a burst: the clock itself is the next reread.
+    expect(deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith(PERIODIC_REPAIR);
+    // The fallback clock repairs Feed without purging the broader graph caches.
     await tick(10);
     expect(deps.dispatchFeed).toHaveBeenCalledTimes(1);
 
@@ -557,6 +558,15 @@ describe("leader and follower tabs", () => {
         [{ kinds: ["wallet"], requestIds: [REQUEST], source: "sse" }],
       ]);
       expect(lastState(tab.deps)).toBe("live");
+    }
+
+    for (const tab of [leader, follower]) tab.deps.dispatchFeed.mockClear();
+    leader.transport.last().push('event: feed_changed\ndata: {"connection_graph":true}\n\n');
+    await tick();
+    for (const tab of [leader, follower]) {
+      expect(tab.deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith({
+        general: true, consent: true, reconcileConnections: true,
+      });
     }
 
     leader.manager.stop();

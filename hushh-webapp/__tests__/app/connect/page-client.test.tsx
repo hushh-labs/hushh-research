@@ -1705,6 +1705,22 @@ describe("Connect — People", () => {
     expect(screen.queryByText("Other account peer")).toBeNull();
   });
 
+  it("removes a deleted person from an open Connections list after a viewer-scoped graph hint", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections");
+    const live = { connectionId: "live-edge", userId: "live", displayName: "Current Friend", photoUrl: null };
+    const retired = { connectionId: "retired-edge", userId: "retired", displayName: "Deleted Friend", photoUrl: null };
+    mocks.listConnections.mockResolvedValue([live, retired]);
+    render(<ConnectPageClient />);
+    await screen.findByText("Deleted Friend");
+
+    mocks.listConnections.mockResolvedValue([live]);
+    await act(async () => dispatchConnectionGraphChanged("other-owner", { broadcast: false }));
+    expect(screen.getByText("Deleted Friend")).toBeVisible();
+    await act(async () => dispatchConnectionGraphChanged("me", { broadcast: false }));
+    await waitFor(() => expect(screen.queryByText("Deleted Friend")).toBeNull());
+    expect(screen.getByText("Current Friend")).toBeVisible();
+  });
+
   it("restores a typed search query after the page remounts", async () => {
     // Regression: navigating to a person's detail screen and using the
     // shared back control remounts this page. The search box is local
