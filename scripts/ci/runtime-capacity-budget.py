@@ -17,6 +17,7 @@ import json
 import re
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -38,16 +39,26 @@ assert _CLI_SPEC and _CLI_SPEC.loader
 _cli = importlib.util.module_from_spec(_CLI_SPEC)
 _CLI_SPEC.loader.exec_module(_cli)
 
-_RECOVERY_SPEC = importlib.util.spec_from_file_location(
-    "production_recovery_capacity", Path(__file__).with_name("production_recovery_capacity.py")
-)
-assert _RECOVERY_SPEC and _RECOVERY_SPEC.loader
-_recovery = importlib.util.module_from_spec(_RECOVERY_SPEC)
-_RECOVERY_SPEC.loader.exec_module(_recovery)
-
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 CAPACITY_PHASES = ("pre-deploy", "post-release")
 CapacityPhase = Literal["pre-deploy", "post-release"]
+
+
+@lru_cache(maxsize=1)
+def production_recovery_profile():
+    # Historical UAT checkouts overlay the shared budget reader. Resolve this
+    # production-only companion only for the exact production backend budget.
+    spec = importlib.util.spec_from_file_location(
+        "production_recovery_capacity", Path(__file__).with_name("production_recovery_capacity.py")
+    )
+    if spec is None or spec.loader is None:
+        raise BudgetError("Production recovery capacity policy is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except OSError as exc:
+        raise BudgetError("Production recovery capacity policy is unavailable") from exc
+    return module
 
 
 def selected_uat_profile(profile: dict[str, Any], target_sha: str) -> dict[str, Any]:
@@ -439,15 +450,17 @@ def service_budget(
         # Deferred UAT retirement allows several old generations to drain at
         # once. Until they are deleted, reserve each one's full connection cap.
         referenced.update(by_name)
+    recovery = (
+        production_recovery_profile()
+        if service == "consent-protocol"
+        and database_connection_name == "hushh-pda:us-central1:hushh-vault-db"
+        else None
+    )
     rows = []
     for name in sorted(referenced):
         revision = by_name[name]
-        if _recovery.has_inert_identity(revision):
-            if (
-                service != _recovery.BACKEND
-                or database_connection_name != f"{_recovery.PROJECT}:{_recovery.REGION}:hushh-vault-db"
-                or not _recovery.verified_inert(service_doc, revision)
-            ):
+        if recovery is not None and recovery.has_inert_identity(revision):
+            if not recovery.verified_inert(service_doc, revision):
                 raise BudgetError(f"{name}: inert recovery revision is unverified or routable")
             rows.append({
                 "name": name, "max_instances": 1, "workers_per_instance": 0,
