@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Literal
 from uuid import UUID
 
@@ -35,6 +36,7 @@ from hushh_mcp.services.scope_commerce_requests import (
 
 router = APIRouter(prefix="/api/scope-commerce", tags=["scope-commerce"])
 webhook_router = APIRouter(prefix="/api/payments/scope-commerce", tags=["scope-commerce"])
+logger = logging.getLogger(__name__)
 
 
 class OperationBody(StrictBody):
@@ -462,7 +464,13 @@ async def webhook(request: Request, signature: str | None = Header(None, alias="
     try:
         await _provider().process_webhook(payload=payload, signature=signature)
     except Exception as error:
-        raise _error(error) from None
+        rejection = _error(error)
+        logger.warning(
+            "scope_commerce.webhook_rejected status=%s code=%s",
+            rejection.status_code,
+            rejection.detail["code"],
+        )
+        raise rejection from None
     return {"received": True}
 
 
