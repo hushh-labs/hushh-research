@@ -215,6 +215,14 @@ Recursive rewrite policy lives in [documentation-recursive-knowledge-model.md](.
 
 All applicable docs gates must pass in CI before merge.
 
+Preserved source snapshots are source evidence, rather than shareable exports. The
+link-hygiene gate may classify an individual source file through the explicit
+`tmp/shareable-source-snapshots.v1.json` receipt only when pinned preservation or
+Git provenance proves its exact current bytes. Snapshot directory names do not
+grant an exception: unlisted or changed files retain the shareable checks, and
+invalid provenance fails closed. The gate's built-in `--self-test` runs before
+the normal check in docs verification.
+
 CI gate policy:
 
 1. Keep a minimal blocking set (secret scan, web, protocol, integration).

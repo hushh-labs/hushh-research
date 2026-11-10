@@ -11,6 +11,7 @@ node scripts/verify-doc-brand.cjs
 node scripts/verify-doc-diagrams.cjs
 node scripts/verify-doc-diagrams-smoke.cjs
 node scripts/workspace-setup-smoke.js
+node scripts/verify-shareable-links.cjs --self-test
 node scripts/verify-shareable-links.cjs
 node scripts/check-encryption-compliance.js
 node scripts/check-encryption-compliance-smoke.js
