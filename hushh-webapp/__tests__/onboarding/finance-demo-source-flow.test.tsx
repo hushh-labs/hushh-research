@@ -160,6 +160,7 @@ it("starts at the questionnaire and shows Plaid confirmation before automatic se
     expect(state.finish).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(state.finish).toHaveBeenCalledOnce();
+    expect(state.finish).toHaveBeenCalledWith({ recordAttempt: false });
   } finally {
     vi.useRealTimers();
   }

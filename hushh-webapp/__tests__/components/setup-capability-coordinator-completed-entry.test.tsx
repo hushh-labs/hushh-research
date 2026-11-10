@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   localActionHandler: vi.fn(),
   syncSetupCapabilities: vi.fn(),
   syncDeclinedCapabilities: vi.fn(),
+  activityCapture: vi.fn(),
+  activityStarted: vi.fn(),
+  activitySettled: vi.fn(),
   sourceSettler: null as null | ((source: "plaid" | "statement" | "later", attempt?: string) => Promise<boolean>),
 }));
 
@@ -55,6 +58,13 @@ vi.mock("@/components/kai/kai-flow", () => ({
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({
   useLocalOnboardingActionHandler: (...args: unknown[]) =>
     mocks.localActionHandler(...args),
+}));
+
+vi.mock("@/lib/observability/product-activity-client", () => ({
+  captureProductAttempt: (...args: unknown[]) => {
+    mocks.activityCapture(...args);
+    return { started: mocks.activityStarted, settled: mocks.activitySettled };
+  },
 }));
 
 vi.mock("@/lib/services/capability-tour-service", () => ({
@@ -127,6 +137,9 @@ describe("setup coordinator completed Location entry", () => {
     mocks.localActionHandler.mockReset();
     mocks.syncSetupCapabilities.mockReset().mockResolvedValue(undefined);
     mocks.syncDeclinedCapabilities.mockReset().mockResolvedValue(undefined);
+    mocks.activityCapture.mockReset();
+    mocks.activityStarted.mockReset();
+    mocks.activitySettled.mockReset();
     mocks.sourceSettler = null;
     window.history.replaceState(null, "", "/");
   });
@@ -259,12 +272,16 @@ describe("setup coordinator completed Location entry", () => {
     }));
     await waitFor(() => expect(result.current.isReady).toBe(true));
     let settling!: ReturnType<typeof result.current.finish>;
-    act(() => { settling = result.current[kind](); });
+    act(() => { settling = result.current[kind]({ recordAttempt: true }); });
     await waitFor(() => expect(persist).toHaveBeenCalledOnce());
+    expect(mocks.activityCapture).toHaveBeenCalledExactlyOnceWith(`setup.${kind}_finance`, "user-1");
+    expect(mocks.activityStarted).toHaveBeenCalledOnce();
+    expect(mocks.activitySettled).not.toHaveBeenCalled();
     expect(mocks.requestNavigation).not.toHaveBeenCalled();
     await act(async () => { complete(); await settling; });
     expect(mocks.requestNavigation).toHaveBeenCalledWith(expect.objectContaining({ href: invite }));
     expect((await settling).routeAfter).toBe(invite);
+    expect(mocks.activitySettled).toHaveBeenCalledExactlyOnceWith("returned");
   });
 
   it.each(["statement", "plaid", "later"] as const)("keeps a deferred %s source on its explicit Finance terminal without reviving the old journey", async (source) => {
@@ -280,6 +297,9 @@ describe("setup coordinator completed Location entry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open Finance" }));
     await waitFor(() => expect(mocks.requestNavigation).toHaveBeenCalledWith(expect.objectContaining({ href: invite })));
     expect(mocks.syncSetupCapabilities).toHaveBeenCalledWith("user-1", ["finance"]);
+    expect(mocks.activityCapture).toHaveBeenCalledExactlyOnceWith("setup.finish_finance", "user-1");
+    expect(mocks.activityStarted).toHaveBeenCalledOnce();
+    expect(mocks.activitySettled).toHaveBeenCalledExactlyOnceWith("returned");
   });
 
   it("does not leave Finance for the invitation when durable completion fails", async () => {
@@ -292,8 +312,41 @@ describe("setup coordinator completed Location entry", () => {
       returnTo: "/circle/join?invite=opaque_token",
     }));
     await waitFor(() => expect(result.current.isReady).toBe(true));
-    await act(async () => { expect((await result.current.finish()).status).toBe("failed"); });
+    await act(async () => { expect((await result.current.finish({ recordAttempt: true })).status).toBe("failed"); });
     expect(mocks.requestNavigation).not.toHaveBeenCalled();
     expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.activityStarted).toHaveBeenCalledOnce();
+    expect(mocks.activitySettled).toHaveBeenCalledExactlyOnceWith("failed");
+  });
+
+  it("records an explicit finish refusal as blocked", async () => {
+    mocks.cachedJourney = setupJourney({ setupCompleted: true, onboardingActiveCapability: null });
+    mocks.bootstrapState.mockResolvedValue(mocks.cachedJourney);
+    const { result } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "finance", isOperationallyReady: false,
+      finishActionId: "setup.finish_finance", skipActionId: "setup.skip_finance",
+    }));
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    await act(async () => {
+      expect((await result.current.finish({ recordAttempt: true })).status).toBe("blocked");
+    });
+    expect(mocks.activityStarted).toHaveBeenCalledOnce();
+    expect(mocks.activitySettled).toHaveBeenCalledExactlyOnceWith("blocked");
+    expect(mocks.syncSetupCapabilities).not.toHaveBeenCalled();
+  });
+
+  it("leaves gateway observation ownership with the registered action handler", async () => {
+    mocks.cachedJourney = setupJourney({ setupCompleted: true, onboardingActiveCapability: null });
+    mocks.bootstrapState.mockResolvedValue(mocks.cachedJourney);
+    const { result } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "finance", isOperationallyReady: true,
+      finishActionId: "setup.finish_finance", skipActionId: "setup.skip_finance",
+    }));
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    const handler = mocks.localActionHandler.mock.calls.find(([id]) => id === "setup.finish_finance")?.[1];
+    expect(handler).toBeTypeOf("function");
+    await act(async () => { expect((await handler({})).status).toBe("succeeded"); });
+    expect(mocks.syncSetupCapabilities).toHaveBeenCalledOnce();
+    expect(mocks.activityCapture).not.toHaveBeenCalled();
   });
 });
