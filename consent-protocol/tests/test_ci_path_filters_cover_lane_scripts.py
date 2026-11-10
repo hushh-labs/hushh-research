@@ -197,6 +197,8 @@ def _resolve_path_outputs(
 def _governance_plan(paths: tuple[str, ...]) -> dict:
     env = {
         **os.environ,
+        # These synthetic plans have no scheduled Protocol job to own duplicates.
+        "CI_PROTOCOL_CONTROLLER_OWNER": "false",
         "CI_VALIDATION_LEVEL": "focused",
         "CI_CHANGED_FILES": "\n".join(paths),
     }
