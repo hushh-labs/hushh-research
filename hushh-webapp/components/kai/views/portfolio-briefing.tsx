@@ -180,11 +180,12 @@ export function PortfolioAnalysis({ model, loading = false }: { model?: Dashboar
       }));
   const mixTotal = mix.reduce((sum, { value }) => sum + value, 0);
   let sliceEnd = 0;
-  const slices = mix.map(({ value, color }) => {
+  const slices: string[] = [];
+  for (const { value, color } of mix) {
     const start = sliceEnd;
     sliceEnd += value / mixTotal * 100;
-    return `${color} ${start}% ${sliceEnd}%`;
-  });
+    slices.push(`${color} ${start}% ${sliceEnd}%`);
+  }
   const estimate = `−${(weight * drop).toFixed(1)}%`;
 
   return (
