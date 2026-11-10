@@ -1372,8 +1372,10 @@ once its tombstone exists and an erased holder's phone digest is blanked, so a s
 proof stays single-use and the requester can still read the outcome. An erased
 requester's receipts are deleted once they can no longer be replayed (configured
 test-code proofs, or SMS dispatched more than ten minutes earlier); unconsumed
-operations still cascade, and retained receipts prune in bounded batches ninety days
-after expiry. Rollback refuses to drop retained receipts.
+operations still cascade. Retained receipts prune in bounded batches ninety days after
+expiry, or ten minutes after dispatch once their requester is erased. Every prune skips
+rows another transaction holds, and prepare() prunes in its own short transaction, so
+pruning never waits on an erasure. Rollback refuses to drop retained receipts.
 
 Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE

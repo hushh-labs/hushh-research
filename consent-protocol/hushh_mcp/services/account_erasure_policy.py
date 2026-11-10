@@ -56,7 +56,8 @@ ANONYMIZED_ON_ACCOUNT_DELETION: Mapping[str, str] = MappingProxyType(
             "remain. An erased requester's receipts are deleted once they cannot be "
             "replayed (configured test-code proofs, or SMS dispatched over 10 minutes "
             "ago). Unconsumed rows still cascade. Retained rows are pruned in bounded "
-            "batches 90 days after expiry by later deletions and erasures. The coverage "
+            "batches by later deletions and erasures: 90 days after expiry, or once an "
+            "erased requester's 10-minute replay window has passed. The coverage "
             "checker derives DELETED from the CASCADE and cannot express this partial "
             "detach, so it reports it as advisory."
         ),

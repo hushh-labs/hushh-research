@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from asyncpg import UniqueViolationError
+from asyncpg import LockNotAvailableError, UniqueViolationError
 from fastapi import HTTPException
 from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
@@ -55,7 +55,9 @@ _PRUNE = """DELETE FROM account_phone_linked_deletions WHERE operation_id IN
         -- An erased requester's receipt is unreadable; it only guards a spent
         -- SMS event, which cannot authorize again after its 300 s window.
         OR (requester_user_id IS NULL AND dispatched_at<clock_timestamp()-INTERVAL '10 minutes')
-     ORDER BY expires_at LIMIT 100)"""
+     -- Never wait on a receipt another transaction holds: erasure and prepare()
+     -- both prune, and waiting here inverts their owner-barrier lock order.
+     ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED)"""
 # Account erasure runs the same bounded prune, so retained receipts age out
 # even when no new deletion is ever prepared.
 RECEIPT_PRUNE_SQL = _PRUNE
@@ -168,12 +170,15 @@ async def prepare(owner: str, phone: str) -> dict[str, Any]:
     _require_enabled()
     normalized = _normalized(phone)
     requester = account_deletion_user_hash(owner)
+    # Prune in its own short transaction, so no pruned row stays locked while
+    # this operation waits on a holder's owner barrier below.
+    async with transaction() as conn:
+        await conn.execute(_PRUNE)
     async with transaction() as conn:
         await conn.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
             f"phone-linked-deletion:{requester}",
         )
-        await conn.execute(_PRUNE)
         if await conn.fetchval(_OPEN_DRAFTS, requester) >= 5:
             raise refuse("PHONE_RECOVERY_LIMIT_REACHED", 429)
         holder = await conn.fetchval(
@@ -471,10 +476,18 @@ async def status(owner: str, operation: str) -> dict[str, Any]:
     async with transaction() as conn:
         row = await _row(conn, owner, operation)
         if row["state"] in {"pending", "action_required"}:
-            if await conn.fetchval(_ADMITTED, row["target_hash"]):
-                await conn.execute(_FINISH, operation, "admitted", None)
-            elif row["state"] == "pending" and row["stale"]:
-                await conn.execute(_FINISH, operation, "action_required", row["result_code"])
+            try:
+                # An erasure holds this receipt until it commits. Report the current
+                # outcome instead of failing; a later read settles it.
+                async with conn.transaction():
+                    if await conn.fetchval(_ADMITTED, row["target_hash"]):
+                        await conn.execute(_FINISH, operation, "admitted", None)
+                    elif row["state"] == "pending" and row["stale"]:
+                        await conn.execute(
+                            _FINISH, operation, "action_required", row["result_code"]
+                        )
+            except LockNotAvailableError:
+                return _receipt(row)
             row = await _row(conn, owner, operation)
         return _receipt(row)
 
