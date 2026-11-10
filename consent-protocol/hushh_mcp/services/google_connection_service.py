@@ -453,11 +453,14 @@ class GoogleConnectionService:
     ) -> dict[str, str | None] | None:
         return await self._calendar_photos.lookup(user_id=user_id, account_id=account_id, row=row)
 
-    async def calendar_accounts_status(self, *, user_id: str) -> dict[str, Any]:
+    async def calendar_accounts_status(
+        self, *, user_id: str, include_pictures: bool = True
+    ) -> dict[str, Any]:
         """List only this owner's Calendar identities; never return credentials."""
         return await project_calendar_accounts_status(
             self,
             user_id=user_id,
+            include_pictures=include_pictures,
             calendar_list_access=lambda value: _scopes_cover(
                 set(_clean(value).split()), {CALENDAR_LIST_READ_SCOPE}
             ),
@@ -1642,21 +1645,16 @@ class GoogleConnectionService:
                     )
                 )
             )
+            status = row["status"] if row else "disconnected"
+            if service == "gmail" and status == "connected" and not active:
+                status = "permission_required"
             return {
                 "configured": self.is_configured(),
                 "connected": active,
                 "google_email": row.get("provider_email")
                 if row and row["status"] != "disconnected"
                 else None,
-                "status": (
-                    row["status"]
-                    if active or service == "calendar"
-                    else "permission_required"
-                    if row and row["status"] == "connected"
-                    else row["status"]
-                    if row
-                    else "disconnected"
-                ),
+                "status": status,
                 "access_level": (row.get("access_level") if service == "calendar" else "read")
                 if active
                 else None,
@@ -1752,6 +1750,7 @@ class GoogleConnectionService:
         user_id: str,
         service: Literal["drive", "calendar", "gmail"],
         account_id: str = "default",
+        expected_calendar_email: str | None = None,
     ) -> tuple[str, ...] | None:
         """Observe one exact owner/account/grant generation without returning tokens.
 
@@ -1764,6 +1763,7 @@ class GoogleConnectionService:
             if service not in {"calendar", "gmail"}:
                 return None
             row = await self._calendar_account(user_id, account_id)
+            _check_calendar_read_email(row, expected_calendar_email)
             if (
                 not row
                 or row["status"] != "connected"
@@ -1788,7 +1788,7 @@ class GoogleConnectionService:
                 *((str(row.get("gmail_read_generation")),) if service == "gmail" else ()),
             )
         result = await self._execute_raw_async(
-            """SELECT c.provider_subject, c.status AS connection_status, c.connected_at,
+            """SELECT c.provider_subject, c.provider_email, c.status AS connection_status, c.connected_at,
                       c.refresh_token_ciphertext, g.status AS grant_status,
                       g.scope_csv, g.xmin::text AS grant_revision
                FROM google_provider_connections c
@@ -1797,6 +1797,7 @@ class GoogleConnectionService:
             {"user_id": user_id, "service": service},
         )
         row = result.data[0] if result.data else None
+        _check_calendar_read_email(row, expected_calendar_email)
         required = set(self.scopes(service, "read"))
         granted = set(_clean((row or {}).get("scope_csv")).replace(",", " ").split())
         if (
@@ -2050,11 +2051,25 @@ class GoogleConnectionService:
         await asyncio.to_thread(disconnect)
         return await self.status(user_id=user_id, service="gmail", account_id=account_id)
 
-    def for_calendar_account(self, account_id: str) -> "CalendarAccountConnectionView":
-        return CalendarAccountConnectionView(self, account_id)
+    def for_calendar_account(
+        self, account_id: str, *, expected_email: str | None = None
+    ) -> "CalendarAccountConnectionView":
+        return CalendarAccountConnectionView(self, account_id, expected_email=expected_email)
 
 
 _singleton: GoogleConnectionService | None = None
+
+
+def _check_calendar_read_email(row: dict[str, Any] | None, expected_email: str | None) -> None:
+    if (
+        expected_email is not None
+        and _clean((row or {}).get("provider_email")).casefold() != expected_email
+    ):
+        raise GoogleConnectionError(
+            "Google Calendar account changed",
+            status_code=409,
+            reason_code="calendar_connection_changed",
+        )
 
 
 def get_google_connection_service() -> GoogleConnectionService:

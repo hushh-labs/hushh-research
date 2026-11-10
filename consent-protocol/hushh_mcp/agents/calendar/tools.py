@@ -41,6 +41,7 @@ from hushh_mcp.services.owner_time import resolve_calendar_time
 logger = logging.getLogger(__name__)
 
 _CALENDAR_UNAVAILABLE_MESSAGE = "I couldn't reach your calendar just now. Try again in a moment."
+_ACCOUNT_UNAVAILABLE_MESSAGE = "I couldn't find that Calendar account. Choose a connected account."
 
 _STATE_USER_ID = "hussh:user_id"
 _STATE_TIMEZONE = "hussh:timezone"
@@ -77,47 +78,92 @@ class _AccountSelectionRequired(Exception):
         self.accounts = accounts
 
 
-def _calendar_service(account_id: str) -> Any:
+def _validate_account_reference(account_id: str) -> None:
     if not isinstance(account_id, str) or not account_id.strip() or len(account_id) > 128:
-        raise GoogleConnectionError("Choose a valid Calendar account", status_code=422)
-    if account_id == "default":
-        return get_google_calendar_service()
+        raise GoogleConnectionError(
+            "Choose a valid Calendar account",
+            status_code=422,
+            reason_code="calendar_account_unavailable",
+        )
+
+
+def _require_shared_calendar_accounts() -> None:
     from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
     from hushh_mcp.services.pod_google_connections import calendar_runs_locally
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
-    if calendar_reads_via_door() or calendar_runs_locally():
+    if private_pod_runtime() or calendar_reads_via_door() or calendar_runs_locally():
         raise GoogleConnectionError(
             "Additional Calendar accounts are unavailable in this runtime.",
             status_code=422,
             reason_code="calendar_account_unavailable",
         )
+
+
+def _calendar_service(account_id: str, *, expected_email: str | None = None) -> Any:
+    _validate_account_reference(account_id)
+    if account_id == "default" and expected_email is None:
+        return get_google_calendar_service()
+
+    _require_shared_calendar_accounts()
     from hushh_mcp.services.calendar_account_board_service import account_schedule
 
+    if expected_email is not None:
+        return account_schedule(account_id, expected_email=expected_email).calendar
     return account_schedule(account_id).calendar
 
 
-async def _read_service(user_id: str, account_id: str | None) -> tuple[Any, str]:
+async def _read_accounts(service: Any, user_id: str) -> list[dict[str, Any]]:
+    inventory = getattr(getattr(service, "connections", None), "calendar_accounts_status", None)
+    if not callable(inventory):
+        return []
+    status = await inventory(user_id=user_id, include_pictures=False)
+    return [
+        {
+            "account_id": item["account_id"],
+            "account_email": item.get("google_email"),
+            "status": item.get("status"),
+        }
+        for item in status.get("accounts", [])
+        if isinstance(item, dict) and item.get("account_id")
+    ]
+
+
+async def _resolve_read_account(user_id: str, email: str) -> str:
+    """Resolve a full email via the owner's Calendar inventory before calling the provider."""
+    _require_shared_calendar_accounts()
+    matches = [
+        account
+        for account in await _read_accounts(_calendar_service("default"), user_id)
+        if isinstance(account["account_email"], str)
+        and account["account_email"].casefold() == email
+    ]
+    if len(matches) == 1:
+        return matches[0]["account_id"]
+    if matches:
+        raise _AccountSelectionRequired(matches)
+    raise GoogleConnectionError(
+        _ACCOUNT_UNAVAILABLE_MESSAGE,
+        status_code=422,
+        reason_code="calendar_account_unavailable",
+    )
+
+
+async def _read_service(
+    user_id: str, account_id: str | None, *, expected_email: str | None = None
+) -> tuple[Any, str]:
     if account_id is not None:
+        if expected_email is not None:
+            return _calendar_service(account_id, expected_email=expected_email), account_id
         return _calendar_service(account_id), account_id
     service = _calendar_service("default")
     # Single-account ports (including owner cloud) retain their existing contract.
-    inventory = getattr(getattr(service, "connections", None), "calendar_accounts_status", None)
-    if callable(inventory):
-        status = await inventory(user_id=user_id)
-        accounts = [
-            {
-                "account_id": item["account_id"],
-                "account_email": item.get("google_email"),
-                "status": item.get("status"),
-            }
-            for item in status.get("accounts", [])
-            if isinstance(item, dict) and item.get("account_id")
-        ]
-        if len(accounts) > 1:
-            raise _AccountSelectionRequired(accounts)
-        if accounts:
-            account_id = accounts[0]["account_id"]
-            return _calendar_service(account_id), account_id
+    accounts = await _read_accounts(service, user_id)
+    if len(accounts) > 1:
+        raise _AccountSelectionRequired(accounts)
+    if accounts:
+        account_id = accounts[0]["account_id"]
+        return _calendar_service(account_id), account_id
     return service, "default"
 
 
@@ -382,13 +428,23 @@ async def _run_calendar_read(
                 return refused
         else:
             await request_scope(tool_context)
-        if source is not None:
-            account_id = _source_account(
-                tool_context, key=source[0], kind=source[1], user_id=user_id, requested=account_id
-            )
-        if callable(calendar_read):
-            calendar_read = calendar_read()
         async with asyncio.timeout(25):
+            expected_email = None
+            if account_id is not None:
+                _validate_account_reference(account_id)
+                if required_action is None and "@" in account_id:
+                    expected_email = account_id.strip().casefold()
+                    account_id = await _resolve_read_account(user_id, expected_email)
+            if source is not None:
+                account_id = _source_account(
+                    tool_context,
+                    key=source[0],
+                    kind=source[1],
+                    user_id=user_id,
+                    requested=account_id,
+                )
+            if callable(calendar_read):
+                calendar_read = calendar_read()
             if shared_accounts:
                 from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
                 from hushh_mcp.services.pod_google_connections import calendar_runs_locally
@@ -420,7 +476,9 @@ async def _run_calendar_read(
                 service = CalendarAccountBoardService()
                 account_id = ""
             else:
-                service, account_id = await _read_service(user_id, account_id)
+                service, account_id = await _read_service(
+                    user_id, account_id, expected_email=expected_email
+                )
             return local_read_result(
                 {**await call(user_id, service, account_id), "account_id": account_id},
                 display_zone,
@@ -435,6 +493,12 @@ async def _run_calendar_read(
     except TimeoutError:
         return {"status": "timeout", "message": "Calendar took too long. Please try again."}
     except GoogleConnectionError as exc:
+        if account_id not in (None, "default") and exc.reason_code == "calendar_not_connected":
+            return {
+                "status": "input_required",
+                "reason_code": "calendar_account_unavailable",
+                "message": _ACCOUNT_UNAVAILABLE_MESSAGE,
+            }
         directive = _handle_connection_error(
             tool_context, exc, access_level="read", account_id=account_id or "default"
         )
@@ -528,6 +592,7 @@ async def calendar_summary(
     """Read the next 1–31 days from this turn's clock, including after restoration.
 
     Use local_start_at/local_end_at in display_time_zone; pass an explicit IANA time_zone.
+    For a read of a named account, account_id accepts its full email or the exact account ID.
     """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
@@ -615,6 +680,7 @@ async def calendar_events(
     guessing one.
     Pass the person's explicit IANA ``time_zone``. Render ``local_start_at`` /
     ``local_end_at`` in ``display_time_zone``; retain their dates and source instants.
+    For a read of a named account, account_id accepts its full email or the exact account ID.
     """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
@@ -710,6 +776,7 @@ async def calendar_event_detail(
     """Read one exact event by its position in the last owner-visible list.
 
     Pass the requested IANA time_zone; summarize the returned local fields in display_time_zone.
+    The optional account_id may be the exact account ID or full email of the listed account.
     """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
@@ -730,7 +797,10 @@ async def calendar_event_detail(
                 reason_code="calendar_event_offer_required",
             )
         result = await service.get_event(
-            user_id=user_id, calendar_id=offer.calendar_id, event_id=event_id
+            user_id=user_id,
+            calendar_id=offer.calendar_id,
+            event_id=event_id,
+            expected_binding=binding,
         )
         await _check_stable_binding(service, user_id, binding)
         return {

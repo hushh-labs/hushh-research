@@ -356,6 +356,57 @@ def test_calendar_status_requires_an_active_provider_connection() -> None:
     assert status["scope_csv"] == ""
 
 
+@pytest.mark.parametrize("service", ["calendar", "gmail"])
+def test_status_for_missing_additional_account_is_disconnected(service: str) -> None:
+    db = _Db()
+    status = asyncio.run(
+        GoogleConnectionService(db=db).status(
+            user_id="user-1", service=service, account_id="stale-account"
+        )
+    )
+
+    assert status["connected"] is False
+    assert status["status"] == "disconnected"
+    assert status["google_email"] is None
+    assert db.calls[0][1] == {"user_id": "user-1", "account_id": "stale-account"}
+
+
+async def test_read_inventory_lists_owner_accounts_without_profile_enrichment(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    class _AccountDb(_ConnectionStatusDb):
+        def execute_raw(self, sql: str, params: dict | None = None):
+            if "google_calendar_additional_accounts" in sql:
+                return SimpleNamespace(data=[])
+            return super().execute_raw(sql, params)
+
+    service = GoogleConnectionService(db=_AccountDb())
+    photo = AsyncMock()
+    monkeypatch.setattr(service, "_calendar_picture", photo)
+
+    status = await service.calendar_accounts_status(user_id="user-1", include_pictures=False)
+
+    assert status["accounts"][0]["account_id"] == "default"
+    assert status["accounts"][0]["connected"] is True
+    photo.assert_not_awaited()
+
+
+@pytest.mark.parametrize("account_id", ["default", "additional"])
+async def test_named_calendar_read_cannot_use_reconnected_account(account_id: str) -> None:
+    class _ReconnectedDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):
+            return SimpleNamespace(data=[{"provider_email": "replacement@example.test"}])
+
+    account = GoogleConnectionService(db=_ReconnectedDb()).for_calendar_account(
+        account_id, expected_email="original@example.test"
+    )
+
+    with pytest.raises(GoogleConnectionError) as exc:
+        await account.read_grant_binding(user_id="user-1", service="calendar")
+
+    assert exc.value.reason_code == "calendar_connection_changed"
+
+
 def test_calendar_access_token_rejects_partial_granted_scopes(shared_hub_owner) -> None:
     class _PartialScopeDb(_Db):
         def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
