@@ -311,7 +311,7 @@ def claim_due(*, limit: int = 5) -> list[ProviderCleanupClaim]:
             receipt = copy.deepcopy(row["provider_cleanup_receipt"])
             if row["reference"] is not None:
                 # The exact live Drive row carries a confirmed disconnect. Store
-                # it with this claim so a parked operation can resume only once.
+                # it with this claim so a parked operation gets one new retry budget.
                 receipt["items"][row["reference"]]["revocation"] = "revoked"
             # No effect is replayed merely because its lease expired. A worker
             # may have died after provider acceptance but before recording it.
@@ -324,7 +324,10 @@ def claim_due(*, limit: int = 5) -> list[ProviderCleanupClaim]:
             claimed = conn.execute(
                 text("""UPDATE account_deletion_tombstones SET
                 cleanup_status='running',cleanup_claim_token=gen_random_uuid(),
-                cleanup_claimed_at=now(),cleanup_attempt_count=cleanup_attempt_count+1,
+                cleanup_claimed_at=now(),
+                cleanup_attempt_count=CASE WHEN cleanup_status='quarantined' THEN 1
+                  ELSE cleanup_attempt_count+1 END,
+                provider_cleanup_next_attempt_at=coalesce(provider_cleanup_next_attempt_at,now()),
                 provider_cleanup_receipt=CAST(:receipt AS jsonb),updated_at=now()
                 WHERE user_id_hash=:owner_hash RETURNING cleanup_claim_token::text"""),
                 {"owner_hash": row["user_id_hash"], "receipt": json.dumps(receipt)},

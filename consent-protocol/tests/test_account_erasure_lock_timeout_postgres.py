@@ -975,7 +975,38 @@ async def _assert_prior_drive_disconnect(conn, database_url):
         ):
             claims = await asyncio.to_thread(journal.claim_due, limit=2)
             assert {claim.cleanup_id for claim in claims} == {parked, fresh}
-            for claim in claims:
+            parked_claim = next(claim for claim in claims if claim.cleanup_id == parked)
+            fresh_claim = next(claim for claim in claims if claim.cleanup_id == fresh)
+            assert await asyncio.to_thread(journal.claim_due, limit=1) == []
+            await conn.execute(
+                """UPDATE account_deletion_tombstones
+                SET cleanup_claimed_at=now()-interval '6 minutes'
+                WHERE provider_cleanup_id=$1::uuid""",
+                parked,
+            )
+            (resumed,) = await asyncio.to_thread(journal.claim_due, limit=1)
+            assert resumed.cleanup_id == parked
+            assert resumed.claim_token != parked_claim.claim_token
+            assert resumed.receipt == parked_claim.receipt
+            with pytest.raises(journal.ProviderCleanupClaimLost):
+                await asyncio.to_thread(journal.is_ready, parked_claim)
+
+            await asyncio.to_thread(journal.release, resumed, action_required=False)
+            assert (
+                await conn.fetchval(
+                    """UPDATE account_deletion_tombstones
+                SET provider_cleanup_next_attempt_at=now()
+                WHERE provider_cleanup_id=$1::uuid AND cleanup_status='retry_pending'
+                  AND provider_cleanup_next_attempt_at>now()
+                RETURNING cleanup_attempt_count""",
+                    parked,
+                )
+                == 2
+            )
+            (retried,) = await asyncio.to_thread(journal.claim_due, limit=1)
+            assert retried.cleanup_id == parked
+            assert retried.receipt == resumed.receipt
+            for claim in (retried, fresh_claim):
                 assert next(iter(claim.inventory.values()))["revocationSupport"] == "unverified"
                 assert await asyncio.to_thread(journal.is_ready, claim)
                 assert await worker.run_claim(claim)
