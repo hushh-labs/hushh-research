@@ -5009,6 +5009,7 @@
       },
       "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "messages.copy_text",
         "route.messages_connections"
       ],
       "api_dependencies": [],
@@ -11073,5 +11074,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6166fe6cc07d89d72f7e38c3ded023208feecd4ea2ccd049dd180a15fcc0530f"
+  "content_sha256": "07c795a41901f366df1ed108be5612377ba223b6c35737b9dcb655aed329c880"
 }

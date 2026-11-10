@@ -6,6 +6,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
 import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { OneChatTimeSeparator } from "@/components/agent/chat-message-styles";
 import { conversationDayLabel, messagesFormGroup } from "@/components/app-ui/conversation-message";
@@ -65,11 +67,28 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   const [reactionError, setReactionError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const longPress = useLongPress(!confirmed || !visible || layoutBlocked);
+  const longPress = useLongPress(!confirmed || !visible || layoutBlocked, false, messagesLane ? 500 : 1_000);
   const selecting = useRef(false);
   const saving = useRef(false);
   const deleted = confirmed && Boolean(message.deletedForEveryoneAt);
   const current = useRef(message); current.current = message;
+  const copyScope = useRef({ session, visible, layoutBlocked, messagesLane });
+  copyScope.current = { session, visible, layoutBlocked, messagesLane };
+  const copyLifetime = useRef(true);
+  useEffect(() => { copyLifetime.current = true; return () => { copyLifetime.current = false; }; }, []);
+  const copyText = async () => {
+    const text = message.content?.text;
+    if (!messagesLane || !confirmed || deleted || message.failed || !visible || layoutBlocked || !text?.trim()) return;
+    const isCurrent = () => copyLifetime.current && copyScope.current.session === session &&
+      copyScope.current.visible && !copyScope.current.layoutBlocked && copyScope.current.messagesLane &&
+      current.current.id === message.id && current.current.content?.text === text && !current.current.failed &&
+      !("deletedForEveryoneAt" in current.current && current.current.deletedForEveryoneAt);
+    const copied = await copyToClipboard(text, isCurrent);
+    if (isCurrent()) {
+      if (copied) morphyToast.success("Copied.");
+      else morphyToast.error("Couldn't copy. Try again.");
+    }
+  };
   useEffect(() => {
     if (!visible || layoutBlocked || deleted) { setMenuOpen(false); setPickerOpen(false); }
   }, [visible, layoutBlocked, deleted]);
@@ -101,7 +120,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
     <div className={`${styles.row} ${own ? styles.own : ""}`} data-message-role={own ? "user" : "peer"}>
       {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className={styles.senderAvatar} label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
       <div className={styles.stack}>
-        <div className={styles.bubbleWrap}>
+        <div className={styles.bubbleWrap} onPointerDownCapture={longPress.resetClick} onClickCapture={longPress.consumeClick}>
           <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}
             data-chat-bubble="true"
             onPointerDown={(event) => longPress.start(event, () => setMenuOpen(true))}
@@ -144,6 +163,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
                 <DropdownMenuItem className="min-h-11" disabled={busy} onSelect={() => { selecting.current = true; setPickerOpen(true); }}>More reactions…</DropdownMenuItem>
               </> : null}
               {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><ArrowBendUpLeft weight="fill" aria-hidden="true" />Reply</DropdownMenuItem> : null}
+              {messagesLane && !deleted && !message.failed && message.content?.text?.trim() ? <DropdownMenuItem className="min-h-11" data-voice-control-id="messages-circles-copy-text" onSelect={() => { void copyText(); }}>Copy text</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
               <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 inheritColor aria-hidden="true" />Delete for me</DropdownMenuItem>
               {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 inheritColor aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}

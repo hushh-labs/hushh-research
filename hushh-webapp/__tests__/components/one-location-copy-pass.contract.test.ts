@@ -136,13 +136,11 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     expect(HUB_SOURCE).not.toMatch(/\{justSent \?/);
     // A line that is nothing but the words is a JSX text node -- i.e. a banner
     // rendering them. In a comment they are always preceded by `//` or `*`.
-    expect(HUB_SOURCE).not.toMatch(/^\s*Request sent\.\s*$/m);
+    expect(HUB_SOURCE).not.toMatch(/^\s*Location Request sent\s*$/m);
 
     // The channel that survives, and the durable per-row telling that made the
     // banner redundant in the first place.
-    expect(PAGE_SOURCE).toContain(
-      "Request sent. We'll notify you here when they respond.",
-    );
+    expect(PAGE_SOURCE).toContain("toast.success(LOCATION_REQUEST_SENT_TOAST)");
     expect(HUB_SOURCE).toContain("waiting on them");
   });
 });

@@ -60,7 +60,8 @@ const mocks = vi.hoisted(() => {
     deleteConversation: vi.fn(),
     reactToMessage: vi.fn(),
     removeReaction: vi.fn(),
-    morphyToast: { error: vi.fn(), info: vi.fn(), promise: vi.fn() },
+    morphyToast: { error: vi.fn(), info: vi.fn(), promise: vi.fn(), success: vi.fn() },
+    copyClipboard: vi.fn(),
     requestAgentConversationAfterRoute: vi.fn(),
   };
 });
@@ -137,6 +138,7 @@ vi.mock("@/lib/agent/agent-voice-settings", () => ({
 vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: mocks.morphyToast,
 }));
+vi.mock("@/lib/utils/clipboard", () => ({ copyToClipboard: mocks.copyClipboard }));
 
 // The recipient viewer's unlock/decryption lifecycle has its own production
 // component tests. This suite verifies Chat never renders/indexes its envelope.
@@ -284,6 +286,8 @@ describe("DirectMessagesPage", () => {
     mocks.morphyToast.error.mockReset();
     mocks.morphyToast.info.mockReset();
     mocks.morphyToast.promise.mockReset();
+    mocks.morphyToast.success.mockReset();
+    mocks.copyClipboard.mockReset().mockResolvedValue(true);
     mocks.sendMessage.mockReset().mockResolvedValue({
       conversation: mocks.conversation,
       message: {
@@ -1227,6 +1231,7 @@ describe("DirectMessagesPage", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
     await screen.findByRole("menuitem", { name: "Reply" });
     expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Copy text" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
     expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
@@ -1588,8 +1593,11 @@ describe("DirectMessagesPage", () => {
       pointer("pointerdown"); pointer("pointermove", 40);
       act(() => vi.advanceTimersByTime(1_100));
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      pointer("pointerdown"); pointer("pointercancel");
+      act(() => vi.advanceTimersByTime(1_100));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
       pointer("pointerdown");
-      act(() => vi.advanceTimersByTime(999));
+      act(() => vi.advanceTimersByTime(499));
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
       act(() => vi.advanceTimersByTime(1));
       expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -1641,6 +1649,25 @@ describe("DirectMessagesPage", () => {
         replyToMessageId: "message-1",
       }),
     );
+  });
+
+  it("copies exact readable text, reports failure, and expires its clipboard scope on unmount", async () => {
+    const message = { ...visibleMessage, content: "  Copy this text\nexactly.  " };
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [message], canSend: true, nextBefore: null });
+    const view = renderConnectionThread();
+    const text = await screen.findByText(/Copy this text/);
+    fireEvent.contextMenu(text);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy text" }));
+    await waitFor(() => expect(mocks.morphyToast.success).toHaveBeenCalledWith("Copied."));
+    expect(mocks.copyClipboard).toHaveBeenCalledWith(message.content, expect.any(Function));
+    const isCurrent = mocks.copyClipboard.mock.calls[0][1] as () => boolean;
+    expect(isCurrent()).toBe(true);
+    mocks.copyClipboard.mockResolvedValueOnce(false);
+    fireEvent.contextMenu(text);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy text" }));
+    await waitFor(() => expect(mocks.morphyToast.error).toHaveBeenCalledWith("Couldn't copy. Try again."));
+    view.unmount();
+    expect(isCurrent()).toBe(false);
   });
 
   it.each(["edit", "delete"] as const)("reconciles the selected reply quote after a remote %s", async (change) => {

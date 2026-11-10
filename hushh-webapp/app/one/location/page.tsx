@@ -273,7 +273,10 @@ import {
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
-import { buildOneLocationRequestMessage } from "@/lib/one-location/request-message";
+import {
+  buildOneLocationRequestMessage,
+  LOCATION_REQUEST_SENT_TOAST,
+} from "@/lib/one-location/request-message";
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
@@ -1580,8 +1583,7 @@ function LocalMapPreview({
   viewportResetKey?: string | number;
   staleAction?: ReactNode;
   /**
-   * Viewer avatar for SELF previews only. Omitted for other people's shares
-   * so their location never wears the viewer's face.
+   * Identity of the person whose location is shown.
    */
   avatarUrl?: string | null;
   displayName?: string | null;
@@ -6551,9 +6553,7 @@ export function OneLocationAgentPageContent({
           ownerUserId,
           message: `Please share your live location again — my secure key was refreshed.`,
         });
-        toast.success(
-          `Asked ${receivedGrantOwnerLabel(grant)} to share location again.`,
-        );
+        toast.success(LOCATION_REQUEST_SENT_TOAST);
       } catch (error) {
         toast.error(oneLocationErrorMessage(error, "Could not send request."));
       } finally {
@@ -7316,8 +7316,6 @@ export function OneLocationAgentPageContent({
       const { ownerUserId, grantId, ownerLabel, additionalHours } = params;
       const requestKey = requestMoreTimeKey(grantId, additionalHours);
       setRequestingMoreTimeKey(requestKey);
-      // "30 min" / "1 hour" -- the same words the button carried, so the toast
-      // reads back what was tapped.
       const amount = formatLocationDurationLabel(additionalHours);
       try {
         await OneLocationService.requestAccess({
@@ -7330,11 +7328,7 @@ export function OneLocationAgentPageContent({
             ? `Requesting ${amount} more of your live location.`
             : "Requesting more time.",
         });
-        toast.success(
-          amount
-            ? `Asked ${ownerLabel} for ${amount} more.`
-            : `Asked ${ownerLabel} for more time.`,
-        );
+        toast.success(LOCATION_REQUEST_SENT_TOAST);
         setEditingGrantId(null);
         scheduleOneLocationStateRefresh("location_access_request_created");
       } catch (error) {
@@ -8304,13 +8298,7 @@ export function OneLocationAgentPageContent({
           has_note: Boolean(requestMessage.trim()),
         });
         resetRequestComposer(sentUserIds);
-        toast.success(
-          requestOwners.length === 1
-            ? "Request sent. We'll notify you here when they respond."
-            : `Requests sent to ${peopleCountLabel(
-                requestOwners.length,
-              )}. We'll notify you here when they respond.`,
-        );
+        toast.success(LOCATION_REQUEST_SENT_TOAST);
         scheduleOneLocationStateRefresh("location_access_request_created");
         return { sent: true, completed: true };
       } catch (error) {
@@ -14503,6 +14491,7 @@ export function OneLocationAgentPageContent({
       viewportResetKey,
       staleAction,
       nested,
+      markerIdentity,
     ) => (
       <LocalMapPreview
         point={point}
@@ -14510,6 +14499,8 @@ export function OneLocationAgentPageContent({
         viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
         staleAction={staleAction}
         nested={nested}
+        avatarUrl={markerIdentity?.avatarUrl}
+        displayName={markerIdentity?.displayName}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,
@@ -15840,6 +15831,8 @@ export function OneLocationAgentPageContent({
                             <div className="px-3.5 pb-3.5">
                               <LocalMapPreview
                                 point={point}
+                                avatarUrl={grant.ownerPhotoUrl}
+                                displayName={receivedGrantOwnerLabel(grant)}
                                 staleAction={
                                   <Button
                                     variant="outline"

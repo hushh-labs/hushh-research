@@ -109,7 +109,8 @@ export function ClarificationCard({
         <Button
           data-testid="clarification-cancel"
           size="sm"
-          variant="ghost"
+          variant="link"
+          disableHoverRipple
           disabled={busy}
           onClick={onCancel}
         >

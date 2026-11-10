@@ -3125,6 +3125,7 @@ export default function ConnectPageClient() {
         variant="none"
         effect="fade"
         size="compact"
+        aria-haspopup="dialog"
         data-voice-control-id="connect-explore-network"
         className={cn(
           CONNECT_INLINE_BUTTON_CLASSNAME,

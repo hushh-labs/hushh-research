@@ -15,7 +15,8 @@ import { TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter } from "@/lib/mo
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
-import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
+import { connectPersonName } from "@/lib/connections/person-label";
+import { CirclePersonSelectionDetail } from "@/components/one-location/redesign/circles/circle-person-selection-row";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -139,7 +140,7 @@ export function LivingCirclePanel({
           : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
           : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
             avatar={<ConnectionPersonAvatar userId={person.userId} size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />}
-            name={connectPersonName(person)} detail={connectPersonSelectionDetail(person)} checked={selectedUserIds.has(person.userId)}
+            name={connectPersonName(person)} detail={<CirclePersonSelectionDetail person={person} />} checked={selectedUserIds.has(person.userId)}
             onCheckedChange={() => onAdd(person.userId)}
             disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
             label={`Add ${connectPersonName(person)} to ${circleName}`} />)
@@ -348,7 +349,7 @@ export function LivingCirclePanel({
                       <ConnectionPersonAvatar userId={person.userId} size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />
                       <span className="min-w-0 flex-1">
                         <span data-profile-role="name" className="block truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
-                        <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]">{connectPersonSelectionDetail(person)}</span>
+                        <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]"><CirclePersonSelectionDetail person={person} /></span>
                       </span>
                       <button
                         type="button"

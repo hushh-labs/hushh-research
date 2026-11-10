@@ -1,3 +1,5 @@
+export const LOCATION_REQUEST_SENT_TOAST = "Location Request sent";
+
 /**
  * Builds the single request.message value stored by One Location.
  *

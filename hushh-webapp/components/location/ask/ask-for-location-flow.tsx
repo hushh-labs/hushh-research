@@ -45,6 +45,7 @@ import {
 import { connectPersonReviewHref } from "@/lib/navigation/connect-routes";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { LOCATION_REQUEST_SENT_TOAST } from "@/lib/one-location/request-message";
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationAccessRequest,
@@ -267,11 +268,7 @@ export function AskForLocationFlow({
       setSentRequest(request);
       OneLocationStateResource.invalidate(workspace.userId);
       await workspace.refresh({ invalidate: true });
-      morphyToast.success(
-        request.status === "approved"
-          ? `${person.name} approved automatically.`
-          : `Asked ${person.name}. You'll be told when they answer.`,
-      );
+      morphyToast.success(LOCATION_REQUEST_SENT_TOAST);
     } catch (error) {
       morphyToast.error(
         error instanceof Error && error.message

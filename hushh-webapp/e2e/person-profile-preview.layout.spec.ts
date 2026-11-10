@@ -146,11 +146,17 @@ for (const width of [320, 393, 768, 1440]) {
     await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
     await back();
     await source.getByRole("button", { name: "Explore your network", exact: true }).click();
+    await expect(preview.getByRole("heading", { name: "Your network", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
     await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(4);
     await expect(preview).toHaveCSS("opacity", "1");
     const filters = preview.getByRole("group", { name: "Connection degree filters" });
     expect(await filters.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await preview.locator("[data-network-scroll-owner]").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    const stackWidths = await preview.getByTestId("mutual-avatar-stack").evaluateAll(stacks =>
+      stacks.map(stack => stack.getBoundingClientRect().width),
+    );
+    expect(Math.max(...stackWidths) - Math.min(...stackWidths)).toBeLessThanOrEqual(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`network-discovery-${width}.png`) });
     await preview.getByRole("button", { name: "Extended network", exact: true }).click();

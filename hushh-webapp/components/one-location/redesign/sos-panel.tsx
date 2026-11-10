@@ -411,7 +411,7 @@ export function SosPanel({
               onClick={onEditContacts}
               aria-label="Edit emergency contacts"
               data-location-type-role="utility-action"
-              className="ui-text-button-label -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+              className="ui-text-button-label -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
             >
               Edit
             </button>

@@ -16545,6 +16545,157 @@
     },
     {
       "aliases": [
+        "Copy message text"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "messages.copy_text",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicitly copies readable plain text from the current message menu to the local clipboard; opaque shares are excluded.",
+      "execution": {
+        "binding_ref": "render:messages.copy_text",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.messages.copy_text",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Copy message text",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/messages"
+        ],
+        "screens": [
+          "one_messages"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "message",
+        "copy text"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Agents",
         "open agents",
         "open one agents",
@@ -53356,7 +53507,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "65f4b7601085e9d03915a151cf00b703dfc72b3ce1bb96625b57103d995719e6",
+      "projection_digest": "af0bd67c420042dcf5299bf081f716ace545767eb451ecf21cbdbe75a8e69713",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53375,7 +53526,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "af9719263ee60a11",
+      "source_revision": "c62a214698da6c8d",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -54893,7 +55044,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "af9719263ee60a11",
+    "source_revision": "c62a214698da6c8d",
     "web": {
       "actions": [
         {
@@ -54936,7 +55087,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "310e804f62b209a616e53c4632065c81e10b485363f410b972e7a26fb39c57b2",
+      "projection_digest": "c6dfc3263460def6ec5dc2c26f1f8ee09312931ff6338da4938e2cd5a6f76511",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54955,7 +55106,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "af9719263ee60a11",
+      "source_revision": "c62a214698da6c8d",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -56512,7 +56663,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "af9719263ee60a11",
+  "revision": "c62a214698da6c8d",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -58507,36 +58658,15 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.recover",
-      "actions:phone_mandate.review_previous_devices",
-      "actions:phone_mandate.send_real_sms",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
+      "actions:messages.copy_text"
     ],
     "breaking": [],
-    "changed": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again"
-    ],
+    "changed": [],
     "compatible": [],
-    "deprecated": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_check",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again",
-      "actions:phone_mandate.review_previous_deletion"
-    ],
-    "from_revision": "397e42888f424c55",
+    "deprecated": [],
+    "from_revision": "af9719263ee60a11",
     "migrated": [],
-    "removed": [
-      "actions:phone_mandate.delete_previous_check",
-      "actions:phone_mandate.review_previous_deletion"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -60907,7 +61037,7 @@
     "capability_graph_evolution": "b41d9d0c48b5062e4357d3411e50b7607292106ea8c6fd5b3b9169f30a793402",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "b6dfdcb0320eed1889fe95af59e639908bf1130722b2f7d39a6be0b779601754",
+    "kai_action_gateway": "72e3e740b34d9fd368a11f159ef35b57e6a624b07905af665ba16ae71dcccca8",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -60916,9 +61046,9 @@
     "route_orchestration_index": "0d32a282a3f4a7bac0068dd1cb467d9e15407160978219e209400a42f4e80e06",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "af9719263ee60a11",
+  "source_revision": "c62a214698da6c8d",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "af9719263ee60a11",
+    "current_graph_revision": "c62a214698da6c8d",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -61048,6 +61178,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -61219,6 +61350,7 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b255ff5e653c1324",
@@ -61418,6 +61550,7 @@
           "51c19a1b7121c147",
           "53c411e01494034b",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5996287e8a4d4b35",
           "5c956819a0408b8a",
@@ -61488,6 +61621,7 @@
           "ace929102322f9c0",
           "ad3f61d47487e20e",
           "aee5093562958f50",
+          "af9719263ee60a11",
           "b1edc9765961aa04",
           "b255ff5e653c1324",
           "b28721bce54d8cdf",
@@ -61553,6 +61687,7 @@
           "354b635d33714f9a",
           "397e42888f424c55",
           "3e761f3cb5bebeaf",
+          "55fdc71527d92200",
           "63d103b4ab44f723",
           "6c49b50b94a5d1d7",
           "70d968726856f988",
@@ -61567,6 +61702,7 @@
           "8ec20520da73103b",
           "975965c04f634896",
           "aba723a8b59080fc",
+          "af9719263ee60a11",
           "b255ff5e653c1324",
           "bd1c53cb4aea9d77",
           "c32cf5e00a63cfc1",
@@ -62049,6 +62185,7 @@
           "51c19a1b7121c147",
           "53c411e01494034b",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -62190,6 +62327,7 @@
           "aee5093562958f50",
           "af06ae26b8943fb1",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b255ff5e653c1324",
@@ -62392,6 +62530,7 @@
           "41ce76d431046107",
           "4537aaec23a4d8c6",
           "458153bdfb331613",
+          "55fdc71527d92200",
           "5f7f01f13bf61e53",
           "63d103b4ab44f723",
           "6c49b50b94a5d1d7",
@@ -62408,6 +62547,7 @@
           "8ec20520da73103b",
           "975965c04f634896",
           "aba723a8b59080fc",
+          "af9719263ee60a11",
           "b255ff5e653c1324",
           "bab8cfa1aa259f7c",
           "bd1c53cb4aea9d77",
@@ -62939,6 +63079,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -63110,6 +63251,7 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b255ff5e653c1324",
@@ -63377,6 +63519,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -63548,6 +63691,7 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b255ff5e653c1324",
@@ -63813,6 +63957,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -63984,6 +64129,7 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b255ff5e653c1324",
