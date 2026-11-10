@@ -4,13 +4,11 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { PortfolioAnalysis } from "@/components/kai/views/portfolio-briefing";
-import { topPortfolioWeights } from "@/components/kai/views/portfolio-analysis-facts";
 import { AdvisorReviewError, advisorRequest } from "@/lib/advisor-review/service";
-import { financeDigest, type FinanceSource } from "@/lib/finance-sharing/contract";
-import { readSavedFinance } from "@/lib/finance-sharing/saved-source";
+import type { FinanceSource } from "@/lib/finance-sharing/contract";
+import { readPortfolioReviewInput } from "@/lib/finance-sharing/portfolio-review-input";
 import type { FinanceShareContext } from "@/lib/services/finance-sharing-service";
 import { KaiProfileService, type KaiPreferences } from "@/lib/services/kai-profile-service";
-import { getInvestingPersona, portfolioPlanningSignals } from "@/lib/kai/investing-persona";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
@@ -21,7 +19,7 @@ import { isRequestTimeoutError } from "@/lib/utils/request-timeouts";
 import { PortfolioPersona } from "./portfolio-persona";
 import styles from "./advisor-review.module.css";
 
-type SavedReviewInput = Awaited<ReturnType<typeof reviewInput>>;
+type SavedReviewInput = Awaited<ReturnType<typeof readPortfolioReviewInput>>;
 type ReviewApproval = { scope: string; sourceFence: string };
 type ReviewSession = { approval: ReviewApproval; cached?: SavedPortfolioReview };
 let reviewSession: ReviewSession | null = null;
@@ -30,62 +28,6 @@ if (typeof window !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) reviewSession = null;
   });
-}
-
-async function reviewInput(
-  context: FinanceShareContext,
-  source: FinanceSource,
-) {
-  const { model, profile, sourceFence } = await readSavedFinance(
-    context,
-    source,
-    true,
-  );
-  const preferences = profile.preferences;
-  const { horizon, lossCapacity } = portfolioPlanningSignals(preferences);
-  const top = topPortfolioWeights(model);
-  const total = model.hero.totalValue;
-  const allocation = model.allocation
-    .flatMap(({ name, value }) =>
-      total > 0 && value > 0 && value <= total
-        ? [{ name: name.slice(0, 60), percent: (value / total) * 100 }]
-        : [],
-    )
-    .slice(0, 8);
-  const allocationCoverage = allocation.reduce(
-    (sum, row) => sum + row.percent,
-    0,
-  );
-  const payload = {
-    allow_model_processing: true,
-    position_count: model.hero.holdingsCount,
-    top_positions: top.map((row) => ({ ...row, name: row.name.slice(0, 60) })),
-    allocation,
-    history_available: model.quality.historyReady,
-    persona: getInvestingPersona(preferences).kind,
-    horizon,
-    loss_capacity: lossCapacity,
-    assessable:
-      top.length > 0 &&
-      allocationCoverage >= 99 &&
-      allocationCoverage <= 101 &&
-      model.canonicalModel.positions.every(
-        (row) => Number.isFinite(row.marketValue) && row.marketValue >= 0,
-      ) &&
-      horizon !== null &&
-      lossCapacity !== null,
-  };
-  const digest = await financeDigest(
-    JSON.stringify([
-      "portfolio-review-v1",
-      sourceFence,
-      payload,
-      total,
-      model.canonicalModel.positions.map((row) => [row.id, row.marketValue]),
-      model.history,
-    ]),
-  );
-  return { payload, digest, sourceFence, model, preferences };
 }
 
 export function PortfolioAgentReview({
@@ -100,8 +42,8 @@ export function PortfolioAgentReview({
   const disclosureId = useId();
   const [revision, setRevision] = useState(0);
   const [sourceRetry, setSourceRetry] = useState(0);
-  const { kind, snapshotId } = source;
-  const sourceKey = useMemo(() => ({ kind, snapshotId }), [kind, snapshotId]);
+  const { kind, snapshotId, representation } = source;
+  const sourceKey = useMemo(() => ({ kind, snapshotId, representation }), [kind, snapshotId, representation]);
   const readKey = useMemo(() => ({ sourceKey, revision, sourceRetry }), [sourceKey, revision, sourceRetry]);
   const [saved, setSaved] = useState<{ key: typeof readKey; input: SavedReviewInput | null; cached?: Review } | null>(null);
   const [recentPreferences, setRecentPreferences] = useState<{ sourceKey: typeof sourceKey; value: KaiPreferences } | null>(null);
@@ -116,7 +58,7 @@ export function PortfolioAgentReview({
   useEffect(() => {
     let cancelled = false;
     const current = () => !cancelled && context.isCurrent() && !document.hidden;
-    void reviewInput(context, readKey.sourceKey).then(async (input) => {
+    void readPortfolioReviewInput(context, readKey.sourceKey).then(async (input) => {
       if (!current()) return;
       const stored = await readSavedPortfolioReview(context);
       if (!current()) return;

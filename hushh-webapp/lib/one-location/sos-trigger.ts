@@ -158,6 +158,7 @@ export interface RunSosPanicParams {
   point: PlainLocationPoint;
   /** Optional short message shown in the recipient notification. */
   note?: string | null;
+  isStale?: () => boolean;
   /**
    * Caller-supplied publish function so the core stays decoupled from the
    * encrypt+store implementation (and is therefore easy to unit-test).
@@ -259,6 +260,9 @@ export async function runSosPanic(
       // publish throws for this or a later recipient, and persist it at once
       // so a crash before the next create leaves a stoppable record behind.
       grantIds.push(grant.id);
+      // The backend retains the owner-scoped grant even if this browser
+      // switched accounts while creation was in flight.
+      if (params.isStale?.()) throw new Error("The signed-in account changed.");
       saveSosIncident(incidentSoFar());
       const alerted = await publish(grant, recipient, point);
       delivery[index] = {
@@ -277,13 +281,13 @@ export async function runSosPanic(
     }
   };
   await Promise.all(Array.from({ length: Math.min(3, recipients.length) }, async () => {
-    while (nextRecipient < recipients.length) {
+    while (nextRecipient < recipients.length && !params.isStale?.()) {
       const index = nextRecipient++;
       const recipient = recipients[index];
       if (recipient) await deliver(recipient, index);
     }
   }));
-  if (firstError !== undefined) {
+  if (firstError !== undefined || params.isStale?.()) {
     throw new SosPanicError(
       firstError instanceof Error ? firstError.message : "Could not send SMS alert.",
       grantIds.length ? incidentSoFar() : null,

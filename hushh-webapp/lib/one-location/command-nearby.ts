@@ -7,6 +7,8 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
+
 export const NEARBY_COMMAND_CONSENT_VERSION = "one-location-nearby-presence-v3";
 type Place = { placeId: string; name: string };
 type Choice = { placeId?: string; duration?: number };
@@ -192,17 +194,34 @@ export async function performNearbyCheckIn(input: {
   allowConnectionRequests: boolean;
   operationId?: string;
   consentVersion?: string;
-  capture(): Promise<PlainLocationPoint>;
+  capture(forceNew: boolean): Promise<PlainLocationPoint>;
   current(): boolean;
   signal?: AbortSignal;
   save(point: PlainLocationPoint): Promise<OneLocationNearbyPresenceState>;
 }) {
   if (!input.consentAccepted || !input.current() || input.signal?.aborted)
     throw Error("Review Nearby visibility before checking in.");
-  const point = await input.capture();
-  if (!input.current() || input.signal?.aborted)
-    throw Error("The check-in was interrupted before it was sent.");
-  const result = await input.save(point);
+  const stillCurrent = () => input.current() && !input.signal?.aborted;
+  const capture = async (forceNew: boolean) => {
+    if (!stillCurrent()) throw Error("The check-in was interrupted before it was sent.");
+    const point = await input.capture(forceNew);
+    if (!stillCurrent()) throw Error("The check-in was interrupted before it was sent.");
+    return point;
+  };
+  let point = await capture(false);
+  let result;
+  try {
+    result = await input.save(point);
+  } catch (error) {
+    // This typed rejection occurs before any server write. A network failure
+    // or another response may have committed and must never replay a tap.
+    if (!(error instanceof ApiError) || error.status !== 422 ||
+        apiErrorCode(error) !== "NEARBY_PRESENCE_LOCATION_STALE" || !stillCurrent()) {
+      throw error;
+    }
+    point = await capture(true);
+    result = await input.save(point);
+  }
   if (!input.current())
     throw Error(
       "Your account changed. Review the saved operation after unlocking.",

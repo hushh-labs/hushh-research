@@ -80,7 +80,11 @@ test("uses local Back and keeps optional work in focused sheets", async ({ page 
   await page.getByRole("button", { name: "Set up later" }).click();
   await page.getByRole("button", { name: "Join with a code" }).click();
   await expect(page.getByRole("dialog", { name: "Join with a code" })).toBeVisible();
-  await expect.poll(async () => Math.round((await page.getByRole("dialog", { name: "Join with a code" }).boundingBox())?.width ?? 0)).toBe(560);
+  const joinDialog = page.getByRole("dialog", { name: "Join with a code" });
+  const bounds = (await joinDialog.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(16);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(544);
+  expect(Math.abs(bounds.y + bounds.height / 2 - 422)).toBeLessThanOrEqual(2);
   await page.getByRole("textbox", { name: "Circle code" }).fill("ZXCVBNMASDFG");
   await page.getByRole("button", { name: "Look up" }).click();
   await page.getByRole("button", { name: "Join Family" }).click();
@@ -124,4 +128,23 @@ test("keeps actions reachable in a short landscape or zoomed viewport", async ({
   await page.getByRole("button", { name: "Find contacts" }).click();
   await expect(page.getByRole("button", { name: "Check my contacts" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+});
+
+test("keeps the join dialog reachable above a simulated keyboard on a short screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 540 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openFixture(page, { ready: true, dark: true });
+  await page.getByRole("button", { name: "Join with a code" }).click();
+  const dialog = page.getByRole("dialog", { name: "Join with a code" });
+  await page.evaluate(() => {
+    document.documentElement.classList.add("kb-open");
+    document.documentElement.style.setProperty("--kb-height", "220px");
+  });
+  await expect.poll(async () => {
+    const bounds = (await dialog.boundingBox())!;
+    return bounds.y >= 16 && bounds.y + bounds.height <= 304;
+  }).toBe(true);
+  await dialog.getByRole("textbox", { name: "Circle code" }).fill("ZXCVBNMASDFG");
+  await dialog.getByRole("button", { name: "Look up" }).click();
+  await expect(dialog.getByRole("button", { name: "Join Family" })).toBeVisible();
 });
