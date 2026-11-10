@@ -137,7 +137,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: Li
     const scroll = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
     const frame = requestAnimationFrame(() => {
       if (scroll) scroll.scrollTop = retained.scrollTop;
-      const controls = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("[data-network-person]") ?? []).filter(element => element.dataset.networkPerson === retained.focusRef);
+      const controls = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("button[data-network-person]") ?? []).filter(element => element.dataset.networkPerson === retained.focusRef);
       const target = controls.find(element => (element.dataset.networkFocus ?? "profile") === (retained.focusControl ?? "profile"))
         ?? controls.find(element => !element.dataset.networkFocus);
       target?.focus({ preventScroll: true });

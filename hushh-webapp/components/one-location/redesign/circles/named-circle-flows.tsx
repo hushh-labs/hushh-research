@@ -3330,7 +3330,7 @@ export function CircleDetailFlow({
                   variant="ghost"
                   className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  <Trash2 inheritColor className="mr-2 h-4 w-4" />
                   Delete circle
                 </Button>
               </AlertDialogTrigger>

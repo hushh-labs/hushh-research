@@ -133,7 +133,7 @@ test("Circle reply, edit and both deletion scopes complete without disturbing ad
   const quote = page.getByRole("button", { name: "View original message from Kushal Trivedi" });
   await expect(quote).toContainText("Hey everyone!");
   await quote.click();
-  await expect(peer).toBeFocused();
+  await expect(peer.locator('[data-chat-bubble]')).toBeFocused();
   await openMessageOptions(page, own);
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   await page.getByRole("textbox", { name: "Edit message text" }).fill("Updated meetup plan");

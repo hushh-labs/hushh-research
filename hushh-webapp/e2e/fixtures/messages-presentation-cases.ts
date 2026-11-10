@@ -46,6 +46,8 @@ export function registerMessagesPresentationCases({ mount, touchMessageActions, 
         const editor = page.getByRole("textbox", { name: kind === "people" ? "Message Maya Rao" : "Message", exact: true });
         await expect(editor).toBeVisible();
         const selected = await rowSurface.evaluate(node => getComputedStyle(node).backgroundColor);
+        expect(selected).toBe("rgba(0, 0, 0, 0)");
+        await expect(kind === "people" ? rowSurface.locator("[data-person-row-action]") : rowSurface).toHaveAttribute("aria-current", "true");
         await editor.fill("Keep this draft");
         const send = page.getByRole("button", { name: "Send message", exact: true });
         const attach = page.getByRole("button", { name: kind === "people" ? "Add attachment" : "Attach photo, video, or document", exact: true });
@@ -66,6 +68,9 @@ export function registerMessagesPresentationCases({ mount, touchMessageActions, 
         const transcript = { bubble: await bubble.evaluate(geometry), metadata: await metadata.evaluate(geometry),
           avatar: await avatar.evaluate(geometry),
           inset: await page.locator(kind === "people" ? '[class*="messageList"]' : '[aria-label="Circle messages"]').evaluate(node => getComputedStyle(node).paddingLeft) };
+        expect(transcript.bubble.background).toBe("rgba(0, 0, 0, 0)");
+        expect(transcript.bubble.border).toBe("0px");
+        expect(transcript.bubble.shadow).toBe("none");
         const addReaction = message.getByRole("button", { name: "React to message", exact: true });
         await expect(addReaction.locator("svg")).toHaveCSS("width", "20px");
         await expect(addReaction.locator("svg")).toHaveCSS("height", "20px");
@@ -157,6 +162,7 @@ export function registerMessagesPresentationCases({ mount, touchMessageActions, 
     await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
     const touchActions = await touchMessageActions(page);
     const bubble = page.locator('[data-message-role="user"]').last();
+    await bubble.scrollIntoViewIfNeeded();
     const before = await bubble.boundingBox();
     await bubble.hover();
     await expect(bubble.getByRole("button", { name: "Message options" })).toBeVisible();

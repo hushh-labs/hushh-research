@@ -180,10 +180,8 @@ describe("PersonProfilePage native profile route", () => {
     expect(
       await screen.findByRole("heading", { name: "Divya Rajendran" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "RIA verified" }));
-    expect(screen.getByRole("dialog", { name: "RIA verified" })).toHaveAccessibleDescription(
-      "This person is verified as a registered investment adviser (RIA).",
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Verified Advisor" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Verified Advisor");
     expect(
       document.querySelector('[data-avatar-size="profile"]'),
     ).not.toBeNull();
@@ -210,7 +208,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(
       await screen.findByRole("heading", { name: "Plain Person" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "RIA verified" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Verified Advisor" })).not.toBeInTheDocument();
   });
 
   it("keeps the share profile icon and label separated inside the existing action", async () => {

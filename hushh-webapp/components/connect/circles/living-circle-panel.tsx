@@ -281,7 +281,7 @@ export function LivingCirclePanel({
               data-testid="connect-circle-remove-banner"
               className="mb-4 flex items-center justify-center gap-2 rounded-[var(--app-card-radius-compact)] border border-dashed border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] px-4 py-3 text-sm font-medium text-destructive transition-[background-color,border-color] duration-150"
             >
-              <Trash2 className="size-4 shrink-0" aria-hidden="true" />
+              <Trash2 inheritColor className="size-4 shrink-0" aria-hidden="true" />
               <span>{overRemoveZone ? "Release to remove from circle" : "Drag down here to remove from circle"}</span>
             </div>
           ) : null}
