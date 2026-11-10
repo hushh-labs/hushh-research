@@ -135,11 +135,20 @@ class RecoveryQualificationTest(unittest.TestCase):
         }
         return run, job, fresh
 
-    def qualify(self, run, job, fresh):
+    def qualify(self, run, job, fresh, *, older=None, total_count=None):
         class Actions:
             def read(_, path):
                 if path.startswith("workflows/"):
-                    return {"workflow_runs": [deepcopy(run)]}
+                    rows = [deepcopy(run)] + ([deepcopy(older)] if older is not None else [])
+                    count = len(rows) if total_count is None else total_count
+                    # Reproduce GitHub's creation-order pagination: requesting
+                    # only one row conceals an older run's later rerun.
+                    return {"workflow_runs": rows[:1] if "per_page=1" in path and "per_page=100" not in path else rows,
+                            "total_count": count}
+                if path == f"runs/{run['id']}/attempts/{run['run_attempt']}":
+                    return deepcopy(run)
+                if older is not None and path == f"runs/{older['id']}/attempts/{older['run_attempt']}":
+                    return deepcopy(older)
                 if path == "runs/42/attempts/1/jobs?per_page=100":
                     return {"total_count": 1, "jobs": [deepcopy(job)]}
                 if path == "runs/42":
@@ -154,7 +163,22 @@ class RecoveryQualificationTest(unittest.TestCase):
         self.assertEqual(proof["source_tree"], self.tree)
         self.assertEqual(proof["authority_sha"], self.authority)
         self.assertEqual(proof["checks"][0]["run_attempt"], 1)
-        self.assertEqual(len(proof["authority_reads"]), 3)
+        self.assertEqual(len(proof["authority_reads"]), 4)
+
+    def test_older_dispatch_later_attempt_revokes_newer_created_green(self):
+        run, job, fresh = self.runs()
+        run.update(run_started_at="2026-11-10T01:00:00Z", updated_at="2026-11-10T01:01:00Z")
+        fresh.update(run_started_at=run["run_started_at"], updated_at=run["updated_at"])
+        older = {**run, "id": 41, "run_attempt": 2,
+                 "run_started_at": "2026-11-10T01:02:00Z", "updated_at": "2026-11-10T01:03:00Z"}
+        for status, conclusion in (("completed", "failure"), ("in_progress", None), ("completed", "cancelled")):
+            with self.subTest(status=status, conclusion=conclusion), self.assertRaises(recovery.Refused):
+                self.qualify(run, job, fresh, older={**older, "status": status, "conclusion": conclusion})
+        # A genuinely older failed attempt does not invalidate newer proof.
+        older.update(run_started_at="2026-11-10T00:58:00Z", updated_at="2026-11-10T00:59:00Z", conclusion="failure")
+        self.assertEqual(self.qualify(run, job, fresh, older=older)["sha"], self.source)
+        with self.assertRaises(recovery.Refused):
+            self.qualify(run, job, fresh, total_count=101)
 
     def test_wrong_source_wrong_workflow_and_stale_green_refuse(self):
         for change in (

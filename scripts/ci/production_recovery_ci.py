@@ -85,10 +85,12 @@ def prepare(source, base=None, tree=None):
 
 
 def qualification(api, source):
-    """Accept only the newest dedicated run, using live Actions metadata."""
+    """Accept only the latest current attempt, not the newest-created run."""
+    from uat_exact_ci import Refused as AttemptRefused, _started
+
     base, tree = identity(source)
     run_query = (
-        f"workflows/{WORKFLOW}/runs?branch=main&event=workflow_dispatch&per_page=1"
+        f"workflows/{WORKFLOW}/runs?branch=main&event=workflow_dispatch&per_page=100"
     )
     observed = {}
 
@@ -102,10 +104,31 @@ def qualification(api, source):
     listing = read(run_query)
     candidates = listing.get("workflow_runs")
     require(
-        isinstance(candidates, list) and len(candidates) == 1,
-        "Exact recovery source qualification has no canonical run",
+        isinstance(candidates, list)
+        and type(listing.get("total_count")) is int
+        and listing["total_count"] == len(candidates)
+        and 0 < len(candidates) <= 100,
+        "Recovery qualification run inventory is missing or incomplete",
     )
-    run = candidates[0]
+    attempts = []
+    for row in candidates:
+        require(
+            type(row.get("id")) is int and row["id"] > 0
+            and type(row.get("run_attempt")) is int and row["run_attempt"] > 0,
+            "Recovery attempt identity is invalid",
+        )
+        current = read(f"runs/{row['id']}/attempts/{row['run_attempt']}")
+        require(
+            all(current.get(key) == row.get(key) for key in
+                ("id", "run_attempt", "head_sha", "head_branch", "workflow_id", "path", "event")),
+            "Recovery attempt belongs to another run or source",
+        )
+        attempts.append(current)
+    require(len({run["id"] for run in attempts}) == len(attempts), "Duplicate recovery runs")
+    try:
+        run = attempts[0] if len(attempts) == 1 else max(attempts, key=_started)
+    except AttemptRefused as error:
+        raise Refused(str(error)) from None
     run_id, authority = run.get("id"), run.get("head_sha", "")
     require(
         all(
@@ -187,6 +210,7 @@ def qualification(api, source):
         ),
         "Recovery qualification attempt changed during verification",
     )
+    require(read(run_query) == listing, "Recovery qualification inventory changed during verification")
     return {
         "schema_version": 1,
         "repository": REPOSITORY,
