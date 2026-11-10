@@ -702,7 +702,8 @@ def test_edit_preserves_encrypted_attachment_metadata(monkeypatch):
     assert _opened_message_content(cipher.sealed[0][0]) == ("new caption", attachment)
 
 
-def test_reaction_adds_a_distinct_emoji_without_replacing_existing_reactions(monkeypatch):
+@pytest.mark.parametrize("emoji", ["❤️", "👍🏽", "👩🏽‍💻", "🇮🇳", "1️⃣", "👨‍👩‍👧‍👦"])
+def test_reaction_adds_a_distinct_emoji_without_replacing_existing_reactions(monkeypatch, emoji):
     service = _service()
     action_row = _action_message()
     calls: list[tuple[str, dict]] = []
@@ -714,13 +715,27 @@ def test_reaction_adds_a_distinct_emoji_without_replacing_existing_reactions(mon
 
     monkeypatch.setattr(service, "_execute_one", execute_one)
 
-    service.react_to_message("alice", _CONVERSATION_ID, _MESSAGE_ID, emoji="❤️")
+    service.react_to_message("alice", _CONVERSATION_ID, _MESSAGE_ID, emoji=emoji)
 
     reaction_sql, reaction_params = next(
         (sql, params) for sql, params in calls if "INSERT INTO direct_message_reactions" in sql
     )
     assert "ON CONFLICT (message_id, user_id, emoji)" in reaction_sql
-    assert reaction_params["emoji"] == "❤️"
+    assert reaction_params["emoji"] == emoji
+
+
+@pytest.mark.parametrize("emoji", ["hello", "👍👍", "🏽", "", "🇮", "👩\u200dhello", "x" * 100])
+def test_reaction_rejects_non_catalogue_values_before_storage(monkeypatch, emoji):
+    service = _service()
+
+    def unexpected_storage(*_args, **_kwargs):
+        pytest.fail("Invalid reaction reached storage")
+
+    monkeypatch.setattr(service, "_message_action_row", unexpected_storage)
+    with pytest.raises(DirectMessagesError) as error:
+        service.react_to_message("alice", _CONVERSATION_ID, _MESSAGE_ID, emoji=emoji)
+    assert error.value.status_code == 422
+    assert error.value.code == "DIRECT_MESSAGE_REACTION_INVALID"
 
 
 def test_delete_for_me_uses_the_viewers_participant_visibility_field(monkeypatch):
