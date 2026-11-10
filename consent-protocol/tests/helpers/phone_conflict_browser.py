@@ -145,7 +145,7 @@ async def _assert_erased(conn, recorded, baseline):
 
 
 async def _assert_linked_deleted(conn, recorded, baseline):
-    """Local erasure cannot release the shared native binding or verify the requester."""
+    """Phone proof deleted the holder; the worker erased it; the requester owns the number."""
     for table in ("actor_profiles", "vault_keys", "pkm_data", "actor_identity_cache"):
         assert (
             await conn.fetchval(
@@ -162,23 +162,9 @@ async def _assert_linked_deleted(conn, recorded, baseline):
         "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
         PHONE,
     )
-    assert owner is None
-    assert recorded.phone == PHONE
-    # Final erasure detaches the holder but keeps the consumed SMS event and
-    # the requester's receipt, so the proof can never authorize another deletion.
-    receipts = await conn.fetch(
-        "SELECT requester_user_id,target_user_id,proof_event_digest,state"
-        " FROM account_phone_linked_deletions"
-    )
-    assert [
-        (
-            row["requester_user_id"],
-            row["target_user_id"],
-            bool(row["proof_event_digest"]),
-            row["state"],
-        )
-        for row in receipts
-    ] == [(OWNERS["receiving-a"], None, True, "admitted")]
+    assert owner == OWNERS["receiving-a"]
+    # The holder's final erasure removed its deletion receipt with it.
+    assert await conn.fetchval("SELECT count(*) FROM account_phone_linked_deletions") == 0
     assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0
     assert recorded.unlink_count == 0
 

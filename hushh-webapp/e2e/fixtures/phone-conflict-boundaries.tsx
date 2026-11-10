@@ -12,8 +12,7 @@ type FixtureUser = {
   getIdTokenResult: () => Promise<{ signInProvider: string }>;
   reload: () => Promise<void>;
 };
-type FixtureApp = { name: string; options: Record<string, unknown> };
-type Auth = { name: string; app: FixtureApp; currentUser: FixtureUser | null; settings: Record<string, unknown> };
+type Auth = { name: string; currentUser: FixtureUser | null; settings: Record<string, unknown> };
 const listeners = new Set<(user: FixtureUser | null) => void>();
 const apps: { name: string; options: Record<string, unknown> }[] = [];
 const stores = new Map<string, Auth>();
@@ -45,8 +44,7 @@ export const getApps = () => apps;
 export const getApp = () => apps[0];
 export function getAuth(app = getApp()) {
   const name = app?.name ?? "[DEFAULT]";
-  if (!stores.has(name)) stores.set(name, { name, app: app ?? { name, options: {} }, currentUser: null, settings: {} });
-  if (app) stores.get(name)!.app = app;
+  if (!stores.has(name)) stores.set(name, { name, currentUser: null, settings: {} });
   return stores.get(name)!;
 }
 const initial = await sdk("state");
@@ -95,12 +93,7 @@ export class PhoneAuthProvider {
   async verifyPhoneNumber(phone: string, _verifier?: unknown) { return (await sdk("send", { phone })).verificationId; }
   static credential(verificationId: string, verificationCode: string) { return { verificationId, verificationCode }; }
 }
-export class PhoneAuthCredential {
-  static fromJSON(value: { temporaryProof?: string; phoneNumber?: string }) {
-    return value.temporaryProof && value.phoneNumber ? value : null;
-  }
-}
-export async function signInWithCredential(auth: Auth, credential: { verificationId?: string; verificationCode?: string; temporaryProof?: string; phoneNumber?: string }) {
+export async function signInWithCredential(auth: Auth, credential: { verificationId: string; verificationCode: string }) {
   const result = await sdk("verify", credential);
   const value = { ...user(result.user), getIdToken: async () => result.token };
   publish(auth, value); return { user: value };

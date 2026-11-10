@@ -203,9 +203,7 @@ export function usePhoneVerificationFlow({
   const changeStep = useCallback((next: VerificationStep) => { stepRef.current = next; setStep(next); }, []);
   const deletion = usePhoneLinkedDeletion({ phone: submittedPhoneNumber, conflict, busy, guard: deletionGuard, current,
     inFlight: phoneFlowInFlightRef, setBusy, setConflict, setError: setOperationError,
-    // In-place deletion needs the retained real-SMS proof (test numbers never retain one);
-    // without it the same choice keeps the previous-account sign-in handoff.
-    prepare: transferEligible ? prepareLinkedDeletion : undefined, cancel: cancelLinkedDeletion, confirm: confirmLinkedDeletion,
+    prepare: prepareLinkedDeletion, cancel: cancelLinkedDeletion, confirm: confirmLinkedDeletion,
     fallback: () => performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError),
     onDeleted: async verified => { visit.verified = true; visit.verifiedUser = verified; setConflict(null); changeStep("linked"); await onCompleted(verified); } });
   const seededOwner = useRef(ownerKey);
@@ -275,13 +273,7 @@ export function usePhoneVerificationFlow({
     if (phoneFlowInFlightRef.current) return true;
     visit.smsTransport = false;
     if (conflict === "review" && !transferPending) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
-    // Only a review that sent nothing returns to the choices. Once a confirmation was
-    // sent and is unconfirmed, or the proof is spent or expired, the choices could
-    // offer a proof that may already be consumed, so Back returns to number entry.
-    if (conflict === "delete") {
-      if (!deletion.leave()) return true;
-      if (!deletion.freshProof && !deletion.unconfirmed) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
-    }
+    if (conflict === "delete") { if (deletion.leave()) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); } return true; }
     if (transferPending) return true;
     advanceEntryRevision();
     setVerificationCode("");
@@ -958,7 +950,7 @@ export function usePhoneVerificationFlow({
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
     conflict, transferPending, transferEligible, transferUnavailable, handleTransfer, recoverPrevious,
     deletionReview: deletion.prepared, deletionNeedsFreshProof: deletion.freshProof, deletionUnconfirmed: deletion.unconfirmed,
-    deletionSettled: deletion.settled, deletePrevious: deletion.review, confirmDeletion: deletion.submit,
+    deletePrevious: deletion.review, confirmDeletion: deletion.submit,
     restartVerification: () => { if (current() && !phoneFlowInFlightRef.current && deletion.leave()) { advanceEntryRevision(); setVerificationCode(""); setOperationError(null); setConflict(null); changeStep("phone"); } },
     startFreshSms: () => handleStartVerification(false, submittedPhoneNumber, "sms"),
     reviewTransfer: () => { if (current() && visit.entryRevision === entryRevision && conflict === "choices" && transferEligible && !busy && !phoneFlowInFlightRef.current) { advanceEntryRevision(); setConflict("review"); setOperationError(null); } },

@@ -127,7 +127,7 @@ describe("register-phone conflict runtime", () => {
     expect(destination.href).not.toContain("6505550101");
     expect(destination.href).not.toContain("123456");
   });
-  it("admits linked deletion without reusing the holder proof to claim the number", async () => {
+  it("deletes the linked account in place with the retained SMS proof, then claims the number", async () => {
     const operation = "d2a5e0f0-8c5e-4f2c-9a51-3f0d6b5f9a11";
     const bodies: Record<string, unknown>[] = [];
     let claims = 0;
@@ -165,66 +165,17 @@ describe("register-phone conflict runtime", () => {
     expect(remove).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(remove);
-    await screen.findByRole("button", { name: "Verify this number again" });
-    expect(claims).toBe(0);
+    await waitFor(() => expect(claims).toBe(1));
     expect(bodies.find(body => String(body.path).endsWith("/deletions/confirm"))).toEqual({
       path: "/api/account/phone/linked-account/deletions/confirm", operation_id: operation,
       phone_number: "+16505550101", confirmed: true, phone_id_token: "phone-id-token",
     });
-    // The consumed holder proof admits deletion, never verifies the receiving UID.
+    // The verified provider-conflict proof serves deletion and the single follow-up claim.
     expect(mocks.phoneLinkConfirm).toHaveBeenCalledOnce();
     expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
     expect(bodies.some(body => String(body.path).endsWith("/phone/recovery/continuations"))).toBe(false);
     expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
-  it("reads a lost linked-deletion confirmation back with Check again and never sends it twice", async () => {
-    const operation = "d2a5e0f0-8c5e-4f2c-9a51-3f0d6b5f9a12";
-    const requests: { path: string; method: string; body: string }[] = [];
-    let admitted = false;
-    const identity = await vi.importActual<typeof import("@/lib/services/account-identity-service")>("@/lib/services/account-identity-service");
-    const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
-    Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone });
-    mocks.identityClaim.mockImplementation(identity.AccountIdentityService.claimCurrentUserPhone.bind(identity.AccountIdentityService));
-    mocks.phoneLinkConfirm.mockImplementation(async ({ onConflictProof }) => {
-      onConflictProof("phone-id-token");
-      throw Object.assign(new Error("Phone is held by another Firebase identity"), { code: "auth/credential-already-in-use" });
-    });
-    vi.mocked(fetch).mockImplementation(async (url, init) => {
-      const path = String(url);
-      requests.push({ path, method: init?.method ?? "GET", body: String(init?.body ?? "") });
-      if (path.endsWith("/phone/linked-account/deletions")) {
-        return Response.json({ operation_id: operation, state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport: "sms" });
-      }
-      // The confirmation's response is lost; the server may still be running it.
-      if (path.endsWith("/phone/linked-account/deletions/confirm")) throw new TypeError("Failed to fetch");
-      if (path.endsWith(`/phone/linked-account/deletions/${operation}`)) return Response.json({ operation_id: operation, state: admitted ? "admitted" : "prepared" });
-      return Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 });
-    });
-    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
-    const phone = await screen.findByRole("textbox", { name: "Phone number" });
-    fireEvent.change(phone, { target: { value: "6505550101" } });
-    fireEvent.submit(phone.closest("form")!);
-    const code = await screen.findByRole("textbox", { name: "One-time code" });
-    fireEvent.change(code, { target: { value: "123456" } });
-    fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
-    await screen.findByRole("heading", { name: "Delete the account linked to ••01?" });
-    fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete and continue" }));
-    // "prepared" after a lost response can still be admitted: unconfirmed, with no Cancel and no second confirmation.
-    const check = await screen.findByRole("button", { name: "Check again" }, { timeout: 4_000 });
-    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete and continue" })).toBeNull();
-    admitted = true;
-    fireEvent.click(check);
-    await screen.findByRole("heading", { name: "Deletion requested" });
-    // Negative control: the old Check again sent the proof in a second confirmation.
-    expect(requests.filter(request => request.path.endsWith("/deletions/confirm"))).toHaveLength(1);
-    const reads = requests.filter(request => request.path.endsWith(`/deletions/${operation}`));
-    expect(reads.length).toBeGreaterThanOrEqual(2);
-    expect(reads.every(request => request.method === "GET" && !request.body.includes("phone-id-token"))).toBe(true);
-    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
-  }, 10_000);
   it.each(["manual", "instant", "retry save"] as const)("keeps Dev's explicit %s SMS recovery and owner-approved transfer for a partially saved phone", async proofMode => {
     const identity = await vi.importActual<typeof import("@/lib/services/account-identity-service")>("@/lib/services/account-identity-service");
     const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");

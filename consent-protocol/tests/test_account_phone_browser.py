@@ -44,7 +44,6 @@ class RecordedFirebase:
         self.claims: dict[str, dict] = {}
         self.auth_times = {uid: int(time.time()) for uid in OWNERS.values()}
         self.challenges: dict[str, dict] = {}
-        self.proofs: dict[str, dict] = {}
         self.phone = PHONE
         self.unlink_count = 0
         self.sends = 0
@@ -137,44 +136,9 @@ class RecordedFirebase:
                 self.challenges[challenge] = {"created": int(time.time()), "spent": False}
                 self.sends += 1
                 return {"verificationId": challenge}
-            if operation == "link":
-                claims = self.claims.get(body.get("idToken"), {})
-                if not self.active or claims.get("uid") != OWNERS[self.active]:
-                    return Response(
-                        json.dumps({"error": {"message": "INVALID_ID_TOKEN"}}),
-                        status_code=400,
-                        media_type="application/json",
-                    )
-                challenge = self.challenges.get(body.get("sessionInfo"))
-                if not challenge or challenge["spent"]:
-                    return Response(
-                        json.dumps({"error": {"message": "INVALID_SESSION_INFO"}}),
-                        status_code=400,
-                        media_type="application/json",
-                    )
-                if body.get("code") != "123456":
-                    return Response(
-                        json.dumps({"error": {"message": "INVALID_CODE"}}),
-                        status_code=400,
-                        media_type="application/json",
-                    )
-                challenge["spent"] = True
-                proof = uuid4().hex
-                self.proofs[proof] = {"created": challenge["created"], "spent": False}
-                return {"temporaryProof": proof, "phoneNumber": self.phone, "isNewUser": False}
             if operation == "verify":
-                continued = bool(body.get("temporaryProof"))
-                challenge = (
-                    self.proofs.get(body.get("temporaryProof"))
-                    if continued
-                    else self.challenges.get(body.get("verificationId"))
-                )
-                valid = (
-                    body.get("phoneNumber") == self.phone
-                    if continued
-                    else body.get("verificationCode") == "123456"
-                )
-                if not challenge or challenge["spent"] or not valid:
+                challenge = self.challenges.get(body.get("verificationId"))
+                if not challenge or challenge["spent"] or body.get("verificationCode") != "123456":
                     return Response(
                         json.dumps({"code": "auth/invalid-verification-code"}),
                         status_code=400,
@@ -352,7 +316,6 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         recorded.phone = PHONE
         recorded.claims.clear()
         recorded.challenges.clear()
-        recorded.proofs.clear()
         recorded.unlink_count = 0
         recorded.sends = 0
         return {"ready": True}
