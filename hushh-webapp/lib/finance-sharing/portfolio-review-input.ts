@@ -1,8 +1,8 @@
 import { topPortfolioWeights } from "@/components/kai/views/portfolio-analysis-facts";
+import { readSavedFinance } from "@/lib/finance-sharing/saved-source";
 import { getInvestingPersona, portfolioPlanningSignals } from "@/lib/kai/investing-persona";
 import type { FinanceShareContext } from "@/lib/services/finance-sharing-service";
 import { financeDigest, type FinanceSource } from "./contract";
-import { readSavedFinance } from "./saved-source";
 
 export async function readPortfolioReviewInput(
   context: FinanceShareContext,
