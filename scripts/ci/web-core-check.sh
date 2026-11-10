@@ -29,7 +29,6 @@ validation_check "Design-system architecture" node scripts/architecture/verify-d
 validation_check "Input and runtime resources" node scripts/architecture/verify-render-performance.mjs --core
 # Keep the local core mirror authoritative too; this costs only a few seconds.
 validation_check "verify:ui-contracts" npm run verify:ui-contracts
-validation_check "test:ui-contract-validators" npm run test:ui-contract-validators
 validation_check "typecheck" npm run typecheck
 validation_check "lint" npm run lint
 

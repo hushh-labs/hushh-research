@@ -1490,7 +1490,7 @@ describe("NearbyCheckInSheet", () => {
     );
   });
 
-  it("explains when a nearby person is not accepting connection requests", async () => {
+  it("shows a neutral explanation when a nearby connection request is unavailable", async () => {
     service.getNearbyPresence.mockResolvedValue({
       presence: {
         status: "active",
@@ -1524,10 +1524,10 @@ describe("NearbyCheckInSheet", () => {
 
     expect(
       await screen.findByRole("button", {
-        name: "Taylor Kim is not accepting connection requests",
+        name: "Connection requests unavailable for Taylor Kim",
       }),
     ).toBeDisabled();
-    expect(screen.getByText("Not accepting requests")).toBeInTheDocument();
+    expect(screen.getByText("Connect unavailable")).toBeInTheDocument();
   });
 
   it("clears the previous owner's roster before loading a new owner", async () => {

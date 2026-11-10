@@ -206,14 +206,14 @@ describe("Profile pane: Personal World Model", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("keeps the complete information-access payment owner in the native Profile handoff", async () => {
+  it("keeps existing payouts without information-access sections in the native Profile handoff", async () => {
     nav.query = "profile_pane=1&profile_panel=payouts";
     window.history.replaceState(null, "", `/one?${nav.query}`);
     render(<StepProgressProvider><ProfilePage presentation="native-page"
       nativeMenuOpen paneLocation={{ panel: "payouts", detail: null }} /></StepProgressProvider>);
     await waitFor(() => expect(nativePresentation.workspace).toHaveBeenLastCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: "payouts", sections:
-        expect.arrayContaining([expect.objectContaining({ title: "Information access" })]),
+        expect.not.arrayContaining([expect.objectContaining({ title: "Information access" })]),
       })]),
     ));
   });

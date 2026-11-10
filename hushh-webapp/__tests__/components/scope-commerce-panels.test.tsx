@@ -517,6 +517,18 @@ describe("answer payout hosted continuity", () => {
     await waitFor(() => expect(mocks.answerAccount).toHaveBeenCalledWith("owner-token"));
     expect(mocks.answerOnboarding).not.toHaveBeenCalled();
     expect(mocks.onboarding).not.toHaveBeenCalled();
+    expect(mocks.account).not.toHaveBeenCalled();
+    expect(mocks.readiness).not.toHaveBeenCalled();
+    expect(mocks.sandboxVerified).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Information access" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
+  });
+  it("opens existing payouts without mounting information-access controls or loading their accounts", async () => {
+    render(<PaymentsAndEarnings />);
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Information access" })).toBeNull();
+    for (const request of [mocks.account, mocks.readiness, mocks.sandboxVerified, mocks.activity, mocks.answerGates, mocks.answerAccount]) {
+      expect(request).not.toHaveBeenCalled();
+    }
   });
 });

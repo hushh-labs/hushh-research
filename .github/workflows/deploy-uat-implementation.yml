@@ -318,7 +318,7 @@ jobs:
     timeout-minutes: 7
     permissions:
       contents: read
-      actions: write
+      actions: read
       checks: read
       pull-requests: read
       id-token: write
@@ -364,6 +364,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
@@ -2349,6 +2351,7 @@ jobs:
           FRONTEND_PARALLEL_IMAGE: ${{ steps.prepare-frontend-rollout.outputs.image_reference }}
           FRONTEND_PENDING_IMAGE_BUILD_ID: ${{ steps.prepare-frontend-rollout.outputs.pending_image_build_id }}
           FRONTEND_SHARED_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
+          FRONTEND_BACKEND_QUALIFICATION_MODE: ${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
@@ -2363,6 +2366,7 @@ jobs:
               --github-run "${{ github.run_id }}" \
               --github-attempt "${{ github.run_attempt }}" \
               --backend-image "${{ steps.build-backend-image.outputs.image_reference }}" \
+              --qualification-mode "$FRONTEND_BACKEND_QUALIFICATION_MODE" \
               --legacy-exception "${{ inputs.skip_managed_vertex_probe_once || false }}" \
               --manifest-output /tmp/uat-frontend-image-manifest.json \
               --output /tmp/uat-frontend-image.json \

@@ -206,6 +206,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             ("ship-android-playstore-v1.yml", "native", "deploy-production"),
             ("publish-hushh-mcp.yml", "package", "deploy-production"),
             ("validate-plg-frontend-source.yml", "validation", "deploy-production"),
+            ("validate-production-recovery-source.yml", "validation", "deploy-production"),
             ("rollback.yml", "uat", "deploy-uat"),
             ("rollback.yml", "production", "deploy-production"),
         ]:
@@ -267,7 +268,18 @@ class DeploymentSecurityTest(unittest.TestCase):
                             ("${{ github.token }}", "${{ secrets.GITHUB_TOKEN }}"),
                         )
                         permissions = job.get("permissions", workflow.get("permissions", {}))
-                        self.assertEqual(permissions.get("actions"), "write")
+                        if "wait-uat-capacity.py" in step.get("run", ""):
+                            self.assertEqual(permissions.get("actions"), "read")
+                            self.assertEqual(
+                                env.get("RELEASE_AUTHORIZATION"),
+                                "${{ needs.deployment-security.outputs.authorization }}",
+                            )
+                            self.assertEqual(
+                                env.get("RELEASE_APPLICATION_SHA"),
+                                "${{ needs.deployment-security.outputs.application_sha }}",
+                            )
+                        else:
+                            self.assertEqual(permissions.get("actions"), "write")
 
     def test_read_only_inspection_exception_rejects_mutation_or_release_credentials(self):
         import yaml
@@ -378,6 +390,38 @@ class DeploymentSecurityTest(unittest.TestCase):
                         {"contents": "read", "actions": "read", "pull-requests": "read"},
                     )
                     self.assertNotIn("steps", clearance)
+                if name == "validate-production-recovery-source.yml":
+                    validation = yaml.safe_load(source)
+                    self.assertEqual(
+                        set(jobs),
+                        {"source", "deployment-security", "functional", "browser", "gate"},
+                    )
+                    self.assertTrue(
+                        all(level == "read" for level in validation["permissions"].values())
+                    )
+                    self.assertTrue(all("environment" not in job for job in jobs.values()))
+                    self.assertEqual(clearance["needs"], "source")
+                    self.assertEqual(clearance["with"]["environment_name"], "validation")
+                    self.assertEqual(clearance["with"]["scope"], "validation")
+                    self.assertEqual(jobs["functional"]["needs"], ["source", "deployment-security"])
+                    self.assertEqual(jobs["functional"]["uses"], "./.github/workflows/ci.yml")
+                    self.assertEqual(jobs["functional"]["with"]["scope"], "all")
+                    self.assertNotIn("secrets", jobs["functional"])
+                    self.assertEqual(jobs["browser"]["needs"], ["source", "deployment-security"])
+                    self.assertNotIn("secrets", jobs["browser"])
+                    self.assertIn("WEB_TARGETED_PART: browser", source)
+                    self.assertIn("scripts/ci/document-delivery-check.sh --ci-macos-webkit", source)
+                    self.assertEqual(
+                        jobs["gate"]["needs"],
+                        ["source", "deployment-security", "functional", "browser"],
+                    )
+                    self.assertIn(
+                        'test "$SOURCE_RESULT:$CI_RESULT:$BROWSER_RESULT:$SECURITY_RESULT" = success:success:success:success',
+                        source,
+                    )
+                    self.assertIn('test "$GITHUB_RUN_ATTEMPT:$SECURITY_ATTEMPT" = 1:1', source)
+                    self.assertIn('test "$SECURITY_SHA" = "$SOURCE_SHA"', source)
+                    continue
                 for key, job in jobs.items():
                     if name == "deploy-production.yml" and key == "validate-dispatch":
                         self.assertNotIn("needs", job)
