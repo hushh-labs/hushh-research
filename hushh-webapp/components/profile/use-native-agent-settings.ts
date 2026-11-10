@@ -46,9 +46,9 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
     sections.push({ id: "hosting-status-section", rows: current });
     const canChoose = ["shared", "pending", "byoc", "unplaced"].includes(mode);
     sections.push({ id: "hosting-choices-section", title: "Hosting choices", rows: [
-      { ...action("hosting-shared", "Hussh Shared", model.chooseHosting, mode !== "unplaced"), detail: mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically.", ...(mode === "shared" ? { trailing: "Current" } : {}) },
-      { ...action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting, !canChoose), detail: "Agent One and device relay. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : mode === "pending" ? { trailing: "Continue" } : {}) },
-      { ...read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? "Your dedicated Hussh-hosted pod. You approve updates." : "Dedicated hosting is unavailable for new setups."), trailing: mode === "hussh_pods" ? "Current" : "Unavailable" },
+      { ...action("hosting-shared", "Hussh Shared", model.chooseHosting, mode !== "unplaced"), detail: mode === "byoc" ? "To switch, remove your current cloud below. Your account stays." : "Hussh runs and updates it for you.", ...(mode === "shared" ? { trailing: "Current" } : {}) },
+      { ...action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting, !canChoose), detail: "Runs in your cloud. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : mode === "pending" ? { trailing: "Continue" } : {}) },
+      { ...read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? "Your dedicated pod. You approve updates." : "Closed to new setups."), trailing: mode === "hussh_pods" ? "Current" : "Unavailable" },
     ] });
     const actions = [action("hosting-check", "Check hosting", model.checkStatus, busy)];
     if (mode === "byoc") actions.push(action("hosting-reconnect", model.needsLinkRecovery ? "Link existing pod" : "Reconnect your pod", model.needsLinkRecovery ? model.recoverExistingPod : model.reconnectDirectPod, busy));

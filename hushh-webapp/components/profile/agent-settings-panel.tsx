@@ -59,14 +59,14 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         >
           <SettingsRow
             title="Hussh Shared"
-            description={mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically."}
+            description={mode === "byoc" ? "To switch, remove your current cloud below. Your account stays." : "Hussh runs and updates it for you."}
             trailing={mode === "shared" ? "Current" : mode === "unplaced" ? "Choose" : undefined}
             onClick={mode === "unplaced" ? chooseHosting : undefined}
             chevron={mode === "unplaced"}
           />
           <SettingsRow
             title="Bring your own cloud"
-            description="Agent One and device relay. You approve updates."
+            description="Runs in your cloud. You approve updates."
             trailing={
               mode === "byoc"
                 ? "Current"
@@ -85,17 +85,16 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
             title="Hussh Pods"
             description={
               mode === "hussh_pods"
-                ? "Your dedicated Hussh-hosted pod. You approve updates."
-                : "Dedicated hosting is unavailable for new setups."
+                ? "Your dedicated pod. You approve updates."
+                : "Closed to new setups."
             }
             trailing={mode === "hussh_pods" ? "Current" : "Unavailable"}
           />
         </SettingsGroup>
 
         {mode === "unknown" && status ? (
-          <p className="text-sm text-muted-foreground">
-            We couldn’t verify your hosting. Your existing setup has not
-            changed.
+          <p className="text-sm text-muted-foreground" data-profile-role="description">
+            Couldn’t verify hosting. Your setup hasn’t changed.
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
@@ -103,6 +102,7 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
           <Button
             variant="muted"
             disabled={busy}
+            data-profile-role="action"
             onClick={() => void checkStatus()}
           >
             Check hosting
@@ -111,6 +111,7 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
             <Button
               variant="muted"
               disabled={busy}
+              data-profile-role="action"
               onClick={() => void (needsLinkRecovery ? recoverExistingPod() : reconnectDirectPod())}
             >
               {needsLinkRecovery ? "Link existing pod" : "Reconnect your pod"}
