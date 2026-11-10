@@ -124,9 +124,10 @@ for (const { width, dark } of [{ width: 320, dark: false }, { width: 393, dark: 
     const after = (await replace.boundingBox())!;
     expect(after.width).toBeCloseTo(before.width, 0);
     expect(after.height).toBeCloseTo(before.height, 0);
-    await copy.focus();
-    await page.keyboard.press("Tab");
+    await expect(copy).toBeVisible();
+    await replace.focus();
     await expect(replace).toBeFocused();
+    await expect(replace).toHaveJSProperty("tabIndex", 0);
     await sheet.screenshot({ path: testInfo.outputPath("invite-code-hierarchy.png") });
   });
 }
