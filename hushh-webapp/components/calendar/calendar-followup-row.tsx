@@ -28,7 +28,9 @@ export function CalendarFollowupRow({ title, description, busy, onReview, onKeep
   const drag = useRef<{ id: number; x: number; y: number; offset: number; horizontal: boolean } | null>(null);
   const suppressClick = useRef(false);
   const actions = useRef({ onKeep, onRemove });
-  actions.current = { onKeep, onRemove };
+  useEffect(() => {
+    actions.current = { onKeep, onRemove };
+  }, [onKeep, onRemove]);
   const cancelTrackpad = useRef<() => void>(() => undefined);
 
   const paint = useCallback((offset: number) => {
