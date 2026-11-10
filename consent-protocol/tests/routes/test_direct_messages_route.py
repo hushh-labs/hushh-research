@@ -16,6 +16,25 @@ def _client():
     return TestClient(app)
 
 
+def test_inbox_continuation_is_private_bounded_and_owner_scoped():
+    service = MagicMock()
+    service.list_conversations.return_value = {"items": [], "unreadCount": 1, "nextCursor": "next"}
+    with patch("api.routes.one.messages._service", return_value=service):
+        response = _client().get(
+            "/api/one/messages/conversations?cursor=signed.position&limit=10&userId=forged"
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.list_conversations.assert_called_once_with(
+            "viewer-user", limit=10, cursor="signed.position"
+        )
+        assert response.json()["nextCursor"] == "next"
+        for query in ("cursor=", "cursor=" + "x" * 513, "limit=101"):
+            invalid = _client().get("/api/one/messages/conversations?" + query)
+            assert invalid.status_code == 422
+            assert invalid.headers["cache-control"] == "private, no-store"
+
+
 @pytest.mark.parametrize("budget,cost", [("30/minute", 30), ("1000/day", 1000)])
 def test_send_limits_verified_owner_before_service_and_preserves_shared_network_access(
     monkeypatch, budget, cost

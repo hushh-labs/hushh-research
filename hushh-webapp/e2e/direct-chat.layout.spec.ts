@@ -80,14 +80,14 @@ test.beforeAll(async () => {
   const { transform } = await import("lightningcss");
   css = transform({ filename: "direct-chat.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle()), minify: true }).code.toString();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; origin?: string; systemTheme?: boolean } = {}) {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; paginatedInbox?: boolean; origin?: string; systemTheme?: boolean } = {}) {
   if (!options.systemTheme) await page.emulateMedia({ colorScheme: dark ? "dark" : "light" });
   const origin = options.origin ?? "http://localhost";
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route(`${origin}/fixture-person-*.webp`, (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
   await page.route(`${origin}/one/messages*`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`${origin}/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
+  await page.goto(`${origin}/one/messages${inbox ? (options.paginatedInbox ? "?paginatedInbox=1" : "") : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   const input = page.getByRole(inbox ? "searchbox" : "textbox", { name: inbox ? "Search conversations" : "Message Maya Rao" });
@@ -1393,6 +1393,79 @@ for (const width of [320, 393, 1440]) {
     await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}
+
+// Acceptance regressions for reaction completion after a newer remote mutation.
+for (const change of ["edit", "delete"] as const) {
+  test(`additional fixes: failed reaction preserves a newer remote ${change}`, async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 844 });
+    await mount(page);
+    const row = page.locator('[data-chat-message="maya-79"]');
+    const oldText = await row.locator("[data-chat-bubble] p").first().textContent();
+    await fixture(page, "fixture.holdReaction()");
+    await holdMessage(page, row); await page.keyboard.press("Escape");
+    await row.getByRole("button", { name: "React to message", exact: true }).click();
+    await page.getByPlaceholder("Search emoji").fill("heart");
+    await page.getByRole("button", { name: "Use \u2764\ufe0f", exact: true }).click();
+    await expect(row.getByRole("button", { name: "\u2764\ufe0f reaction, 1", exact: true })).toBeVisible();
+    const latest = change === "edit" ? "A newer edit received while the reaction waits" : "This message was deleted.";
+    await fixture(page, change === "edit"
+      ? "fixture.remoteChange('maya-79', 'A newer edit received while the reaction waits')"
+      : "fixture.remoteTombstone('maya-79')");
+    await expect(row.getByText(latest, { exact: true })).toBeVisible();
+    await fixture(page, "fixture.rejectReaction()");
+    await expect(row.getByRole("status").filter({ hasText: "update that reaction" })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`reaction-failure-after-${change}.png`), animations: "disabled" });
+    await expect(row.getByText(latest, { exact: true })).toBeVisible();
+    if (oldText) await expect(row.getByText(oldText, { exact: true })).toHaveCount(0);
+  });
+}
+
+test("additional fixes: deleted messages expose no failing reaction controls", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 }); await mount(page);
+  const row = page.locator('[data-chat-message="maya-79"]');
+  await holdMessage(page, row); await page.keyboard.press("Escape");
+  await row.getByRole("button", { name: "React to message", exact: true }).click();
+  await page.getByPlaceholder("Search emoji").fill("heart");
+  await page.getByRole("button", { name: "Use \u2764\ufe0f", exact: true }).click();
+  const chip = row.getByRole("button", { name: "\u2764\ufe0f reaction, 1", exact: true });
+  await expect(chip).toBeVisible();
+  await fixture(page, "fixture.remoteTombstone('maya-79')");
+  await expect(row.getByText("This message was deleted.", { exact: true })).toBeVisible();
+
+  await page.screenshot({ path: test.info().outputPath("deleted-message-reaction-controls.png"), animations: "disabled" });
+  await expect(chip).toHaveCount(0);
+});
+
+test("additional fixes: successful delayed reaction keeps a newer remote edit", async ({ page }) => {
+  await mount(page);
+  const row = page.locator('[data-chat-message="maya-79"]');
+  await fixture(page, "fixture.holdReaction()");
+  await holdMessage(page, row); await page.keyboard.press("Escape");
+  await row.getByRole("button", { name: "React to message", exact: true }).click();
+  await page.getByPlaceholder("Search emoji").fill("heart");
+  await page.getByRole("button", { name: "Use \u2764\ufe0f", exact: true }).click();
+  await expect(row.getByRole("button", { name: "\u2764\ufe0f reaction, 1", exact: true })).toBeVisible();
+  await fixture(page, "fixture.remoteChange('maya-79', 'A newer edit received while the reaction waits')");
+  await expect(row.getByText("A newer edit received while the reaction waits", { exact: true })).toBeVisible();
+  await fixture(page, "fixture.releaseReaction()");
+  await expect(row.getByText("A newer edit received while the reaction waits", { exact: true })).toBeVisible();
+});
+
+for (const width of [393, 1440]) {
+  test(`additional fixes: inbox search reaches conversation 101 at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors = await mount(page, false, false, true, 'idle', { paginatedInbox: true });
+    await expect(page.getByRole('button', { name: 'Load more chats', exact: true })).toBeVisible();
+    await page.getByRole('searchbox', { name: 'Search conversations' }).fill('Oldest unread');
+    await expect(page.getByRole('button', { name: 'Oldest unread connection', exact: true })).toBeVisible();
+    await expect(page.getByText('No matching chats', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Load more chats', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).directChatFixture.inboxPages)).toEqual([null, 'fixture-page-2']);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`inbox-search-101-${width}.png`), animations: 'disabled' });
     expect(errors).toEqual([]);
   });
 }

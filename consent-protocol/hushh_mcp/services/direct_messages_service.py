@@ -28,7 +28,7 @@ import uuid
 import wave
 import zipfile
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Callable, Iterator
 
 from cryptography.exceptions import InvalidTag
@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 
 from db.db_client import get_db
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.message_reactions import REACTION_EMOJIS
 
@@ -50,6 +51,65 @@ DEFAULT_MESSAGE_PAGE_SIZE = 50
 MAX_MESSAGE_PAGE_SIZE = 100
 DIRECT_MESSAGE_ALGORITHM = "aes-256-gcm-aad-v1"
 DIRECT_MESSAGE_KEY_ENV = "DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
+MAX_INBOX_CURSOR_LENGTH = 512
+
+
+def _inbox_cursor_mac(viewer: str, encoded: str) -> str:
+    message = json.dumps(["direct-message-inbox-v1", viewer, encoded], separators=(",", ":"))
+    digest = hmac.new(
+        get_core_security_settings().app_signing_key.encode(), message.encode(), hashlib.sha256
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+
+
+def _encode_inbox_cursor(viewer: str, row: dict[str, Any]) -> str:
+    stamp = row.get("last_message_at") or row["created_at"]
+    payload = {"v": 1, "t": stamp.astimezone(UTC).isoformat(), "i": str(row["id"])}
+    encoded = (
+        base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
+    return encoded + "." + _inbox_cursor_mac(viewer, encoded)
+
+
+def _decode_inbox_cursor(viewer: str, cursor: str) -> tuple[datetime, str]:
+    try:
+        if not isinstance(cursor, str) or not 1 <= len(cursor) <= MAX_INBOX_CURSOR_LENGTH:
+            raise ValueError("cursor length")
+        encoded, separator, signature = cursor.rpartition(".")
+        if (
+            not separator
+            or not encoded
+            or not hmac.compare_digest(
+                signature.encode(), _inbox_cursor_mac(viewer, encoded).encode()
+            )
+        ):
+            raise ValueError("cursor signature")
+        payload = json.loads(
+            base64.b64decode(
+                encoded.encode("ascii") + b"=" * (-len(encoded) % 4),
+                altchars=b"-_",
+                validate=True,
+            )
+        )
+        if not isinstance(payload, dict) or set(payload) != {"v", "t", "i"}:
+            raise ValueError("cursor shape")
+        if type(payload["v"]) is not int or payload["v"] != 1:
+            raise ValueError("cursor version")
+        if not isinstance(payload["t"], str) or len(payload["t"]) > 40:
+            raise ValueError("cursor time")
+        stamp = datetime.fromisoformat(payload["t"])
+        item_id = str(uuid.UUID(payload["i"]))
+        if stamp.tzinfo is None or item_id != payload["i"]:
+            raise ValueError("cursor position")
+        return stamp.astimezone(UTC), item_id
+    except (ValueError, TypeError, AttributeError, UnicodeError, binascii.Error, OverflowError):
+        raise DirectMessagesError(
+            "DIRECT_MESSAGE_CURSOR_INVALID",
+            "This chat list could not be continued. Refresh and try again.",
+            status_code=400,
+        ) from None
 
 
 class DirectMessagesError(RuntimeError):
@@ -896,7 +956,7 @@ class DirectMessagesService:
                 "deletedForEveryoneAt": reply_deleted_at,
             }
 
-        raw_reactions = row.get("reactions")
+        raw_reactions = [] if deleted_for_everyone_at else row.get("reactions")
         if isinstance(raw_reactions, str):
             try:
                 raw_reactions = json.loads(raw_reactions)
@@ -962,9 +1022,48 @@ class DirectMessagesService:
         message_id: str,
         *,
         include_hidden: bool = False,
+        for_update: bool = False,
     ) -> dict[str, Any] | None:
         """Read one message through the same participant-only projection as history."""
 
+        if for_update:
+            # Whole-chat deletion locks conversation before messages. Hold the
+            # same parent-first order before the reaction trigger reads it too.
+            conversation = self._execute_one(
+                """
+                SELECT conversation.id FROM conversations conversation
+                WHERE conversation.id = CAST(:conversation_id AS UUID)
+                  AND :viewer_user_id IN (
+                    conversation.participant_a_user_id, conversation.participant_b_user_id
+                  )
+                FOR KEY SHARE OF conversation
+                """,
+                {"viewer_user_id": viewer_user_id, "conversation_id": conversation_id},
+            )
+            if conversation is None:
+                return None
+            locked = self._execute_one(
+                """
+                SELECT message.id
+                FROM messages message
+                JOIN conversations conversation ON conversation.id = message.conversation_id
+                WHERE message.id = CAST(:message_id AS UUID)
+                  AND message.conversation_id = CAST(:conversation_id AS UUID)
+                  AND :viewer_user_id IN (
+                    conversation.participant_a_user_id, conversation.participant_b_user_id
+                  )
+                FOR UPDATE OF message
+                """,
+                {
+                    "viewer_user_id": viewer_user_id,
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                },
+            )
+            if locked is None:
+                return None
+            # Read visibility and reactions after acquiring the lock, including
+            # any deletion committed while this transaction was waiting.
         return self._execute_one(
             """
             SELECT
@@ -1567,7 +1666,12 @@ class DirectMessagesService:
         include_hidden: bool = False,
     ) -> dict[str, Any]:
         row = self._message_for_participant(
-            viewer_user_id, conversation_id, message_id, include_hidden=include_hidden
+            viewer_user_id,
+            conversation_id,
+            message_id,
+            include_hidden=include_hidden,
+            # Serialize reactions with global deletion before checking visibility.
+            for_update=True,
         )
         if not row:
             raise DirectMessagesError(
@@ -1742,6 +1846,12 @@ class DirectMessagesService:
                             "Message was not found.",
                             status_code=404,
                         )
+                    self._execute_one(
+                        """DELETE FROM direct_message_reactions
+                           WHERE message_id = CAST(:message_id AS UUID)
+                           RETURNING message_id""",
+                        {"message_id": message_key},
+                    )
                     updated = self._message_action_row(viewer, conversation_key, message_key)
                     result: dict[str, Any] = {
                         "scope": "everyone",
@@ -2015,9 +2125,12 @@ class DirectMessagesService:
             logger.warning("direct_messages.delete_chat_event_failed error=%s", type(exc).__name__)
         return {"conversationId": conversation_key, "deleted": True, "scope": "me"}
 
-    def list_conversations(self, viewer_user_id: str, *, limit: int = 100) -> dict[str, Any]:
+    def list_conversations(
+        self, viewer_user_id: str, *, limit: int = 100, cursor: str | None = None
+    ) -> dict[str, Any]:
         viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
         bounded_limit = max(1, min(int(limit or 100), 100))
+        position = _decode_inbox_cursor(viewer, cursor) if cursor is not None else None
         rows = self._execute_many(
             """
             SELECT
@@ -2094,12 +2207,24 @@ class DirectMessagesService:
               conversation.participant_b_user_id
             )
               AND latest.id IS NOT NULL
+              AND (
+                CAST(:cursor_time AS TIMESTAMPTZ) IS NULL
+                OR (COALESCE(conversation.last_message_at, conversation.created_at), conversation.id)
+                   < (CAST(:cursor_time AS TIMESTAMPTZ), CAST(:cursor_id AS UUID))
+              )
             ORDER BY COALESCE(conversation.last_message_at, conversation.created_at) DESC,
                      conversation.id DESC
             LIMIT :limit
             """,
-            {"viewer_user_id": viewer, "limit": bounded_limit},
+            {
+                "viewer_user_id": viewer,
+                "limit": bounded_limit + 1,
+                "cursor_time": position[0] if position else None,
+                "cursor_id": position[1] if position else None,
+            },
         )
+        has_more = len(rows) > bounded_limit
+        rows = rows[:bounded_limit]
         items: list[dict[str, Any]] = []
         for row in rows:
             conversation = self._public_conversation(self._conversation_projection(row, viewer))
@@ -2144,7 +2269,11 @@ class DirectMessagesService:
             """,
             {"viewer_user_id": viewer},
         )
-        return {"items": items, "unreadCount": int((unread or {}).get("unread_count") or 0)}
+        return {
+            "items": items,
+            "unreadCount": int((unread or {}).get("unread_count") or 0),
+            "nextCursor": _encode_inbox_cursor(viewer, rows[-1]) if has_more else None,
+        }
 
     def list_messages(
         self,
