@@ -79,7 +79,14 @@ async def test_webhook_rejection_logs_only_public_code(monkeypatch, caplog, erro
     assert response.status_code == status
     assert response.json() == {"detail": {"code": code}}
     assert response.headers["cache-control"] == "private, no-store"
-    assert f"scope_commerce.webhook_rejected.{code} status={status}" in caplog.text
+    records = [record for record in caplog.records if record.name == routes.__name__]
+    assert [json.loads(record.getMessage()) for record in records] == [
+        {
+            "message": "scope_commerce.webhook_rejected",
+            "status_code": status,
+            "error": {"code": code},
+        }
+    ]
     assert "fixture-sensitive" not in caplog.text + response.text
 
 
