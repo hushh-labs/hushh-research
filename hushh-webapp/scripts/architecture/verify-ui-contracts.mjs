@@ -2,9 +2,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
+import { parseArgs } from 'node:util';
 import { createUiSourceIndex } from './ui-source-index.mjs';
 import { verifyBackNavigation } from './verify-back-navigation.mjs';
 import { syncSearchContracts } from '../voice/sync-search-contracts.mjs';
+
+const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 export async function runUiChecks(checks) {
   const results = await Promise.all(checks.map(async ([name, run]) => {
@@ -34,7 +37,10 @@ export async function verifyUiContracts(root, started = performance.now(), { bac
       ['Siri action contract', () => checkScript(root, 'scripts/native/verify-siri-action-contract.mjs')],
       ['Route orchestration', () => checkScript(root, 'scripts/voice/generate-route-orchestration-index.mjs')],
     ]),
-    ['Validator mutation regressions', () => checkScript(root, '--test', ['scripts/architecture/back-navigation.test.mjs', 'scripts/voice/search-contracts.test.mjs'])],
+    ['Validator mutation regressions', () => checkScript(root, '--test', [
+      path.join(toolingRoot, 'scripts/architecture/back-navigation.test.mjs'),
+      path.join(toolingRoot, 'scripts/voice/search-contracts.test.mjs'),
+    ])],
   ]);
   console.log(`UI contract validation: ${((performance.now() - started) / 1000).toFixed(2)}s (execution target: 5–10s; install and runner startup excluded).`);
   if (!ok) console.error(backOnly
@@ -44,7 +50,11 @@ export async function verifyUiContracts(root, started = performance.now(), { bac
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const { values } = parseArgs({ options: {
+    'back-only': { type: 'boolean' },
+    'source-root': { type: 'string' },
+  } });
+  const root = values['source-root'] === undefined ? toolingRoot : path.resolve(values['source-root']);
   // Node's performance clock starts at process startup, including parser imports.
-  verifyUiContracts(root, 0, { backOnly: process.argv.includes('--back-only') }).then(ok => { process.exitCode = ok ? 0 : 1; }).catch(error => { console.error(error.message); process.exitCode = 1; });
+  verifyUiContracts(root, 0, { backOnly: values['back-only'] }).then(ok => { process.exitCode = ok ? 0 : 1; }).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
