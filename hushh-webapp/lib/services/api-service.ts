@@ -3492,8 +3492,12 @@ export class ApiService {
 
   /** Correlate a token with the initiating owner; the backend verifies it. */
   static async getFirebaseIdTokenForOwner(userId: string): Promise<string | undefined> {
+    const session = snapshotAuthSessionGeneration();
+    if (session?.userId && session.userId !== userId) return undefined;
+    const firebaseUid = snapshotValidatedAuthSessionPrincipal()?.firebaseUid ?? userId;
     const token = await this.getFirebaseToken();
-    return token && decodeFirebaseTokenSubject(token) === userId ? token : undefined;
+    if (session && !isValidatedAuthSessionOwnerCurrent(session)) return undefined;
+    return token && decodeFirebaseTokenSubject(token) === firebaseUid ? token : undefined;
   }
 
   private static async getFirebaseToken(): Promise<string | undefined> {
