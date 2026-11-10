@@ -529,3 +529,41 @@ async def test_read_only_turn_between_question_and_reply_defeats_continuation(mo
     assert not result.get("directive")
     port.propose.assert_not_awaited()
     port.execute.assert_not_awaited()
+
+
+async def test_fresh_booking_after_an_expired_guest_question_still_completes_after_a_read(
+    monkeypatch,
+):
+    store, port, session, _ = await setup_question(monkeypatch)
+    pending = session.state[STATE_GUEST_CLARIFICATION]
+    pending["expires_at"] = time.time() - 1
+    await store.append_event(
+        session,
+        Event(
+            author="one",
+            invocation_id=pending["invocation_id"],
+            actions=EventActions(state_delta={STATE_GUEST_CLARIFICATION: pending}),
+        ),
+    )
+    fresh = "Book a 30-minute Planning meeting on 6 November 2030 at 9 AM Asia/Kolkata."
+    model = GuestModel(
+        [
+            [
+                call(
+                    "calendar_events",
+                    start_at="2030-11-06T00:00:00+05:30",
+                    end_at="2030-11-07T00:00:00+05:30",
+                )
+            ],
+            [call("propose_calendar_event", **TERMS)],
+            [types.Part(text="Review prepared.")],
+        ],
+        [scope(fresh, allowed=True)],
+    )
+    results = await run_turn(store, agent(model), fresh, clock="2030-11-05T18:40:00Z")
+    # The expired question grants nothing; the fresh explicit request is assessed once, at review.
+    assert results[-1]["status"] == "confirmation_required"
+    assert len(model._inputs) == 1
+    assert model._inputs[0]["pending_clarification"] is None
+    port.propose.assert_awaited_once()
+    port.execute.assert_not_awaited()

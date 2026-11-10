@@ -667,3 +667,81 @@ async def test_a_repeated_read_does_not_move_the_pin(monkeypatch):
     _queue_input(context, "Later words.")
     request_scope.freeze_request_input(context)
     assert context.state[request_scope.STATE_FROZEN_INPUT] == first
+
+
+def test_a_pin_from_another_invocation_is_ignored_and_replaced():
+    context = scope_context()
+    context.state[request_scope.STATE_FROZEN_INPUT] = {
+        "invocation_id": "earlier-turn",
+        "digest": "not-this-input",
+    }
+    messages = request_scope.current_user_messages(context)
+    assert not request_scope._input_changed_after_pin(context, "current", messages)
+    request_scope.freeze_request_input(context)
+    assert context.state[request_scope.STATE_FROZEN_INPUT]["invocation_id"] == "current"
+
+
+async def test_a_read_turns_pin_never_denies_the_next_turns_booking(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    service = SimpleNamespace(
+        list_events=AsyncMock(return_value={"events": [], "truncated": False}),
+        propose=AsyncMock(
+            return_value={
+                "proposal_id": "synthetic",
+                "expires_at": "2099-11-06T00:00:00Z",
+                "plan": {
+                    "title": "Planning",
+                    "start_at": "2099-11-06T03:30:00Z",
+                    "end_at": "2099-11-06T04:00:00Z",
+                    "attendees": [],
+                },
+            }
+        ),
+        execute=AsyncMock(),
+    )
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    stage = call(
+        "propose_calendar_event",
+        title="Planning",
+        start_at="2099-11-06T09:00:00+05:30",
+        end_at="2099-11-06T09:30:00+05:30",
+    )
+    model = CalendarModel(
+        [READ_EVENTS, [types.Part(text="Nothing today.")], [stage], [types.Part(text="Ready.")]],
+        A07,
+        [],
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.tools = [tools.calendar_events, tools.propose_calendar_event]
+    store = InMemorySessionService()
+    await store.create_session(app_name="one", user_id="owner", session_id="set-a")
+    runner = Runner(agent=agent, app_name="one", session_service=store)
+
+    async def turn(prompt):
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="set-a",
+                new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+                state_delta={
+                    "hussh:user_id": "owner",
+                    "hussh:conversation_id": "set-a",
+                    "hussh:timezone": "Asia/Kolkata",
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            )
+        ]
+        return [r.response for e in events for r in e.get_function_responses()]
+
+    try:
+        first = await turn(A07)  # a pure read pins this invocation's input
+        assert first[0]["status"] == "ok" and model._assessments == 0
+        model._actions, model._text = ["create"], BOOKING
+        second = await turn(BOOKING)
+    finally:
+        await runner.close()
+    assert second[-1]["status"] == "confirmation_required"
+    assert model._assessments == 1
+    service.propose.assert_awaited_once()
+    service.execute.assert_not_awaited()
