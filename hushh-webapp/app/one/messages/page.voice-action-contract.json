@@ -42,6 +42,23 @@
       "guard_ids": [
         "auth_signed_in"
       ]
+    },
+    {
+      "action_id": "messages.copy_text",
+      "label": "Copy message text",
+      "meaning": "Explicitly copies readable plain text from the current message menu to the local clipboard; opaque shares are excluded.",
+      "aliases": [],
+      "search_keywords": ["message", "copy text"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible message menu owns the user gesture and current-message clipboard scope.",
+        "intended_handler": "Message context menu"
+      },
+      "control_ids": ["messages-people-copy-text", "messages-circles-copy-text"],
+      "state_exposure": [],
+      "guard_ids": ["auth_signed_in", "manual_user_execution"]
     }
   ],
   "search": {}

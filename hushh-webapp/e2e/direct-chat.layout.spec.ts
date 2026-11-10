@@ -80,7 +80,7 @@ test.beforeAll(async () => {
   const { transform } = await import("lightningcss");
   css = transform({ filename: "direct-chat.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle()), minify: true }).code.toString();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; paginatedInbox?: boolean; origin?: string; systemTheme?: boolean } = {}) {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; paginatedInbox?: boolean; origin?: string; systemTheme?: boolean; workspace?: boolean } = {}) {
   if (!options.systemTheme) await page.emulateMedia({ colorScheme: dark ? "dark" : "light" });
   const origin = options.origin ?? "http://localhost";
   const errors: string[] = [];
@@ -93,6 +93,7 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
     ...(options.preview ? { preview: "1" } : {}),
     ...(options.overflowInbox ? { overflowInbox: "1" } : {}),
     ...(options.paginatedInbox ? { paginatedInbox: "1" } : {}),
+    ...(options.workspace ? { workspace: "1" } : {}),
   });
   await page.goto(`${origin}/one/messages${params.size ? `?${params}` : ""}`);
   await page.addScriptTag({ content: script });
@@ -501,6 +502,73 @@ for (const width of [320, 1440]) {
 for (const width of [393, 1440]) {
   test(`Back closes message search before returning from a People thread at ${width}px`, ({ page }) => proveMessagesBackLayers(page, mount, width));
 }
+
+test.describe("engine-level phone message holds", () => {
+  test.use({ hasTouch: true, isMobile: true });
+  for (const lane of ["People", "Circles"] as const) {
+    test(`trusted touch opens ${lane} message actions and Reply survives release`, async ({ page, browserName }) => {
+      test.skip(browserName !== "chromium", "CDP trusted-contact diagnostic; existing WebKit message tests remain enabled.");
+      await page.setViewportSize({ width: 393, height: 844 });
+      const errors = await mount(page, false, false, lane === "Circles", "idle", { workspace: lane === "Circles" });
+      if (lane === "Circles") {
+        await page.getByRole("tab", { name: "Circles 3" }).click();
+        await page.getByRole("button", { name: /Weekend friends/ }).click();
+      }
+      const text = lane === "People"
+        ? page.getByText("Let’s meet tomorrow. I’ll share the details here 😊", { exact: true })
+        : page.getByText("Hey everyone! Great to have us all here.", { exact: true });
+      await text.scrollIntoViewIfNeeded();
+      await text.tap({ trial: true });
+      const bubble = text.locator('xpath=ancestor::*[@data-chat-bubble][1]');
+      await expect(bubble).toHaveCSS("user-select", "none");
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => {
+          (window as unknown as { copiedMessageText: string }).copiedMessageText = value;
+        } } });
+      });
+      await text.evaluate(node => {
+        node.addEventListener("pointerdown", event => {
+          (node as HTMLElement).dataset.testTrustedTouch = String(event.isTrusted && (event as PointerEvent).pointerType === "touch");
+        }, { once: true });
+      });
+      const bounds = (await text.boundingBox())!;
+      const client = await page.context().newCDPSession(page);
+      let touching = false;
+      try {
+        await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: bounds.x + bounds.width / 2, y: bounds.y + Math.min(10, bounds.height / 2), id: 1 }] });
+        touching = true;
+        await expect(text).toHaveAttribute("data-test-trusted-touch", "true");
+        const menu = page.getByRole("menu");
+        await expect(menu).toBeVisible();
+        expect(await page.evaluate(() => window.getSelection()?.isCollapsed ?? true)).toBe(true);
+        await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        touching = false;
+        await expect(menu).toBeVisible();
+        const expectedText = await text.textContent();
+        await menu.getByRole("menuitem", { name: "Copy text", exact: true }).tap();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { copiedMessageText: string }).copiedMessageText)).toBe(expectedText);
+        await expect(menu).toHaveCount(0);
+        await text.tap({ trial: true });
+        const again = (await text.boundingBox())!;
+        await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: again.x + again.width / 2, y: again.y + Math.min(10, again.height / 2), id: 1 }] });
+        touching = true;
+        await expect(menu).toBeVisible();
+        await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        touching = false;
+        await menu.getByRole("menuitem", { name: "Reply", exact: true }).tap();
+        const cancel = page.getByRole("button", { name: "Cancel reply", exact: true });
+        await expect(cancel).toBeVisible();
+        await cancel.tap();
+        await text.tap();
+        await expect(menu).toHaveCount(0);
+        expect(errors).toEqual([]);
+      } finally {
+        if (touching) await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }).catch(() => undefined);
+        await client.detach().catch(error => { if (!page.isClosed()) throw error; });
+      }
+    });
+  }
+});
 
 test.describe("touch emoji sending", () => {
   test.use({ hasTouch: true, isMobile: true });

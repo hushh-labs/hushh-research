@@ -11,7 +11,7 @@
 .bubble:focus-visible { outline: 2px solid var(--chat-accent, var(--app-accent)); outline-offset: 2px; }
 :global([data-circle-chat-lane]) .bubble {
   min-height: var(--messages-control-size);
-  padding: var(--messages-bubble-inset-block) var(--messages-control-size) var(--messages-bubble-inset-block) var(--messages-bubble-inset-inline);
+  padding: var(--messages-bubble-inset-block) var(--messages-bubble-inset-inline);
   font-family: var(--font-app-body); font-size: var(--messages-body-size); line-height: var(--messages-body-line); font-weight: 400;
   box-shadow: none; border-radius: var(--messages-bubble-radius);
 }
@@ -94,6 +94,9 @@
   :global([data-circle-chat-lane]) .row .stack .addReaction { right: var(--messages-control-size); }
 }
 @media (max-width: 959px) { .stack { max-width: min(84%, calc(100% - var(--chat-action-space)), 36rem); } }
+@media (hover: none), (pointer: coarse) {
+  :global([data-circle-chat-lane]) .bubble { -webkit-user-select: none; user-select: none; }
+}
 @media (min-width: 768px) and (hover: hover) and (pointer: fine) {
   :global([data-circle-chat-lane]) .stack { max-width: min(var(--messages-bubble-max-width), calc(100% - var(--messages-action-gutter))); }
   :global([data-circle-chat-lane]) .row:not(.own) :is(.bubbleWrap, .pills, .reactionError) { max-width: min(var(--messages-peer-bubble-max-width), calc(100% - var(--messages-action-gutter))); }
