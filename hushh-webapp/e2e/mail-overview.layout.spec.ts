@@ -52,6 +52,18 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
           expect(appearance).toEqual(["12px", "18px", "550", 44]);
           const hero = page.getByRole("heading", { name: "Draft with One." });
           const position = await hero.boundingBox();
+          const stack = (await page.getByTestId("mail-draft-cards").boundingBox())!;
+          const chatPosition = (await chat.boundingBox())!;
+          expect(Math.abs(chatPosition.x - position!.x)).toBeLessThanOrEqual(1);
+          await expect(page.getByRole("region", { name: "Mail overview" }).getByRole("button")).toHaveCount(1);
+          if (width >= 768) {
+            expect(stack.x).toBeGreaterThanOrEqual(position!.x + position!.width + 24);
+            const framePosition = (await frame.boundingBox())!;
+            expect(Math.abs(stack.x + stack.width - framePosition.x - framePosition.width + geometry.gutter)).toBeLessThanOrEqual(1);
+          } else {
+            expect(Math.abs(stack.x - position!.x)).toBeLessThanOrEqual(1);
+            expect(chatPosition.y).toBeGreaterThanOrEqual(stack.y + stack.height);
+          }
           const manage = page.getByRole("button", { name: "Manage", exact: true });
           await manage.click();
           const menu = page.getByRole("menu");
@@ -113,6 +125,32 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
     }
   }
 }
+
+test("Mail desktop hover expands the original cards in the right column", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+  await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
+  await page.route("http://localhost/mail-workspace", route => route.fulfill({
+    contentType: "text/html; charset=utf-8",
+    body: `<!doctype html><html class="dark" data-workspace="overview"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+  }));
+  await page.goto("http://localhost/mail-workspace");
+  await awaitProductFont(page);
+  const stack = page.getByTestId("mail-draft-cards");
+  await expect(stack).toBeVisible();
+  const cards = page.getByTestId("mail-draft-card");
+  const spread = () => cards.evaluateAll(elements => elements[2].getBoundingClientRect().y - elements[0].getBoundingClientRect().y);
+  const collapsedSpread = await spread();
+  await stack.hover();
+  await expect.poll(spread).toBeGreaterThan(collapsedSpread + 40);
+  const copy = (await page.getByRole("heading", { name: "Draft with One." }).boundingBox())!;
+  for (const card of await cards.all()) {
+    const box = (await card.boundingBox())!;
+    expect(box.x).toBeGreaterThan(copy.x + copy.width + 16);
+    expect(box.x + box.width).toBeLessThan(1280);
+  }
+  await page.screenshot({ path: testInfo.outputPath("mail-desktop-hover-right.png") });
+});
 
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"] as const) {

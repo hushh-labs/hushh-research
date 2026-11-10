@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Pencil, Trash2 } from "@/components/icons";
+import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Pencil, Smile, Trash2 } from "@/components/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
@@ -99,7 +99,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   return <li data-chat-message={message.id} className={`${styles.item} ${grouped ? styles.grouped : ""}`}>
     {showDay ? <div className="pb-4 pt-1"><OneChatTimeSeparator dateTime={message.createdAt} label={conversationDayLabel(message.createdAt)} /></div> : null}
     <div className={`${styles.row} ${own ? styles.own : ""}`} data-message-role={own ? "user" : "peer"}>
-      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className="!size-8" label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
+      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className={styles.senderAvatar} label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
       <div className={styles.stack}>
         <div className={styles.bubbleWrap}>
           <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}
@@ -129,6 +129,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             </div>
           </div>
           {confirmed && !deleted ? <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked} messagesLane={messagesLane}
+            triggerIcon={messagesLane ? <Smile className="h-5 w-5" /> : undefined}
             open={pickerOpen} onOpenChange={setPickerOpen}
             triggerClassName={styles.addReaction}
             dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} /> : null}
@@ -136,7 +137,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             <DropdownMenuTrigger asChild><ShellActionSurface wrapperClassName={styles.messageOptions} className="size-11" aria-label="Message options" disabled={!visible || layoutBlocked}>
               <ChevronDown className="size-4" aria-hidden="true" />
             </ShellActionSurface></DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className="min-w-52 motion-reduce:animate-none" data-messages-type-scale={messagesLane || undefined}
+            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className={`${styles.messageMenu} motion-reduce:animate-none`} data-messages-type-scale={messagesLane || undefined}
               onCloseAutoFocus={(event) => { if (selecting.current) { event.preventDefault(); selecting.current = false; } }}>
               {!deleted ? <>
                 <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />

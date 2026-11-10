@@ -89,7 +89,19 @@ per transcript and 64 verified route-token mappings. No message body or route
 mapping is written to device storage. Cached send permission is always false;
 the existing authenticated history/relationship request checks it on each entry.
 
-Revisits render the matching transcript while revalidation runs. Cold entries
+Selecting an inbox person updates the thread immediately, before route-token
+minting. The server-verified token mapping is retained in owner-scoped memory
+before navigation, avoiding a second resolution request. A newer tap or Back
+retires the pending opening; an earlier client transition cannot replace a newer
+selection. New chat carries the selected connection's known name and photo as
+presentation only.
+
+Revisits render the matching transcript while revalidation runs. Without a
+transcript, the authenticated inbox's latest message is presentation only until
+history arrives. It never narrows the initial history page or replaces newer
+cached edits or deletions, including confirmed empty transcripts. Tapping the
+active conversation refreshes history directly while retaining the transcript.
+Cold entries
 retain the shell and known contact header without a blocking loading panel or
 premature empty state. Transport failures retain readable history; authoritative
 401/403/404 responses clear it. Focus, resume, polling and message signals use

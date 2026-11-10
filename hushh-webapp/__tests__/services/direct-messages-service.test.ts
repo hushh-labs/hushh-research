@@ -100,6 +100,26 @@ describe("DirectMessagesService", () => {
     }
   });
 
+  it("forwards an opaque inbox cursor privately and rejects malformed continuation", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ items: [], unreadCount: 1, nextCursor: "next.signed" }));
+    expect(await DirectMessagesService.listConversations({ idToken: "auth", cursor: "position.signed" }))
+      .toEqual({ items: [], unreadCount: 1, nextCursor: "next.signed" });
+    expect(apiFetch).toHaveBeenLastCalledWith("/api/one/messages/conversations?cursor=position.signed", expect.objectContaining({ cache: "no-store", headers: expect.objectContaining({ Authorization: "Bearer auth" }) }));
+    for (const nextCursor of [false, 1, {}, "", "x".repeat(513)]) {
+      apiFetch.mockResolvedValueOnce(Response.json({ items: [], nextCursor }));
+      await expect(DirectMessagesService.listConversations({ idToken: "auth" })).rejects.toThrow("could not be continued");
+    }
+  });
+
+  it("normalizes retained reactions on a deleted message", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ items: [{ ...conversation, latestMessage: {
+      ...conversation.latestMessage, deletedForEveryoneAt: "2026-11-09T10:00:00Z",
+      reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }],
+    } }] }));
+    const result = await DirectMessagesService.listConversations({ idToken: "auth" });
+    expect(result.items[0]?.latestMessage?.reactions).toEqual([]);
+  });
+
   it("loads the authenticated inbox without exposing raw peer ids", async () => {
     apiFetch.mockResolvedValue(
       new Response(JSON.stringify({ items: [conversation], unreadCount: 1 }), {
@@ -129,6 +149,7 @@ describe("DirectMessagesService", () => {
       }),
     ]);
     expect(JSON.stringify(result)).not.toContain("peerUserId");
+    expect(result.nextCursor).toBeNull();
   });
 
   it.each([0, 1, 2, 100, 137, 12000])("reads the exact combined unread count %s without message previews", async (count) => {

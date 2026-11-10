@@ -544,6 +544,13 @@ describe("DirectMessagesPage", () => {
     expect(mocks.getConversationWithPerson).toHaveBeenCalledWith({ idToken: "test-token", personRef: "person-1" });
     expect(mocks.getConversationMessages).toHaveBeenCalledWith({ idToken: "test-token", conversationId: "conversation-1", limit: 60 });
     expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
+    const newest = { ...visibleMessage, id: "latest-on-tap", content: "Latest message on tap", createdAt: "2026-10-06T10:02:00Z" };
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage, newest],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    fireEvent.click(screen.getByRole("button", { name: /^Ankit Kumar Singh/ }));
+    expect(await screen.findByText(newest.content)).toBeVisible();
+    expect(screen.getByText(visibleMessage.content)).toBeVisible();
+    expect(mocks.router.push).not.toHaveBeenCalled();
   });
 
   it("restores a visited thread immediately while checking permission again", async () => {
@@ -563,12 +570,36 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
     expect(screen.queryByText("You are no longer connected.")).not.toBeInTheDocument();
   });
-
-  it("primes the selected person's header from the inbox before history arrives", async () => {
+  it.each(["edit", "deletion"])("keeps a cached %s when the inbox still has the older latest-message preview", async (change) => {
+    mocks.listConversations.mockResolvedValue({ items: [{ ...mocks.conversation, latestMessage: visibleMessage }], unreadCount: 0 });
+    const edited = { ...visibleMessage, content: "Edited on another device", editedAt: "2026-10-06T10:02:00Z" };
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: change === "edit" ? [edited] : [],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeEnabled());
+    mocks.search = "conversation=another-thread";
+    mocks.getConversationMessages.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    mocks.search = "person=person-1";
     mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    if (change === "edit") expect(screen.getByTestId("direct-message-list")).toHaveTextContent(edited.content);
+    expect(screen.getByTestId("direct-message-list")).not.toHaveTextContent(visibleMessage.content);
+  });
+
+  it("shows the inbox's latest message immediately without narrowing the first history page", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.listConversations.mockResolvedValue({ items: [{ ...mocks.conversation, latestMessage: visibleMessage }], unreadCount: 1 });
+    mocks.getConversationMessages.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     renderConnectionThread();
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled());
+    expect(screen.getByTestId("direct-message-list")).toHaveTextContent(visibleMessage.content);
     expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+    const older = { ...visibleMessage, id: "earlier-message", content: "Earlier history", createdAt: "2026-10-06T10:00:00.000Z" };
+    await act(async () => finish({ conversation: mocks.conversation, items: [older, visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null }));
+    expect(screen.getByTestId("direct-message-list")).toHaveTextContent(older.content);
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeEnabled();
   });
 
   it("keeps a cached transcript on transport failure and offers retry", async () => {
@@ -624,6 +655,103 @@ describe("DirectMessagesPage", () => {
     view.rerender(<ConnectionThread />);
     expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Message Ankit Kumar Singh" })).not.toBeInTheDocument();
+  });
+
+  it.each(["edit", "delete"] as const)("preserves a remote %s when a held reaction fails", async (change) => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const history = { conversation: mocks.conversation, items: [{ ...visibleMessage, reactions: [] }], canSend: true, disconnectedNotice: null, nextBefore: null };
+    mocks.getConversationMessages.mockResolvedValue(history);
+    let reject!: (error: Error) => void;
+    mocks.reactToMessage.mockImplementationOnce(() => new Promise((_, failure) => { reject = failure; }));
+    renderConnectionThread();
+    fireEvent.click(await screen.findByText(visibleMessage.content));
+    fireEvent.click(screen.getByRole("button", { name: "React to message" }));
+    fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
+    await screen.findByRole("button", { name: "❤️ reaction, 1" });
+    await waitFor(() => expect(mocks.reactToMessage).toHaveBeenCalled());
+    const content = change === "edit" ? "Latest remote edit" : "This message was deleted.";
+    mocks.getConversationMessages.mockResolvedValue({ ...history, items: [{ ...visibleMessage, content,
+      deletedForEveryoneAt: change === "delete" ? "2026-11-09T10:00:00Z" : null, reactions: [] }] });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByText(content);
+    await act(async () => reject(new Error("Rejected reaction")));
+    await screen.findByText(/Couldn’t update that reaction/);
+    expect(screen.getByText(content)).toBeVisible();
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "❤️ reaction, 1" })).not.toBeInTheDocument();
+  });
+
+  it("hides reaction chips on legacy tombstones", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation,
+      items: [{ ...visibleMessage, content: "This message was deleted.", deletedForEveryoneAt: "2026-11-09T10:00:00Z",
+        reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] }], canSend: true, nextBefore: null });
+    renderConnectionThread();
+    await screen.findByText("This message was deleted.");
+    expect(screen.queryByRole("button", { name: "❤️ reaction, 1" })).not.toBeInTheDocument();
+  });
+
+  it("loads older conversations once, deduplicates them and retries a failed page", async () => {
+    mocks.listConversations.mockReset()
+      .mockResolvedValueOnce({ items: [mocks.conversation], unreadCount: 1, nextCursor: "page-2" })
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ items: [mocks.conversation, { ...mocks.conversation, id: "older", peerDisplayName: "Oldest unread" }], unreadCount: 1, nextCursor: null });
+    renderConnectionThread();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more chats" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry loading chats" }));
+    await screen.findByRole("button", { name: "Oldest unread", exact: true });
+    expect(screen.getAllByRole("button", { name: "Ankit Kumar Singh", exact: true })).toHaveLength(1);
+    expect(mocks.listConversations).toHaveBeenLastCalledWith({ idToken: "test-token", cursor: "page-2" });
+    expect(screen.queryByRole("button", { name: "Load more chats" })).not.toBeInTheDocument();
+  });
+
+  it("searches remaining pages before declaring no matches and stops on repeated cursors", async () => {
+    mocks.listConversations.mockReset()
+      .mockResolvedValueOnce({ items: [mocks.conversation], unreadCount: 1, nextCursor: "page-2" })
+      .mockResolvedValueOnce({ items: [], unreadCount: 1, nextCursor: "page-2" })
+      .mockResolvedValueOnce({ items: [{ ...mocks.conversation, id: "older", peerDisplayName: "Oldest unread" }], unreadCount: 1, nextCursor: null });
+    renderConnectionThread();
+    await screen.findByRole("button", { name: "Load more chats" });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search conversations" }), { target: { value: "Oldest unread" } });
+    const retry = await screen.findByRole("button", { name: "Retry loading chats" });
+    expect(screen.queryByText("No matching chats")).not.toBeInTheDocument();
+    expect(mocks.listConversations).toHaveBeenCalledTimes(2);
+    fireEvent.click(retry);
+    await screen.findByRole("button", { name: "Oldest unread", exact: true });
+  });
+
+  it("retains exhausted search results across a background head refresh", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const older = { ...mocks.conversation, id: "older", peerDisplayName: "Oldest unread" };
+    mocks.listConversations.mockReset()
+      .mockResolvedValueOnce({ items: [mocks.conversation], unreadCount: 1, nextCursor: "page-2" })
+      .mockResolvedValueOnce({ items: [older], unreadCount: 1, nextCursor: null })
+      .mockResolvedValue({ items: [mocks.conversation], unreadCount: 1, nextCursor: "page-2" });
+    renderConnectionThread();
+    await screen.findByRole("button", { name: "Load more chats" });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search conversations" }), { target: { value: "Oldest" } });
+    await screen.findByRole("button", { name: "Oldest unread", exact: true });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(mocks.listConversations).toHaveBeenCalledTimes(3));
+    expect(screen.getByRole("button", { name: "Oldest unread", exact: true })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more chats" })).not.toBeInTheDocument();
+  });
+
+  it("fences an old owner's held inbox page and retires its loading lease", async () => {
+    let release!: (value: unknown) => void;
+    mocks.listConversations.mockReset()
+      .mockResolvedValueOnce({ items: [mocks.conversation], unreadCount: 1, nextCursor: "old-page" })
+      .mockImplementationOnce(() => new Promise(resolve => { release = resolve; }))
+      .mockResolvedValue({ items: [{ ...mocks.conversation, id: "new-chat", peerDisplayName: "New owner chat" }], unreadCount: 0, nextCursor: "new-page" });
+    const view = renderConnectionThread();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more chats" }));
+    await waitFor(() => expect(mocks.listConversations).toHaveBeenCalledTimes(2));
+    mocks.user = { uid: "new-owner", getIdToken: vi.fn().mockResolvedValue("new-token") };
+    view.rerender(<ConnectionThread />);
+    await screen.findByRole("button", { name: "New owner chat", exact: true });
+    await act(async () => release({ items: [{ ...mocks.conversation, id: "old-tail", peerDisplayName: "Old private tail" }], nextCursor: null }));
+    expect(screen.queryByRole("button", { name: "Old private tail", exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more chats" })).toBeEnabled();
   });
 
   it("does not cache an optimistic reaction when navigation interrupts its rollback", async () => {
@@ -876,15 +1004,22 @@ describe("DirectMessagesPage", () => {
 
   it("starts a chat with an accepted connection that has no conversation yet", async () => {
     mocks.search = "";
-    renderConnectionThread();
+    const view = renderConnectionThread();
     fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
     const picker = await screen.findByRole("dialog", { name: "New chat" });
     expect(picker).toHaveAttribute("aria-modal", "true");
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith({
       idToken: "test-token", page: 1, limit: 50, query: "",
     });
+    CacheSyncService.onDirectMessagesMutated("viewer-1");
     fireEvent.click(await within(picker).findByRole("button", { name: "Message Divya" }));
     expect(mocks.navigateSelection).toHaveBeenCalledWith({ personRef: "person-new" });
+    mocks.search = "person=person-new";
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.getByRole("heading", { name: "Divya", exact: true })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Message Divya", exact: true })).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: "Conversation", exact: true })).not.toBeInTheDocument();
   });
 
   it.each(["voice", "command", "command-result"] as const)("keeps the inbox free of an active %s composer", async (owner) => {
@@ -1435,6 +1570,13 @@ describe("DirectMessagesPage", () => {
       nextBefore: null,
     });
 
+    // The refresh after completion must read the committed reaction, as the
+    // real history port does, rather than the pre-mutation fixture snapshot.
+    mocks.reactToMessage.mockImplementationOnce(async () => {
+      const updated = { ...message, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] };
+      mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [updated], canSend: true, disconnectedNotice: null, nextBefore: null });
+      return updated;
+    });
     renderConnectionThread();
     const bubble = await screen.findByText("Hello Ankit");
     const pointer = (type: string, x = 20) => fireEvent(bubble, Object.assign(new Event(type, { bubbles: true }), { pointerType: "touch", button: 0, clientX: x, clientY: 20 }));

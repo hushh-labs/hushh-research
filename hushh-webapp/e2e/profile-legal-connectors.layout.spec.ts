@@ -26,6 +26,12 @@ import {
 
 let script: string;
 let css: string;
+let globalCss: string;
+let fixtureDirectory: string | undefined;
+
+test.afterAll(() => {
+  if (fixtureDirectory) fs.rmSync(fixtureDirectory, { recursive: true, force: true });
+});
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -34,6 +40,7 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-legal-connectors-"));
+  fixtureDirectory = outDir;
   const boundary = path.join(root, "e2e/fixtures/profile-legal-connectors-boundaries.tsx");
   const exact = (id: string) => new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
   await build({
@@ -112,7 +119,8 @@ test.beforeAll(async () => {
     },
   );
   const { transform } = await import("lightningcss");
-  css = transform({ filename: "profile-legal.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + componentCss + productFontStyle()), minify: true }).code.toString();
+  globalCss = transform({ filename: "profile-global.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates]))), minify: true }).code.toString();
+  css = transform({ filename: "profile-legal.css", code: Buffer.from(globalCss + componentCss + productFontStyle()), minify: true }).code.toString();
 });
 
 async function mount(
@@ -209,9 +217,12 @@ for (const theme of ["light", "dark"] as const) for (const width of [390, 1440])
       return { background: style.backgroundColor, border: style.borderTopWidth, transform: style.transform };
     });
     for (const control of [back, close]) await expectProfileHeaderControl(control, page);
-    await close.hover();
+    // A later shared stylesheet must not repaint the transparent placement slot.
+    await page.addStyleTag({ content: globalCss });
     await expect.poll(material).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px", transform: "none" });
+    await close.hover();
     await pane(page).locator('.profile-pane-header').screenshot({ path: test.info().outputPath("profile-header.png") });
+    await expect.poll(material).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px", transform: "none" });
     // The retained invisible outer edge still activates Back, not just the
     // smaller painted circle. Closing then remains available from the keyboard.
     await back.click({ position: { x: 1, y: 22 } });
@@ -234,6 +245,12 @@ test("Profile header, Preferences and body follow one whole-panel pull without r
     return { appearance: appearance.right, accent: accent.right };
   });
   expect(Math.abs(controlEdges.appearance - controlEdges.accent)).toBeLessThanOrEqual(1);
+  // Visibility does not mean the entrance transform has settled. Starting a
+  // pull offscreen correctly clamps at the panel width, masking its movement.
+  await expect.poll(() => pane(page).evaluate(frame => {
+    const transform = getComputedStyle(frame).transform;
+    return transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
+  })).toBeCloseTo(0, 0);
   const measured = await page.evaluate(() => {
     const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
     const body = frame.querySelector<HTMLElement>('[data-profile-pane-scroll-root]')!;
@@ -278,6 +295,58 @@ test("Profile header, Preferences and body follow one whole-panel pull without r
   await expect.poll(() => query(page).get("profile_detail")).toBeNull();
   await expect(preferences).toBeVisible();
 });
+
+for (const width of [320, 393, 1440]) for (const theme of ["light", "dark"] as const) {
+  test(`Profile Appearance keeps its label and controls aligned at ${width}px ${theme}`, async ({ page }) => {
+    const errors = await mount(page, { width, theme, at: "/one?profile_pane=1&profile_panel=preferences" });
+    const preferences = pane(page).locator("[data-profile-appearance-preferences]");
+    const control = preferences.getByRole("radiogroup", { name: "Theme", exact: true });
+    await expect(control).toBeVisible();
+    const geometry = await preferences.evaluate(node => {
+      const group = node.querySelector('[role="radiogroup"]')!;
+      const wrapper = group.closest('[data-theme-control]')!;
+      const row = wrapper.parentElement!.parentElement!;
+      const title = row.children[1]!.children[0]!;
+      const description = row.children[1]!.children[1]!;
+      const rect = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.x, y: box.y, right: box.right, bottom: box.bottom, width: box.width, height: box.height };
+      };
+      return {
+        root: rect(node), title: rect(title), description: rect(description), group: rect(group), wrapper: rect(wrapper),
+        lineHeight: parseFloat(getComputedStyle(description).lineHeight),
+        wrapperBorder: getComputedStyle(wrapper).borderTopWidth,
+        options: [...group.querySelectorAll('[role="radio"]')].map(rect),
+        overflow: node.scrollWidth > node.clientWidth,
+      };
+    });
+    expect(geometry.description.height).toBeLessThanOrEqual(geometry.lineHeight + 1);
+    expect(geometry.wrapper.height).toBe(geometry.group.height);
+    expect(geometry.wrapperBorder).toBe("0px");
+    expect(geometry.overflow).toBe(false);
+    for (const option of geometry.options) {
+      expect(option.height).toBeGreaterThanOrEqual(44);
+      expect(option.width).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(option.width - geometry.options[0]!.width)).toBeLessThanOrEqual(1);
+      expect(option.right).toBeLessThanOrEqual(geometry.root.right);
+    }
+    if (geometry.root.width <= 440) {
+      expect(Math.abs(geometry.group.x - geometry.title.x)).toBeLessThanOrEqual(1);
+      expect(geometry.group.y - geometry.description.bottom).toBeGreaterThanOrEqual(8);
+    }
+    await preferences.screenshot({ path: test.info().outputPath("profile-appearance-alignment.png") });
+    for (const label of ["Light", "Dark", "System"]) {
+      const option = control.getByRole("radio", { name: label, exact: true });
+      await option.click();
+      await expect(option).toHaveAttribute("aria-checked", "true");
+      expect(await page.evaluate(() => localStorage.getItem("theme"))).toBe(label.toLowerCase());
+    }
+    await control.getByRole("radio", { name: "System" }).press("ArrowLeft");
+    await expect(control.getByRole("radio", { name: "Dark" })).toBeFocused();
+    await expect(control.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
+    expect(errors).toEqual([]);
+  });
+}
 
 test("Profile route controls share one accessible track and retain the selected accent", async ({ page }) => {
   await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences&renderer=controls" });

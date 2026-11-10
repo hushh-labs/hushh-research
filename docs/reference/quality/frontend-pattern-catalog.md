@@ -77,8 +77,10 @@ Rules:
 ## Pattern: Connection and Circle Conversations
 
 Circle chat consumes `components/app-ui/conversation-composer.tsx` and
-`components/app-ui/conversation-message.tsx`; direct chat retains its reply, emoji
-and voice composer. These compose the existing
+`components/connect/circles/circle-chat-message.tsx`; direct chat retains its reply, emoji
+and voice composer. Messages lane geometry is owned by the shared metrics in
+`components/direct-messages/direct-messages-page.module.css`, including the
+portaled composers. Connect's inline Circle host keeps its own typography. These compose the existing
 input group, shell action surface and One chat bubble; they do not define a
 second control or theme system.
 
