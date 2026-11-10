@@ -119,7 +119,7 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
-import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
+import { ROUTES } from "@/lib/navigation/routes";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
@@ -128,15 +128,9 @@ const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
 
 function nearbyPresenceLoadIssue(error: unknown): {
   message: string;
-  action: "verify-phone" | "retry" | null;
+  action: "retry" | null;
 } {
   const code = apiErrorCode(error);
-  if (code === "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED") {
-    return {
-      message: "Verify your phone number to check in nearby.",
-      action: "verify-phone",
-    };
-  }
   if (error instanceof ApiError) {
     if (error.status === 404 && code === "NEARBY_PRESENCE_UNAVAILABLE") {
       return { message: "Nearby check-in is not available for this account.", action: null };
@@ -584,10 +578,10 @@ function NearbyPersonRow({
   const connectionUnavailable =
     cta.action === "connect" && !attendee.canConnect;
   const buttonLabel = connectionUnavailable
-    ? "Not accepting requests"
+    ? "Connect unavailable"
     : cta.label;
   const accessibleLabel = connectionUnavailable
-    ? `${attendee.displayName} is not accepting connection requests`
+    ? `Connection requests unavailable for ${attendee.displayName}`
     : cta.action === "respond"
       ? `Respond to ${attendee.displayName}'s connection request`
       : `${cta.label} with ${attendee.displayName}`;
@@ -2643,17 +2637,7 @@ export function NearbyCheckInSheet({
                 <p data-location-type-role="row-description" className="text-sm text-destructive">
                   {presenceLoadError.message}
                 </p>
-                {presenceLoadError.action === "verify-phone" ? (
-                  <Button
-                    data-location-type-role="compact-action"
-                    type="button"
-                    size="compact"
-                    className="mt-2"
-                    onClick={() => router.push(buildPhoneMandateRoute(ROUTES.ONE_LOCATION_CHECK_IN))}
-                  >
-                    Verify phone number
-                  </Button>
-                ) : presenceLoadError.action === "retry" ? (
+                {presenceLoadError.action === "retry" ? (
                   <Button
                     data-location-type-role="compact-action"
                     type="button"
@@ -3469,7 +3453,7 @@ export function NearbyCheckInSheet({
                           Allow connection requests
                         </span>
                         <span data-location-type-role="row-description" className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                          From people checked in nearby.
+                          Available when both people have verified their phone numbers.
                         </span>
                       </span>
                       <Switch
