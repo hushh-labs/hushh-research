@@ -77,6 +77,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import {
   ProfilePaneShareIcon,
 } from "@/components/profile/profile-pane-icons";
@@ -454,9 +455,11 @@ export function CircleMemberActionsMenu({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="prominent"
+                    size="standard"
+                    disableHoverRipple
                     className={cn(
-                      "h-[52px] min-h-[52px] w-full justify-center bg-[#F2F2F7] text-center text-[17px] font-medium text-[color:var(--app-accent-deep)] shadow-none [--type-button-label-weight:500] hover:bg-[#E5E5EA]",
+                      QUIET_FLOW_ACTION_CLASSNAME,
+                      "h-[52px] min-h-[52px] w-full justify-center text-[color:var(--app-accent-deep)]",
                       LOCATION_ACTION_SHAPE,
                     )}
                     onClick={closeSheet}

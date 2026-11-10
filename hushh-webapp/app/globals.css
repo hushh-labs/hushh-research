@@ -9104,11 +9104,11 @@ body[data-persona-surface="ria"] {
   white-space: nowrap !important;
 }
 
-/* Check-In labels can include a recipient count. Let the full-width action
-   grow if enlarged text cannot fit on a single line. */
+/* Let full-width Location actions grow when text cannot fit on one line. */
 [data-location-action-fit],
 [data-location-action-fit] .ui-text-button-label {
   min-width: 0;
+  line-height: max(var(--type-button-label-line), 1.25em) !important;
   white-space: normal !important;
   overflow-wrap: anywhere;
 }
