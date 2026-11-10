@@ -59,7 +59,7 @@ export function PersonProfilePreview() {
     const visit = currentEntry.current;
     if (!visit || restoredKey.current === visit.key || !scroll.current) return;
     scroll.current.scrollTop = visit.scrollTop ?? 0;
-    const target = Array.from(scroll.current.querySelectorAll<HTMLElement>("[data-voice-control-id], [data-network-person]"))
+    const target = Array.from(scroll.current.querySelectorAll<HTMLElement>("[data-voice-control-id], button[data-network-person]"))
       .find(element => visit.focus?.control ? element.dataset.voiceControlId === visit.focus.control : visit.focus?.person ? element.dataset.networkPerson === visit.focus.person : false);
     target?.focus({ preventScroll: true });
     restoredKey.current = visit.key;
