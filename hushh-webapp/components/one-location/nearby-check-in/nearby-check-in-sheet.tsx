@@ -80,6 +80,11 @@ import {
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { LocationBus } from "@/lib/one-location/location-bus";
+import {
+  readOneLocationControlState,
+  subscribeOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 import {
   readLastKnownFix,
   rememberLastKnownFix,
@@ -465,7 +470,7 @@ function offsetFromPoint(
   return metresBetween(point, target);
 }
 
-function hasCheckInAccuracy(point: PlainLocationPoint): boolean {
+function hasCheckInAccuracy(point: Pick<PlainLocationPoint, "accuracyM">): boolean {
   return (
     typeof point.accuracyM === "number" &&
     Number.isFinite(point.accuracyM) &&
@@ -666,7 +671,7 @@ export function NearbyCheckInSheet({
     requireMeasurement?: boolean;
   }) => Promise<PlainLocationPoint>;
   onOpenChange: (open: boolean) => void;
-  onStateChange?: (state: OneLocationNearbyPresenceState) => void;
+  onStateChange?: (state: OneLocationNearbyPresenceState, confirmedCheckIn?: true) => void;
   /** Transient renderer hint; never persisted or published. */
   onSearchAreaChange?: (point: PlainLocationPoint | null) => void;
   /**
@@ -847,7 +852,7 @@ export function NearbyCheckInSheet({
   }, [placesError]);
 
   const publishState = useCallback(
-    (next: OneLocationNearbyPresenceState) => {
+    (next: OneLocationNearbyPresenceState, confirmedCheckIn?: true) => {
       const nextWithAnchor = withPreservedConfirmedAnchor(
         next,
         confirmedPlaceAnchorRef.current,
@@ -856,7 +861,8 @@ export function NearbyCheckInSheet({
         nextWithAnchor.presence,
       );
       setState(nextWithAnchor);
-      onStateChange?.(nextWithAnchor);
+      if (confirmedCheckIn) onStateChange?.(nextWithAnchor, true);
+      else onStateChange?.(nextWithAnchor);
     },
     [onStateChange],
   );
@@ -1510,73 +1516,72 @@ export function NearbyCheckInSheet({
     [point, selectedPlace],
   );
 
-  const { checkedInAt, placeLat, placeLng, radiusMeters } = state.presence ?? {};
-  const [awayVisit, setAwayVisit] = useState<string | null>(null);
-  const movedAway = Boolean(checkedInAt && awayVisit === checkedInAt);
+  const { status: presenceStatus, checkedInAt, placeLat, placeLng, radiusMeters } = state.presence ?? {};
+  const [awayVisit, setAwayVisit] = useState<{ ownerId: string; checkedInAt: string } | null>(null);
+  const movedAway = open && presenceStatus === "active" && awayVisit !== null &&
+    awayVisit.ownerId === ownerId && awayVisit.checkedInAt === checkedInAt;
   useEffect(() => {
     setAwayVisit(null);
-    if (!open || !ownerId || !checkedInAt ||
+    if (!open || !ownerId || !vaultOwnerToken || presenceStatus !== "active" || !checkedInAt ||
         typeof placeLat !== "number" || typeof placeLng !== "number" ||
         !Number.isFinite(placeLat) || !Number.isFinite(placeLng) ||
         typeof radiusMeters !== "number" || !Number.isFinite(radiusMeters) || radiusMeters <= 0) return;
 
-    let live = true;
-    let inFlight = false;
-    let lastSample = Date.parse(checkedInAt);
+    const ownerEpoch = ownerEpochRef.current;
+    let lastSample = Date.now();
+    let paused = readOneLocationControlState(ownerId).paused;
     let outsideSince: number | null = null;
     const reset = () => {
       outsideSince = null;
       setAwayVisit(null);
     };
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "visible") {
-        lastSample = Date.now();
-        reset();
-      }
+    const resetSamples = () => {
+      lastSample = Date.now();
+      reset();
     };
 
-    const timer = window.setInterval(async () => {
-      if (inFlight || document.visibilityState !== "visible") return;
-      inFlight = true;
-      try {
-        const permission = await OneLocationService.getPermissionState();
-        if (!live || document.visibilityState !== "visible") return;
-        if (permission.state !== "granted" || locationBlockReason(permission)) {
-          reset();
-          return;
-        }
-        const sample = await OneLocationService.captureCurrentPosition({ requireMeasurement: true });
-        if (!live || document.visibilityState !== "visible") return;
-        const measuredAt = Date.parse(sample.capturedAt);
-        const age = Date.now() - measuredAt;
-        if (!Number.isFinite(measuredAt) || age < 0 || age > NEARBY_MOVEMENT_SAMPLE_MS ||
-            !hasCheckInAccuracy(sample)) {
-          reset();
-          return;
-        }
-        if (measuredAt <= lastSample) return;
-        if (measuredAt - lastSample > NEARBY_MOVEMENT_SAMPLE_MS * 3) reset();
-        lastSample = measuredAt;
-        const distance = metresBetween(sample, { latitude: placeLat, longitude: placeLng });
-        if (!Number.isFinite(distance) || distance - (sample.accuracyM ?? 0) <= radiusMeters) {
-          reset();
-          return;
-        }
-        outsideSince ??= measuredAt;
-        if (measuredAt - outsideSince >= NEARBY_MOVEMENT_SAMPLE_MS) setAwayVisit(checkedInAt);
-      } catch {
-        if (live) reset();
-      } finally {
-        inFlight = false;
+    const unsubscribeControl = subscribeOneLocationControlState(ownerId, (next) => {
+      if (next.paused === paused) return;
+      paused = next.paused;
+      resetSamples();
+    });
+    // The reminder can use readings another Location flow already took.
+    // A Nearby check-in never starts or keeps a device watch alive.
+    const unsubscribeLocation = LocationBus.subscribe((next) => {
+      if (ownerEpochRef.current !== ownerEpoch ||
+          readOneLocationControlState(ownerId).paused ||
+          document.visibilityState !== "visible" ||
+          appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+      const sample = next.status === "ready"
+        ? LocationBus.getRecentMeasuredFix(ownerId, NEARBY_MOVEMENT_SAMPLE_MS)
+        : null;
+      if (!sample || !hasCheckInAccuracy(sample)) {
+        reset();
+        return;
       }
-    }, NEARBY_MOVEMENT_SAMPLE_MS);
-    document.addEventListener("visibilitychange", onVisibilityChange);
+      const measuredAt = Date.parse(sample.capturedAt);
+      if (measuredAt <= lastSample) return;
+      if (measuredAt - lastSample > NEARBY_MOVEMENT_SAMPLE_MS * 3) reset();
+      lastSample = measuredAt;
+      const distance = metresBetween(sample, { latitude: placeLat, longitude: placeLng });
+      if (!Number.isFinite(distance) || distance - (sample.accuracyM ?? 0) <= radiusMeters) {
+        reset();
+        return;
+      }
+      outsideSince ??= measuredAt;
+      if (measuredAt - outsideSince >= NEARBY_MOVEMENT_SAMPLE_MS) {
+        setAwayVisit((current) => current ?? { ownerId, checkedInAt });
+      }
+    });
+    const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(resetSamples);
+    document.addEventListener("visibilitychange", resetSamples);
     return () => {
-      live = false;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      unsubscribeLocation();
+      unsubscribeControl();
+      unsubscribeLifecycle();
+      document.removeEventListener("visibilitychange", resetSamples);
     };
-  }, [checkedInAt, open, ownerId, placeLat, placeLng, radiusMeters]);
+  }, [checkedInAt, open, ownerId, placeLat, placeLng, presenceStatus, radiusMeters, vaultOwnerToken]);
 
   /**
    * Resolve a searched place's coordinates on demand.
@@ -1779,7 +1784,7 @@ export function NearbyCheckInSheet({
       ) {
         return;
       }
-      publishState(next);
+      publishState(next, true);
       trackOneLocationJourneyAction({
         action: "nearby_check_in_result",
         result: "success",
