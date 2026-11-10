@@ -2091,6 +2091,7 @@ describe("NearbyCheckInSheet", () => {
               placeLng: -122.1697,
             }),
           }),
+          true,
         );
       });
 

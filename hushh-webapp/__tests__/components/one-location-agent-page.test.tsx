@@ -4697,6 +4697,22 @@ describe("OneLocationAgentPage", () => {
       return { recipientAlerted: outcome === "full" || publicationCount++ === 0 };
     });
     if (outcome === "email") {
+      const baseState = locationState();
+      const smsGrant = {
+        ...baseState.ownerGrants[0]!,
+        id: "grant_email_only",
+        shareKind: "sos",
+        expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      };
+      let active = false;
+      mockCreateGrant.mockImplementation(async () => {
+        active = true;
+        return smsGrant;
+      });
+      mockGetState.mockImplementation(async () => ({
+        ...baseState,
+        ownerGrants: active ? [smsGrant] : baseState.ownerGrants,
+      }));
       mockSendSosEmails.mockResolvedValueOnce({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] });
     }
     render(<OneLocationAgentPage />);
