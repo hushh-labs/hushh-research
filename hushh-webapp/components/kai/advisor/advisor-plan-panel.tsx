@@ -22,6 +22,8 @@ export function AdvisorPlanPanel({
   run: (work: () => Promise<unknown>) => Promise<void>;
 }) {
   const advisor = context.userId === review.advisorUserId;
+  const introductionComplete = review.meeting?.status === "completed" ||
+    review.pastMeetings?.some((meeting) => meeting.status === "completed");
   const [price, setPrice] = useState("");
   const [services, setServices] = useState("");
   const [terms, setTerms] = useState("");
@@ -143,12 +145,12 @@ export function AdvisorPlanPanel({
         </div>
       ) : (
         <p className="ui-text-helper-text">
-          {review.meeting?.status === "completed"
+          {introductionComplete
             ? "The advisor can now offer a monthly plan."
             : "Available after the introduction."}
         </p>
       )}
-      {advisor && review.meeting?.status === "completed" ? (
+      {advisor && introductionComplete ? (
         <details>
           <summary className="ui-text-button-label">
             Offer or update a plan

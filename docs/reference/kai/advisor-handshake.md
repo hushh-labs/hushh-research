@@ -11,7 +11,7 @@ flowchart LR
   Pending --> Accept[Accept on the existing or newly connected edge]
   Accept --> Workspace[Participant workspace and expiring snapshot]
   Workspace --> Agree[Agree on an introduction time]
-  Agree --> Calendar[Advisor reviews and confirms Google Calendar booking]
+  Agree --> Calendar[Book the exact authorized offer or confirm a client proposal]
   Calendar --> Plan[Advisor offers monthly price and terms]
   Plan --> Checkout[Owner approves Stripe test checkout]
   Checkout --> Readback[Signed event and provider reconciliation]
@@ -66,21 +66,25 @@ postal-code search remains available after location permission refusal.
 
 ## Calendar and missing setup
 
-Either participant proposes a time with a real time zone; the other explicitly
-agrees. The advisor must connect Google Calendar with management permission,
-review the actual invitation and confirm through the existing one-shot Calendar
-proposal/execute boundary. The user can receive an email invitation and join
-without connecting Calendar. Both see their own Calendar connection and can connect, reconnect or manage it.
-The scheduling form uses date, time and duration pickers and a searchable time
-zone selector. A missing Calendar connection preserves the agreed time and request.
+Either participant can propose a time. An advisor with Calendar scheduling
+permission can authorize automatic booking of an exact offer for up to 24 hours.
+A client's unchanged acceptance claims that offer once and verifies the advisor's
+placement, verified invitee, active connection, expiry and original Calendar grant
+before Google receives the create request. An expired or unapproved offer uses the
+manual booking review. The advisor reviews and explicitly confirms a client
+proposal. A counterproposal replaces the active offer and its authority.
 
-The meeting is bound to the original Google grant and a deterministic event id.
-Uncertain provider results remain unconfirmed. Check Calendar status before a
-retry; a provider-confirmed absence permits retrying only that same event id.
-Changing accounts refuses reconciliation. Cancellation is confirmed from provider
-evidence. A completed introduction can be recorded only after the confirmed end
-time. Missing invitation email, expired review, conflicts and provider failures
-leave an actionable error instead of claiming a booking.
+Both participants see their own Calendar connection and the same meeting layout.
+A client can receive an email invitation and join without connecting Calendar.
+An uncertain create can be retried with its original event ID after read-back.
+A previously confirmed event that is missing loses its Join action. Calendar
+reconciliation checks the original grant and only saves against the observed
+meeting state.
+
+After the confirmed end time either participant can schedule another meeting.
+Past meetings remain in the workspace. The advisor can mark the original
+introduction complete after its end, including after a follow-up is proposed.
+Only that completed introduction makes the optional advisor plan available.
 
 ## Monthly plan and payments
 

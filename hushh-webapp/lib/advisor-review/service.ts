@@ -17,6 +17,7 @@ import {
   advisorSnapshotSchema,
   advisorReviewSchema,
   type AdvisorCandidate,
+  type AdvisorMeeting,
   type AdvisorPlan,
   type AdvisorReview,
   type AdvisorSnapshot,
@@ -161,7 +162,7 @@ async function prepare(
 export const AdvisorReviewService = {
   prepare,
   history: async (c: FinanceShareContext) => {
-    const result = await advisorRequest<{ items: unknown[] }>(c);
+    const result = await advisorRequest<{ items: unknown[] }>(c, "?ui=2");
     if (!Array.isArray(result.items) || result.items.length > 50)
       throw new Error("Advisor requests could not be verified.");
     return {
@@ -193,21 +194,26 @@ export const AdvisorReviewService = {
   time: (
     c: FinanceShareContext,
     id: string,
-    body: { startAt: string; endAt: string; timeZone: string },
-  ) => advisorRequest(c, `/${id}/meeting`, "POST", body),
+    body: { startAt: string; endAt: string; timeZone: string; expectedMeetingId: string | null },
+    automatic = false,
+  ) => automatic
+    ? advisorRequest(c, `/${id}/meeting/action`, "POST", { action: "propose_booking", time: body })
+    : advisorRequest(c, `/${id}/meeting`, "POST", body),
   meeting: (
     c: FinanceShareContext,
     id: string,
-    action: string,
+    action: "agree" | "accept_booking" | "prepare" | "confirm" | "cancel" | "complete" | "check",
     proposalId?: string,
+    meetingId?: string,
   ) =>
-    advisorRequest(
+    advisorRequest<AdvisorMeeting>(
       c,
       `/${id}/meeting/${["agree", "complete"].includes(action) ? "decision" : "action"}`,
       "POST",
       {
         action,
         proposalId: proposalId ?? null,
+        ...(meetingId ? { meetingId } : {}),
       },
     ),
   offer: (c: FinanceShareContext, id: string, body: AdvisorPlan) =>

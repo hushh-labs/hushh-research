@@ -114,10 +114,10 @@ export function AdvisorWorkspace({
       await action();
       if (live.current && context.isCurrent()) await load();
     } catch (e) {
-      if (live.current && context.isCurrent())
-        setError(
-          e instanceof Error ? e.message : "This step could not be confirmed.",
-        );
+      if (live.current && context.isCurrent()) {
+        setError(e instanceof Error ? e.message : "This step could not be confirmed.");
+        await load();
+      }
     } finally {
       work.current = false;
       if (live.current && context.isCurrent()) setBusy(false);
