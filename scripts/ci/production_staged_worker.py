@@ -26,9 +26,9 @@ UPLOAD = "Publish staged worker qualification"
 PREPARE = "Prepare private production Drive worker"
 INTENT = "Publish prepared worker intent"
 STAGE = "Stage private production Drive worker"
+SOURCE_GATES = ("Require exact-SHA UAT acceptance", "Require qualified Main worker source")
 STEPS = (
     "Validate deployment SHA against main",
-    "Require exact-SHA UAT acceptance",
     "Require qualified production worker release",
     "Enforce production worker staging capacity",
     PREPARE,
@@ -118,13 +118,15 @@ def _gates(jobs, timestamp):
         "stage steps are invalid",
     )
     indexed = {row["name"]: row for row in steps}
+    source_steps = indexed.keys() & set(SOURCE_GATES)
     _require(
         selected[0].get("conclusion") == "success"
         and len(indexed) == len(steps)
+        and len(source_steps) == 1
         and all(
             indexed.get(name, {}).get("status") == "completed"
             and indexed[name].get("conclusion") == "success"
-            for name in STEPS
+            for name in (*STEPS, *source_steps)
         ),
         "stage gates are incomplete",
     )
