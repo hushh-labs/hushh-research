@@ -5,6 +5,9 @@ import { PersonSelectionSurface } from "@/components/connections/person-selectio
 import { formatMessageTime, formatMessageFeedMarker, formatConversationTime } from "@/lib/direct-messages/message-timestamps";
 import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
 import { beginReaction, settleReaction } from "@/lib/direct-messages/reaction-mutation";
+import { VaultContext } from "@/lib/vault/vault-context";
+import { useMessageDraft } from "@/lib/direct-messages/use-message-draft";
+import { MessagesDraftService, MessageDraftSessionExpiredError } from "@/lib/services/messages-draft-service";
 import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/direct-messages/last-selection";
 
 import Link from "next/link";
@@ -17,6 +20,7 @@ import {
   FormEvent,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -433,6 +437,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   // header reads that cache and the Firebase fallback without a second fetch.
   const profileAvatarUrl = useEffectiveAvatarUrl({ fetchWhenCold: false });
   const ownerId = userId;
+  const vault = useContext(VaultContext);
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const router = useRouter();
@@ -743,6 +748,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const selections = [JSON.stringify([ownerId, "conversation", conversationId]),
       ...(peer ? [JSON.stringify([ownerId, "person", peer])] : [])];
     for (const scope of selections) {
+      void MessagesDraftService.remove(MessagesDraftService.session(ownerId), scope).catch(() => undefined);
       drafts.current.delete(scope); replyDrafts.current.delete(scope);
       attachmentDrafts.current.delete(scope); sendAttempts.current.delete(scope);
     }
@@ -831,6 +837,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useChatAlertVisibility(lane === "people" && isCurrentRead && hasRouteSelection && activeConversationId && !pendingSelection && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
   const canCompose = hasRouteSelection && !pendingSelection && isCurrentRead && thread.canSend;
+  const persistedDraft = useMessageDraft({ userId, scope: draftScope, vaultKey: vault?.vaultKey ?? null,
+    enabled: Boolean(canCompose && !hasUnconfirmedSend && !sending), value: draft,
+    setValue: text => { drafts.current.set(draftScope, text); setDraft(text); } });
   useLayoutEffect(() => {
     if (!ownerId || !cacheSession.current || !selectedRouteKey || !isCurrentRead || loadingThread || threadError || reactionPending.current.size) return;
     DirectMessagesResourceService.writeThread(ownerId, cacheSession.current, selectedRouteKey, thread, messages);
@@ -1429,7 +1438,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       setAttachment(recordedAttachment);
     }
     const generation = selectionGeneration.current;
-    const isCurrent = () => (generation === selectionGeneration.current && ownerRef.current === userId && selectionRef.current === routeSelection);
+    const isCurrent = () => (generation === selectionGeneration.current && ownerRef.current === userId && selectionRef.current === routeSelection && persistedDraft.isCurrent());
     const reply = replyingTo;
     const replyId = hasUnconfirmedSend ? sendAttempts.current.get(draftScope)?.replyId : reply?.id;
     let attempt = sendAttempts.current.get(draftScope);
@@ -1446,8 +1455,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const sendLease = {};
     sendingSelections.current.set(draftScope, sendLease);
     try {
+      const retiredDraft = await persistedDraft.retire();
       const idToken = await user.getIdToken();
-      if (!isCurrent()) return;
+      if (!isCurrent()) { persistedDraft.preserve(content, retiredDraft ?? undefined); return; }
       attempt.unconfirmed = true;
       const result = await DirectMessagesService.sendMessage({
         idToken,
@@ -1501,8 +1511,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       router.replace(href, { scroll: false });
     } catch (error) {
       const definiteRefusal = error instanceof DirectMessagesServiceRequestError && [400, 401, 403, 404, 409, 413, 422, 429].includes(error.status);
+      if (error instanceof MessageDraftSessionExpiredError && generation === selectionGeneration.current
+          && ownerRef.current === userId && selectionRef.current === routeSelection) {
+        setComposerError(error.message); return;
+      }
       if (!isCurrent()) return;
       if (definiteRefusal && sendAttempts.current.get(draftScope) === attempt) sendAttempts.current.delete(draftScope);
+      if (definiteRefusal) persistedDraft.update(content);
       setUnconfirmedDraft(definiteRefusal ? null : content);
       setDraft(content);
       setComposerError(
@@ -2466,8 +2481,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       value={draft}
                       onChange={(event) => {
                         setComposerError(null);
-                        drafts.current.set(draftScope, event.target.value);
-                        setDraft(event.target.value);
+                        persistedDraft.update(event.target.value);
                       }}
                       placeholder={hasRouteSelection ? `Message ${selectedLabel}...` : "Message"}
                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
@@ -2505,7 +2519,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         const input = composerRef.current;
                         const start = input?.selectionStart ?? draft.length;
                         const end = input?.selectionEnd ?? start;
-                        setDraft((current) => {
+                        persistedDraft.update((current) => {
                           const next = `${current.slice(0, start)}${emoji}${current.slice(end)}`;
                           drafts.current.set(draftScope, next);
                           return next;
@@ -2536,6 +2550,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <span className="sr-only" aria-live="polite">
                       {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
                     </span>
+                    {draft && persistedDraft.status ? <span className="sr-only" role="status">{persistedDraft.status}</span> : null}
                     {composerError ? (
                       <p className={styles.composerError} role="status">
                         {composerError}

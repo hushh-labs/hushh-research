@@ -38,6 +38,7 @@ from sqlalchemy import text
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.message_reactions import REACTION_EMOJIS
 
 logger = logging.getLogger(__name__)
 
@@ -1914,7 +1915,7 @@ class DirectMessagesService:
         conversation_key = self._normalize_conversation_id(conversation_id)
         message_key = self._normalize_message_id(message_id)
         normalized_emoji = str(emoji or "").strip()
-        if not normalized_emoji or len(normalized_emoji) > 32:
+        if normalized_emoji not in REACTION_EMOJIS:
             raise DirectMessagesError(
                 "DIRECT_MESSAGE_REACTION_INVALID",
                 "Choose a valid reaction.",

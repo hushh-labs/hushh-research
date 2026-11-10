@@ -200,10 +200,10 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 11. Connected Systems never unlinks on timeout, authorization failure, MCP
     error, or malformed response; owner-confirmed recovery disconnects only the
     server-resolved active binding and preserves workflow/audit history.
-12. Nearby presence defaults to absent, requires fresh owner confirmation and
-    phone verification, and is visible only to another explicitly active
+12. Nearby presence defaults to absent, requires fresh confirmation from the
+    signed-in vault owner, and is visible only to another explicitly active
     check-in whose independently confirmed point is inside the fixed exact
-    radius.
+    radius. Nearby Connect requests require phone verification for both people.
 13. Nearby roster and Connect responses expose rotating aliases and safe display
     labels only—never peer coordinates, distance, selected place, email, phone,
     or stable user ids.

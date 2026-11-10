@@ -39,6 +39,40 @@ class FakeClock:
 
 
 class ApplicationAuthorityTests(unittest.TestCase):
+    def test_isolated_capacity_requires_pinned_main_qualification_and_approval(self):
+        candidate, base, authority, head = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
+        approval = f"{base}:{base}:8821={head}"
+        environment = {
+            "GITHUB_REF_NAME": "main",
+            "UAT_SOURCE_BRANCH": "uat-isolated",
+            "RELEASE_TOOLING_SHA": authority,
+            "CI_RUN_ID": "42",
+            "CI_ATTEMPT": "2",
+            "CI_BASE_SHA": base,
+            "APPROVED_SCOPE": approval,
+            "RELEASE_APPLICATION_SHA": candidate,
+        }
+        for code in (0, 1):
+            with (
+                self.subTest(code=code),
+                patch.dict(wait.os.environ, environment),
+                patch("deployment_security.verify_forwarded_authorization"),
+                patch.object(wait, "command", side_effect=[
+                    subprocess.CompletedProcess([], code, "", "qualification refused" if code else ""),
+                ]) as run,
+            ):
+                if code:
+                    with self.assertRaisesRegex(wait.AdmissionError, "qualification refused"):
+                        wait.verify_request(candidate)
+                else:
+                    wait.verify_request(candidate)
+                self.assertEqual(run.call_args.args[0], [
+                    sys.executable, str(ROOT / "scripts/ci/uat_release_prerequisites.py"),
+                    "validate-deployment", "--source-branch", "uat-isolated", "--sha", candidate,
+                    "--authority-sha", authority, "--ci-run-id", "42", "--ci-attempt", "2",
+                    "--base-sha", base, "--approved-scope", approval,
+                ])
+
     def test_application_authority_requires_protected_uat_history(self):
         for history in ("main", "uat", "unplaced"):
             with self.subTest(history=history):
@@ -52,7 +86,7 @@ class ApplicationAuthorityTests(unittest.TestCase):
                         output = target if arguments[-1] == f"origin/{history}" else "b" * 40
                     return subprocess.CompletedProcess(arguments, 0, output, "")
 
-                with patch.dict(wait.os.environ, {"GITHUB_REF_NAME": "main", "GITHUB_ACTOR": "operator"}), patch.object(wait, "command", side_effect=run):
+                with patch.dict(wait.os.environ, {"GITHUB_REF_NAME": "main", "GITHUB_ACTOR": "operator", "RELEASE_APPLICATION_SHA": target}), patch("deployment_security.verify_forwarded_authorization") as authorize, patch.object(wait, "command", side_effect=run):
                     if history == "uat":
                         wait.verify_request(target)
                         authority = calls[-1][1]
@@ -64,6 +98,24 @@ class ApplicationAuthorityTests(unittest.TestCase):
                         with self.assertRaisesRegex(wait.AdmissionError, "source history"):
                             wait.verify_request(target)
                         self.assertFalse(any(item[1] for item in calls))
+                    authorize.assert_called_once()
+                    self.assertFalse(any("assert-governed-actor.py" in " ".join(item[0]) for item in calls))
+
+    def test_read_only_admission_refuses_missing_or_invalid_forwarded_authority(self):
+        target = "a" * 40
+        for raw, application in (("", target), ("not json", target), ("{}", target), ("{}", "b" * 40)):
+            with (
+                self.subTest(raw=raw, application=application),
+                patch.dict(wait.os.environ, {
+                    "GITHUB_REF_NAME": "main", "GITHUB_ACTIONS": "true",
+                    "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
+                    "RELEASE_AUTHORIZATION": raw, "RELEASE_APPLICATION_SHA": application,
+                }),
+                patch.object(wait, "command") as command,
+            ):
+                with self.assertRaisesRegex(wait.AdmissionError, "current-attempt release authorization"):
+                    wait.verify_request(target)
+                command.assert_not_called()
 
 
 class CapacityAdmissionTests(unittest.TestCase):
@@ -349,8 +401,8 @@ class CapacityAdmissionTests(unittest.TestCase):
 
 
 class WorkflowWiringTests(unittest.TestCase):
-    def test_both_requests_wait_outside_shared_mutation_lock(self) -> None:
-        for filename in ("deploy-uat-implementation.yml", "deploy-uat-one-chat.yml"):
+    def test_uat_requests_wait_outside_shared_mutation_lock(self) -> None:
+        for filename in ("deploy-uat-implementation.yml",):
             with self.subTest(workflow=filename):
                 source = (ROOT / ".github/workflows" / filename).read_text()
                 self.assertIn("group: uat-release-requests-", source)
@@ -364,8 +416,11 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("group: deploy-uat", wait_job)
                 self.assertIn("group: deploy-uat", deploy_job)
                 self.assertIn("scripts/ci/wait-uat-capacity.py", wait_job)
-                # The read-only cloud preflight asks Main for current team authority.
-                self.assertIn("actions: write", wait_job)
+                # Read-only admission uses only the same attempt's Main output.
+                self.assertIn("actions: read", wait_job)
+                self.assertNotIn("actions: write", wait_job)
+                self.assertIn("RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}", wait_job)
+                self.assertIn("RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}", wait_job)
                 self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", wait_job)
                 self.assertIn("timeout-minutes: 7", wait_job)
                 self.assertIn("--environment uat", deploy_job)
@@ -420,13 +475,6 @@ class WorkflowWiringTests(unittest.TestCase):
             promotion.index(
                 'gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}"'
             ),
-        )
-        one_chat = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
-        self.assertIn("group: uat-release-requests-backend", one_chat)
-        self.assertIn("needs: [wait-capacity, deployment-security]", one_chat)
-        self.assertLess(
-            one_chat.index("- name: Enforce UAT database connection budget"),
-            one_chat.index("- name: Deploy and verify only the backend service"),
         )
 
     def test_hourly_cleanup_has_no_waiting_followup(self):

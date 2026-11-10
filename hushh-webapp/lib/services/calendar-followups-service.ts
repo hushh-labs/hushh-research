@@ -12,10 +12,22 @@ export type FollowupStatus = {
   time_zone: string | null;
 };
 
+/** Which list a request is in. It is computed from the clock on every read. */
+export type FollowupView = "upcoming" | "overdue" | "snoozed" | "history";
+/** The full view pages 15 conversations at a time; the server owns the size. */
+export const FOLLOWUP_PAGE_SIZE = 15;
+
 export type FollowupPreviewRequest = {
   id: string; kind: "action" | "deadline" | "meeting"; state: string;
   title: string; original_due_wording: string | null;
   due_date: string | null; proposed_date: string | null; ambiguities: string[];
+  category?: string | null;
+  /** `asap` is the sender's stated urgency; it never implies a due date. */
+  urgency?: "asap" | "time_bound" | "none";
+  responsibility?: string;
+  /** What passing the date means: still owed, a chance that lapses, or undecided. */
+  after_date?: "owed" | "lapses" | "unspecified";
+  bucket?: FollowupView;
 };
 export type FollowupConversation = {
   id: string; subject: string; sender: string; latest_internal_date_ms: number;
@@ -25,6 +37,9 @@ export type FollowupConversation = {
 export type FollowupList = {
   account_id: string; scan_state: FollowupStatus["scan_state"];
   incomplete_source_count: number; total_conversations: number;
+  /** Absent when an older server answers; the card then shows Upcoming only. */
+  view?: FollowupView;
+  view_counts?: Record<FollowupView, number>;
   next_offset: number | null;
   conversations: FollowupConversation[];
 };
@@ -33,6 +48,8 @@ export type FollowupRequest = FollowupPreviewRequest & {
   time_zone: string | null; responsibility: string; reminder_at: string | null;
   source_internal_date_ms: number; revision: number;
   booking_state: "not_booked" | "booked" | null;
+  /** How many other emails restated this request; their sources stay stored. */
+  repeat_count?: number;
 };
 export type FollowupDetail = Omit<FollowupConversation, "request_count" | "active_count" | "preview_requests"> & {
   account_id: string; requests: FollowupRequest[];
@@ -83,8 +100,8 @@ export class CalendarFollowupsService {
     return value;
   }
 
-  static async list(userId: string, accountId: string, idToken: string, ownerToken: string, signal?: AbortSignal, offset = 0): Promise<FollowupList> {
-    const value = await this.post<FollowupList>("list", { user_id: userId, account_id: accountId, offset }, idToken, ownerToken, signal);
+  static async list(userId: string, accountId: string, idToken: string, ownerToken: string, signal?: AbortSignal, offset = 0, view: FollowupView = "upcoming"): Promise<FollowupList> {
+    const value = await this.post<FollowupList>("list", { user_id: userId, account_id: accountId, offset, view }, idToken, ownerToken, signal);
     validateAccount(value, accountId);
     if (!Array.isArray(value.conversations) || !Number.isInteger(value.total_conversations) ||
       (value.next_offset !== null && (!Number.isInteger(value.next_offset) || value.next_offset <= offset)) ||
@@ -111,14 +128,15 @@ export class CalendarFollowupsService {
     return value;
   }
 
-  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<string> {
+  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<{ conversationId: string; requestId: string }> {
     if (!validUuid(requestId)) throw new Error("Choose a valid request.");
-    const value = await this.post<{ account_id: string; conversation_id: string }>("resolve", {
+    const value = await this.post<{ account_id: string; conversation_id: string; request_id?: string }>("resolve", {
       user_id: userId, account_id: accountId, request_id: requestId,
     }, idToken, ownerToken, signal);
     validateAccount(value, accountId);
-    if (!validUuid(value.conversation_id)) throw new Error("Follow-up source was unavailable.");
-    return value.conversation_id;
+    const resolvedRequestId = value.request_id === undefined ? requestId : value.request_id;
+    if (!validUuid(value.conversation_id) || !validUuid(resolvedRequestId)) throw new Error("Follow-up source was unavailable.");
+    return { conversationId: value.conversation_id, requestId: resolvedRequestId };
   }
 
   static async change(userId: string, accountId: string, request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null, idToken: string, ownerToken: string): Promise<{ id: string; revision: number; state: string; reminder_at: string | null }> {

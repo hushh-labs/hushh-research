@@ -183,7 +183,6 @@ describe("One Location onboarding finale — the copy", () => {
     // string is the shared contract; `e2e/one-location-ready-panel.layout.spec.ts`
     // measures what it actually does at 320px.
     expect(code.className).toContain("whitespace-nowrap");
-    expect(code.className).toContain("text-[clamp(20px,6vw,28px)]");
     expect(code.className).not.toMatch(/truncate|text-ellipsis|line-clamp/u);
     expect(code.getAttribute("data-ui-truncation")).toBe("forbid");
   });

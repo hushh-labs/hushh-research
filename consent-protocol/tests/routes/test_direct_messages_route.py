@@ -35,6 +35,68 @@ def test_inbox_continuation_is_private_bounded_and_owner_scoped():
             assert invalid.headers["cache-control"] == "private, no-store"
 
 
+@pytest.mark.parametrize("budget,cost", [("30/minute", 30), ("1000/day", 1000)])
+def test_send_limits_verified_owner_before_service_and_preserves_shared_network_access(
+    monkeypatch, budget, cost
+):
+    from limits import parse
+    from slowapi.errors import RateLimitExceeded
+
+    from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
+
+    client = _client()
+    owner = {"uid": "viewer-user"}
+    client.app.dependency_overrides[require_firebase_auth] = lambda: owner["uid"]
+    client.app.state.limiter = limiter
+    client.app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+    @client.app.middleware("http")
+    async def synthetic_network(request, call_next):
+        request.scope["client"] = (request.headers.get("x-test-peer", "127.0.0.1"), 1234)
+        request.state.rate_limit_user_id = request.headers.get(
+            "x-forged-owner", "unverified-subject"
+        )
+        return await call_next(request)
+
+    monkeypatch.setattr(limiter, "enabled", True)
+    limiter.reset()
+    path = "/api/one/messages"
+    payload = {"recipientUserId": "other-user", "content": "hello"}
+    try:
+        assert limiter.limiter.hit(parse(budget), "user:firebase:viewer-user", path, cost=cost)
+        with patch("api.routes.one.messages._service") as factory:
+            factory.return_value.send_message.return_value = {"message": {"id": "message-1"}}
+            for peer in ("127.0.0.1", "127.0.0.2"):
+                refused = client.post(
+                    path, json=payload, headers={"x-test-peer": peer, "x-forged-owner": peer}
+                )
+                assert refused.status_code == 429
+                assert refused.headers["cache-control"] == "private, no-store"
+                assert refused.json()["detail"]["code"] == "RATE_LIMITED"
+            factory.assert_not_called()
+            owner["uid"] = "another-verified-user"
+            assert client.post(path, json=payload).status_code == 200
+            assert factory.return_value.send_message.call_args.args[0] == owner["uid"]
+    finally:
+        limiter.reset()
+
+
+def test_reaction_api_rejects_plaintext_without_database_access():
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.direct_messages_service import DirectMessagesService
+
+    with patch(
+        "api.routes.one.messages._service", return_value=DirectMessagesService(SimpleNamespace())
+    ):
+        response = _client().put(
+            "/api/one/messages/conversations/11111111-1111-4111-8111-111111111111/messages/22222222-2222-4222-8222-222222222222/reaction",
+            json={"emoji": "hello"},
+        )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "DIRECT_MESSAGE_REACTION_INVALID"
+
+
 def test_delete_chat_binds_the_authenticated_participant_and_requires_a_valid_id():
     service = MagicMock()
     conversation = "11111111-1111-4111-8111-111111111111"

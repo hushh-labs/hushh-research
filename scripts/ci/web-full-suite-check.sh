@@ -61,6 +61,7 @@ fi
 
 web_ci_preflight
 web_ci_install
+source "$REPO_ROOT/scripts/ci/validation-results.sh"
 
 cd "$WEB_DIR"
 # Preserve the pod branch's bounded worker envelope in the new owning lane.
@@ -70,22 +71,23 @@ WEB_TEST_MAX_WORKERS="${HUSHH_WEB_TEST_MAX_WORKERS:-2}"
   exit 2
 }
 if [ "$RUN_VERIFIERS" -eq 1 ]; then
-  npm run verify:voice-gateway
-  npm run verify:capability-graph
-  npm run verify:surface-map
+  validation_check "Voice gateway" npm run verify:voice-gateway
+  validation_check "Capability graph" npm run verify:capability-graph
+  validation_check "Surface map" npm run verify:surface-map
   # verify:voice-gateway already owns Siri. Preserve the standalone combined
   # capacitor command while running its remaining parity verifier exactly once.
-  node ./scripts/native/verify-native-static-parity.mjs
+  validation_check "Native static parity" node ./scripts/native/verify-native-static-parity.mjs
   # The tri-flow signature check: TypeScript registerPlugin interfaces against
   # iOS CAPPluginMethod and Android @PluginMethod declarations, plus both
   # registration sites. It is the only gate that actually catches a method
   # implemented on one platform and not the other.
-  npm run verify:capacitor:plugins
+  validation_check "Native plugin contracts" npm run verify:capacitor:plugins
 fi
 
-# Fail on static/generated drift before spending time on the full suite.
+# Report independent static drift and unit failures in the same attempt.
 # Its 41 One Voice files already run here (522 tests in run 36379443842);
 # keep verify:one-voice available for focused local use.
 RUN_ARGS=("--max-workers=$WEB_TEST_MAX_WORKERS")
 if [ -n "$SHARD" ]; then RUN_ARGS+=("--shard=$SHARD"); fi
-node ./scripts/testing/affected-tests.mjs run "$PLAN_FILE" "${RUN_ARGS[@]}"
+validation_check "Affected unit contracts" node ./scripts/testing/affected-tests.mjs run "$PLAN_FILE" "${RUN_ARGS[@]}"
+validation_finish

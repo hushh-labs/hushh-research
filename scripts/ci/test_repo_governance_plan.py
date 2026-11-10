@@ -18,12 +18,61 @@ from repo_governance_plan import (
     MAX_CHANGED_BYTES,
     Check,
     REGRESSION_GROUPS,
+    RELEASE_CONTROLLER_TESTS,
+    _checks_for_selection,
     _run_checks,
     build_selection,
 )
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_hosted_protocol_ownership_removes_only_whole_module_duplicates() -> None:
+    from dataclasses import replace
+    from unittest.mock import patch
+    import repo_governance_plan as plan
+
+    selection = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": ".github/workflows/ci.yml"})
+    env = {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "pull_request", "CI_PROTOCOL_CONTROLLER_OWNER": "true"}
+    original = next(check for check in CHECKS if check.check_id == "release-controller-contracts")
+    manifest = ROOT / "consent-protocol/scripts/test-ci.manifest.txt"
+    protocol = {f"consent-protocol/{line}" for line in manifest.read_text().splitlines()
+                if line.strip() and not line.lstrip().startswith("#")}
+    checks = _checks_for_selection(selection, env)
+    reduced = next(check for check in checks if check.check_id == original.check_id)
+    remaining = tuple(path for path in RELEASE_CONTROLLER_TESTS if path not in protocol)
+    assert 0 < len(remaining) < len(RELEASE_CONTROLLER_TESTS)
+    assert reduced.argv == original.argv[:-len(RELEASE_CONTROLLER_TESTS)] + remaining
+    assert reduced.groups == original.groups
+    assert {check for check in checks if check.check_id != original.check_id} == {
+        check for check in plan._checks_for_ids(selection.check_ids) if check.check_id != original.check_id
+    }
+    # Local/diagnostic, disabled backend, draft/auth-health suppression and historical
+    # overlays retain the original owner, including missing/unknown selection metadata.
+    for safe_selection, safe_env in (
+        (selection, {**env, "GITHUB_ACTIONS": "false"}),
+        (selection, {**env, "GITHUB_EVENT_NAME": "push"}),
+        (selection, {**env, "CI_PROTOCOL_CONTROLLER_OWNER": "false"}),
+        (selection, {**env, "CI_PROTOCOL_CONTROLLER_OWNER": ""}),
+        (selection, {**env, "PRODUCTION_RECOVERY_SHA": "a" * 40}),
+        (replace(selection, error="unknown input"), env),
+        (replace(selection, level="diagnostic"), env),
+    ):
+        assert original in _checks_for_selection(safe_selection, safe_env)
+    with tempfile.TemporaryDirectory() as raw, patch.object(plan, "ROOT", Path(raw)):
+        target = Path(raw) / "consent-protocol/scripts/test-ci.manifest.txt"
+        target.parent.mkdir(parents=True)
+        test_path = Path(raw) / RELEASE_CONTROLLER_TESTS[0]
+        test_path.parent.mkdir(parents=True)
+        test_path.touch()
+        path = RELEASE_CONTROLLER_TESTS[0].removeprefix("consent-protocol/")
+        for contents in ("", f"{path}\n{path}\n", "tests/../wrong.py\n", "tests/missing.py\n", f"{path}::test_case\n"):
+            target.write_text(contents)
+            assert original in _checks_for_selection(selection, env)
+        target.write_text(f"{path}\n")
+        with patch.object(plan, "RELEASE_CONTROLLER_TESTS", (RELEASE_CONTROLLER_TESTS[0],)):
+            assert all(check.check_id != original.check_id for check in _checks_for_selection(selection, env))
 
 
 def test_unconfigured_local_run_preserves_diagnostic_plan() -> None:
@@ -53,6 +102,8 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/scripts/managed_vertex_readiness.py",
         "consent-protocol/tests/test_pwm_runtime_probe.py",
         "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
@@ -143,6 +194,9 @@ def test_document_delivery_ci_contract_paths_select_controller_owner() -> None:
 
 def test_restoration_fixture_paths_select_controller_owner_and_history_consumers() -> None:
     changed = (
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/tests/helpers/production_release_tools.py",
         "consent-protocol/tests/test_production_restoration_operation.py",
     )
@@ -163,8 +217,14 @@ def test_restoration_fixture_paths_select_controller_owner_and_history_consumers
         "consent-protocol/tests/test_production_restoration_operation.py",
         "consent-protocol/tests/test_phone_schema_origin.py",
         "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-        "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
+        "consent-protocol/tests/test_phone_schema_job_history.py",
+        "consent-protocol/tests/test_phone_schema_qualification.py",
     )
+    drive_suite = "consent-protocol/tests/test_prod_drive_deploy_contract.py"
+    assert drive_suite in selected["release-controller-contracts"].argv
+    drive_only = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": drive_suite})
+    assert drive_only.groups == ("controller",)
+    assert "release-controller-contracts" in drive_only.check_ids
     assert "cloudrun-retention" not in selection.check_ids
 
 
@@ -177,6 +237,7 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
     assert "cloudrun-retention" not in selection.check_ids
     assert "agent-orchestration" not in selection.check_ids
     assert "web-lane-partition" not in selection.check_ids
+    assert "governance-teams" not in selection.check_ids
     # Owning package/fixture changes retain the topology check without turning
     # ordinary package edits into the entire release-controller regression group.
     from repo_governance_plan import WEB_LANE_INPUTS
@@ -186,11 +247,23 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
         assert "web-lane-partition" in selected.check_ids
         if path == "hushh-webapp/package.json":
             assert "release-controller-contracts" not in selected.check_ids
+
+    for path in ("scripts/ci/apply-governance-teams.py", "scripts/ci/test_apply_governance_teams.py"):
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert "governance-teams" in selected.check_ids
     for level, path in (("release", "hushh-webapp/app/page.tsx"),
                         ("focused", "unknown-root/runtime.py"),
                         ("focused", ".github/workflows/ci.yml")):
         selected = build_selection({"CI_VALIDATION_LEVEL": level, "CI_CHANGED_FILES": path})
         assert "web-lane-partition" in selected.check_ids
+
+
+def test_hyphenated_memory_gate_has_the_same_controller_owner_as_its_tests() -> None:
+    for path in ("scripts/ci/live-memory-source-gate.py", "scripts/ci/test_live_memory_pr_context.py"):
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+        assert selected.groups == ("controller",)
+        assert "live-memory-source" in selected.check_ids
 
 
 def test_affected_unit_selector_test_is_a_controller_owner() -> None:
@@ -331,16 +404,23 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
         return {"ok": True}
     with tempfile.TemporaryDirectory() as raw, patch.object(local, "_run", side_effect=run), \
          patch.object(local, "_protected", return_value=(True, "approved")), \
-         patch.object(local, "_validate_body"):
-        context = {"number": 1, "body": "reviewed", "author": "owner", "base_ref": "main",
+         patch.dict(os.environ, {"CAPABILITY_GRAPH_BASE_REF": "origin/main"}):
+        context = {"number": 1, "body": None, "author": "owner", "base_ref": "uat",
                    "base": "a" * 40, "head_ref": "fix/change", "head": "b" * 40,
                    "repository": "owner/repo", "files_path": Path(raw) / "files",
-                   "files": ["hushh-webapp/app/page.tsx"], "lanes": {"frontend": True, "backend": False}}
-        local._focused(None, context, Path(raw), stream=False)
+                   "files": ["hushh-webapp/app/page.tsx"], "lanes": {"frontend": True, "backend": True}}
+        checks, _ = local._focused(None, context, Path(raw), stream=False)
+        assert all(result["ok"] for result in checks.values())
     targeted = [env for argv, env in observed if argv[-1] == "web-targeted"]
     assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
     assert not any(argv[-1] == "integration" for argv, _ in observed)
     assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
+    for stage in ("governance", "web-core", "web-targeted", "web-full-suite", "protocol", "mcp-package"):
+        command = "repo-governance-check.sh" if stage == "governance" else "orchestrate.sh"
+        selected = [env for argv, env in observed
+                    if (stage == "governance" and argv[-1].endswith(command)) or argv[-1] == stage]
+        assert len(selected) == 1
+        assert selected[0]["CAPABILITY_GRAPH_BASE_REF"] == context["base"]
     # The operator report must not instruct agents to run a retired required lane.
     context.update(branch="fix/change", url=None, lane_warning=None)
     output = io.StringIO()
@@ -409,6 +489,7 @@ validation_finish
 
 def main() -> int:
     tests = (
+        test_hosted_protocol_ownership_removes_only_whole_module_duplicates,
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,
@@ -416,6 +497,7 @@ def main() -> int:
         test_production_emergency_authority_test_selects_controller_owner,
         test_restoration_fixture_paths_select_controller_owner_and_history_consumers,
         test_known_product_path_does_not_expand_critical_groups,
+        test_hyphenated_memory_gate_has_the_same_controller_owner_as_its_tests,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
         test_bad_or_missing_change_list_fails_conservatively,

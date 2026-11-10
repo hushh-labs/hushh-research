@@ -1812,7 +1812,6 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         root = pathlib.Path(__file__).resolve().parents[2]
         for filename, environment in (
             ("deploy-uat-implementation.yml", "uat"),
-            ("deploy-uat-one-chat.yml", "uat"),
             ("deploy-production.yml", "production"),
         ):
             with self.subTest(workflow=filename):
@@ -2174,7 +2173,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 self.assertIn(prefix + "python3 scripts/ci/runtime-capacity-budget.py", line)
                 self.assertNotIn("--foreground", line)
 
-        for name in ("deploy-uat-implementation.yml", "deploy-uat-one-chat.yml", "deploy-production.yml"):
+        for name in ("deploy-uat-implementation.yml", "deploy-production.yml"):
             with self.subTest(workflow=name):
                 source = (workflow_dir / name).read_text()
                 check_deadlines(source)

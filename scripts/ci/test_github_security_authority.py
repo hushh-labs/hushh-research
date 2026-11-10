@@ -417,6 +417,40 @@ class ExplicitOperationTeamTest(unittest.TestCase):
             self.assertEqual(team._request_authority(env, request, read=read), receipt["decision"])
             self.assertEqual(team._request_authority(env, request, read=read), receipt["decision"])
             self.assertEqual(dispatch.call_count, 1)
+            clock, first = [0.0], [True]
+            def advance(seconds):
+                clock[0] += seconds
+            def delayed_read(path):
+                if path.endswith("/runs/7") and first[0]:
+                    first[0] = False
+                    raise team.UnavailableRead(404)
+                return read(path)
+            self.assertEqual(team._request_authority(
+                env, request, read=delayed_read, monotonic=lambda: clock[0], sleep=advance
+            ), receipt["decision"])
+            self.assertEqual(clock[0], 5)
+            self.assertEqual(dispatch.call_count, 1)
+            def unavailable_read(path):
+                raise team.UnavailableRead(503)
+            with self.assertRaisesRegex(team.Refused, "within its deadline"):
+                team._request_authority(
+                    env, request, read=unavailable_read, monotonic=lambda: clock[0], sleep=advance
+                )
+            self.assertEqual(clock[0], 245)
+            self.assertEqual(dispatch.call_count, 1)
+            clock, observations = [0.0], [0]
+            def expires_before_retry(path):
+                observations[0] += 1
+                if observations[0] == 1:
+                    clock[0] = 239
+                    raise team.UnavailableRead(404)
+                return read(path)
+            with self.assertRaisesRegex(team.Refused, "within its deadline"):
+                team._request_authority(
+                    env, request, read=expires_before_retry, monotonic=lambda: clock[0], sleep=advance
+                )
+            self.assertEqual(observations[0], 1)
+            self.assertEqual(dispatch.call_count, 1)
             run["run_attempt"] = 2
             run["conclusion"] = "failure"
             with self.assertRaises(team.Refused): team._request_authority(env, request, read=read)
@@ -427,6 +461,23 @@ class ExplicitOperationTeamTest(unittest.TestCase):
             for _ in range(2):
                 with self.assertRaises(team.Refused): team._request_authority(env, request, read=read)
             self.assertEqual(dispatch.call_count, 1)
+
+    def test_broker_api_reads_classify_transport_without_exposing_response_or_retrying_denial(self):
+        import subprocess
+        import github_team_authority as team
+        path = f"repos/{team.REPOSITORY}/actions/runs/7"
+        for status, expected in ((503, team.UnavailableRead), (403, team.Refused)):
+            response = subprocess.CompletedProcess([], 1, "private response", f"private body (HTTP {status})")
+            with self.subTest(status=status), patch.object(team.subprocess, "run", return_value=response):
+                with self.assertRaises(expected) as error:
+                    team.cli_read(path)
+                self.assertEqual(type(error.exception), expected)
+                self.assertIn(f"HTTP {status}", str(error.exception))
+                self.assertNotIn("private", str(error.exception))
+        with patch.object(team.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "not JSON", "")):
+            with self.assertRaises(team.Refused) as error:
+                team.cli_read(path)
+            self.assertNotIsInstance(error.exception, team.UnavailableRead)
 
 
 class LiveTeamPolicyTest(unittest.TestCase):

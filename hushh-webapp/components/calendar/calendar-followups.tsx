@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import { bookingInstant, bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
-import { CalendarFollowupsService, type FollowupConversation, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
+import { CalendarFollowupsService, FOLLOWUP_PAGE_SIZE, type FollowupConversation, type FollowupPreviewRequest, type FollowupView, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
 
 type Props = {
   userId: string; accountId: string; accountEmail: string; zone: string; expanded: boolean;
@@ -27,15 +27,39 @@ function shortSender(value: string): string {
 function dateLabel(value: string | null): string | null {
   if (!value) return null;
   const date = new Date(`${value}T12:00:00Z`);
-  return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" }) : null;
+  if (!Number.isFinite(date.getTime())) return null;
+  // A short date names the year only when it is not this year, so "12 Nov" stays short.
+  const otherYear = date.getUTCFullYear() !== new Date().getUTCFullYear();
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(otherYear ? { year: "numeric" } : {}), timeZone: "UTC" });
+}
+/** The one date phrase for a request: what is true about its date, not only the sender's words. */
+function requestDate(item: FollowupPreviewRequest | undefined): string | null {
+  if (!item) return null;
+  const day = item.due_date || item.proposed_date;
+  if (item.bucket === "overdue" && day) return `Overdue · was due ${dateLabel(day)}`;
+  if (item.bucket === "history" && day && item.after_date === "lapses") return `Ended ${dateLabel(day)}`;
+  if (item.category === "scheduled_event" && day) return `On ${dateLabel(day)}`;
+  if (item.original_due_wording) return item.original_due_wording;
+  if (day) return `Due ${dateLabel(day)}`;
+  return item.urgency === "asap" ? "ASAP" : null;
 }
 function previewLine(entry: FollowupConversation): string {
   const requests = entry.preview_requests;
   const next = requests.find(item => item.kind !== "meeting") || requests[0];
   const meeting = requests.find(item => item.kind === "meeting" && item.id !== next?.id);
-  const due = next?.original_due_wording || (next?.due_date ? `Due ${dateLabel(next.due_date)}` : null);
   const call = meeting?.proposed_date ? `Call proposed for ${dateLabel(meeting.proposed_date)}` : null;
-  return [due, call].filter(Boolean).join(" · ") || "Needs review";
+  return [requestDate(next), call].filter(Boolean).join(" · ") || "Needs review";
+}
+const VIEW_LABELS: Record<FollowupView, string> = { upcoming: "Upcoming", overdue: "Overdue", snoozed: "Snoozed", history: "History" };
+const EMPTY_LABELS: Record<FollowupView, string> = {
+  upcoming: "No upcoming follow-ups.", overdue: "Nothing overdue.", snoozed: "Nothing snoozed.", history: "No earlier follow-ups.",
+};
+function statusNote(request: FollowupRequest): string | null {
+  const repeats = request.repeat_count ?? 0;
+  const also = repeats > 0 ? ` · Also sent in ${repeats} other email${repeats === 1 ? "" : "s"}` : "";
+  if (request.bucket === "overdue") return `Overdue${also}`;
+  if (request.bucket === "history" && request.state !== "done" && request.state !== "dismissed" && request.state !== "cancelled") return `Ended${also}`;
+  return also ? also.slice(3) : null;
 }
 function displayError(error: unknown): string {
   if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
@@ -81,7 +105,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [view, setView] = useState<FollowupView>("upcoming");
+  const [pageOffset, setPageOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -100,6 +125,9 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const handledIntent = useRef<string | null>(null);
   const focusedCard = useRef<HTMLDivElement | null>(null);
   const vaultAvailable = Boolean(getVaultOwnerToken());
+  // The compact card is always the first of Upcoming; only the full view filters and pages.
+  const activeView: FollowupView = expanded ? view : "upcoming";
+  const activeOffset = expanded ? pageOffset : 0;
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const seq = ++requestSeq.current;
@@ -116,12 +144,15 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }
       const ownerToken = ownerTokenGetter.current();
       if (!ownerToken) { setError("Unlock One to view follow-ups."); setLoading(false); return; }
-      const nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal);
-      if (alive()) { setList(nextList); setLoading(false); }
+      const nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, activeOffset, activeView);
+      if (!alive()) return;
+      // The last item of a later page was finished: step back instead of showing an empty page.
+      if (nextList.conversations.length === 0 && activeOffset > 0) { setPageOffset(Math.max(0, activeOffset - FOLLOWUP_PAGE_SIZE)); return; }
+      setList(nextList); setLoading(false);
     } catch (failure) {
       if (alive()) { setError(displayError(failure)); setLoading(false); }
     }
-  }, [userId, accountId]);
+  }, [userId, accountId, activeView, activeOffset]);
 
   useEffect(() => {
     const controller = new AbortController(); lifetime.current = controller;
@@ -199,30 +230,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     finally { setBusy(false); }
   };
 
-  const loadMore = async () => {
-    const offset = list?.next_offset;
-    if (offset == null || loadingMore) return;
-    const seq = requestSeq.current;
-    setLoadingMore(true); setError("");
-    try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to view follow-ups.");
-      const page = await CalendarFollowupsService.list(
-        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset,
-      );
-      if (requestSeq.current !== seq || lifetime.current?.signal.aborted) return;
-      setList(current => {
-        if (!current || current.next_offset !== offset) return current;
-        const ids = new Set(current.conversations.map(entry => entry.id));
-        return { ...page, conversations: [
-          ...current.conversations,
-          ...page.conversations.filter(entry => !ids.has(entry.id)),
-        ] };
-      });
-    } catch (failure) { if (requestSeq.current === seq) setError(displayError(failure)); }
-    finally { setLoadingMore(false); }
-  };
-
   const disable = async () => {
     setBusy(true); setError("");
     try {
@@ -271,7 +278,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   const retryDetail = async () => {
     if (!selectedId) return;
-    if (await openDetail(selectedId, undefined, deepLinkRequestId || undefined) && deepLinkRequestId) {
+    if (await openDetail(selectedId, undefined, focusedRequestId || deepLinkRequestId || undefined) && deepLinkRequestId) {
       finishDeepLink(deepLinkRequestId);
     }
   };
@@ -282,11 +289,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       try {
         const ownerToken = getVaultOwnerToken();
         if (!ownerToken) throw new Error("Unlock One to open this follow-up.");
-        const conversationId = await CalendarFollowupsService.resolve(
+        const target = await CalendarFollowupsService.resolve(
           userId, accountId, deepLinkRequestId, await getIdToken(), ownerToken, lifetime.current?.signal,
         );
         if (lifetime.current?.signal.aborted) return;
-        if (!await openDetail(conversationId, undefined, deepLinkRequestId)) return;
+        if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
         finishDeepLink(deepLinkRequestId);
       } catch (failure) { setError(displayError(failure)); }
     })();
@@ -313,6 +320,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         </div>
         {!status.background_available ? <p className="text-muted-foreground">Background reminders are unavailable right now.</p> : null}
       </div> : null}
+      {status?.monitoring_enabled && expanded && list?.view_counts ? <div role="group" aria-label="Follow-up lists" className="flex flex-wrap gap-1">
+        {(Object.keys(VIEW_LABELS) as FollowupView[]).filter(name => name === "upcoming" || name === view || (list.view_counts?.[name] ?? 0) > 0).map(name =>
+          <Button key={name} size="compact" variant={name === view ? "default" : "ghost"} aria-pressed={name === view} disabled={loading}
+            onClick={() => { if (name !== view) { setView(name); setPageOffset(0); } }}>{VIEW_LABELS[name]}{list.view_counts?.[name] ? ` · ${list.view_counts[name]}` : ""}</Button>)}
+      </div> : null}
       {status?.monitoring_enabled && rows.map(entry => {
         const next = entry.preview_requests.find(item => item.kind !== "meeting") || entry.preview_requests[0];
         return <div key={entry.id} className="flex min-w-0 items-center gap-3 border-t py-2 first:border-t-0">
@@ -324,7 +336,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           <Button size="compact" variant="ghost" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${next?.title || entry.subject}`}>Review</Button>
         </div>;
       })}
-      {status?.monitoring_enabled && list?.total_conversations === 0 && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">No pending follow-ups.</p> : null}
+      {status?.monitoring_enabled && list?.total_conversations === 0 && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">{EMPTY_LABELS[activeView]}</p> : null}
       {status?.monitoring_enabled && (status.scan_state === "partial" || list?.incomplete_source_count) ? <p className="text-xs text-amber-700">Some email could not be checked completely. Retry to continue.</p> : null}
       {status?.monitoring_enabled && status.scan_state === "pending" && !rows.length ? <p className="text-sm text-muted-foreground">Checking your email…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
@@ -333,7 +345,13 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         {status?.monitoring_enabled ? <div className="flex items-center gap-1"><Button size="compact" variant="ghost" disabled={loading || busy} onClick={() => void retryScan()}>Retry</Button>
           <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div> : null}
       </div>
-      {expanded && list?.next_offset != null ? <Button size="compact" variant="outline" disabled={loadingMore || loading} onClick={() => void loadMore()}>{loadingMore ? "Loading…" : "Load more"}</Button> : null}
+      {expanded && (list?.total_conversations || 0) > FOLLOWUP_PAGE_SIZE ? <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="text-muted-foreground">Page {Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1} of {Math.ceil((list?.total_conversations || 0) / FOLLOWUP_PAGE_SIZE)}</span>
+        <div className="flex items-center gap-1">
+          <Button size="compact" variant="ghost" disabled={loading || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}>Previous</Button>
+          <Button size="compact" variant="ghost" disabled={loading || list?.next_offset == null} onClick={() => { if (list?.next_offset != null) setPageOffset(list.next_offset); }}>Next</Button>
+        </div>
+      </div> : null}
     </div>
   </SectionCard>;
 
@@ -352,7 +370,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           {detail.source_completeness === "partial" ? <p className="text-amber-700">Some messages in this conversation could not be checked completely.</p> : null}
           {detail.requests.map(request => <div key={request.id} ref={request.id === focusedRequestId ? focusedCard : undefined} tabIndex={request.id === focusedRequestId ? -1 : undefined} className="space-y-2 rounded-lg border p-3">
             <div className="flex items-start justify-between gap-2"><div className="min-w-0"><strong className="break-words">{request.title}</strong>
-              <p className="text-muted-foreground">{request.original_due_wording || (request.proposed_date ? `Proposed for ${dateLabel(request.proposed_date)}` : "Date needs review")}</p></div>
+              <p className="text-muted-foreground">{request.original_due_wording || (request.proposed_date ? `Proposed for ${dateLabel(request.proposed_date)}` : "Date needs review")}</p>
+              {statusNote(request) ? <p className="text-xs text-muted-foreground">{statusNote(request)}</p> : null}</div>
               {request.kind !== "meeting" && request.state !== "done" && request.state !== "cancelled" ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
             </div>
             <p className="line-clamp-3 whitespace-pre-wrap break-words text-muted-foreground">“{request.source_excerpt}”</p>

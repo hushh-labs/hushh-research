@@ -39,11 +39,24 @@ def _run_image_step(
     digest = "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
     (tmp_path / "dev-backend-image.json").write_text(json.dumps(pin))
     (tmp_path / "manifest.json").write_text(manifest)
-    script = next(step["run"] for step in _steps() if step.get("name") == BUILD)
-    script = script.replace("${{ steps.resolve-sha.outputs.sha }}", SHA)
-    script = script.replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-uat")
-    script = script.replace("/tmp/uat-", str(tmp_path) + "/")  # noqa: S108
-    assert "${{" not in script
+    start = next(step for step in _steps() if step.get("id") == "start-backend-image-build")
+    join = next(step for step in _steps() if step.get("name") == BUILD)
+
+    def render(script):
+        for expression, value in {
+            "steps.resolve-sha.outputs.sha": SHA,
+            "env.GCP_PROJECT_ID": "hushh-pda-uat",
+            "github.run_id": "42",
+            "github.run_attempt": "2",
+        }.items():
+            script = script.replace("${{ " + expression + " }}", value)
+        script = script.replace("/tmp/uat-", str(tmp_path) + "/")  # noqa: S108
+        assert "${{" not in script
+        return script
+
+    tools = tmp_path / "release-tools"
+    tools.mkdir()
+    shutil.copyfile(ROOT / "scripts/ci/await-prebuilt-image.sh", tools / "await-prebuilt-image.sh")
     commands, output = tmp_path / "commands", tmp_path / "output"
     guards = r"""
 gcloud() {
@@ -51,7 +64,8 @@ gcloud() {
   case "$1 $2 $3" in
     'container images add-tag') [ "$COPY_FAILS" != true ] ;;
     'container images describe') printf '%s' "$DESTINATION_DIGEST" ;;
-    'builds submit '*) return 0 ;;
+    'builds submit '*) printf '%s' '12345678-1234-1234-1234-123456789abc' ;;
+    'builds describe '*) printf '%s' SUCCESS ;;
     'auth configure-docker '*) return 0 ;;
     *) echo UNEXPECTED_COMMAND >&2; return 95 ;;
   esac
@@ -63,10 +77,11 @@ docker() {
   cat "$MANIFEST"
 }
 """
-    guards += f'python3() {{ {shlex.quote(sys.executable)} "$@"; }};\n'
+    guards += f'python3() {{ {shlex.quote(sys.executable)} "$@"; }};\nexport -f gcloud\n'
     environment = {
         **os.environ,
-        "GITHUB_OUTPUT": str(output),
+        "GITHUB_OUTPUT": str(tmp_path / "start-output"),
+        "RUNNER_TEMP": str(tmp_path),
         "BACKEND_IMAGE_SOURCE": mode,
         "COMMANDS": str(commands),
         "DESTINATION_DIGEST": digest,
@@ -75,15 +90,30 @@ docker() {
         "MANIFEST": str(tmp_path / "manifest.json"),
     }
     environment.pop("BASH_ENV", None)
-    result = subprocess.run(  # noqa: S603 - trusted shell with guarded cloud adapters
-        [shutil.which("bash"), "-c", guards + script],
-        cwd=ROOT,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
+
+    def execute(script):
+        return subprocess.run(  # noqa: S603 - authored shell with guarded cloud adapters
+            [shutil.which("bash"), "-c", guards + render(script)],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+
+    result = execute(start["run"])
+    if result.returncode == 0:
+        values = dict(
+            line.split("=", 1) for line in (tmp_path / "start-output").read_text().splitlines()
+        )
+        for name, expression in join["env"].items():
+            key = expression.removeprefix(
+                "${{ steps.start-backend-image-build.outputs."
+            ).removesuffix(" }}")
+            environment[name] = values.get(key, "")
+        environment["GITHUB_OUTPUT"] = str(output)
+        result = execute(join["run"])
     assert "UNEXPECTED_COMMAND" not in result.stderr
     return (
         result,
@@ -99,7 +129,7 @@ def test_promotion_copies_only_the_accepted_executable_digest(tmp_path, mode):
     source = f"{DEV}@{digest}"
     result, output, commands, _ = _run_image_step(tmp_path, {"image_reference": source}, mode)
     assert result.returncode == 0, result.stderr
-    assert commands[0] == f"container images add-tag --quiet {source} {UAT}:uat-{SHA}"
+    assert commands[0] == f"container images add-tag --quiet {source} {UAT}:uat-{SHA}-42-2"
     assert not any(command.startswith("builds submit") for command in commands)
     assert output == [f"image_reference={UAT}@{digest}", "image_source=promote-from-dev"]
 
@@ -112,7 +142,7 @@ def test_historical_receipt_and_explicit_source_build_keep_the_build_path(
     pin = {"image_reference": f"{DEV}@{digest}"} if has_proof else {}
     result, output, commands, _ = _run_image_step(tmp_path, pin, mode)
     assert result.returncode == 0, result.stderr
-    assert commands[0].startswith("builds submit --project=hushh-pda-uat")
+    assert commands[0].startswith("builds submit --async --project=hushh-pda-uat")
     assert not any("add-tag" in command for command in commands)
     assert output == [f"image_reference={UAT}@{digest}", "image_source=build-from-source"]
 
@@ -166,7 +196,7 @@ def test_promotion_keeps_exact_acceptance_and_current_tools_before_mutation():
     assert "printf '{}\\n'" in gate["run"]
     assert "backend-image" in gate["run"] and "--environment dev" in gate["run"]
     assert "--predecessor /tmp/uat-predecessor-acceptance.json" in gate["run"]
-    for lane in ("dev", "uat", "production", "uat-one-chat"):
+    for lane in ("dev", "uat", "production"):
         name = f"deploy-{lane}" + ("-implementation" if lane in {"dev", "uat"} else "")
         workflow = yaml.safe_load((WORKFLOW.parent / f"{name}.yml").read_text())
         lane_steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]

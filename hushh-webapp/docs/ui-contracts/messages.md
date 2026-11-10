@@ -26,6 +26,16 @@ flowchart LR
 
 The outer One authentication, vault and setup gates retain their owners. The signed-out Messages page renders **Messages**, **Sign in to see conversations with your connections.**, and **Sign in** (`/login`). No Messages-specific setup step is mounted. Invalid/stale/denied opaque selections return to safe list state; a route handle is navigation only, never send authority. Per-tab last selection is owner-scoped; modified clicks and new tabs use the existing link resolver.
 
+## Unsent draft recovery
+
+People and Circle composers keep text-only, owner/destination-bound drafts in the existing vault-encrypted device cache for seven days. No vault key, plaintext text, attachment, quoted body or send authority is stored in browser preferences. The only new localStorage value is a metadata marker that requires a failed logout purge to finish before recovery resumes.
+
+Recovery waits for fresh destination admission and cannot replace newer typing. Circle drafts additionally bind to the caller's `membershipJoinedAt`; another member changing does not discard the draft, while the caller leaving/rejoining resets its editor. Ordinary sign-out/account changes purge drafts. Vault lock retires pending plaintext operations while retaining sealed recovery for the same owner after unlock; Reset/delete also fences writes with the existing durable generation.
+
+The accessible composer status reports **Saving draft…**, **Draft saved**, or **Draft not saved**. A normal browser unload warns while nonempty text is not committed. Forced process termination and mobile OS termination cannot guarantee the last pending keystroke; this is not an offline outbox. Before POST the recoverable checkpoint is strictly retired, so uncertain delivery retains only the existing in-memory, same-message-id retry and cannot reappear as a new unsent message after reload.
+
+People sends, including inline attachments, use verified-owner budgets of 30/minute and 1,000/day. Rate refusals are private, non-cacheable 429 responses. New People reactions use the same exact emoji catalogue as Circles; bounded deletion remains available for legacy invalid reactions.
+
 ## Page, state and action ledger
 
 Dynamic person/Circle names, message text, file names, dates, durations and counts below are templates or server projections. Unless a wire is named, interaction is local and makes **no API call**. All rows use a shared list read; they do not each issue a request. Source owners are under `components/direct-messages/` and `components/connect/circles/` unless another path is named.
@@ -62,7 +72,7 @@ The service owners define the precise transport fields: `lib/services/direct-mes
 
 | Circle wire | Request and projection used by Messages |
 | --- | --- |
-| GET root; GET `/wait?after={sequence}` | Roster `members`, `rosterVersion`, `unreadCount`, `latestSequence`, `muted`, optional `notificationDevices`; wait projects `changed`, `readChanged`, `receiptsChanged`, `reactionsChanged`, `membershipChanged`, `photoChanged`. |
+| GET root; GET `/wait?after={sequence}` | Roster `members`, `rosterVersion`, caller-only `membershipJoinedAt`, `unreadCount`, `latestSequence`, `muted`, optional `notificationDevices`; wait projects `changed`, `readChanged`, `receiptsChanged`, `reactionsChanged`, `membershipChanged`, `photoChanged`. |
 | GET `/messages?before={sequence}&after={sequence}&receiptAfter={sequence}&receiptThrough={sequence}` | Only applicable cursor keys are sent. Response has `items`, `hasMore`, optional `receipts`, `replyTargets`, `reactionUpdates`, `events` and sender photo projection. |
 | POST `/messages`; POST `/messages/resolve`; POST `/messages/updates` | Send uses the prepared `SealedChatMessage` with its stable client ID and frozen roster/version; returns the accepted `ChatMessage`. Resolve/updates take `{messageIds}` and return current items or `{states, unavailableIds}`. |
 | PATCH/DELETE `/messages/{messageId}`; PUT/DELETE `/messages/{messageId}/reactions/{emoji}` | Edit submits `{ciphertext, iv, expectedRevision}`; delete submits `{scope, tombstone?}`. Reactions return the message ID and current reactions. Cancel is local and sends none of these requests. |

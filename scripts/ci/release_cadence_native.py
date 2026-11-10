@@ -45,9 +45,15 @@ def completion(repository: str, run: dict, sha: str) -> dict:
     require(run.get("status") == "completed", "TestFlight upload workflow is not terminal")
     upload = artifact_json(repository, run["id"], "testflight-upload-receipt", "testflight-upload-receipt.json")
     require(valid_upload(upload, sha), "TestFlight upload source or build identity mismatch")
-    if run.get("conclusion") == "success" and completed_steps(repository, run,
+    # Preserve older accepted receipts while current releases distribute only
+    # internally. Display-name changes must not erase historical evidence.
+    if run.get("conclusion") == "success" and any(completed_steps(repository, run,
             "Process and distribute uploaded TestFlight build", {
-                "Wait for valid TestFlight processing", "Attach the same valid build to both TestFlight groups"}):
+                "Wait for valid TestFlight processing", distribution_step})
+            for distribution_step in (
+                "Attach the valid build to internal TestFlight testers",
+                "Attach the same valid build to both TestFlight groups",
+            )):
         distribution = artifact_json(repository, run["id"], f"one-voice-testflight-evidence-{sha}", "testflight-distribution.json", optional=True)
         if isinstance(distribution, dict) and distribution.get("internal") == "active" and distribution.get("build_id"):
             return {}

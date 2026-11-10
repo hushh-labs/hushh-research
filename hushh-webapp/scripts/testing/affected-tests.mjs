@@ -702,6 +702,20 @@ function sourceRisk(repoRoot, files, level) {
   return { reason: null, directTests: [] };
 }
 
+function committedTestDeletion(repoRoot, file, base) {
+  if (!isVitestFile(file) || existsSync(path.join(repoRoot, "hushh-webapp", file)) ||
+      !/^[0-9a-f]{40}$/.test(base || "")) return false;
+  const repoPath = `hushh-webapp/${file}`;
+  try {
+    // Compare committed trees: an accidentally missing checkout file or an
+    // unproven path must still trigger conservative coverage.
+    return execFileSync("git", ["diff", "--name-only", "--diff-filter=D", base, "HEAD", "--", repoPath],
+      { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim() === repoPath;
+  } catch {
+    return false;
+  }
+}
+
 function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
   const rawLevel = env.CI_VALIDATION_LEVEL;
   const requestedLevel = rawLevel || "diagnostic";
@@ -733,6 +747,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
     !/^(?:contracts\/ui-review\/|docs\/|e2e\/)/.test(file) &&
     !isOtherOwnerFile(file) &&
     !file.endsWith(".md") && !file.endsWith(".css") &&
+    !committedTestDeletion(repoRoot, file, env.CI_IMPACT_BASE_SHA) &&
     !documentationHeaderOnly(repoRoot, file, env.CI_IMPACT_BASE_SHA));
   if (requestedLevel === "focused" && unitFiles.length === 0) {
     return { ...base, effectiveLevel: "focused", changedFiles: changed.files, noUnitImpact: true };

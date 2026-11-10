@@ -190,17 +190,6 @@ function isExpectedLocalOptionalResponseFailure(value) {
   ) {
     return true;
   }
-  // Nearby presence is deliberately restricted to profiles with verified
-  // phone identity. The Location page probes the owner state when the local
-  // feature lane is enabled, then renders the feature as unavailable when the
-  // backend returns this fail-closed denial. Keep this exact allowance local
-  // to the reviewer sweep; hosted authorization failures must remain visible.
-  if (
-    value.includes("403 GET ") &&
-    value.includes("/api/one/location/nearby-presence")
-  ) {
-    return true;
-  }
   // Wallet Profile is intentionally disabled in this local backend unless its
   // owning feature flag is enabled. The owner client converts the contract's
   // 404 into an explicit unavailable state; keep this exact local exception so

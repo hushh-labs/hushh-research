@@ -13,6 +13,12 @@ on:
       uat_base_sha:
         type: string
         default: ""
+      production_recovery_sha:
+        type: string
+        default: ""
+      production_recovery_tree:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       # `auto` runs the lanes the dispatched branch's changes against the
@@ -59,6 +65,7 @@ concurrency:
 env:
   NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
+  PRODUCTION_RECOVERY_SHA: ${{ inputs.production_recovery_sha }}
   UAT_CI_CANDIDATE: ${{ inputs.uat_candidate_sha }}
   UAT_CI_BASE: ${{ inputs.uat_base_sha }}
   CI_VALIDATION_POLICY: core-focused-v1
@@ -79,7 +86,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - &prepare_isolated
         name: Prepare isolated UAT source
         if: inputs.uat_candidate_sha != ''
@@ -90,6 +97,16 @@ jobs:
         run: |
           test "$REQUESTED_SCOPE" = all
           python3 scripts/ci/uat_exact_ci.py "$UAT_CI_CANDIDATE" "$UAT_CI_BASE" "$GITHUB_SHA" "$EXPECTED_TREE"
+      - &prepare_recovery
+        name: Checkout exact production recovery application
+        if: inputs.production_recovery_sha != ''
+        env:
+          EXPECTED_TREE: ${{ inputs.production_recovery_tree }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          test "$REQUESTED_SCOPE" = all
+          test -z "$UAT_CI_CANDIDATE"
+          python3 scripts/ci/production_recovery_ci.py "$PRODUCTION_RECOVERY_SHA" "$UAT_CI_BASE" "$EXPECTED_TREE"
       - name: Install gitleaks OSS CLI (license-free)
         run: |
           # Keep CI independent from licensed action wrappers by using the OSS binary directly.
@@ -99,6 +116,7 @@ jobs:
           gitleaks version
       - name: Resolve scan commit range
         id: scan-range
+        if: inputs.production_recovery_sha == ''
         shell: bash
         run: |
           resolve_from_default_branch() {
@@ -150,11 +168,21 @@ jobs:
           fi
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
       - name: Run gitleaks scan (no license secret required)
+        if: inputs.production_recovery_sha == ''
         run: bash scripts/ci/orchestrate.sh secret
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
           GH_TOKEN: ${{ github.token }}
           CI_SECURITY_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Scan exact recovery changes with Main secret policy
+        if: inputs.production_recovery_sha != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_SHA:.gitleaks.toml" > "$RUNNER_TEMP/recovery-gitleaks.toml"
+          gitleaks git --redact --no-banner --exit-code 1 --config "$RUNNER_TEMP/recovery-gitleaks.toml" \
+            --log-opts="--diff-merges=first-parent $UAT_CI_BASE..$PRODUCTION_RECOVERY_SHA"
 
   dco-check:
     name: "DCO"
@@ -172,8 +200,9 @@ jobs:
           # Signoff checks require complete commit history, not historical
           # file contents. Keep all commits without downloading every old blob.
           filter: ${{ inputs.uat_candidate_sha == '' && 'blob:none' || '' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - name: Validate DCO signoff
         env:
@@ -188,7 +217,9 @@ jobs:
           set -euo pipefail
           GITHUB_BASE_REF="${GITHUB_BASE_REF#refs/heads/}"
           export GITHUB_BASE_REF
-          if [ -n "$UAT_CI_CANDIDATE" ]; then
+          if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
+            git show "$GITHUB_SHA:scripts/ci/check-dco-signoff.sh" | bash -s -- "$UAT_CI_BASE" "$PRODUCTION_RECOVERY_SHA"
+          elif [ -n "$UAT_CI_CANDIDATE" ]; then
             bash scripts/ci/check-dco-signoff.sh "$UAT_CI_BASE" "$UAT_CI_CANDIDATE"
           elif [[ ( "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == merge_group ) && ( "${GITHUB_BASE_REF:-}" == dev || "${GITHUB_BASE_REF:-}" == uat ) ]]; then
             bash scripts/ci/check-dco-signoff.sh --history-sync
@@ -245,7 +276,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Install UI contract parser for governance
@@ -259,6 +291,7 @@ jobs:
 
       - &ci_impact
         name: Resolve exact changed contract input
+        if: inputs.production_recovery_sha == ''
         env:
           CI_IMPACT_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
           CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
@@ -269,13 +302,19 @@ jobs:
         env:
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
         run: |
-          matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
+            # The historical runner uses the complete Vitest suite in three shards.
+            matrix='{"shard":["1/3","2/3","3/3"]}'
+          else
+            matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          CI_PROTOCOL_CONTROLLER_OWNER: ${{ inputs.production_recovery_sha == '' && needs.paths.outputs.backend_required || 'false' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
           # silently resolves zero files and passes (fails open). The job
@@ -305,6 +344,7 @@ jobs:
     outputs:
       frontend: ${{ steps.resolve.outputs.frontend }}
       backend: ${{ steps.resolve.outputs.backend }}
+      backend_required: ${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || steps.resolve.outputs.auth_health_only == 'true') && 'false' || steps.resolve.outputs.backend }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       editor: ${{ steps.resolve.outputs.editor }}
@@ -315,9 +355,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       # A dispatch with scope `auto` runs these same filters. paths-filter v4
       # has no pull request to ask the API about then, so it diffs `ref`
@@ -336,7 +377,7 @@ jobs:
           (inputs.scope == 'auto' && github.ref_name != github.event.repository.default_branch)))
         with:
           base: ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
-          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.uat_candidate_sha || github.sha) || '' }}
+          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.production_recovery_sha || inputs.uat_candidate_sha || github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -369,6 +410,7 @@ jobs:
               - '!consent-protocol/scripts/generate_capability_graph.py'
               - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
               - '!consent-protocol/scripts/verify_azure_pwm_runtime.py'
+              - '!consent-protocol/scripts/verify_managed_vertex_runtime.py'
               - '!consent-protocol/scripts/managed_vertex_readiness.py'
               - '!consent-protocol/tests/test_pwm_runtime_probe.py'
               - '!consent-protocol/tests/scripts/test_trust_failure_verdict.py'
@@ -481,6 +523,7 @@ jobs:
               - '!consent-protocol/tests/test_deployment_security_broker.py'
               - '!consent-protocol/tests/test_predecessor_acceptance_contract.py'
               - '!consent-protocol/tests/test_ci_status_gate_fails_closed.py'
+              - '!consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py'
               - '!consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py'
               - '!consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py'
               # Workflow-contract tests with frozen controller owners remain
@@ -488,6 +531,9 @@ jobs:
               # for these exact test/helper-only edits.
               - '!consent-protocol/tests/test_production_emergency.py'
               - '!consent-protocol/tests/test_uat_deploy_parallelism.py'
+              - '!consent-protocol/tests/test_prod_drive_deploy_contract.py'
+              - '!consent-protocol/tests/test_protected_document_release_contract.py'
+              - '!consent-protocol/tests/helpers/production_runtime_profile.py'
               - '!consent-protocol/tests/helpers/document_delivery_ci.py'
               # These exact synthetic fixture paths have a focused controller
               # owner; edits to the separate phone-history consumer modules still
@@ -763,18 +809,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
         run: |
-          base="$(python3 scripts/ci/resolve-ui-contract-base.py)"
+          if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
+            base="$UAT_CI_BASE"
+          else
+            base="$(python3 scripts/ci/resolve-ui-contract-base.py)"
+          fi
           echo "sha=$base" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/scripts/architecture/ui-contract-tools/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --progress=false
         working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
@@ -796,7 +848,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       frontend: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.frontend }}
-      backend: ${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || needs.paths.outputs.auth_health_only == 'true') && 'false' || needs.paths.outputs.backend }}
+      backend: ${{ needs.paths.outputs.backend_required }}
       ios: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.ios }}
       android: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.android }}
       editor: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.editor }}
@@ -820,10 +872,22 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$PATHS"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
+          # Missing/abandoned prerequisites are infrastructure interruption,
+          # never permission to launch the expensive dependent lanes.
+          for check in "secret-scan=$SECRET_SCAN" "dco-check=$DCO" "paths=$PATHS"; do
+            if [ "${check#*=}" != success ]; then
+              echo "Required prerequisite ${check%%=*}: ${check#*=}."
               fail=1
             fi
+          done
+          if [ "${{ github.event_name }}" = pull_request ] && [ "$PR_BASE_POLICY" != success ]; then
+            fail=1
+          fi
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$PATHS" "${{ needs['ui-contracts'].result }}"; do
+            case "$result" in
+              abandoned|"") echo "GitHub infrastructure interruption: a prerequisite job is ${result:-missing}; no dependent checks can be certified."; fail=1 ;;
+              failure|cancelled|timed_out) fail=1 ;;
+            esac
           done
 
 
@@ -848,14 +912,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       # Restore-only; Main Post-Merge Smoke is the one saver. A cache saved by
@@ -915,12 +981,14 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -933,8 +1001,8 @@ jobs:
           WEB_TARGETED_PART: node
           WEB_TARGETED_FULL_SUITE_OWNED: "0"
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
-          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
+          CAPABILITY_GRAPH_BASE_REF: &application_capability_graph_base ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || inputs.production_recovery_sha || github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
   web-full-suite-check:
@@ -957,13 +1025,15 @@ jobs:
           # against the PR base ref and fails closed when a shallow clone
           # does not carry it.
           fetch-depth: 0
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       # The CapabilityGraphV1 compiler behind verify:one-voice is Python; use
@@ -988,7 +1058,7 @@ jobs:
         env:
           WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
 
       - name: Verify unit shard (1/1)
@@ -1040,9 +1110,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - name: Select release-parity Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -1053,7 +1124,8 @@ jobs:
         with:
           # Keep native preparation on the same Node major as TestFlight.
           node-version: "22"
-          cache: npm
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Verify native proof build contract
@@ -1288,9 +1360,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - uses: actions/setup-java@v5
         with:
@@ -1313,7 +1386,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Install web and Capacitor dependencies
@@ -1375,8 +1449,9 @@ jobs:
           # The capability graph check diffs against the PR base ref, which a
           # shallow clone does not carry.
           fetch-depth: 0
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -1389,6 +1464,7 @@ jobs:
       # version or options differ and rechecks every module whose source hash
       # changed. The key follows the locked toolchain and the mypy config.
       - name: Cache mypy incremental state
+        if: inputs.production_recovery_sha == ''
         uses: actions/cache@v5
         with:
           path: consent-protocol/.mypy_cache
@@ -1414,7 +1490,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           PROTOCOL_TEST_PARTITION: parallel
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1452,8 +1528,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -1475,9 +1552,10 @@ jobs:
         run: bash scripts/run-test-ci.sh
         env:
           PROTOCOL_TEST_PARTITION: database
+          # The pinned recovery runner predates sharding and runs this entire partition.
           PROTOCOL_DATABASE_SHARD_COUNT: "2"
           PROTOCOL_DATABASE_SHARD_INDEX: "${{ env.CI_DATABASE_SHARD }}"
-          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1487,7 +1565,7 @@ jobs:
   protocol-database-check-two:
     needs: [preflight-gate]
     if: >-
-      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      inputs.production_recovery_sha == '' && !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -1510,14 +1588,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: packages/hushh-mcp/package-lock.json
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
@@ -1543,13 +1623,15 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
+      - *prepare_recovery
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: ${{ inputs.production_recovery_sha == '' && 'npm' || '' }}
+          package-manager-cache: ${{ inputs.production_recovery_sha == '' }}
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
@@ -1572,6 +1654,9 @@ jobs:
           elif [ "${{ github.event_name }}" = merge_group ]; then
             base_sha="${{ github.event.merge_group.base_sha }}"
             target_sha="${{ github.event.merge_group.head_sha }}"
+          elif [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
+            base_sha="$UAT_CI_BASE"
+            target_sha="$PRODUCTION_RECOVERY_SHA"
           elif [ -n "$UAT_CI_CANDIDATE" ]; then
             base_sha="$UAT_CI_BASE"
             target_sha="$UAT_CI_CANDIDATE"
@@ -1590,8 +1675,9 @@ jobs:
             --json-output "$RUNNER_TEMP/ci-verification-plan.json"
 
       - name: Run integration check script (single source of truth)
+        if: inputs.production_recovery_sha == ''
         run: bash scripts/ci/integration-check.sh --ci-core
-        env:
+        env: &integration_env
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
           CI_DOCUMENT_CONTRACT_REQUIRED: ${{ needs['preflight-gate'].outputs.document }}
@@ -1599,6 +1685,11 @@ jobs:
           CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
           CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/ci-verification-plan.json
         continue-on-error: false  # Route contracts must pass; fail CI if missing/out of sync
+
+      - name: Run integration checks on the recorded recovery application
+        if: inputs.production_recovery_sha != ''
+        run: bash scripts/ci/integration-check.sh --ci-linux-document
+        env: *integration_env
 
       - name: Upload verification-plan artifact
         if: always()
@@ -1866,11 +1957,16 @@ jobs:
             echo "This gate knows pull_request, workflow_dispatch and merge_group; ${EVENT_NAME} fails closed."
             fail=1
           fi
-          if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
+          if [ -z "$PRODUCTION_RECOVERY_SHA" ]; then
+            if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
+          elif [[ "$SCOPE:$FRONTEND_SELECTED:$BACKEND_SELECTED:$DOCUMENT_SELECTED:$PROTOCOL_DATABASE_TWO" != all:true:true:true:skipped ]]; then
+            echo "Recovery requires full application checks and the complete historical database partition."
+            fail=1
+          fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
-              fail=1
-            fi
+            case "$result" in
+              failure|cancelled|timed_out|abandoned|"") fail=1 ;;
+            esac
           done
 
           first_failure=""
@@ -1880,6 +1976,9 @@ jobs:
               return
             fi
             case "$result" in
+              abandoned|"")
+                first_failure="$label (GitHub infrastructure interruption: ${result:-missing})"
+                ;;
               failure|cancelled|timed_out)
                 first_failure="$label ($result)"
                 ;;

@@ -28,6 +28,7 @@ test("an explicit packaging version preserves production source and review gates
     dry_run: "false", submit_for_review: "false", release_after_approval: "false",
   });
   assert.equal(Object.hasOwn(buildDispatchInputs(parseArgs([]), sha), "marketing_version"), false);
+  assert.equal(buildDispatchInputs(parseArgs([]), sha).backend_target, "production");
 });
 
 test("malformed packaging versions cannot reach dispatch", () => {

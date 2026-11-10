@@ -318,7 +318,7 @@ jobs:
     timeout-minutes: 7
     permissions:
       contents: read
-      actions: write
+      actions: read
       checks: read
       pull-requests: read
       id-token: write
@@ -364,6 +364,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
@@ -835,6 +837,60 @@ jobs:
               --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
               --predecessor /tmp/uat-predecessor-acceptance.json \
               --output /tmp/uat-dev-backend-image.json
+          fi
+
+      # Build-only work overlaps read-only preparation. The exact join remains
+      # before the deletion fence; no runtime configuration or lifecycle mutation moves.
+      - name: Start backend image build in parallel
+        id: start-backend-image-build
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source || 'auto' }}
+        run: |
+          set -euo pipefail
+          image_tag="uat-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
+          dev_image="$(python3 -c '
+          import json, re
+          pin = json.load(open("/tmp/uat-dev-backend-image.json"))
+          ref = pin.get("image_reference", "")
+          if "image_reference" in pin:
+              assert isinstance(ref, str) and re.fullmatch(r"gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}", ref), "Invalid accepted Dev image"
+          print(ref)
+          ')"
+          case "${BACKEND_IMAGE_SOURCE}" in
+            auto)
+              if [ -n "${dev_image}" ]; then
+                image_source=promote-from-dev
+              else
+                image_source=build-from-source
+                echo "::notice title=Historical Dev acceptance::No accepted Dev image proof is available; building the selected UAT backend from source."
+              fi
+              ;;
+            build-from-source|promote-from-dev) image_source="${BACKEND_IMAGE_SOURCE}" ;;
+            *) echo "Invalid backend image source." >&2; exit 1 ;;
+          esac
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_repository=${image_repository}" >> "$GITHUB_OUTPUT"
+          echo "image_source=${image_source}" >> "$GITHUB_OUTPUT"
+          if [ "${image_source}" = promote-from-dev ]; then
+            if [[ ! "${dev_image}" =~ ^gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}$ ]]; then
+              echo "Accepted Dev executable image proof is required for promotion." >&2
+              exit 1
+            fi
+            echo "dev_image=${dev_image}" >> "$GITHUB_OUTPUT"
+          else
+            build_id="$(gcloud builds submit --async \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --config=deploy/backend-image.cloudbuild.yaml \
+              --format='value(id)' \
+              "--substitutions=_IMAGE_TAG=${image_tag}")"
+            if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+              echo "Backend image build did not return a Cloud Build id." >&2
+              exit 1
+            fi
+            echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve retained protected document maintenance
@@ -1473,44 +1529,25 @@ jobs:
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
-          BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source || 'auto' }}
+          IMAGE_SOURCE: ${{ steps.start-backend-image-build.outputs.image_source }}
+          IMAGE_TAG: ${{ steps.start-backend-image-build.outputs.image_tag }}
+          IMAGE_REPOSITORY: ${{ steps.start-backend-image-build.outputs.image_repository }}
+          DEV_IMAGE: ${{ steps.start-backend-image-build.outputs.dev_image }}
+          BACKEND_IMAGE_BUILD_ID: ${{ steps.start-backend-image-build.outputs.build_id }}
         run: |
           set -euo pipefail
-          image_tag="uat-${{ steps.resolve-sha.outputs.sha }}"
-          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
-          dev_image="$(python3 -c '
-          import json, re
-          pin = json.load(open("/tmp/uat-dev-backend-image.json"))
-          ref = pin.get("image_reference", "")
-          if "image_reference" in pin:
-              assert isinstance(ref, str) and re.fullmatch(r"gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}", ref), "Invalid accepted Dev image"
-          print(ref)
-          ')"
-          case "${BACKEND_IMAGE_SOURCE}" in
-            auto)
-              if [ -n "${dev_image}" ]; then
-                image_source=promote-from-dev
-              else
-                image_source=build-from-source
-                echo "::notice title=Historical Dev acceptance::No accepted Dev image proof is available; building the selected UAT backend from source."
-              fi
-              ;;
-            build-from-source|promote-from-dev) image_source="${BACKEND_IMAGE_SOURCE}" ;;
-            *) echo "Invalid backend image source." >&2; exit 1 ;;
-          esac
+          image_source="$IMAGE_SOURCE"
+          image_tag="$IMAGE_TAG"
+          image_repository="$IMAGE_REPOSITORY"
+          dev_image="$DEV_IMAGE"
           if [ "${image_source}" = promote-from-dev ]; then
-            if [[ ! "${dev_image}" =~ ^gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}$ ]]; then
-              echo "Accepted Dev executable image proof is required for promotion." >&2
-              exit 1
-            fi
-            # Copy immutable bytes into UAT. Missing permission or a missing
-            # image fails before migrations; there is no automatic build retry.
             gcloud container images add-tag --quiet "${dev_image}" "${image_repository}:${image_tag}"
+          elif [ "${image_source}" = build-from-source ]; then
+            bash "${RUNNER_TEMP}/release-tools/await-prebuilt-image.sh" \
+              --project "${{ env.GCP_PROJECT_ID }}" --build-id "$BACKEND_IMAGE_BUILD_ID" --wait-only
           else
-            gcloud builds submit \
-              --project="${{ env.GCP_PROJECT_ID }}" \
-              --config=deploy/backend-image.cloudbuild.yaml \
-              "--substitutions=_IMAGE_TAG=${image_tag}"
+            echo "Backend image preparation is missing its admitted source." >&2
+            exit 1
           fi
           image_digest="$(gcloud container images describe \
             "${image_repository}:${image_tag}" \
@@ -2314,6 +2351,7 @@ jobs:
           FRONTEND_PARALLEL_IMAGE: ${{ steps.prepare-frontend-rollout.outputs.image_reference }}
           FRONTEND_PENDING_IMAGE_BUILD_ID: ${{ steps.prepare-frontend-rollout.outputs.pending_image_build_id }}
           FRONTEND_SHARED_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
+          FRONTEND_BACKEND_QUALIFICATION_MODE: ${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
@@ -2328,6 +2366,7 @@ jobs:
               --github-run "${{ github.run_id }}" \
               --github-attempt "${{ github.run_attempt }}" \
               --backend-image "${{ steps.build-backend-image.outputs.image_reference }}" \
+              --qualification-mode "$FRONTEND_BACKEND_QUALIFICATION_MODE" \
               --legacy-exception "${{ inputs.skip_managed_vertex_probe_once || false }}" \
               --manifest-output /tmp/uat-frontend-image-manifest.json \
               --output /tmp/uat-frontend-image.json \
@@ -4389,26 +4428,38 @@ jobs:
           path: /tmp/uat-acceptance/acceptance.json
           if-no-files-found: ignore
 
-      - name: Cancel an unused parallel frontend image build
-        # Hygiene only: a release that stopped before the frontend deploy leaves
-        # the web build running. It never affects release classification.
-        if: always() && steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success' && steps.begin-uat-mutation.outcome != 'skipped'
+      - name: Cancel unused parallel image builds
+        # Build-only preparation can fail before mutation. Never leave this
+        # run's known in-flight image builds running after the release stops.
+        if: always() && ((steps.start-backend-image-build.outputs.build_id != '' && steps.build-backend-image.outcome != 'success') || (steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success'))
         continue-on-error: true
         shell: bash
         env:
+          BACKEND_IMAGE_BUILD_ID: ${{ steps.start-backend-image-build.outputs.build_id }}
           FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
         run: |
           set -euo pipefail
-          status="$(gcloud builds describe "${FRONTEND_IMAGE_BUILD_ID}" \
-            --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
-          case "${status}" in
-            QUEUED|PENDING|WORKING)
-              gcloud builds cancel "${FRONTEND_IMAGE_BUILD_ID}" --project="${{ env.GCP_PROJECT_ID }}"
-              ;;
-            *)
-              echo "Frontend image build ${FRONTEND_IMAGE_BUILD_ID} is already ${status}; nothing to cancel."
-              ;;
-          esac
+          cleanup_failed=0
+          for build_id in "$BACKEND_IMAGE_BUILD_ID" "$FRONTEND_IMAGE_BUILD_ID"; do
+            [ -n "$build_id" ] || continue
+            if [[ ! "$build_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+              echo "Image cleanup refused an invalid build identity." >&2
+              cleanup_failed=1
+              continue
+            fi
+            if ! status="$(gcloud builds describe "$build_id" --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"; then
+              cleanup_failed=1
+              continue
+            fi
+            case "$status" in
+              QUEUED|PENDING|WORKING)
+                gcloud builds cancel "$build_id" --project="${{ env.GCP_PROJECT_ID }}" || cleanup_failed=1 ;;
+              SUCCESS|FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                echo "Image build $build_id is already $status; nothing to cancel." ;;
+              *) echo "Image build $build_id has unknown cleanup state." >&2; cleanup_failed=1 ;;
+            esac
+          done
+          exit "$cleanup_failed"
 
       - name: Upload UAT deploy artifacts
         if: always()
