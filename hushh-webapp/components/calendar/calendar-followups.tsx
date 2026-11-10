@@ -14,7 +14,7 @@ import {
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
 import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
-import { CalendarFollowupsService, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
+import { CalendarFollowupsService, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus, type FollowupView } from "@/lib/services/calendar-followups-service";
 
 type Props = {
   userId: string; accountId: string; accountEmail: string; zone: string; expanded: boolean;
@@ -38,6 +38,12 @@ const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
 // ticks. Capped, and it stops the moment the card goes away.
 const CATCH_UP_MAX_CALLS = 20;
 const FOLLOWUP_PAGE_SIZE = 15;
+const FOLLOWUP_VIEWS: Record<FollowupView, string> = {
+  upcoming: "Upcoming",
+  overdue: "Overdue",
+  snoozed: "Snoozed",
+  history: "History",
+};
 
 export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
@@ -50,6 +56,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [loading, setLoading] = useState(true);
   const [loadingPage, setLoadingPage] = useState(false);
   const [pageOffset, setPageOffset] = useState(0);
+  const [view, setView] = useState<FollowupView>("upcoming");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -64,6 +71,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
   const pageOffsetRef = useRef(0);
+  const viewRef = useRef<FollowupView>("upcoming");
   const firstPageRef = useRef<FollowupList | null>(null);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
@@ -96,14 +104,15 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       const ownerToken = ownerTokenGetter.current();
       if (!ownerToken) { if (!quiet) setError("Unlock One to view follow-ups."); setLoading(false); return; }
       let offset = pageOffsetRef.current;
-      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset);
+      const selectedView = viewRef.current;
+      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, selectedView);
       if (!alive()) return;
       if (offset > 0 && offset >= nextList.total_conversations) {
         offset = Math.max(0, Math.ceil(nextList.total_conversations / FOLLOWUP_PAGE_SIZE) - 1) * FOLLOWUP_PAGE_SIZE;
-        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset);
+        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, selectedView);
       }
       if (alive()) {
-        if (offset === 0) firstPageRef.current = nextList;
+        if (offset === 0 && selectedView === "upcoming") firstPageRef.current = nextList;
         pageOffsetRef.current = offset; setPageOffset(offset); setList(nextList); setLoading(false); setError("");
       }
     } catch (failure) {
@@ -116,8 +125,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (expanded) return;
     // Collapse also cancels a first Next request that has not applied its offset.
     if (loadingPage) { requestSeq.current += 1; setLoadingPage(false); }
-    if (pageOffsetRef.current === 0) return;
+    if (pageOffsetRef.current === 0 && viewRef.current === "upcoming") return;
     pageOffsetRef.current = 0;
+    viewRef.current = "upcoming";
+    setView("upcoming");
     setPageOffset(0);
     setList(firstPageRef.current);
     void refresh(lifetime.current?.signal, true);
@@ -325,18 +336,20 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     finally { setBusy(false); }
   };
 
-  const changePage = async (offset: number) => {
-    if (!expanded || loadingPage || offset < 0 || offset === pageOffset) return;
+  const changePage = async (offset: number, targetView = view) => {
+    if (!expanded || loadingPage || offset < 0 || (offset === pageOffset && targetView === view)) return;
     const seq = ++requestSeq.current;
     setLoadingPage(true); setError("");
     try {
       const ownerToken = getVaultOwnerToken();
       if (!ownerToken) throw new Error("Unlock One to view follow-ups.");
       const page = await CalendarFollowupsService.list(
-        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset,
+        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset, targetView,
       );
       if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
-      if (offset === 0) firstPageRef.current = page;
+      if (offset === 0 && targetView === "upcoming") firstPageRef.current = page;
+      viewRef.current = targetView;
+      setView(targetView);
       pageOffsetRef.current = offset;
       setPageOffset(offset);
       setList(page);
@@ -381,7 +394,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   const retryDetail = async () => {
     if (!selectedId) return;
-    if (await openDetail(selectedId, undefined, deepLinkRequestId || undefined) && deepLinkRequestId) {
+    if (await openDetail(selectedId, undefined, focusedRequestId || deepLinkRequestId || undefined) && deepLinkRequestId) {
       finishDeepLink(deepLinkRequestId);
     }
   };
@@ -392,11 +405,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       try {
         const ownerToken = getVaultOwnerToken();
         if (!ownerToken) throw new Error("Unlock One to open this follow-up.");
-        const conversationId = await CalendarFollowupsService.resolve(
+        const target = await CalendarFollowupsService.resolve(
           userId, accountId, deepLinkRequestId, await getIdToken(), ownerToken, lifetime.current?.signal,
         );
         if (lifetime.current?.signal.aborted) return;
-        if (!await openDetail(conversationId, undefined, deepLinkRequestId)) return;
+        if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
         finishDeepLink(deepLinkRequestId);
       } catch (failure) { setError(followupErrorText(failure)); }
     })();
@@ -404,7 +417,9 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
-  const rows = expanded ? list?.conversations || [] : pageOffset === 0 ? (list?.conversations || []).slice(0, 2) : [];
+  const rows = expanded ? list?.conversations || [] : pageOffset === 0 && view === "upcoming" ? (list?.conversations || []).slice(0, 2) : [];
+  const viewCounts = list?.view_counts;
+  const hasMoreViews = Boolean(viewCounts && (viewCounts.overdue || viewCounts.snoozed || viewCounts.history));
   const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
@@ -434,6 +449,13 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         </div>
         {status && !status.background_available ? <p className="text-muted-foreground">Background reminders are unavailable right now.</p> : null}
       </div> : null}
+      {expanded && viewCounts ? <div className="flex flex-wrap gap-1" role="group" aria-label="Follow-up views">
+        {(Object.keys(FOLLOWUP_VIEWS) as FollowupView[]).map(option => <Button
+          key={option} size="compact" variant={view === option ? "default" : "ghost"}
+          aria-pressed={view === option} disabled={loadingPage}
+          onClick={() => void changePage(0, option)}
+        >{FOLLOWUP_VIEWS[option]} ({viewCounts[option]})</Button>)}
+      </div> : null}
       {status?.monitoring_enabled && rows.map(entry => {
         const summary = rowSummary(entry, zone);
         return <div key={entry.id} className="flex min-w-0 items-center gap-3 border-t py-2 first:border-t-0">
@@ -445,14 +467,14 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           <Button size="compact" variant="ghost" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${summary.title}`}>Review</Button>
         </div>;
       })}
-      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">No pending follow-ups.</p> : null}
+      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">{viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups."}</p> : null}
       {notice ? <div className={notice.tone === "action" ? "flex flex-wrap items-center justify-between gap-2 text-sm" : "text-xs text-muted-foreground"} role="status">
         <span>{notice.text}</span>
         {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
       </div> : null}
       {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
-        {!expanded && (list?.total_conversations || 0) > 2 ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
+        {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
         {status?.monitoring_enabled ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end"><DropdownMenuItem disabled={busy} onSelect={() => void checkAgain()}>Check email again</DropdownMenuItem><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
       </div>
@@ -493,6 +515,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
               </div>
                 {request.kind !== "meeting" && !closed ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
               </div>
+              {Boolean(request.repeat_count) ? <p className="text-muted-foreground">Also sent in {request.repeat_count} other {request.repeat_count === 1 ? "email" : "emails"}</p> : null}
               {request.source_excerpt ? <p className="line-clamp-3 whitespace-pre-wrap break-words text-muted-foreground">“{request.source_excerpt}”</p> : null}
               <div className="flex flex-wrap items-center gap-1">
                 {link ? <Button asChild variant="ghost" size="compact"><a href={link} target="_blank" rel="noopener noreferrer">Open original email<ExternalLink className="ml-1 size-3" aria-hidden /></a></Button> : null}

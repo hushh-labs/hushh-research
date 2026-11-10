@@ -261,11 +261,12 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.post).toHaveBeenCalledTimes(1);
   });
 
-  it("retains a failed notification link and retries the exact request", async () => {
-    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${callId}`);
+  it("retains a failed notification link and retries the resolved request", async () => {
+    const mergedId = "44444444-4444-4444-8444-444444444444";
+    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${mergedId}`);
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: callId });
     const request = (preview: typeof bList.conversations[0]["preview_requests"][number]) => ({
       ...preview, source_excerpt: "Could we have a call on 27 October", due_relation: null,
       proposed_at: null, time_zone: "Asia/Kolkata", responsibility: "owner",
@@ -278,10 +279,10 @@ describe("Calendar Insights Follow-ups card", () => {
       requests: bList.conversations[0].preview_requests.map(request),
     });
     const handled = vi.fn();
-    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={callId} onDeepLinkHandled={handled} />);
+    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={mergedId} onDeepLinkHandled={handled} />);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(await screen.findByText("Follow-ups could not be checked. Try again.")).toBeInTheDocument();
-    expect(window.location.search).toContain(callId);
+    expect(window.location.search).toContain(mergedId);
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(handled).toHaveBeenCalledOnce());
     expect(window.location.search).not.toContain("followupRequest");
@@ -322,7 +323,7 @@ describe("Calendar Insights Follow-ups card", () => {
   it("loads a notification target after the vault is unlocked", async () => {
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: documentId });
     service.detail.mockResolvedValue({
       ...bList.conversations[0], account_id: "account_B", requests: [],
     });
@@ -363,6 +364,30 @@ describe("Calendar Insights Follow-ups card", () => {
     fireEvent.click(screen.getByRole("button", { name: "Go to previous page" }));
     expect(await screen.findByText("Send document 1")).toBeInTheDocument();
     expect(screen.queryByText("Send document 16")).toBeNull();
+  });
+
+  it("opens Overdue at offset zero and restores Upcoming on collapse", async () => {
+    const account = "account_followup_views";
+    service.status.mockResolvedValue(status(account));
+    const view_counts = { upcoming: 1, overdue: 1, snoozed: 0, history: 0 };
+    const upcoming = { ...bList, account_id: account, view: "upcoming", view_counts };
+    const [entry] = bList.conversations;
+    const overdue = { ...upcoming, view: "overdue", conversations: [{
+      ...entry, preview_requests: [{ ...entry.preview_requests[0], title: "Overdue document", bucket: "overdue" }],
+    }] };
+    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, _offset, view) =>
+      view === "overdue" ? overdue : upcoming);
+    const base = props(account);
+    const screenView = render(<CalendarFollowups {...base} />);
+    expect(await screen.findByRole("button", { name: "View all" })).toBeInTheDocument();
+    screenView.rerender(<CalendarFollowups {...base} expanded />);
+    fireEvent.click(screen.getByRole("button", { name: "Overdue (1)" }));
+    expect(await screen.findByText("Overdue document")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Overdue (1)" })).toHaveAttribute("aria-pressed", "true");
+    expect(service.list.mock.calls.some(call => call[5] === 0 && call[6] === "overdue")).toBe(true);
+    screenView.rerender(<CalendarFollowups {...base} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByText("Overdue document")).not.toBeInTheDocument();
   });
 
   it("re-enables pagination when a background refresh supersedes a pending page", async () => {

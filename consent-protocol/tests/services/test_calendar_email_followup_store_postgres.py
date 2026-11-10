@@ -22,6 +22,7 @@ from hushh_mcp.services.calendar_email_followup_reader import (
     CompleteMailMessage,
     split_complete_body,
 )
+from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
 from tests.google_oauth_postgres_support import OWNER
 from tests.services.test_calendar_email_followup_oauth_postgres import (
     _add_calendar,
@@ -160,6 +161,9 @@ async def test_undated_review_item_never_outranks_a_dated_request(followup_pg):
     assert titles == [
         "Send the signed document",
         "Reply before 26 November",
+    ]
+    history = await store.list_conversations(monitor, limit=10, view="history")
+    assert [row["preview_requests"][0]["title"] for row in history["conversations"]] == [
         "Please check your account activity.",
     ]
 
@@ -490,7 +494,7 @@ async def test_reassessment_hides_false_positives_but_keeps_real_requests_and_de
     assert state["m-alert"][3] is False
     # The owner's own decision is preserved, not rewritten by reclassification.
     assert state["m-decided"][:2] == ("dismissed", True)
-    assert state["m-real"][:3] == ("pending", False, 3)
+    assert state["m-real"][:3] == ("pending", False, ASSESSMENT_VERSION)
     assert state["m-real"][3] is True
     assert feed_left == 0
     assert await store.stale_assessment_threads(monitor, cutoff_ms=0, limit=10) == []

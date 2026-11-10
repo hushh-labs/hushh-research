@@ -167,7 +167,8 @@ async def _scan_and_assert_initial(store, engine, selected, transport, provider)
             break
     assert outcome["state"] == "complete"
     listing = await restarted.list_conversations(
-        await restarted.monitor(user_id=OWNER, account_id=selected)
+        await restarted.monitor(user_id=OWNER, account_id=selected),
+        now=datetime(2026, 10, 11, tzinfo=UTC),
     )
     assert listing["total_conversations"] == 1
     detail = await restarted.detail(

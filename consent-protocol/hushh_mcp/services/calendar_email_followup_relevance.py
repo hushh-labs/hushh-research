@@ -14,9 +14,9 @@ import re
 from collections.abc import Iterable, Sequence
 from typing import Literal, Protocol, TypeVar
 
-# Bump when the extraction contract changes. Messages assessed under an older
-# version are re-assessed once, so earlier misclassifications can be corrected.
-ASSESSMENT_VERSION = 3
+# UAT v3 introduced stricter Calendar relevance. v4 retains those rules and
+# adds scheduled events, date effects and validated replacement references.
+ASSESSMENT_VERSION = 4
 
 Relevance = Literal["actionable", "informational", "uncertain"]
 Category = Literal[
@@ -26,6 +26,7 @@ Category = Literal[
     "deliverable_deadline",
     "response_needed",
     "assigned_task",
+    "scheduled_event",
     "account_security",
     "marketing",
     "receipt_or_status",
@@ -33,6 +34,10 @@ Category = Literal[
 ]
 MeetingState = Literal["proposed", "confirmed", "none"]
 Urgency = Literal["asap", "time_bound", "none"]
+# What passing the date means: the obligation stays owed, or the chance is gone.
+AfterDate = Literal["owed", "lapses", "unspecified"]
+# An undated request this old is history, not a current ask. It stays reachable.
+UNDATED_FRESH_DAYS = 45
 
 # The only categories that describe a request tied to the owner's schedule or
 # responsibilities. Everything else is, by definition, not Calendar work.
@@ -44,6 +49,7 @@ CALENDAR_CATEGORIES: frozenset[str] = frozenset(
         "deliverable_deadline",
         "response_needed",
         "assigned_task",
+        "scheduled_event",
     }
 )
 
@@ -52,6 +58,8 @@ DROP_NOT_OWNER = "not_owner_responsibility"
 DROP_QUOTED = "quoted_or_signature"
 DROP_DUPLICATE = "duplicate"
 DROP_NO_EVIDENCE = "missing_evidence"
+DROP_UNDATED_EVENT = "undated_scheduled_event"
+DROP_UNSUPPORTED_REPLACEMENT = "unsupported_replacement"
 
 
 def surfaceable(
@@ -60,6 +68,7 @@ def surfaceable(
     category: str | None,
     responsibility: str,
     evidence_reason: str | None,
+    dated: bool = True,
 ) -> str | None:
     """Return the reason a candidate must be dropped, or None to keep it.
 
@@ -74,6 +83,9 @@ def surfaceable(
         return DROP_NO_EVIDENCE
     if responsibility == "other":
         return DROP_NOT_OWNER
+    # An event with no date is an announcement of one, not something to attend.
+    if category == "scheduled_event" and not dated:
+        return DROP_UNDATED_EVENT
     return None
 
 
@@ -231,6 +243,36 @@ def dedupe(candidates: Iterable[_C]) -> tuple[list[_C], int]:
         else:
             kept.append(item)
     return kept, dropped
+
+
+_NUMBER = re.compile(r"\d+")
+_ADDRESS = re.compile(r"[\w.+-]+@([\w-]+(?:\.[\w-]+)+)")
+
+
+def same_obligation_wording(left: str, right: str) -> bool:
+    """True when two titles word one obligation and name the same numbers.
+
+    "Submit assignment 1" and "Submit assignment 2" share most words but are
+    two obligations, as are two years or two exam rounds, so a differing number
+    always keeps them apart.
+    """
+    if _jaccard(title_tokens(left), title_tokens(right)) < 0.5:
+        return False
+    return frozenset(_NUMBER.findall(left)) == frozenset(_NUMBER.findall(right))
+
+
+def sender_domain(sender: str) -> str | None:
+    """The domain of a ``Name <address>`` sender, or None when it names none."""
+    match = _ADDRESS.search(sender or "")
+    return match.group(1).casefold() if match else None
+
+
+def same_sender_domain(left: str, right: str) -> bool:
+    """True when both senders write from one domain or a subdomain of it."""
+    a, b = sender_domain(left), sender_domain(right)
+    if not a or not b:
+        return False
+    return a == b or a.endswith("." + b) or b.endswith("." + a)
 
 
 _URL = re.compile(r"<?\bhttps?://[^\s<>]+>?", re.IGNORECASE)
