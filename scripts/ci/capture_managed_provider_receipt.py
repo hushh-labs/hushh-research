@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture the exact successful UAT build's provider receipt from Cloud Logging.
+"""Capture an exact successful build's provider receipt from Cloud Logging.
 
 This is evidence collection only. The existing aggregate owns provider policy;
 no probe, provider selection, revision or traffic mutation is performed here.
@@ -50,6 +50,11 @@ def check_build(build, expected):
         "build_not_exact_success",
     )
     substitutions = build.get("substitutions", {})
+    tag = (
+        ""
+        if expected["environment"] == "dev"
+        else "account-deletion-" + expected["github_run"]
+    )
     bindings = {
         "_DEPLOY_SHA": "source_sha",
         "_GITHUB_RUN_ID": "github_run",
@@ -63,9 +68,8 @@ def check_build(build, expected):
             substitutions.get(key) == expected[value] for key, value in bindings.items()
         )
         and substitutions.get("_BACKEND_SERVICE") == "consent-protocol"
-        and substitutions.get("_CLOUD_RUN_TAG")
-        == "account-deletion-" + expected["github_run"]
-        and substitutions.get("_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE")
+        and substitutions.get("_CLOUD_RUN_TAG", "") == tag
+        and substitutions.get("_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE", "false")
         == str(expected["legacy_exception"]).lower()
         and substitutions.get("_MANAGED_READINESS_MODE", "full")
         == expected.get("qualification_mode", "full"),
@@ -135,18 +139,18 @@ def from_entries(entries, expected, document, step_label):
             {"insert_id": entry["insertId"], "timestamp": entry["timestamp"]}
         )
     require(len(aggregates) <= 1 and len(selections) <= 1, "conflicting_receipts")
-    if not aggregates or not selections:
+    selecting = expected["environment"] == "uat"
+    if not aggregates or (selecting and not selections):
         return None
-    aggregate, selection = (
-        next(iter(aggregates.values())),
-        next(iter(selections.values())),
-    )
+    aggregate = next(iter(aggregates.values()))
+    selection = next(iter(selections.values())) if selections else None
     require(
         aggregate.get("schema") == "managed_provider_readiness.v1"
         and aggregate.get("context") == expected
-        and selection.get("context") == expected,
+        and (selection is None or selection.get("context") == expected),
         "receipt_context_mismatch",
     )
+    require(selecting or not selections, "unexpected_provider_mutation")
     providers = aggregate.get("providers", {})
     require(
         set(providers) == readiness.PROVIDERS
@@ -154,8 +158,22 @@ def from_entries(entries, expected, document, step_label):
         "provider_flags_invalid",
     )
     if hasattr(readiness, "configured_provider"):
-        configured = readiness.configured_provider(document)
-        preferred = configured if providers[configured]["ready"] else None
+        configured = (
+            readiness.configured_provider(document)
+            if selecting
+            else readiness.configured_provider(document, expected["environment"])
+        )
+        preferred = (
+            readiness.qualified_provider(
+                providers,
+                configured,
+                trust_failed=aggregate.get("pwm_trust") == "failed",
+            )
+            if hasattr(readiness, "qualified_provider")
+            else configured
+            if providers[configured]["ready"]
+            else None
+        )
     else:
         # Historical candidate tooling had an Azure-only release contract.
         preferred = "azure_openai" if providers["azure_openai"]["ready"] else None
@@ -164,7 +182,8 @@ def from_entries(entries, expected, document, step_label):
         and aggregate.get("ready") is True
         and aggregate.get("selected_provider") == preferred
         and aggregate.get("pwm_trust") != "failed"
-        and aggregate.get("required_scopes") == sorted(readiness.SCOPES)
+        and aggregate.get("required_scopes")
+        == (sorted(readiness.SCOPES) if selecting else ["one_text_chat"])
         and aggregate.get("required_capabilities")
         == (
             []
@@ -175,6 +194,19 @@ def from_entries(entries, expected, document, step_label):
         == expected.get("qualification_mode", "full"),
         "provider_readiness_unverified",
     )
+    if hasattr(readiness, "qualified_provider"):
+        expected_status = "healthy" if preferred == configured else "degraded_fallback"
+        require(
+            aggregate.get("status") == expected_status
+            or "status" not in aggregate
+            and preferred == configured,
+            "provider_status_invalid",
+        )
+    if not selecting:
+        require(expected.get("qualification_mode") == "core", "core_contract_required")
+        return captured_receipt(
+            aggregate, expected, None, origins, step_label, readiness
+        )
     chosen = selection.get("managed_provider_selection", {})
     require(
         chosen.get("status") == "verified"
@@ -221,9 +253,22 @@ def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness
         }
         for p in sorted(readiness.PROVIDERS)
     }
-    return {
+    if "status" in aggregate:
+        result["status"] = aggregate["status"]
+    result = {
         "readiness": result,
-        "selection": {
+        "readiness_verified": True,
+        "selection_verified": chosen is not None,
+        "collection": {
+            "source": "cloud_logging",
+            "build_id": expected["build_id"],
+            "aggregate_step": step_label,
+            "aggregate_status": "SUCCESS",
+            "logs": origins,
+        },
+    }
+    if chosen is not None:
+        result["selection"] = {
             "context": expected,
             "managed_provider_selection": {
                 key: chosen[key]
@@ -235,16 +280,8 @@ def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness
                     "traffic_percent",
                 )
             },
-        },
-        "selection_verified": True,
-        "collection": {
-            "source": "cloud_logging",
-            "build_id": expected["build_id"],
-            "aggregate_step": step_label,
-            "aggregate_status": "SUCCESS",
-            "logs": origins,
-        },
-    }
+        }
+    return result
 
 
 def collect(
@@ -320,13 +357,19 @@ def main():
         require(
             str(UUID(expected["build_id"])) == expected["build_id"], "build_id_invalid"
         )
+        projects = {
+            "dev": "hushh-pda-dev",
+            "uat": "hushh-pda-uat",
+            "production": "hushh-pda",
+        }
+        project = projects.get(expected["environment"])
         require(
-            expected["project"] == "hushh-pda-uat"
+            project is not None
+            and expected["project"] == project
             and expected["region"] == "us-central1"
-            and expected["environment"] == "uat"
             and expected["runtime_account"]
-            == "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
-            "uat_authority_mismatch",
+            == f"consent-protocol-runtime@{project}.iam.gserviceaccount.com",
+            "environment_authority_mismatch",
         )
         document = json.loads(
             (

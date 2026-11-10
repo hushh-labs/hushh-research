@@ -1566,8 +1566,8 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict(m
     legacy = run_verdict(
         {**partial, "one_chat_probe_ok": True}, 85, deploy_env="dev", voice_enabled="false"
     )
-    assert legacy.returncode == 0, legacy.stderr
-    assert "Release CONTINUES" in legacy.stdout
+    assert (legacy.returncode == 0) is (mode == "full"), legacy.stderr
+    assert ("Release CONTINUES" in legacy.stdout) is (mode == "full")
 
 
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
@@ -1698,8 +1698,8 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     assert "_ONE_VOICE_LIVE_ENABLED=true" in production_workflow
     assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
     assert (
-        '[[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]'
-        in backend_build
+        '[[ "${_MANAGED_READINESS_MODE:-full}" == "full" && "${_DEPLOY_ENV}" == "production" '
+        '&& "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]' in backend_build
     )
     assert "python3 scripts/ci/assert_one_voice_live_probe.py" in backend_build
 
