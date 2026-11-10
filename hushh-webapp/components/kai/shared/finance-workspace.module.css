@@ -69,39 +69,6 @@ button.portfolioListRow { min-height: 44px; }
 
 .insightCard { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
 .cardFooter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; }
-.scoreSummary { display: flex; align-items: center; gap: 12px; }
-.scoreRing {
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: conic-gradient(var(--app-accent) var(--nws-progress), var(--muted) 0);
-  font-size: var(--type-row-label-size);
-  line-height: var(--type-row-label-line);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.scoreRing::before {
-  content: "";
-  position: absolute;
-  inset: 4px;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--app-card-surface-default-solid);
-}
-.scoreCashShare {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 6px;
-  margin: 2px 0 0;
-  font-size: var(--type-row-description-size);
-  line-height: var(--type-row-description-line);
-  color: var(--muted-foreground);
-}
 .insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .insightFacts { margin: 0; }
 .insightFacts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 8px; border-top: 1px solid var(--border); font-size: 12px; line-height: 18px; }
