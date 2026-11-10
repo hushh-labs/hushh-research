@@ -50,7 +50,7 @@ import {
   ComboboxList,
 } from "@/lib/morphy-ux/ui/combobox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { resolvePhoneFailureMessage } from "@/lib/auth/phone-conflict-copy";
+import { isPhoneOwnershipConflict, resolvePhoneFailureMessage } from "@/lib/auth/phone-conflict-copy";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -642,7 +642,8 @@ export function usePhoneVerificationFlow({
         const message = committed ? "Phone verified. Couldn’t refresh Account. You can return to Account." :
           phoneFailureMessage(error, "Couldn't send the verification code. Please try again.");
         setOperationError(message);
-        if (["PHONE_TEST_NUMBER_IN_USE", "PHONE_ALREADY_VERIFIED", "PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT"].includes(apiErrorCode(error) ?? "")) {
+        // Backend refusals and provider ownership errors open the same choices.
+        if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
           advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setTransferEligible(false); setConflict("choices"); changeStep("code");
         }
         if (committed) { morphyToast.error(message); return "auto_verified"; }
@@ -812,8 +813,11 @@ export function usePhoneVerificationFlow({
           phoneFailureMessage(error, "Couldn't verify the phone number. Please try again.");
         setOperationError(message);
         if (committed) { if (options.notify) morphyToast.error(message); return "verified"; }
-        if (["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_ALREADY_VERIFIED", "PHONE_TEST_NUMBER_IN_USE"].includes(apiErrorCode(error) ?? "")) {
-          advanceEntryRevision(); setTransferEligible(apiErrorCode(error) !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
+        const conflictCode = apiErrorCode(error);
+        if (isPhoneOwnershipConflict(error, conflictCode)) {
+          // Only a backend claim refusal follows a retained real-SMS proof. A provider
+          // ownership error carries no proof, so it opens the choices without transfer.
+          advanceEntryRevision(); setTransferEligible(conflictCode !== null && conflictCode !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
         }
         trackEvent("phone_verification_completed", {
           action: mode,

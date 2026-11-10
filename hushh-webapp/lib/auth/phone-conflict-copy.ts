@@ -3,6 +3,13 @@ export const PHONE_CONFLICT_COPY = {
   inApp: "That number is already on another Hussh account. Sign in to that account or use a different number.",
 } as const;
 
+export function isPhoneOwnershipConflict(error: unknown, backendCode: string | null = null): boolean {
+  const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
+  return ["PHONE_ALREADY_VERIFIED", "PHONE_TEST_NUMBER_IN_USE", "PHONE_SESSION_ACCOUNT_CONFLICT",
+    "PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE",
+    "credential-already-in-use", "phone-number-already-exists"].includes(code);
+}
+
 export function resolvePhoneFailureMessage(error: unknown, fallback: string, backendCode: string | null = null): string {
   const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
   if (code === "PHONE_TRANSFER_CONFIRMATION_REQUIRED" || code === "PHONE_SESSION_ACCOUNT_CONFLICT") return "This number is linked to another account. Choose how to continue.";

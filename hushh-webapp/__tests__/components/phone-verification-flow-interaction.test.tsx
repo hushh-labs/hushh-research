@@ -848,6 +848,41 @@ describe("phone conflict recovery", () => {
     await waitFor(() => expect(outage.confirmVerification).toHaveBeenCalledOnce());
     expect(screen.queryByRole("button", { name: "Use this number on this account" })).not.toBeInTheDocument();
   });
+  it.each([
+    ["start", "credential-already-in-use"],
+    ["start", "auth/phone-number-already-exists"],
+    ["confirm", "credential-already-in-use"],
+    ["confirm", "auth/phone-number-already-exists"],
+  ])("opens the choices for a provider ownership error on %s (%s) without enabling a transfer", async (handler, code) => {
+    const owned = Object.assign(new Error("That number is already on another Hussh account."), { code });
+    const flow = renderPhoneVerificationFlow(handler === "start"
+      ? { startVerification: vi.fn().mockRejectedValue(owned), confirmTransfer: vi.fn() }
+      : { confirmVerification: vi.fn().mockRejectedValue(owned), confirmTransfer: vi.fn() });
+    if (handler === "start") {
+      fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), { target: { value: "6505550101" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    } else {
+      const entry = await reachCodeStep(flow.startVerification);
+      fireEvent.change(entry, { target: { value: "123456" } }); fireEvent.submit(entry.closest("form")!);
+    }
+    expect(await screen.findByRole("button", { name: "Recover my previous account" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete my previous account" })).toBeEnabled();
+    // A provider error carries no retained proof, so only a fresh real SMS can lead to a transfer.
+    expect(screen.getByRole("button", { name: "Use this number on this account" })).toBeDisabled();
+    const sent = flow.startVerification.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Send a real SMS code" }));
+    await waitFor(() => expect(flow.startVerification).toHaveBeenCalledTimes(sent + 1));
+    expect(flow.onCompleted).not.toHaveBeenCalled();
+  });
+  // Boundary guard: only ownership conflicts open the choices, never other provider errors.
+  it.each(["provider-already-linked", "auth/invalid-verification-code", "account-exists-with-different-credential"])(
+    "keeps code entry for the non-ownership provider error %s", async code => {
+      const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(Object.assign(new Error("x"), { code })) });
+      const entry = await reachCodeStep(flow.startVerification);
+      fireEvent.change(entry, { target: { value: "123456" } }); fireEvent.submit(entry.closest("form")!);
+      await waitFor(() => expect(flow.confirmVerification).toHaveBeenCalledOnce());
+      expect(screen.queryByRole("button", { name: "Recover my previous account" })).not.toBeInTheDocument();
+    });
 });
 
 
