@@ -11,9 +11,42 @@ build
 dist
 
 # Development
-.env*.local
-.env.development
-.env.test
+.env*
+**/.env*
+
+# Local credentials and signing material must not enter image layers.
+.npmrc
+**/.npmrc
+.netrc
+**/.netrc
+.pypirc
+**/.pypirc
+*.pem
+**/*.pem
+*.key
+**/*.key
+*.p8
+**/*.p8
+*.p12
+**/*.p12
+*.pfx
+**/*.pfx
+*.mobileprovision
+**/*.mobileprovision
+*service-account*.json
+**/*service-account*.json
+*credentials*.json
+**/*credentials*.json
+
+# Private local rehearsals and native test output are never build inputs.
+tmp
+temp
+native-ios-screenshots
+.build
+**/.build
+**/*.xcresult
+**/*.xcarchive
+**/*.xcactivitylog
 
 # IDE
 .vscode
