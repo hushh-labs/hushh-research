@@ -30,6 +30,10 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { hasReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import {
+  captureProductAttempt,
+  type ProductAttempt,
+} from "@/lib/observability/product-activity-client";
 import { toast } from "sonner";
 
 import {
@@ -1308,6 +1312,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     [pathname, router, searchParams],
   );
 
+  const settingsAttempt = useRef<ProductAttempt | null>(null);
+  const openSettings = () => {
+    if (vm.userId && !settingsAttempt.current) {
+      settingsAttempt.current = captureProductAttempt("location.open_settings", vm.userId);
+      settingsAttempt.current.started();
+    }
+    openFlow("settings");
+  };
+  useEffect(() => {
+    if (flow !== "settings") return;
+    settingsAttempt.current?.settled("returned");
+    settingsAttempt.current = null;
+  }, [flow]);
+
   // A chat offer ("Add as Home in Location") staged a saved-place prefill in
   // memory (lib/pkm/reserved-offer.ts). Saved places live in Settings, so open
   // it once; SavedLocationsSection takes the prefill there.
@@ -1877,7 +1895,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               // entirely. onOpenLocationSettings stays where it belongs:
               // the permission recovery cards, whose whole job is sending
               // someone to the OS to grant access.
-              onOpenSettings={() => openFlow("settings")}
+              onOpenSettings={openSettings}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)

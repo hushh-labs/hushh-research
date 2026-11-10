@@ -1243,6 +1243,16 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
         generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text()
     )
     assert {a["action_id"] for a in gateway["actions"]} <= {a["id"] for a in catalog["actions"]}
+    location_ids = {"route.one_location", "location.open_settings"}
+    for environment in ("uat", "production"):
+        location_actions = {
+            row["id"]: (row["agentId"], row["proof"])
+            for row in activity_catalog(environment)["actions"]
+            if row["id"] in location_ids
+        }
+        assert location_actions == {
+            key: ("agent_location", "client_reported") for key in location_ids
+        }
     document_actions = [a for a in catalog["actions"] if a["id"].startswith("document.")]
     assert document_actions
     assert all(a["agentId"] == "agent_documents" for a in document_actions)
