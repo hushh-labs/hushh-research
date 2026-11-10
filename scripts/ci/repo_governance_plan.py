@@ -171,7 +171,7 @@ RiskSnapshot.load(str(manifest))
     _check("release-cadence-checkpoint", "python3", "scripts/ci/test_release_cadence_checkpoint.py", groups=("controller",)),
     _check("protocol-ci-parity", "bash", "scripts/ci/verify-protocol-ci-parity.sh", "--self-test", groups=("operations",)),
     _check("protocol-manifest-transport", "python3", "scripts/ci/test_protocol_manifest_transport.py", groups=("operations",)),
-    _check("governance-teams", "python3", "scripts/ci/test_apply_governance_teams.py", groups=("operations",)),
+    _check("governance-teams", "python3", "scripts/ci/test_apply_governance_teams.py", groups=("controller",)),
     _check("resolve-deploy-scope", "python3", "scripts/ci/test_resolve_deploy_scope.py", groups=("controller", "release", "operations")),
     _check("cloudrun-retention", "python3", "scripts/ci/test_cloudrun_retention.py", groups=("retention",)),
     _check("uat-per-revision-drain", "python3", "scripts/ci/test_uat_per_revision_drain.py", groups=("retention",)),

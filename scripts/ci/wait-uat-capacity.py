@@ -106,11 +106,33 @@ def verify_request(target_sha: str) -> None:
     if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
         raise AdmissionError("UAT admission requires an exact 40-character SHA")
     actor = os.environ.get("GITHUB_ACTOR", "")
-    require_success(
-        command([sys.executable, str(ROOT / "scripts/ci/assert-governed-actor.py"),
-                 "--surface", "uat", "--actor", actor]),
-        "UAT actor governance",
-    )
+    # Read-only admission shares this attempt's trusted Main job output.
+    # The credentialed deployment still rechecks live membership before mutation.
+    from deployment_security import Refused, verify_forwarded_authorization
+    try:
+        if os.environ.get("RELEASE_APPLICATION_SHA") != target_sha:
+            raise Refused("Capacity request differs from the authorized application")
+        verify_forwarded_authorization(
+            dict(os.environ), os.environ.get("RELEASE_AUTHORIZATION", ""), "uat", actor,
+        )
+    except (Refused, KeyError, TypeError, ValueError) as error:
+        raise AdmissionError("UAT capacity requires current-attempt release authorization") from error
+    source_branch = os.environ.get("UAT_SOURCE_BRANCH", "uat")
+    if source_branch == "uat-isolated":
+        # Isolated qualification belongs to the Main run, so validate its
+        # bound application and approval before and after the capacity wait.
+        require_success(command([
+            sys.executable, str(ROOT / "scripts/ci/uat_release_prerequisites.py"),
+            "validate-deployment", "--source-branch", source_branch, "--sha", target_sha,
+            "--authority-sha", os.environ.get("RELEASE_TOOLING_SHA", ""),
+            "--ci-run-id", os.environ.get("CI_RUN_ID", ""),
+            "--ci-attempt", os.environ.get("CI_ATTEMPT", ""),
+            "--base-sha", os.environ.get("CI_BASE_SHA", ""),
+            "--approved-scope", os.environ.get("APPROVED_SCOPE", ""),
+        ]), "exact isolated application SHA and CI validation")
+        return
+    if source_branch != "uat":
+        raise AdmissionError("Unrecognized protected UAT source branch")
     require_success(command(["git", "fetch", "--no-tags", "origin", "main", "uat"]),
                     "UAT source refresh")
 
