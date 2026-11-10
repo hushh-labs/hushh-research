@@ -6,7 +6,7 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import type { LinkedDeletionPreparation } from "@/lib/services/phone-recovery-service";
 import { linkedDeletionMessage, linkedDeletionNeedsFreshProof, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
 
-type Conflict = "choices" | "delete" | null;
+type Conflict = "choices" | "review" | "delete" | null;
 type Params = {
   phone: string; conflict: Conflict; busy: boolean; guard: { pending: boolean };
   current: () => boolean; inFlight: { current: boolean };
@@ -24,9 +24,6 @@ export function usePhoneLinkedDeletion(p: Params) {
   const [prepared, setPrepared] = useState<LinkedDeletionPreparation | null>(null);
   const [freshProof, setFreshProof] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState(false);
-  // "requested": admitted on the server; erasure and the number's release are later,
-  // separate states. "not_found": the proof found no other account holding the number.
-  const [settled, setSettled] = useState<"requested" | "not_found" | null>(null);
   const { phone, conflict, busy, guard, current, inFlight, setBusy, setConflict, setError, prepare, cancel, confirm, fallback, onDeleted } = p;
 
   const review = useCallback(async () => {
@@ -37,7 +34,7 @@ export function usePhoneLinkedDeletion(p: Params) {
     try {
       const value = await prepare(phone);
       if (!current()) return;
-      setPrepared(value); setFreshProof(false); setUnconfirmed(false); setSettled(null); setConflict("delete");
+      setPrepared(value); setFreshProof(false); setUnconfirmed(false); setConflict("delete");
     } catch (error) {
       if (!current()) return;
       unavailable = apiErrorCode(error) === "PHONE_LINKED_DELETION_UNAVAILABLE";
@@ -51,34 +48,31 @@ export function usePhoneLinkedDeletion(p: Params) {
     inFlight.current = true; setBusy(true); setError(null); guard.pending = true;
     let committed = false;
     try {
-      // Once sent but unconfirmed, the same control only reads the outcome back.
-      const user = await confirm({ operationId: prepared.operation_id, phoneNumber: phone, testCode, recheck: unconfirmed });
+      const user = await confirm({ operationId: prepared.operation_id, phoneNumber: phone, testCode });
       if (!current()) return;
       committed = true; guard.pending = false; setPrepared(null);
       await onDeleted(user);
     } catch (error) {
       if (!current() || committed) return;
-      // A sent confirmation never becomes unsent again, even after an uncoded failure.
-      const code = apiErrorCode(error) ?? (unconfirmed ? "PHONE_LINKED_DELETION_SUPPORT_REQUIRED" : null);
+      const code = apiErrorCode(error);
       // Back is held only while a request is in flight: the server never
       // dispatches an operation twice, so leaving after a read-back is safe.
       guard.pending = false;
       setUnconfirmed(code === "PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
-      setSettled(code === "PHONE_LINKED_CLAIM_REQUIRED" ? "requested" : code === "PHONE_LINKED_ACCOUNT_NOT_FOUND" ? "not_found" : null);
       setFreshProof(linkedDeletionNeedsFreshProof(code));
       setError(linkedDeletionMessage(code));
-    } finally { guard.pending = false; inFlight.current = false; if (current()) setBusy(false); }
-  }, [busy, confirm, conflict, current, guard, inFlight, onDeleted, phone, prepared, setBusy, setError, unconfirmed]);
+    } finally { inFlight.current = false; if (current()) setBusy(false); }
+  }, [busy, confirm, conflict, current, guard, inFlight, onDeleted, phone, prepared, setBusy, setError]);
 
   /** Leave the review; false only while a confirmation request is in flight. */
   const leave = useCallback(() => {
     if (guard.pending) return false;
     const operation = prepared?.operation_id;
-    setPrepared(null); setFreshProof(false); setUnconfirmed(false); setSettled(null);
+    setPrepared(null); setFreshProof(false); setUnconfirmed(false);
     // Best effort: an expired or changed session must never break Back.
     if (operation && cancel) void Promise.resolve().then(() => cancel(operation)).catch(() => undefined);
     return true;
   }, [cancel, guard, prepared]);
 
-  return { prepared, freshProof, unconfirmed, settled, review, submit, leave };
+  return { prepared, freshProof, unconfirmed, review, submit, leave };
 }

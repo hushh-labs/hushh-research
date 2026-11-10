@@ -9910,7 +9910,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires a different number, an explicitly confirmed deletion of that account followed by fresh verification after the number is released, or that existing account sign-in.",
+          "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
           "next_route": "/one/setup",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -9939,14 +9939,19 @@
       "voice_action_contract_ids": [
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
+        "phone_mandate.delete_previous",
         "phone_mandate.delete_previous_cancel",
-        "phone_mandate.delete_previous_check",
         "phone_mandate.delete_previous_confirm",
         "phone_mandate.delete_previous_verify_again",
-        "phone_mandate.review_previous_deletion",
+        "phone_mandate.recover",
+        "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
+        "phone_mandate.send_real_sms",
         "phone_mandate.submit_code",
-        "phone_mandate.submit_number"
+        "phone_mandate.submit_number",
+        "phone_mandate.transfer_cancel",
+        "phone_mandate.transfer_confirm",
+        "phone_mandate.transfer_review"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -11068,5 +11073,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1bb8ea6ad8d7890f9104e4c2cfe4d9edcb48670c9b024e0d4f3a69ae7338fe34"
+  "content_sha256": "e912ee65428f31da12c7728b4d9bf57351b9f1fb2e4adde6fc7802925f3c1e7c"
 }

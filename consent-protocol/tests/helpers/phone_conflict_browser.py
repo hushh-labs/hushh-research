@@ -145,7 +145,7 @@ async def _assert_erased(conn, recorded, baseline):
 
 
 async def _assert_linked_deleted(conn, recorded, baseline):
-    """Proof admitted deletion; the worker erased the holder; a fresh SMS linked the number."""
+    """Phone proof deleted the holder; the worker erased it; the requester owns the number."""
     for table in ("actor_profiles", "vault_keys", "pkm_data", "actor_identity_cache"):
         assert (
             await conn.fetchval(
@@ -163,24 +163,13 @@ async def _assert_linked_deleted(conn, recorded, baseline):
         PHONE,
     )
     assert owner == OWNERS["receiving-a"]
-    # The holder's final erasure detaches, never cascades, the consumed receipt.
-    receipts = await conn.fetch(
-        "SELECT state,proof_event_digest IS NOT NULL AS consumed,target_user_id,requester_user_id"
-        " FROM account_phone_linked_deletions"
-    )
-    assert [dict(row) for row in receipts] == [
-        {
-            "state": "admitted",
-            "consumed": True,
-            "target_user_id": None,
-            "requester_user_id": OWNERS["receiving-a"],
-        }
-    ]
+    # The holder's final erasure removed its deletion receipt with it.
+    assert await conn.fetchval("SELECT count(*) FROM account_phone_linked_deletions") == 0
     assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0
     assert recorded.unlink_count == 0
 
 
-async def _assert_preserved(conn, recorded, baseline, scenario, *, recovery_action="recover"):
+async def _assert_preserved(conn, recorded, baseline, scenario):
     assert await conn.fetchval("SELECT count(*) FROM actor_profiles") == 3
     for table, before in baseline.items():
         assert (
@@ -204,7 +193,7 @@ async def _assert_preserved(conn, recorded, baseline, scenario, *, recovery_acti
             {
                 "requester_user_id": OWNERS["receiving-a"],
                 "target_user_id": OWNERS["previous"],
-                "action": recovery_action,
+                "action": "recover",
             }
         ]
     if scenario == "transfer":

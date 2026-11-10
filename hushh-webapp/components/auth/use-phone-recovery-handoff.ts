@@ -35,11 +35,10 @@ export function usePhoneRecoveryHandoff(user: User | null | undefined, signOut: 
 /** Bounded busy/error lifecycle; the phone model admits the current owner first. */
 export async function performPhoneRecovery(callback: ((phone: string) => Promise<void> | void) | undefined,
   phone: string, current: () => boolean, inFlight: { current: boolean },
-  setBusy: (busy: boolean) => void, setError: (message: string | null) => void,
-  failureMessage = "Could not open account recovery. Please try again.") {
+  setBusy: (busy: boolean) => void, setError: (message: string | null) => void) {
   if (!callback) return;
   inFlight.current = true; setBusy(true); setError(null);
   try { await callback(phone); }
-  catch { if (current()) setError(failureMessage); }
+  catch { if (current()) setError("Could not open account recovery. Please try again."); }
   finally { inFlight.current = false; if (current()) setBusy(false); }
 }
