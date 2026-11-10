@@ -1,5 +1,9 @@
 name: Deployment Security
-run-name: ${{ inputs.source_request && fromJSON(inputs.source_request).kind == 'queue' && 'Merge permission' || inputs.source_request && fromJSON(inputs.source_request).kind == 'operation' && 'Operation permission' || 'Deployment security' }}
+run-name: >-
+  ${{ inputs.source_request && fromJSON(inputs.source_request).kind == 'queue' &&
+      format('Merge permission · {0} · queue {1}', fromJSON(inputs.source_request).phase, fromJSON(inputs.source_request).id) ||
+      inputs.source_request && fromJSON(inputs.source_request).kind == 'operation' &&
+      format('Operation permission · {0}', fromJSON(inputs.source_request).surface) || 'Deployment security' }}
 
 on:
   # Explicit deployment clearance or exact operation/queue permission only.
