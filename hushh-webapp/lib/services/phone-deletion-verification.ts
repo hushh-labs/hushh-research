@@ -3,14 +3,17 @@ import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
   PhoneAuthProvider,
+  PhoneAuthCredential,
   getAuth,
   inMemoryPersistence,
   setPersistence,
   signInWithCredential,
   signOut as firebaseSignOut,
 } from "firebase/auth";
-import { app, auth } from "@/lib/firebase/config";
+import { auth } from "@/lib/firebase/config";
 import { HushhAuth } from "@/lib/capacitor";
+import type { PhoneLinkConflict } from "./firebase-phone-link";
+import type { PhoneLinkIntent } from "@/lib/capacitor/types/auth";
 
 export type PhoneDeletionContext = { expectedUserId: string; attemptId: string; resendCode?: boolean; signal?: AbortSignal };
 export type PhoneClaimConfirmation = {
@@ -24,7 +27,7 @@ export type PhoneDeletionConfirmation = PhoneDeletionContext & {
 type NormalizeError = (error: unknown) => Error;
 const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
 const MANUAL_PROOF_PREFIX = "native-phone-proof:";
-let manualAttempt: (PhoneDeletionContext & { dispose: () => void; token?: string }) | null = null;
+let manualAttempt: (PhoneDeletionContext & { dispose: () => void; intent: PhoneLinkIntent; phoneNumber: string; expiresAt: number; providerVerificationId?: string }) | null = null;
 const deletionCancellations = new Map<string, () => void>();
 
 /** One send budget covers native restore, previous cancellation and SDK dispatch. */
@@ -53,8 +56,17 @@ export async function withNativePhoneProofStart<T>(
   }
 }
 
-/** Reuse the native isolated proof owner; no global Firebase link callbacks. */
-export async function startManualPhoneProof(phoneNumber: string, expectedUserId: string, signal?: AbortSignal, resendCode = false, ownerSignal = signal): Promise<{ autoVerified: false; verificationId: string }> {
+/** Reuse the native attempt fence for a primary-provider mutation. */
+export async function startManualPhoneProof({
+  phoneNumber, expectedUserId, intent, signal, resendCode = false, ownerSignal = signal,
+}: {
+  phoneNumber: string;
+  expectedUserId: string;
+  intent: PhoneLinkIntent;
+  signal?: AbortSignal;
+  resendCode?: boolean;
+  ownerSignal?: AbortSignal;
+}): Promise<{ autoVerified: false; verificationId: string }> {
   const previous = manualAttempt;
   if (previous) {
     manualAttempt = null; previous.dispose();
@@ -69,17 +81,46 @@ export async function startManualPhoneProof(phoneNumber: string, expectedUserId:
     dispose();
     void HushhAuth.cancelPhoneVerificationProof({ attemptId }).catch(() => undefined);
   };
-  manualAttempt = { expectedUserId, attemptId, dispose };
+  manualAttempt = { expectedUserId, attemptId, dispose, intent, phoneNumber, expiresAt: performance.now() + 300_000 };
   signals.forEach(value => value?.addEventListener("abort", cancel, { once: true }));
   try {
-    const result = await HushhAuth.startPhoneVerificationProof({ expectedUserId, attemptId, phoneNumber, resendCode });
+    let result;
+    try {
+      result = await HushhAuth.startPhoneLinkVerification({ expectedUserId, attemptId, phoneNumber, resendCode, linkIntent: intent });
+    } catch (error) {
+      if (String((error as { code?: unknown })?.code).toUpperCase() === "UNIMPLEMENTED") {
+        throw Object.assign(new Error("Update the app to verify a phone number."), { code: "phone-link-upgrade-required" });
+      }
+      throw error;
+    }
     if (manualAttempt?.attemptId !== attemptId || signals.some(value => value?.aborted) || result.attemptId !== attemptId || result.verificationId !== attemptId)
       throw new Error("session_changed");
+    // Qualify the new bridge response before admitting its provider challenge.
+    if (result.linkIntent !== intent || !result.providerVerificationId) {
+      throw Object.assign(new Error("Update the app to verify a phone number."), { code: "phone-link-upgrade-required" });
+    }
+    manualAttempt.providerVerificationId = result.providerVerificationId;
     return { autoVerified: false, verificationId: `${MANUAL_PROOF_PREFIX}${attemptId}` };
   } catch (error) { cancel(); throw error; }
 }
 
-export function isManualPhoneProof(id?: string | null): boolean { return Boolean(id?.startsWith(MANUAL_PROOF_PREFIX)); }
+export function readManualPhoneLinkChallenge(params: {
+  verificationId: string;
+  expectedUserId: string;
+  phoneNumber: string;
+  intent: PhoneLinkIntent;
+}) {
+  const current = manualAttempt;
+  if (!current?.providerVerificationId || performance.now() >= current.expiresAt || current.intent !== params.intent ||
+      params.expectedUserId !== current.expectedUserId || params.phoneNumber !== current.phoneNumber ||
+      params.verificationId !== `${MANUAL_PROOF_PREFIX}${current.attemptId}`) {
+    throw Object.assign(new Error("Request a new verification code."), { code: "phone-verification-required" });
+  }
+  return {
+    providerVerificationId: current.providerVerificationId,
+    isCurrent: () => manualAttempt === current && performance.now() < current.expiresAt,
+  };
+}
 
 /** Send a one-time phone proof without adding, replacing, or unlinking a phone. */
 export async function startDeletionPhoneProof(
@@ -176,41 +217,34 @@ function trackDeletionCancellation(attemptId: string, signals: (AbortSignal | un
 }
 
 export async function mintPhoneClaimIdToken(
-  params: PhoneClaimConfirmation,
+  params: PhoneClaimConfirmation | PhoneLinkConflict,
   normalizeError: NormalizeError,
 ): Promise<string> {
-  const verificationCode = String(params.verificationCode ?? "").trim();
-  if (!verificationCode) {
-    throw new Error("Verification code is required.");
-  }
+  let credential;
+  if ("temporaryProof" in params) {
+    credential = PhoneAuthCredential.fromJSON(params);
+    if (!credential) throw new Error("Request a new verification code.");
+  } else {
+    const verificationCode = String(params.verificationCode ?? "").trim();
+    if (!verificationCode) {
+      throw new Error("Verification code is required.");
+    }
 
-  if (Capacitor.isNativePlatform()) {
-    const current = manualAttempt;
-    if (!current || params.verificationId !== `${MANUAL_PROOF_PREFIX}${current.attemptId}`)
-      throw Object.assign(new Error("Request a new verification code."), { code: "phone-verification-required" });
-    if (current.token) return current.token;
-    try {
-      const result = await HushhAuth.confirmPhoneVerificationProof({ expectedUserId: current.expectedUserId, attemptId: current.attemptId, verificationCode });
-      if (manualAttempt !== current || result.attemptId !== current.attemptId || !result.phoneIdToken)
-        throw new Error("session_changed");
-      current.token = result.phoneIdToken;
-      return result.phoneIdToken;
-    } catch (error) { throw normalizeError(error); }
-  }
+    const verificationId = String(params.verificationId ?? "").trim();
+    if (!verificationId) {
+      throw new Error("Verification ID is required.");
+    }
 
-  const verificationId = String(params.verificationId ?? "").trim();
-  if (!verificationId) {
-    throw new Error("Verification ID is required.");
+    credential = PhoneAuthProvider.credential(verificationId, verificationCode);
   }
-
-  const credential = PhoneAuthProvider.credential(
-    verificationId,
-    verificationCode,
-  );
   const secondaryApp =
     getApps().find(
       (firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME,
-    ) || initializeApp(app.options, PHONE_CLAIM_APP_NAME);
+    ) || initializeApp(auth.app.options, PHONE_CLAIM_APP_NAME);
+  if (secondaryApp.options.projectId !== auth.app.options.projectId ||
+      secondaryApp.options.apiKey !== auth.app.options.apiKey) {
+    throw new Error("The sign-in service changed. Request a new verification code.");
+  }
   const phoneClaimAuth = getAuth(secondaryApp);
 
   await setPersistence(phoneClaimAuth, inMemoryPersistence);
@@ -218,6 +252,9 @@ export async function mintPhoneClaimIdToken(
   let claimToken = "";
   try {
     const result = await signInWithCredential(phoneClaimAuth, credential);
+    if ("temporaryProof" in params && result.user.phoneNumber !== params.phoneNumber) {
+      throw new Error("The verified phone changed. Request a new code.");
+    }
     claimToken = await result.user.getIdToken(true);
   } catch (error) {
     throw normalizeError(error);

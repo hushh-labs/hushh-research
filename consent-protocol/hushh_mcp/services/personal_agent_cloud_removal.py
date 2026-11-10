@@ -239,6 +239,17 @@ async def inspect_gcp(store: CloudRemovalStore, owner: str, row: dict) -> dict:
             or target.get("podUrl") != str(metadata.get("url") or "").rstrip("/")
         ):
             raise AzureTeardownRefused("CLOUD_REMOVAL_PLACEMENT_CHANGED")
+        from hushh_mcp.services.pod_migration_transport import PodMigrationTransportError
+
+        try:
+            await service._preflight_erasure_runtime(
+                user_id=owner, row=row, backend=backend, spec=spec, target=target
+            )
+        except RuntimeError:
+            raise PodMigrationTransportError(
+                "POD_ERASURE_COMPATIBILITY_REQUIRED",
+                "Your agent needs a cleanup compatibility repair. Nothing has been removed.",
+            ) from None
         await asyncio.to_thread(
             verify_erasure_compatibility,
             pod_url=target["podUrl"],

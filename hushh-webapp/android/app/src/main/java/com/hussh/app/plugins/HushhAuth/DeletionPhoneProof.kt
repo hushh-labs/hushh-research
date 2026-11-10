@@ -54,13 +54,20 @@ internal class DeletionPhoneProofFence(val userId: String, val attemptId: String
     }
 }
 
-/** Deletion-only phone proof. Never signs in, links, or replaces the primary user. */
+/** Owns phone challenges for primary linking and isolated deletion proof. */
 internal class DeletionPhoneProof(private val activity: Activity, private val primary: FirebaseAuth) {
     companion object {
         // The SDK namespace outlives an Activity. A recreated bridge must wait for the old task's cleanup.
         private var exchangeOwner: Any? = null
     }
-    private class Operation(val user: FirebaseUser, val phone: String, val fence: DeletionPhoneProofFence, call: PluginCall) {
+    private enum class LinkIntent(val value: String) { LINK("link"), REPLACE("replace") }
+    private class Operation(
+        val user: FirebaseUser,
+        val phone: String,
+        val fence: DeletionPhoneProofFence,
+        call: PluginCall,
+        val linkIntent: LinkIntent?,
+    ) {
         var call: PluginCall? = call
         var verificationId: String? = null
         var timeout: Runnable? = null
@@ -80,7 +87,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
         if (exchangeOwner == null) proof.signOut()
     }
 
-    fun start(call: PluginCall, manualOnly: Boolean = false) = handler.post {
+    fun start(call: PluginCall, primaryLink: Boolean = false, manualOnly: Boolean = false) = handler.post {
         val expected = call.getString("expectedUserId")
         val attempt = call.getString("attemptId")
         val phone = call.getString("phoneNumber")
@@ -94,9 +101,14 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
             call.reject("Verify the current account and phone.", "session_changed")
             return@post
         }
+        val intent = if (primaryLink) LinkIntent.entries.find { it.value == call.getString("linkIntent") } else null
+        if (primaryLink && intent == null) {
+            call.reject("Update the app to verify a phone number.", "phone-link-upgrade-required")
+            return@post
+        }
         val resending = call.getBoolean("resendCode", false) == true
         val previous = resend?.takeIf {
-            it.operation.phone == phone && it.operation.fence.resendEligible(
+            it.operation.linkIntent == intent && it.operation.phone == phone && it.operation.fence.resendEligible(
                 user.uid, user === it.operation.user, SystemClock.elapsedRealtime())
         }
         resend = null
@@ -104,8 +116,8 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
             call.reject("Request a new phone verification session.", "phone-verification-required")
             return@post
         }
-        proof.signOut()
-        val op = Operation(user, phone, DeletionPhoneProofFence(user.uid, attempt, SystemClock.elapsedRealtime()), call)
+        if (intent == null) proof.signOut()
+        val op = Operation(user, phone, DeletionPhoneProofFence(user.uid, attempt, SystemClock.elapsedRealtime()), call, intent)
         operation = op
         expire(op, 120_000L, "phone-verification-start-timeout")
         try {
@@ -118,12 +130,16 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
                         if (!active(op) || !op.fence.codeSent(primary.currentUser?.uid, primary.currentUser === op.user, SystemClock.elapsedRealtime())) return
                         resend = Resend(op, token)
                         op.verificationId = id
-                        op.call?.resolve(JSObject().put("attemptId", attempt).put("verificationId", attempt))
+                        val response = JSObject().put("attemptId", attempt).put("verificationId", attempt)
+                        op.linkIntent?.let {
+                            response.put("linkIntent", it.value).put("providerVerificationId", id)
+                        }
+                        op.call?.resolve(response)
                         op.call = null
                         expire(op, (op.fence.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
                     }
                     override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-                        if (manualOnly) {
+                        if (manualOnly || op.linkIntent != null) {
                             if (active(op) && op.fence.phase == DeletionPhoneProofFence.Phase.WAITING)
                                 finish(op, "phone_manual_sms_required")
                             return
@@ -144,7 +160,8 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
     fun confirm(call: PluginCall) = handler.post {
         val op = operation
         if (op == null || call.getString("attemptId") != op.fence.attemptId ||
-            call.getString("expectedUserId") != op.fence.userId || !active(op)) {
+            call.getString("expectedUserId") != op.fence.userId ||
+            op.linkIntent != null || !active(op)) {
             call.reject("Request a new verification code.", "phone-verification-required")
             return@post
         }
@@ -244,13 +261,13 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
         op.verificationId = null
         if (error != null) op.call?.reject("Phone verification did not complete.", error)
         op.call = null
-        if (exchangeOwner == null || exchangeOwner === op) proof.signOut()
+        if (op.linkIntent == null && (exchangeOwner == null || exchangeOwner === op)) proof.signOut()
         release(op)
     }
 
     private fun drain(op: Operation) {
         // Cancellation can race SDK sign-in; clear again after its completion before admitting another attempt.
-        proof.signOut()
+        if (op.linkIntent == null) proof.signOut()
         if (exchangeOwner === op) exchangeOwner = null
         op.fence.drainExchange()
         release(op)

@@ -4970,7 +4970,7 @@ function ProfilePageContent({
             provider={cloudCleanupProvider ?? undefined} purpose={cloudCleanupProvider === "gcp" ? "remove_cloud" : "account"}
             continueAccountDeletion={cloudCleanupProvider === "gcp"}
             onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
-            onFinish={handleDeleteAccount} /> : null}
+            onFinish={handleDeleteAccount} onLeave={handleSignOut} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <AlertDialogCancel
               className="w-full sm:w-auto"
