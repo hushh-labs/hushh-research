@@ -3754,9 +3754,9 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Payments">
         <SettingsRow icon={FinanceAgentIcon} iconTone="capability"
-          title="Payments and earnings" description="Purchase balance, earnings and transactions."
+          title="Payouts" description="Bank setup, earnings and transactions."
           voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
-          voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."
+          voiceLabel="Payouts" voicePurpose="Opens payout setup and transaction history."
           chevron onClick={() => openVaultBackedPanel("payouts")} />
       </SettingsGroup>
       <SettingsGroup title="Account actions">

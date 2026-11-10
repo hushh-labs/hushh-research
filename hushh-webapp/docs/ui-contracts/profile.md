@@ -158,7 +158,8 @@ one must not imply the other balances are unavailable. Protected money UI
 requires its owner token. Live and test activity remain separately labelled.
 Payouts does not mount the Information access section or load scope-commerce
 accounts, readiness, or activity. Existing source-bound answer payout returns
-retain their authenticated recovery control.
+retain their authenticated recovery control. Payouts action aliases describe
+only the retained payout controls; funding and information-access aliases are removed.
 
 | Surface / CTA | Effect and boundary |
 | --- | --- |
