@@ -870,8 +870,170 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
         )
         await _assert_shared_producer_authority(conn, database_url, monkeypatch)
         await _assert_account_generation_cycles(conn, database_url, monkeypatch)
+        await _assert_prior_drive_disconnect(conn, database_url)
     finally:
         await conn.close()
+
+
+async def _assert_prior_drive_disconnect(conn, database_url):
+    """A confirmed Drive disconnect releases an exact cleanup without provider I/O."""
+    import asyncpg
+
+    await conn.execute("""
+        ALTER TABLE user_external_connector_connections
+          ADD COLUMN credential_tag text,
+          ADD COLUMN credential_expires_at timestamptz,
+          ADD COLUMN revoked_at timestamptz,
+          ADD COLUMN refresh_lease_id text,
+          ADD COLUMN refresh_lease_expires_at timestamptz,
+          ADD COLUMN revocation_pending_until timestamptz
+    """)
+    engine = create_engine(database_url)
+
+    async def prepare(owner, outcome, *, parked=False):
+        await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
+        await conn.execute("INSERT INTO vault_keys VALUES($1)", owner)
+        await conn.execute(
+            """
+            INSERT INTO user_external_connector_connections
+              (user_id,connector_id,status,envelope_version,connection_generation,
+               credential_version,revoked_at,revocation_outcome)
+            VALUES($1,'google_drive','revoked',2,2,2,now(),$2)
+        """,
+            owner,
+            outcome,
+        )
+        with engine.begin() as transaction:
+            prepared = (
+                lifecycle.AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                    transaction,
+                    user_id=owner,
+                    firebase_uid=owner,
+                    table_exists=account.AccountService()._table_exists,
+                )
+            )
+        if parked:
+            await conn.execute(
+                """
+                UPDATE account_deletion_tombstones SET cleanup_status='quarantined',
+                 cleanup_last_classification='provider_action_required',
+                 cleanup_attempt_count=8,provider_cleanup_next_attempt_at=NULL
+                WHERE provider_cleanup_id=$1::uuid
+            """,
+                prepared.cleanup_id,
+            )
+        return prepared.cleanup_id
+
+    try:
+        parked = await prepare("synthetic_drive_parked", "revoked", parked=True)
+        refused = await prepare("synthetic_drive_refused", "failed", parked=True)
+        migration = ROOT / "db/migrations/455_uat_account_cleanup_prior_drive_revocation.sql"
+        await conn.execute(migration.read_text())
+        await conn.execute(migration.read_text())
+        fresh = await prepare("synthetic_drive_fresh", "revoked")
+
+        with pytest.raises(asyncpg.InsufficientPrivilegeError, match="prior Drive revocation"):
+            await conn.execute(
+                """
+                UPDATE account_deletion_tombstones SET cleanup_status='running',
+                 cleanup_claim_token=gen_random_uuid(), cleanup_claimed_at=now(),
+                 provider_cleanup_receipt=jsonb_set(provider_cleanup_receipt,
+                  ARRAY['items',(SELECT jsonb_object_keys(provider_cleanup_inventory)),'revocation'],
+                  '"revoked"')
+                WHERE provider_cleanup_id=$1::uuid
+            """,
+                refused,
+            )
+
+        def finalize(claim):
+            with engine.begin() as transaction:
+                journal.begin_local_erasure(transaction, claim)
+                for table in (
+                    "user_external_connector_connections",
+                    "actor_profiles",
+                    "vault_keys",
+                ):
+                    transaction.execute(
+                        text(f"DELETE FROM {table} WHERE user_id=:owner"),  # nosec B608 - fixed fixture tables.
+                        {"owner": claim.owner_id},
+                    )
+                journal.settle_local_erasure(transaction, claim)
+            return {"success": True, "account_deleted": True}
+
+        with (
+            patch.object(journal, "get_db_connection", engine.begin),
+            patch.object(admission, "_connect", lambda: _owned_release_connection(database_url)),
+            patch.object(credentials, "verify_grant", AsyncMock()) as verify,
+            patch.object(credentials, "stop_watch", AsyncMock()) as stop,
+            patch.object(credentials, "revoke_grant", AsyncMock()) as revoke,
+            patch.object(
+                account.AccountService,
+                "finalize_provider_cleanup",
+                AsyncMock(side_effect=finalize),
+            ),
+            patch.object(worker, "_notify_erased", AsyncMock()),
+        ):
+            claims = await asyncio.to_thread(journal.claim_due, limit=2)
+            assert {claim.cleanup_id for claim in claims} == {parked, fresh}
+            parked_claim = next(claim for claim in claims if claim.cleanup_id == parked)
+            fresh_claim = next(claim for claim in claims if claim.cleanup_id == fresh)
+            assert await asyncio.to_thread(journal.claim_due, limit=1) == []
+            await conn.execute(
+                """UPDATE account_deletion_tombstones
+                SET cleanup_claimed_at=now()-interval '6 minutes'
+                WHERE provider_cleanup_id=$1::uuid""",
+                parked,
+            )
+            (resumed,) = await asyncio.to_thread(journal.claim_due, limit=1)
+            assert resumed.cleanup_id == parked
+            assert resumed.claim_token != parked_claim.claim_token
+            assert resumed.receipt == parked_claim.receipt
+            with pytest.raises(journal.ProviderCleanupClaimLost):
+                await asyncio.to_thread(journal.is_ready, parked_claim)
+
+            await asyncio.to_thread(journal.release, resumed, action_required=False)
+            assert (
+                await conn.fetchval(
+                    """UPDATE account_deletion_tombstones
+                SET provider_cleanup_next_attempt_at=now()
+                WHERE provider_cleanup_id=$1::uuid AND cleanup_status='retry_pending'
+                  AND provider_cleanup_next_attempt_at>now()
+                RETURNING cleanup_attempt_count""",
+                    parked,
+                )
+                == 2
+            )
+            (retried,) = await asyncio.to_thread(journal.claim_due, limit=1)
+            assert retried.cleanup_id == parked
+            assert retried.receipt == resumed.receipt
+            for claim in (retried, fresh_claim):
+                assert next(iter(claim.inventory.values()))["revocationSupport"] == "unverified"
+                assert await asyncio.to_thread(journal.is_ready, claim)
+                assert await worker.run_claim(claim)
+                status = await asyncio.to_thread(
+                    journal.inspect_for_identity,
+                    claim.firebase_uid,
+                    operation_id=claim.cleanup_id,
+                )
+                assert status["state"] == "complete"
+                assert not status["local_erasure_confirmation_required"]
+                assert not await conn.fetchval(
+                    "SELECT EXISTS(SELECT FROM user_external_connector_connections WHERE user_id=$1)",
+                    claim.owner_id,
+                )
+                assert await conn.fetchval(
+                    "SELECT cleanup_confirmed FROM account_generations WHERE identity_hash=$1",
+                    lifecycle.account_deletion_user_hash(claim.firebase_uid),
+                )
+            assert await asyncio.to_thread(journal.claim_due, limit=1) == []
+            for port in (verify, stop, revoke):
+                port.assert_not_awaited()
+
+        rollback = migration.parent / "rollback" / (migration.stem + ".rollback.sql")
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError, match="forward recovery"):
+            await conn.execute(rollback.read_text())
+    finally:
+        engine.dispose()
 
 
 async def _shared_google_owner(conn, monkeypatch):
