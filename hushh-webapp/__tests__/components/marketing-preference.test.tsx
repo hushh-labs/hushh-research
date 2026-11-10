@@ -5,6 +5,8 @@ import { useMarketingPreference } from "@/components/account/use-marketing-prefe
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { useAttemptEmail } from "@/components/account/use-attempt-email";
+import { resolveAndroidBack } from "@/lib/navigation/android-back";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const mocks = vi.hoisted(() => ({ token: vi.fn(), fetch: vi.fn(), toast: vi.fn(), dismiss: vi.fn(), native: false, active: true, epoch: 0 }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { getFirebaseIdTokenForOwner: mocks.token, apiFetch: mocks.fetch } }));
@@ -85,12 +87,26 @@ describe("explicit email preference", () => {
     const toggle = await screen.findByRole("switch");
     expect(toggle).not.toBeChecked();
     expect(mocks.fetch.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Email frequency" }), { key: "ArrowDown" });
+    await screen.findByRole("listbox");
+    const navigateParent = vi.fn(() => true), minimize = vi.fn();
+    act(() => { expect(resolveAndroidBack(false, { navigateParent, minimize })).toBe("screen"); });
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(navigateParent).not.toHaveBeenCalled();
+    expect(minimize).not.toHaveBeenCalled();
+    expect(unwindBackLayer(window.location.pathname)).toBe(false);
+    expect(screen.getByRole("combobox", { name: "Email frequency" })).toHaveTextContent("Weekly digest");
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Email frequency" }), { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "Daily tips" }), { key: "Enter" });
+    expect(screen.getByRole("combobox", { name: "Email frequency" })).toHaveTextContent("Daily tips");
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
     fireEvent.click(toggle);
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
-    mocks.fetch.mockResolvedValueOnce(response({ ...empty, enabled: true, revision: 1 }));
+    mocks.fetch.mockResolvedValueOnce(response({ ...empty, enabled: true, frequency: "daily", revision: 1 }));
     fireEvent.click(screen.getByRole("button", { name: "Save email preference" }));
     await screen.findByText("Email preference saved.");
-    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toEqual({ enabled: true, frequency: "weekly",
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toEqual({ enabled: true, frequency: "daily",
       expectedRevision: 0, disclosureVersion: "one-email-updates-v1", surface: "setup" });
   });
 
@@ -105,6 +121,24 @@ describe("explicit email preference", () => {
     expect(result.current.value).toBeNull();
     await act(() => result.current.save(false, "weekly"));
     expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("retires an open frequency menu while a replacement session loads its saved choice", async () => {
+    const view = render(<Form />);
+    fireEvent.keyDown(await screen.findByRole("combobox", { name: "Email frequency" }), { key: "ArrowDown" });
+    await screen.findByRole("listbox");
+    let release!: (value: Response) => void;
+    mocks.fetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { release = resolve; }));
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
+    view.rerender(<Form />);
+    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(unwindBackLayer(window.location.pathname)).toBe(false);
+    await act(async () => { release(response(empty)); });
+    await screen.findByRole("combobox", { name: "Email frequency" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(mocks.fetch.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
   });
 
   it.each(["unmount", "same-owner-relogin", "other-owner", "native-background"])("retires a captured Save after %s", async (departure) => {
