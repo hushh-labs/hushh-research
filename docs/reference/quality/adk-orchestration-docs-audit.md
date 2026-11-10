@@ -41,7 +41,13 @@ native publication is claimed by this checkpoint.
 
 ## Dev deletion incident — 10 November 2026
 
-**Source implemented; Dev deployment authorized after required checks.** The isolated Dev
+**Source implemented; Dev deployment authorized after required checks.**
+[Dev PR #9228](https://github.com/hushh-labs/hushh-research/pull/9228) passed
+[exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42818597779)
+on `23a03973f2f4`; subsequent accepted Dev changes require combined-source
+qualification before landing. No candidate deployment or account erasure is claimed.
+PR #9008 is merged to UAT as source only and is not a Dev-retirement blocker.
+ The isolated Dev
 candidate adds migration 988 and the existing-worker handoff described in the
 [canonical deletion runbook](../operations/account-deletion-rollout.md#current-dev-application--10-november-2026).
 Account retirement and fresh signup are separated from native cloud erasure; the

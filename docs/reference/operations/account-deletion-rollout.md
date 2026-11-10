@@ -57,7 +57,9 @@ selects the original journal at native deadlines, overlaps independent KMS work,
 and applies a 15-minute retry backoff. A joined read/credential failure can recover;
 unsettled provider mutations still require observation and keep writes blocked.
 The child holds the existing release lock on its own journal database session and
-checks it before native dispatch. Startup is bounded to 30 seconds and execution
+checks it before native dispatch. It invalidates and closes that physical
+session on every exit, including setup failure, so autocommit settings and session
+locks cannot contaminate ordinary request transactions. Startup is bounded to 30 seconds and execution
 to 300 seconds; timeout terminates and joins the actual process without inventing
 success. Final archives hash the duplicate recovery payload while retaining the
 original journal for qualified audit and settlement.
@@ -124,7 +126,9 @@ rewrites, project-admission fencing, original-journal continuation, native KMS s
 owner-template IAM/redirect safety, full 420/421 replay with Files preimages, rollback,
 and client confirmation/terminal states. No CI policy or protected workflow is changed.
 The managed pilot stays paused. PR [9008](https://github.com/hushh-labs/hushh-research/pull/9008)
-has passed exact-head source CI and is awaiting the UAT merge queue; this candidate
+merged through the UAT queue at `19b0f25e7c890207c0e60817f05a1a25a0f05a8a`
+after exact-head and combined checks passed. No UAT deployment or identity erasure
+is implied. Dev continuation is [#9228](https://github.com/hushh-labs/hushh-research/pull/9228); this candidate
 neither deploys nor erases UAT. Its source port does not complete Dev account
 retirement, fresh signup or physical cloud erasure.
 
