@@ -191,12 +191,6 @@
   .joinLink { min-width: 72px; padding-inline: 9px; }
 }
 
-.permissions { display: grid; gap: .5rem; }
-.permissionsHeading { color: var(--ios-account-secondary-label, var(--app-secondary-label)); font-size: var(--app-side-pane-section-size, 12px); line-height: var(--app-side-pane-section-line, 18px); font-weight: var(--app-side-pane-section-weight, 600); letter-spacing: var(--app-side-pane-section-tracking, normal); }
-.permissions ul { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
-.permissions li { display: flex; align-items: flex-start; gap: .5rem; color: var(--app-label); font-size: var(--profile-type-label-size, 13px); line-height: var(--profile-type-label-line, 19px); font-weight: 400; }
-.permissions li svg { margin-top: .1rem; color: var(--app-success); }
-
 /* Profile roles for dialog chrome: primary buttons take the label role and the
    dialog description the description role. Outside the Calendar scope the
    fallbacks keep the app-wide values. */
