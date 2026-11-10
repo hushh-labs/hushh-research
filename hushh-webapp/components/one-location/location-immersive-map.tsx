@@ -70,7 +70,10 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
-import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 import { resolvedAccentHex } from "@/lib/theme/accent";
 import {
   firstNameFromLabel,
@@ -1302,7 +1305,7 @@ export function LocationImmersiveMap({
   );
 
   const handleNearbyStateChange = useCallback(
-    (next: OneLocationNearbyPresenceState) => {
+    (next: OneLocationNearbyPresenceState, confirmedCheckIn?: true) => {
       // Keep the ref current in the same turn as the callback. The entry GPS
       // request can already be in flight here, and waiting for the state-sync
       // effect would leave a small window where its late result can still move
@@ -1312,7 +1315,7 @@ export function LocationImmersiveMap({
       if (!auth.userId) return;
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
-        paused: next.presence ? false : current.paused,
+        paused: confirmedCheckIn && next.presence ? false : current.paused,
         nearbyPresenceActive: Boolean(next.presence),
         nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
       }));
@@ -2071,9 +2074,14 @@ export function LocationImmersiveMap({
       return;
     }
     entryLocationRequestedRef.current = true;
+    const userId = auth.userId;
+    if (readOneLocationControlState(userId).paused) {
+      setEntryLocationSettled(true);
+      return;
+    }
     let cancelled = false;
     const cachedPoint = readLocationWorkspaceMemory(
-      auth.userId,
+      userId,
     ).myLocationPoint;
     const shouldMoveCameraToDevice = () => {
       if (!isCheckInSurface) return true;
@@ -2097,8 +2105,9 @@ export function LocationImmersiveMap({
         });
       }
       try {
+        if (cancelled || readOneLocationControlState(userId).paused) return;
         const point = await captureCurrentLocation();
-        if (cancelled) return;
+        if (cancelled || readOneLocationControlState(userId).paused) return;
         framedInitialMarkersRef.current = true;
         initialFrameCommandRef.current = null;
         await focusSelfPoint(point, {
