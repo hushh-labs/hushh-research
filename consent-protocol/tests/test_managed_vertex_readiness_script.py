@@ -104,6 +104,58 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["dev", "production"])
+@pytest.mark.parametrize("failure", [None, "empty_response", "timeout"])
+async def test_common_core_proves_only_the_actual_chat_target(monkeypatch, environment, failure):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash
+
+    spec = importlib.util.spec_from_file_location("common_core_readiness", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("MANAGED_READINESS_MODE", "core")
+    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
+    profile = load_profile(environment)
+    selected_model = object()
+    binding = SimpleNamespace(
+        locations_for_model=lambda model: profile["text_locations"],
+        build_regional_adk_model=lambda model: selected_model,
+    )
+    monkeypatch.setattr(
+        module, "_one_chat_target", lambda: (profile["project"], profile["text_model"], binding)
+    )
+    monkeypatch.setattr(
+        module, "managed_ai_settings", lambda: SimpleNamespace(config_hash=profile_hash(profile))
+    )
+    monkeypatch.setattr(
+        module, "_managed_manifest_models", lambda: pytest.fail("core must not sweep models")
+    )
+    monkeypatch.setattr(module, "_readiness_bindings", lambda: pytest.fail("full secondary setup"))
+    error = (
+        None
+        if failure is None
+        else (TimeoutError() if failure == "timeout" else RuntimeError("no usable text"))
+    )
+    probe = AsyncMock(side_effect=error)
+    monkeypatch.setattr(module, "_probe_adk_response", probe)
+    if error is not None:
+        with pytest.raises(type(error)):
+            await module.main()
+    else:
+        report = await module.main()
+        assert report["environment"] == environment
+        assert report["models"] == [profile["text_model"]]
+        assert report["locations"] == profile["text_locations"]
+        assert report["core_contract_version"] == 2
+        assert report["secondary_diagnostics"] == "not_run"
+        assert report["ok"] is report["one_chat_probe_ok"] is True
+        assert report["candidate_models_exercised"] is False
+    probe.assert_awaited_once_with(selected_model, profile["text_model"])
+
+
 @pytest.mark.parametrize("transport", ["textPayload", "jsonPayload", "prefixed_text"])
 @pytest.mark.parametrize("probe_name", ["one_chat:gemini-test@global", "capability:one_text_root"])
 def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, transport, probe_name):

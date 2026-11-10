@@ -60,6 +60,7 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
     "consent-protocol/tests/test_drive_worker_release_rollback.py",
     "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+    "consent-protocol/tests/test_protected_document_release_contract.py",
     "consent-protocol/tests/test_database_connection_ceiling.py",
     "consent-protocol/tests/test_feed_stream_capacity_contract.py",
     "consent-protocol/tests/test_gmail_information_request_release_contract.py",
@@ -89,6 +90,9 @@ RELEASE_CONTROLLER_TESTS = (
 )
 RESTORATION_FIXTURE_INPUTS = frozenset(
     {
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/tests/helpers/production_release_tools.py",
         "consent-protocol/tests/test_production_restoration_operation.py",
     }
@@ -97,6 +101,8 @@ RESTORATION_FIXTURE_TESTS = (
     "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_phone_schema_origin.py",
     "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+    "consent-protocol/tests/test_phone_schema_job_history.py",
+    "consent-protocol/tests/test_phone_schema_qualification.py",
 )
 
 
@@ -164,6 +170,7 @@ RiskSnapshot.load(str(manifest))
     _check("deployment-environment-governance", "python3", "scripts/ci/test_verify_deployment_environment_governance.py", groups=("controller", "release", "operations")),
     _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
     _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
+    _check("production-recovery-ci", "python3", "scripts/ci/test_production_recovery_ci.py", groups=("controller", "release")),
     _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),
     _check("uat-pr-scope", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "scripts/ci/test_uat_pr_scope.py", groups=("controller", "release")),
     _check("release-cadence-maintenance", "python3", "scripts/ci/test_release_cadence_maintenance.py", groups=("controller",)),
@@ -356,6 +363,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         *RELEASE_CONTROLLER_TESTS,
         "scripts/ci/capture_managed_provider_receipt.py",
         "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/scripts/managed_vertex_readiness.py",
         "consent-protocol/scripts/generate_capability_graph.py",
         "consent-protocol/tests/helpers/capability_graph_fixture.py",

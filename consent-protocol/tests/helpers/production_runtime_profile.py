@@ -5,6 +5,7 @@
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -30,15 +31,32 @@ def run_production_backend_build(
     script = script.replace("${{ steps.document-mode.outputs.configured }}", hosted_documents)
     script = script.replace("${{ inputs.restoration_validation_run }}", restoration_run)
     script = re.sub(r"\$\{\{.*?\}\}", "fixture", script)
-    return subprocess.run(  # noqa: S603 - actual build command with cloud writes intercepted
-        ["bash", "-c", "gcloud() { printf '%s\\n' \"$@\"; };\n" + script],
-        env={
-            **os.environ,
-            "DRIVE_CANDIDATE_RUNTIME_SECRET": "fixture",
-            "PHONE_DEPLOY_PHASE": "normal",
-        },
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=30,
-    )
+    root = Path(__file__).resolve().parents[3]
+    with tempfile.TemporaryDirectory() as folder:
+        temporary = Path(folder)
+        calls = temporary / "calls"
+        result = subprocess.run(  # noqa: S603 - actual synchronous build, cloud calls intercepted
+            [
+                "bash",
+                "-c",
+                'gcloud() { printf "%s\\n" "$@" >> "$BUILD_CALLS"; '
+                "echo 11111111-1111-4111-8111-111111111111; };\n" + script,
+            ],
+            cwd=root,
+            env={
+                **os.environ,
+                "BUILD_CALLS": str(calls),
+                "GITHUB_OUTPUT": str(temporary / "outputs"),
+                "DRIVE_CANDIDATE_RUNTIME_SECRET": "fixture",
+                "PHONE_DEPLOY_PHASE": "normal",
+            },
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        # Existing callers inspect the actual build arguments, including those
+        # captured by the format-limited build command rather than stdout.
+        return subprocess.CompletedProcess(
+            result.args, result.returncode, calls.read_text(), result.stderr
+        )
