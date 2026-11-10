@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from api.middlewares.rate_limit import limiter
 from api.routes.document_feed_stream import StreamLease
 from api.routes.notification_stream import notification_events, open_notification_stream
 from api.routes.one.private_message_route import PrivateMessageRoute
@@ -104,6 +105,13 @@ class DirectMessageBlockBody(_CamelModel):
 
 def _service() -> DirectMessagesService:
     return DirectMessagesService()
+
+
+def _send_owner(request: Request, firebase_uid: str = Depends(require_firebase_auth)) -> str:
+    # Dependencies run before SlowAPI's wrapper; never bucket sends by an
+    # unverified JWT claim, proxy header or a shared network address.
+    request.state.rate_limit_user_id = f"firebase:{firebase_uid}"
+    return firebase_uid
 
 
 def _handle(exc: Exception) -> HTTPException:
@@ -210,9 +218,13 @@ async def open_conversation_with_user(
 
 
 @router.post("")
+@limiter.limit("30/minute")
+@limiter.limit("1000/day")
 async def send_direct_message(
+    request: Request,
+    response: Response,
     payload: SendDirectMessageBody,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_send_owner),
 ):
     """Atomically create the pair conversation on the first successful send."""
 

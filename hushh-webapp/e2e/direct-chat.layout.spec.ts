@@ -1396,3 +1396,98 @@ for (const width of [320, 393, 1440]) {
     expect(errors).toEqual([]);
   });
 }
+
+// Regression: preserve unsent text without replaying a sent message.
+test("draft persistence: Circle draft survives switching circles", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const errors = await mount(page, false, false, true);
+  await page.getByRole("tab", { name: "Circles 3" }).click();
+  const circles = page.getByRole("complementary", { name: "Circles", exact: true });
+  await circles.getByRole("button", { name: /Weekend friends/ }).click();
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await expect(editor).toBeEnabled();
+  await expect(editor).toHaveAttribute("placeholder", "Message Weekend friends");
+  const draft = "Audit draft kept while I check another Circle";
+  await editor.fill(draft);
+  await expect(editor).toHaveValue(draft);
+  await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toHaveCount(1);
+  await circles.getByRole("button", { name: /Family/ }).click();
+  await expect(page.getByRole("region", { name: "Family messages", exact: true })).toBeVisible();
+  await expect(editor).toHaveAttribute("placeholder", "Message Family");
+  await expect(editor).toBeEnabled();
+  await expect(editor).toHaveValue("");
+  await circles.getByRole("button", { name: /Weekend friends/ }).click();
+  await expect(page.getByRole("region", { name: "Weekend friends messages", exact: true })).toBeVisible();
+  await expect(editor).toHaveAttribute("placeholder", "Message Weekend friends");
+  await expect(editor).toBeEnabled();
+  await page.screenshot({ path: test.info().outputPath("circle-draft-after-switch.png"), animations: "disabled" });
+  expect(errors).toEqual([]);
+  await expect(editor).toHaveValue(draft);
+});
+
+test("draft persistence: People draft survives a page reload", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const errors = await mount(page);
+  const editor = page.getByRole("textbox", { name: "Message Maya Rao", exact: true });
+  await expect(editor).toBeEnabled();
+  const draft = "Audit draft kept after reopening the page";
+  await editor.fill(draft);
+  await expect(editor).toHaveValue(draft);
+  await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toHaveCount(1);
+  await expect(transcript(page).getByText(draft, { exact: true })).toHaveCount(0);
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  await expect(editor).toBeVisible();
+  await expect(editor).toBeEnabled();
+  await page.screenshot({ path: test.info().outputPath("people-draft-after-reload.png"), animations: "disabled" });
+  expect(errors).toEqual([]);
+  await expect(editor).toHaveValue(draft);
+});
+
+test("draft persistence: pending draft save blocks unsafe reload", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await mount(page);
+  const editor = page.getByRole("textbox", { name: "Message Maya Rao", exact: true });
+  await expect(editor).toBeEnabled();
+  await page.evaluate(() => {
+    const original = crypto.subtle.encrypt.bind(crypto.subtle);
+    const view = window as Window & { releaseDraftEncryption?: () => void };
+    const gate = new Promise<void>(resolve => { view.releaseDraftEncryption = resolve; });
+    crypto.subtle.encrypt = (...args: Parameters<SubtleCrypto["encrypt"]>) => gate.then(() => original(...args));
+  });
+  await editor.click();
+  await editor.pressSequentially("Keep this pending draft");
+  const dialog = page.waitForEvent("dialog");
+  const reload = page.reload({ timeout: 10000 }).catch(() => null);
+  const prompt = await dialog;
+  expect(prompt.type()).toBe("beforeunload");
+  await prompt.dismiss();
+  await reload;
+  await expect(editor).toHaveValue("Keep this pending draft");
+  await page.evaluate(() => (window as Window & { releaseDraftEncryption?: () => void }).releaseDraftEncryption?.());
+  await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toHaveCount(1);
+});
+
+test("draft persistence: account switching erases encrypted drafts before the owner returns", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await mount(page);
+  const editor = page.getByRole("textbox", { name: "Message Maya Rao", exact: true });
+  await expect(editor).toBeEnabled();
+  await editor.fill("Private text belonging to the first account");
+  await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toHaveCount(1);
+  await fixture(page, "fixture.changeOwner('other-owner')");
+  await expect(editor).toHaveCount(0);
+  await page.getByRole("button", { name: /^Maya Rao/ }).click();
+  await expect(editor).toHaveValue("");
+  await expect(editor).toBeEnabled();
+  await fixture(page, "fixture.changeOwner('fixture-owner')");
+  await page.getByRole("button", { name: /^Maya Rao/ }).click();
+  await expect(editor).toBeEnabled();
+  await expect(editor).toHaveValue("");
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  await expect(editor).toBeEnabled();
+  await expect(editor).toHaveValue("");
+});

@@ -27,7 +27,8 @@ export type DirectMessageReplyPreview = {
   deletedForEveryoneAt: string | null;
 };
 
-export const DIRECT_MESSAGE_MAX_LENGTH = 4_000;
+export { DIRECT_MESSAGE_MAX_LENGTH } from "@/lib/direct-messages/limits";
+import { DIRECT_MESSAGE_MAX_LENGTH } from "@/lib/direct-messages/limits";
 
 export type DirectMessage = {
   id: string;

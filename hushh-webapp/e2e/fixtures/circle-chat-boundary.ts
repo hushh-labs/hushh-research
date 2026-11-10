@@ -45,7 +45,7 @@ Object.assign(fixture.chatFixture, { incoming: () => {
 export const CircleChatService = {
   initialize: async () => undefined,
   wait: () => new Promise(() => {}),
-  state: async () => ({ unreadCount: 1, latestSequence: history.at(-1)!.sequence, muted }),
+  state: async () => ({ unreadCount: 1, latestSequence: history.at(-1)!.sequence, muted, membershipJoinedAt: "2026-10-02T10:00:00Z" }),
   messages: async (_session: unknown, cursor: { before?: number; after?: number } = {}) => {
     if (fixture.chatFixture.loseAccess) throw new ApiError("Circle unavailable", 404, { detail: { code: "CIRCLE_CHAT_UNAVAILABLE" } });
     const rows = visible().filter((m) => (!cursor.before || m.sequence < cursor.before) && (!cursor.after || m.sequence > cursor.after));
