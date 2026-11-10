@@ -355,9 +355,10 @@ for (const dark of [false, true]) {
       if (width === WIDTHS[0]) {
         const glyph = contactBadge.locator("svg");
         if (testInfo.project.use.hasTouch) await glyph.tap();
-        else await glyph.click();
+        else await glyph.hover();
         const contactDetails = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Via contacts" });
         await expect(contactDetails).toBeVisible();
+        await expect(contactDetails).toContainText("You connected with this person through a match from your synced contacts.");
         const bounds = (await contactDetails.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
@@ -365,11 +366,18 @@ for (const dark of [false, true]) {
         await expect(contactDetails).toBeHidden();
 
         if (testInfo.project.use.hasTouch) await riaBadge.tap();
-        else await riaBadge.focus();
+        else await riaBadge.hover();
         const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });
-        await expect(riaDetails).toBeAttached();
+        await expect(riaDetails).toContainText("Hussh verified this person's advisor profile.");
         await page.keyboard.press("Escape");
         await expect(riaDetails).toHaveCount(0);
+
+        if (!testInfo.project.use.hasTouch) {
+          await riaBadge.focus();
+          await expect(riaDetails).toBeAttached();
+          await page.keyboard.press("Escape");
+          await expect(riaDetails).toHaveCount(0);
+        }
       }
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();

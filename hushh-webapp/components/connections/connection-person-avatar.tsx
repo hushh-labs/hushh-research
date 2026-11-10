@@ -1,8 +1,6 @@
 "use client";
 
-import { BadgeCheck } from "@/components/icons";
-import { ContactSourceBadge } from "./contact-source-badge";
-import { ConnectionStatusBadge } from "./connection-status-badges";
+import { CONNECTION_BADGE_DESCRIPTIONS, ConnectionStatusBadge } from "./connection-status-badges";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -105,43 +103,18 @@ export function ConnectionPersonAvatar({
   showBadgeDetails?: boolean;
 }) {
   const interactive = Boolean(personRef?.trim() || userId?.trim());
-  const badgeControls = showBadgeDetails && !interactive && (verified || fromContacts);
+  const badgeControls = showBadgeDetails && !interactive;
   const verifiedBadgeClassName = cn(
     "absolute -right-0.5 z-10 inline-flex items-center justify-center rounded-full bg-background",
     fromContacts ? "-top-0.5" : "-bottom-0.5",
     AVATAR_BADGE_CLASSNAME[size],
   );
   const contactBadgeClassName = "absolute -bottom-0.5 -right-0.5 z-10 size-3 rounded-sm bg-background ring-2 ring-background";
-  const badgeHitArea = "after:absolute after:-inset-1.5 after:content-['']";
-  const badges = <>
-    {verified ? (
-      badgeControls ? (
-        <ConnectionStatusBadge
-          verified
-          className={cn(verifiedBadgeClassName, badgeHitArea)}
-          iconClassName={AVATAR_BADGE_GLYPH_CLASSNAME[size]}
-        />
-      ) : (
-        <span role="img" aria-label="Verified advisor" className={verifiedBadgeClassName}>
-          <BadgeCheck
-            className={cn("text-[color:var(--app-success,#16a34a)]", AVATAR_BADGE_GLYPH_CLASSNAME[size])}
-            aria-hidden="true"
-          />
-        </span>
-      )
-    ) : null}
-    {fromContacts ? (
-      badgeControls ? (
-        <ConnectionStatusBadge className={cn(contactBadgeClassName, badgeHitArea)} iconClassName="size-full" />
-      ) : (
-        <ContactSourceBadge className={contactBadgeClassName} />
-      )
-    ) : null}
-  </>;
+  const badgeHitArea = badgeControls && "after:absolute after:-inset-1.5 after:content-['']";
   const profileDescription = [
-    verified ? "Verified advisor" : null,
-    fromContacts ? "Connected from your contacts" : null,
-  ].filter(Boolean).join(". ") || undefined;
+    verified ? CONNECTION_BADGE_DESCRIPTIONS.advisor : null,
+    fromContacts ? CONNECTION_BADGE_DESCRIPTIONS.contacts : null,
+  ].filter(Boolean).join(" ") || undefined;
   const content = <>
 
       {photoUrl?.trim() ? (
@@ -159,7 +132,25 @@ export function ConnectionPersonAvatar({
       >
         {connectionAvatarInitials(label)}
       </AvatarFallback>
-      {badgeControls ? <TooltipProvider>{badges}</TooltipProvider> : badges}
+      {verified || fromContacts ? (
+        <TooltipProvider>
+          {verified ? (
+            <ConnectionStatusBadge
+              verified
+              interactive={badgeControls}
+              className={cn(verifiedBadgeClassName, badgeHitArea)}
+              iconClassName={AVATAR_BADGE_GLYPH_CLASSNAME[size]}
+            />
+          ) : null}
+          {fromContacts ? (
+            <ConnectionStatusBadge
+              interactive={badgeControls}
+              className={cn(contactBadgeClassName, badgeHitArea)}
+              iconClassName="size-full"
+            />
+          ) : null}
+        </TooltipProvider>
+      ) : null}
   </>;
   const expandedHitArea = interactive && minimumHitArea;
   const avatar = (

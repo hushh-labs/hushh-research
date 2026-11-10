@@ -963,12 +963,12 @@ describe("Connect — People", () => {
 
     expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
     fireEvent.click(contactBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Via contacts");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("You connected with this person through a match from your synced contacts.");
     fireEvent.blur(contactBadge);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.click(riaBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Verified Advisor");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Hussh verified this person's advisor profile.");
     fireEvent.keyDown(riaBadge, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
