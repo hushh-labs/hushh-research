@@ -40,7 +40,7 @@ Monitoring stays the independent, default-off preference above. After connecting
 
 The extractor is told what a Calendar follow-up is. It returns, for every candidate, a relevance verdict (`actionable`, `informational` or `uncertain`), a Calendar category (`meeting_request`, `schedule_change`, `document_or_information`, `deliverable_deadline`, `response_needed` or `assigned_task`), who asked, a short reason grounded in the quoted text, and optional urgency and meeting state. The host admits a candidate only when the verdict is explicitly `actionable`, the category is allowed, evidence exists, and responsibility does not belong to someone else. `uncertain` is deliberately kept off the owner's list. The authored assessment now asks for consequential professional commitments: documents or files to send, deadlines or explicit urgency, meeting requests, scheduling proposals, and project or client updates requiring action around a real commitment. A specific professional document request or meeting ask can be valuable without an exact date. LinkedIn and generic social requests, routine PR review notifications without a concrete dated or urgent assignment, vague undated responses, security alerts, OAuth notices, marketing, receipts, status-only mail, Calendar invitations, quoted earlier requests and signatures are excluded. The model decides from the request and its commitment, not a sender-domain or subject keyword rule.
 
-Within one conversation, two candidates are one obligation only when they have the same kind, the same verified dates and strongly overlapping titles (Jaccard overlap of the normalized words of at least one half); the more complete, earlier statement is kept. Different kinds or dates, such as a document due 26 October and a call on 27 October, keep their own identity and state. Urgency is `asap`, `time_bound` or `none` and never implies a due date: an undated "ASAP" stays `needs_review` with no invented deadline. A proposed meeting is `meeting_state=proposed` and is never described as scheduled. Rows assessed under versions 1 or 2 are reassessed in bounded background steps. A row that is no longer relevant is suppressed (`suppressed_at`, `suppression_reason`), its reminder is cleared and its Feed events are removed. Nothing is deleted; owner decisions are retained, and a still-relevant row is upgraded in place.
+Within one conversation, two candidates are one obligation only when they have the same kind, the same verified dates and strongly overlapping titles (Jaccard overlap of the normalized words of at least one half); the more complete, earlier statement is kept. Different kinds or dates, such as a document due 26 October and a call on 27 October, keep their own identity and state. Urgency is `asap`, `time_bound` or `none` and never implies a due date: an undated "ASAP" stays `needs_review` with no invented deadline. A proposed meeting is `meeting_state=proposed` and is never described as scheduled. Older assessments on visible requests follow the bounded reassessment rules below.
 
 ## Incremental sync and incomplete scans
 
@@ -94,8 +94,8 @@ passed. The owner's local day comes from the monitor's time zone. A deadline sta
 | `snoozed` | snoozed until a time that has not come; it returns to its date-based list when that time passes |
 | `history` | closed by the owner or its source; a lapsed opportunity (`after_date=lapses`); a past meeting proposal; work that is not the owner's; an undated ask older than 45 days |
 
-An unknown date effect is never treated as expired. Rows written before version 4 carry
-`after_date=unspecified` and appear under Overdue until reassessed. `upcoming` is ranked by
+Earlier rows default to `after_date=unspecified`. A past non-meeting obligation
+assigned to the owner remains Overdue when its date effect is unknown. `upcoming` is ranked by
 verified urgency or a deadline within seven days, then later dates, then undated work; within
 that, owner-assigned work first, then the earlier date, then fewer recorded ambiguities (the
 only confidence signal the ledger holds). The full view pages 15 conversations
@@ -142,10 +142,11 @@ assessment history exists. The UAT port adds 454 after its existing release head
 The migration owner reconfirms numbering against the latest target before release.
 
 **Stage B handoff.** The read-only Chat boundary is unchanged: nothing here adds a Chat
-tool, proposal or write. Request-level discovery must read only
-`suppressed_at IS NULL AND merged_into IS NULL`, may rely on `after_date` and the `bucket`
-projection (`upcoming|overdue|snoozed|history`) instead of re-deriving expiry, and must
-treat `view` as an optional parameter defaulting to `upcoming`. The list reports
+tool, proposal or write. Scope request-level discovery to the authenticated owner,
+selected Calendar account, current monitor generation and current Mail grant. Use the
+admitted turn clock and read only `suppressed_at IS NULL AND merged_into IS NULL`. The
+read can use `after_date` and the `bucket` projection (`upcoming|overdue|snoozed|history`)
+directly. Treat `view` as an optional parameter defaulting to `upcoming`. The list reports
 `view_counts` across all four views and paginates conversations. Detail exposes
 the request's `bucket`, `after_date` and `repeat_count`. Existing reminder links resolve
 to the current same-account `request_id`. The separate `/source/link` route returns an
