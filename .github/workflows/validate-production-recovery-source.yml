@@ -1,0 +1,89 @@
+name: Validate Production Recovery Source
+run-name: Production recovery source ${{ inputs.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact application SHA in the recorded production recovery
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  security-events: read
+
+concurrency:
+  group: production-recovery-source-validation
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: Admit recorded recovery application
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      base: ${{ steps.admit.outputs.base }}
+      tree: ${{ steps.admit.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Admit source from protected Main
+        id: admit
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+        run: python3 scripts/ci/production_recovery_ci.py "$SOURCE_SHA"
+
+  deployment-security:
+    name: Deployment security
+    needs: source
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+    with:
+      application_ref: ${{ inputs.sha }}
+      environment_name: validation
+      scope: validation
+
+  functional:
+    name: Exact recovery CI
+    needs: [source, deployment-security]
+    uses: ./.github/workflows/ci.yml
+    with:
+      scope: all
+      production_recovery_sha: ${{ inputs.sha }}
+      production_recovery_tree: ${{ needs.source.outputs.tree }}
+      uat_base_sha: ${{ needs.source.outputs.base }}
+
+  gate:
+    name: Production Recovery Source Gate
+    needs: [source, deployment-security, functional]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify recovery application (${{ inputs.sha }} ${{ needs.source.outputs.tree }} ${{ needs.source.outputs.base }})
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+          SOURCE_TREE: ${{ needs.source.outputs.tree }}
+          SOURCE_BASE: ${{ needs.source.outputs.base }}
+          SOURCE_RESULT: ${{ needs.source.result }}
+          CI_RESULT: ${{ needs.functional.result }}
+          SECURITY_RESULT: ${{ needs.deployment-security.result }}
+          SECURITY_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_RESULT:$CI_RESULT:$SECURITY_RESULT" = success:success:success
+          test "$GITHUB_RUN_ATTEMPT:$SECURITY_ATTEMPT" = 1:1
+          test "$SECURITY_SHA" = "$SOURCE_SHA"
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ && "$SOURCE_TREE" =~ ^[a-f0-9]{40}$ && "$SOURCE_BASE" =~ ^[a-f0-9]{40}$ ]]
+          printf 'Application %s (tree %s, comparison %s)\nMain tooling %s, run %s attempt %s\n' \
+            "$SOURCE_SHA" "$SOURCE_TREE" "$SOURCE_BASE" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"

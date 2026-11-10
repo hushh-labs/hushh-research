@@ -501,3 +501,85 @@ def test_every_manual_rollback_job_installs_and_uses_the_reader_guard():
             assert "scripts/ci/cloudrun-rollback.sh" in step["run"]
             assert "HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD" not in step.get("env", {})
         assert all("update-traffic" not in step.get("run", "") for step in steps)
+
+
+@pytest.mark.parametrize(
+    ("environment", "overrides", "accepted"),
+    [
+        ("uat", {}, True),
+        ("production", {"BACKEND_REVISION": "consent-protocol-known-good"}, True),
+        ("uat", {"FRONTEND_REVISION": '"; touch should-not-run; #'}, False),
+        ("production", {"BACKEND_REVISION": "consent-protocol-r1=100,other-r1"}, False),
+        ("production", {"BACKEND_REVISION": "hushh-webapp-target"}, False),
+        ("uat", {"BACKEND_REVISION": "consent-protocol-drive-worker-00001-abc"}, False),
+        ("uat", {"FRONTEND_REVISION": "hushh-webapp-00123-abc\nrevision=other"}, False),
+        ("production", {"ROLLBACK_SCOPE": "ALL"}, False),
+        ("production", {"ROLLBACK_SCOPE": "drive-worker"}, False),
+        ("uat", {"ROLLBACK_SCOPE": "drive-worker"}, False),
+        (
+            "uat",
+            {
+                "ROLLBACK_SCOPE": "drive-worker",
+                "WORKER_REVISION": "consent-protocol-drive-worker-00001-abc",
+            },
+            True,
+        ),
+        ("uat", {"ROLLBACK_REASON": " \r\n "}, False),
+    ],
+)
+def test_manual_rollback_validates_inputs_before_cloud_auth(environment, overrides, accepted):
+    job = yaml.safe_load((ROOT / ".github/workflows/rollback.yml").read_text())["jobs"][
+        f"rollback-{environment}"
+    ]
+    steps = job["steps"]
+    validate = next(step for step in steps if step["name"] == "Validate rollback dispatch inputs")
+    assert steps.index(validate) < next(
+        i for i, step in enumerate(steps) if step.get("id") == "gcp-auth"
+    )
+    assert all("${{ inputs." not in step.get("run", "") for step in steps)
+    assert all("${{ github.event.inputs." not in step.get("run", "") for step in steps)
+    result = subprocess.run(  # noqa: S603 -- Execute the authored preflight only, with synthetic inputs.
+        ["bash", "-e", "-c", validate["run"]],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "ROLLBACK_SCOPE": "all",
+            "BACKEND_REVISION": "",
+            "FRONTEND_REVISION": "",
+            "WORKER_REVISION": "",
+            "ROLLBACK_REASON": 'Correct a regression: `literal` "$(false)"',
+            **overrides,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is accepted, result.stderr
+
+
+@pytest.mark.parametrize("environment", ["uat", "production"])
+def test_manual_rollback_summary_keeps_free_text_literal(environment, tmp_path):
+    jobs = yaml.safe_load((ROOT / ".github/workflows/rollback.yml").read_text())["jobs"]
+    job = jobs[f"rollback-{environment}"]
+    summary = next(step for step in job["steps"] if step["name"] == "Rollback summary")
+    assert job["env"]["ROLLBACK_REASON"] == "${{ inputs.reason }}"
+    marker = tmp_path / "injected"
+    reason = f'"$(touch {marker})"\r\n## false heading\r```\n[link](https://example.com)'
+    output = tmp_path / "summary"
+    result = subprocess.run(  # noqa: S603 -- Execute the real summary script with synthetic inputs.
+        ["bash", "-e", "-c", summary["run"]],
+        env={
+            **os.environ,
+            "GITHUB_STEP_SUMMARY": str(output),
+            "GITHUB_ACTOR": "operator",
+            "ROLLBACK_ENVIRONMENT": environment,
+            "ROLLBACK_SCOPE": "all",
+            "ROLLBACK_REASON": reason,
+        },
+        check=False,
+    )
+    assert result.returncode == 0
+    assert not marker.exists()
+    assert output.read_text().endswith(
+        "\nReason\n\n" + "".join(f"    {line}\n" for line in reason.splitlines())
+    )

@@ -187,6 +187,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             ("ship-android-playstore-v1.yml", "native", "deploy-production"),
             ("publish-hushh-mcp.yml", "package", "deploy-production"),
             ("validate-plg-frontend-source.yml", "validation", "deploy-production"),
+            ("validate-production-recovery-source.yml", "validation", "deploy-production"),
             ("rollback.yml", "uat", "deploy-uat"),
             ("rollback.yml", "production", "deploy-production"),
         ]:
@@ -359,6 +360,28 @@ class DeploymentSecurityTest(unittest.TestCase):
                         {"contents": "read", "actions": "read", "pull-requests": "read"},
                     )
                     self.assertNotIn("steps", clearance)
+                if name == "validate-production-recovery-source.yml":
+                    validation = yaml.safe_load(source)
+                    self.assertEqual(
+                        set(jobs), {"source", "deployment-security", "functional", "gate"}
+                    )
+                    self.assertTrue(
+                        all(level == "read" for level in validation["permissions"].values())
+                    )
+                    self.assertTrue(all("environment" not in job for job in jobs.values()))
+                    self.assertEqual(clearance["needs"], "source")
+                    self.assertEqual(clearance["with"]["environment_name"], "validation")
+                    self.assertEqual(clearance["with"]["scope"], "validation")
+                    self.assertEqual(jobs["functional"]["needs"], ["source", "deployment-security"])
+                    self.assertEqual(jobs["functional"]["uses"], "./.github/workflows/ci.yml")
+                    self.assertEqual(jobs["functional"]["with"]["scope"], "all")
+                    self.assertNotIn("secrets", jobs["functional"])
+                    self.assertEqual(
+                        jobs["gate"]["needs"], ["source", "deployment-security", "functional"]
+                    )
+                    self.assertIn('test "$GITHUB_RUN_ATTEMPT:$SECURITY_ATTEMPT" = 1:1', source)
+                    self.assertIn('test "$SECURITY_SHA" = "$SOURCE_SHA"', source)
+                    continue
                 for key, job in jobs.items():
                     if name == "deploy-production.yml" and key == "validate-dispatch":
                         self.assertNotIn("needs", job)
