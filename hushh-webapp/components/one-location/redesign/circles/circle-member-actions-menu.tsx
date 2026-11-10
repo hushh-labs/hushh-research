@@ -448,7 +448,7 @@ export function CircleMemberActionsMenu({
                       className="w-full justify-center text-[color:var(--app-destructive)] hover:bg-transparent hover:text-[color:var(--app-destructive)]"
                       onClick={() => setSheetConfirmingRemove(true)}
                     >
-                      <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                      <Trash2 inheritColor className="mr-2 h-4 w-4" aria-hidden="true" />
                       Remove from Circle
                     </Button>
                   ) : null}
@@ -532,7 +532,7 @@ export function CircleMemberActionsMenu({
                 setConfirmRemoveOpen(true);
               }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 inheritColor className="h-4 w-4" />
               Remove from Circle
             </DropdownMenuItem>
           ) : null}

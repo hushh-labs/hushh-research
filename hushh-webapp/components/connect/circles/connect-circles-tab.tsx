@@ -1059,7 +1059,7 @@ export function ConnectCirclesTab({
                       <Button type="button" variant="none" effect="fade" size="icon-touch"
                         aria-label={`Delete ${group.label} type`} disabled={busy}
                         onClick={() => setPendingTypeDraft({ session: listSession, label: group.label })}>
-                        <Trash2 aria-hidden="true" className="size-4" />
+                        <Trash2 inheritColor aria-hidden="true" className="size-4" />
                       </Button>
                     ) : null}
                   </div>

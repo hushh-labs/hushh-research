@@ -26,6 +26,7 @@ export function ConnectPersonRow({
   leading,
   leadingInteractive = false,
   title,
+  titleSupplement,
   description,
   supplement,
   trailing,
@@ -39,6 +40,7 @@ export function ConnectPersonRow({
   leading: ReactNode;
   leadingInteractive?: boolean;
   title: ReactNode;
+  titleSupplement?: ReactNode;
   /** Relationship context, such as a connected date. Omitted when empty. */
   description?: ReactNode;
   /** An optional control that belongs under the text column but cannot sit inside the open control. */
@@ -51,25 +53,29 @@ export function ConnectPersonRow({
   testId?: string;
   className?: string;
 }) {
-  const IdentityControl = leadingInteractive ? PersonSelectionSurface : "button";
+  const IdentityControl = leadingInteractive || titleSupplement || supplement ? PersonSelectionSurface : "button";
   const identity = (
     <>
       {/* Centered on the text block, as in Feed's rows: pinned to the top it sat above
           a one-line name and half a line above a name with a second line. */}
-      <span className="grid w-[30px] place-items-center self-center">{leading}</span>
-      <span className="min-w-0">
-        <span
-          data-slot="settings-row-title"
-          className="block [overflow-wrap:anywhere]"
-        >
-          {title}
+      <span data-slot="settings-row-leading" className="grid w-[30px] place-items-center self-center">
+        {leading}
+      </span>
+      <span data-slot="settings-row-identity" className="min-w-0">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+          <span data-slot="settings-row-title" className="min-w-0 [overflow-wrap:anywhere]">
+            {title}
+          </span>
+          {titleSupplement}
         </span>
-        {description ? (
-          <span
-            data-slot="settings-row-description"
-            className="mt-px block [overflow-wrap:anywhere]"
-          >
-            {description}
+        {description || supplement ? (
+          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+            {description ? (
+              <span data-slot="settings-row-description" className="[overflow-wrap:anywhere]">
+                {description}
+              </span>
+            ) : null}
+            {supplement}
           </span>
         ) : null}
       </span>
@@ -104,7 +110,6 @@ export function ConnectPersonRow({
         ) : (
           <div className={identityClassName}>{identity}</div>
         )}
-        {supplement ? <div className="-mt-1 pb-1.5 pl-[38px]">{supplement}</div> : null}
       </div>
       {trailing ? (
         <div
@@ -134,7 +139,7 @@ export function ConnectDirectoryPersonRow({
         ? "Request sent"
         : person.relationship === "pending_incoming" ? "Wants to connect" : undefined}
       supplement={person.isRia === true ? (
-        <div className="space-y-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">
           <ConnectionStatusBadges riaVerified />
           {supplement}
         </div>
@@ -194,7 +199,7 @@ export function DirectoryMutualLine({
       data-network-focus="mutual"
       className={cn(
         lineClassName,
-        "min-h-11 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+        "min-h-9 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] [@media(pointer:fine)]:min-h-7",
         className,
       )}
     >

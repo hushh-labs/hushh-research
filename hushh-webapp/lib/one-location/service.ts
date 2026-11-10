@@ -1269,7 +1269,7 @@ export class OneLocationService {
     smsContactUserIds: string[];
     recipients: OneLocationRecipient[];
   }> {
-    const response = await apiJson<{
+    const response = await apiJsonWithRetry<{
       smsContactUserIds: string[];
       recipients?: OneLocationRecipientApiRow[];
     }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
@@ -1813,7 +1813,7 @@ export class OneLocationService {
     }
     if (code === "NEARBY_PRESENCE_LOCATION_STALE") {
       return {
-        message: "Your location reading expired. Refresh it and try again.",
+        message: "Couldn’t verify a current location. Try checking in again. If this continues, check your device’s date and time.",
         retryLocation: true,
         openAppSettings: false,
       };
