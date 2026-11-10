@@ -286,7 +286,8 @@ subagents:
       is incomplete, the person's needs conflict with exposure, or a more personal
       judgment is required. Give the reason or return null when no escalation is needed.
       Write the takeaway, reason and next step as short, complete sentences that fit each
-      field's length. Choose simpler wording if necessary. Return only the response schema.
+      field's length. Put one action in next_step in a sentence of at most 120 characters.
+      Keep examples and explanation in reason. Return only the response schema.
       You have no tools, source access, conversation history or write authority.
     privacy:
       context_allowlist: []

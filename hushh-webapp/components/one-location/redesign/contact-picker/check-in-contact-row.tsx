@@ -1,7 +1,7 @@
 "use client";
 
 import { Check } from "@/components/icons";
-import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { PERSON_ROW_FEEDBACK_CLASSNAME, PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { MediumRowLabel, RowDescription, StatusText } from "@/components/app-ui/typography";
 import { ContactAvatar } from "./atoms";
 import { cn } from "@/lib/utils";
@@ -39,9 +39,11 @@ export function ContactRow({
       disabled={disabled}
       aria-pressed={checked}
       className={cn(
-        "flex w-full items-center gap-[13px] py-3 text-left transition-opacity",
+        "flex w-full items-center gap-[13px] py-3 text-left",
         !isLast && "border-b border-black/[0.06] dark:border-white/[0.08]",
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+        !disabled && PERSON_ROW_FEEDBACK_CLASSNAME,
+        checked && !disabled && "bg-[color:var(--app-accent)]/[0.045]",
       )}
     >
       <ContactAvatar userId={userId}

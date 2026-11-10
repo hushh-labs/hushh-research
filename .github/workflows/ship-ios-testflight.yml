@@ -168,10 +168,17 @@ jobs:
             fi
             bash scripts/ci/require-deploy-sha-on-main.sh "$GITHUB_SHA"
             git fetch --no-tags origin "$SOURCE_BRANCH"
-            gh api "repos/$GITHUB_REPOSITORY/branches/$SOURCE_BRANCH" \
-              | jq -e --arg sha "$SHA" '.protected == true and .commit.sha == $sha' >/dev/null
+            PYTHONPATH=scripts/ci python3 -c '
+          import os
+          from uat_exact_ci import GitHub, REPOSITORY, require_protected_tip
+          require_protected_tip(
+              GitHub(REPOSITORY, os.environ["GITHUB_TOKEN"]),
+              os.environ["SHA"], os.environ["SOURCE_BRANCH"],
+          )
+          '
             # Run the candidate release controls with signing credentials only
-            # when they agree with the Main dispatch revision.
+            # when they agree with the Main dispatch revision. Test-only selectors
+            # and the uninvoked phone diagnostic are not signing/build inputs.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
               .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
@@ -185,7 +192,8 @@ jobs:
               ':(glob)scripts/ci/*ios*' ':(glob)scripts/ci/*testflight*' \
               ':(glob)scripts/ci/*appstore*' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' || {
+              ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }

@@ -43,8 +43,7 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
   review: AdvisorReview; context: FinanceShareContext; busy: boolean; run: Run;
 }) {
   const [date, setDate] = useState("");
-  const [hour, setHour] = useState("");
-  const [minute, setMinute] = useState("");
+  const [time, setTime] = useState("");
   const [duration, setDuration] = useState("30");
   const [deviceZone] = useState(() => calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone));
   const [zone, setZone] = useState(deviceZone);
@@ -53,7 +52,6 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
   const [confirmCancel, setConfirmCancel] = useState<string>();
   const meeting = review.meeting;
   const advisor = context.userId === review.advisorUserId;
-  const time = hour && minute ? `${hour}:${minute}` : "";
   const calendar = useAdvisorCalendar(context);
   const calendarReady = advisorCalendarReady(calendar);
   const past = review.pastMeetings ?? [];
@@ -82,7 +80,7 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
       const result = await AdvisorReviewService.meeting(context, review.id, "check", meeting?.proposalId, meeting?.id);
       if (context.isCurrent()) setCheck({
         id: meeting?.id,
-        label: result.status === "confirmed" ? "Checked just now" : statuses[result.status],
+        label: result.status === "confirmed" ? "Checked just now · Still on Google Calendar" : statuses[result.status],
       });
     } catch (error) {
       const label = error instanceof AdvisorReviewError ? error.message : "Couldn’t check Calendar. Try again.";
@@ -105,14 +103,12 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
       const selectedZone = calendarTimeZone(meeting.timeZone);
       const fields = bookingLocalFields(meeting.startAt, selectedZone);
       setDate(fields.date);
-      setHour(fields.time.slice(0, 2));
-      setMinute(fields.time.slice(3));
+      setTime(fields.time);
       setZone(selectedZone);
       setDuration(String((Date.parse(meeting.endAt) - Date.parse(meeting.startAt)) / 60_000));
     } else {
       setDate("");
-      setHour("");
-      setMinute("");
+      setTime("");
     }
     setEditId(meeting.id);
   };
@@ -129,7 +125,9 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
         <div className={styles.notice}>
           <div className={styles.row}>
             <strong className="text-foreground">{meetingTime(meeting, meetingZone)}</strong>
-            <span className="ui-text-helper-text">{confirmed && finished ? "Meeting ended" : statuses[meeting.status]}</span>
+            <span className={cn("ui-text-helper-text", confirmed && !finished && styles.meetingConfirmed)}>
+              {confirmed && finished ? "Meeting ended" : statuses[meeting.status]}
+            </span>
           </div>
           <p className="ui-text-helper-text">{durationLabel} · {meetingZone.split("/").at(-1)?.replaceAll("_", " ")} · {calendarTimeZoneOffset(meetingZone, meeting.startAt)}</p>
           {deviceZone !== meetingZone ? <p className="ui-text-helper-text">Your time · {meetingTime(meeting, deviceZone)}</p> : null}
@@ -176,10 +174,10 @@ export function AdvisorMeetingPanel({ review, context, busy, run }: {
         <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void choose(); }}>
           <div className="grid grid-cols-2 gap-2">
             <div className={styles.field}><span className="ui-text-form-label">Date</span><AdvisorDatePicker value={date} zone={zone} onChange={setDate} disabled={busy} /></div>
-            <div className={styles.field}><span className="ui-text-form-label">Time · 24h</span><AdvisorTimePicker hour={hour} minute={minute} onHour={setHour} onMinute={setMinute} disabled={busy} /></div>
+            <div className={styles.field}><span className="ui-text-form-label">Time</span><AdvisorTimePicker value={time} onChange={setTime} disabled={busy} /></div>
           </div>
           <div className={styles.field}><span className="ui-text-form-label">Duration</span><AdvisorDurationPicker value={duration} onChange={setDuration} disabled={busy} /></div>
-          <div className={styles.field}><span className="ui-text-form-label">Time zone</span><AdvisorTimeZonePicker value={zone} date={date} time={time} onChange={setZone} disabled={busy} /></div>
+          <div className={styles.field}><span className="ui-text-form-label">Time zone</span><AdvisorTimeZonePicker value={zone} deviceZone={deviceZone} date={date} time={time} onChange={setZone} disabled={busy} /></div>
           {automatic ? <p className="ui-text-helper-text">If the client accepts this exact time within 24 hours, Calendar sends the invite.</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
             {editing ? <ShellActionSurface variant="pill" onClick={() => setEditId(undefined)} disabled={busy}>Back</ShellActionSurface> : null}

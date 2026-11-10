@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PortfolioAnalysis } from "@/components/kai/views/portfolio-briefing";
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
-import { Search } from "@/components/icons";
+import { ChevronDown, Search } from "@/components/icons";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 import type { AdvisorReview } from "@/lib/advisor-review/contract";
@@ -121,49 +123,52 @@ export function AdvisorReviewHub({
       })}
     </SettingsGroup>
   );
-  const advisorCard = (
-    <SurfaceCard role="region" aria-label={cardTitle} className="[&>div]:h-full">
-      <SurfaceCardContent className="flex h-full flex-col gap-3 p-4">
+  const requestStatus = !context ? (
+    <p className="ui-text-row-description" role="status">Unlock One to manage advisor requests.</p>
+  ) : error ? (
+    <p className="ui-text-row-description" role="alert">{error}</p>
+  ) : !items.length ? (
+    <p className="ui-text-row-description">
+      {state?.context === context ? "No advisor requests yet." : "Checking requests…"}
+    </p>
+  ) : null;
+  const advisorCard = advisor ? (
+    <SurfaceCard role="region" aria-label={cardTitle}>
+      <SurfaceCardContent className="space-y-3 p-4">
         <h2 className="ui-text-section-label">{cardTitle}</h2>
-        {advisor ? (
-          <p className="ui-text-row-description">
-            Accept a request to connect and open its approved Finance snapshot.
-          </p>
-        ) : null}
-        {!context ? (
-          <p className="ui-text-row-description" role="status">
-            Unlock One to manage advisor requests.
-          </p>
-        ) : null}
-        {error ? <p className="ui-text-row-description" role="alert">{error}</p> : null}
-        {context && !items.length && !error ? (
-          <p className="ui-text-row-description">
-            {state?.context === context
-              ? "No advisor requests yet."
-              : "Checking requests…"}
-          </p>
-        ) : null}
-        {items.length ? (
-          advisor ? requestRows : (
-            <details>
-              <summary className="ui-text-compact-button-label cursor-pointer">Advisor requests · {items.length}</summary>
-              {requestRows}
-            </details>
-          )
-        ) : null}
-        {source ? (
-          <div className="mt-auto flex justify-end">
-            <ShellActionSurface
-              variant="pill"
-              className="min-h-11 ui-text-compact-button-label"
-              disabled={!context}
-              onClick={() => setCreating(true)}
-            >
-              <Search aria-hidden="true" className="size-3.5" />
-              Find an advisor
-            </ShellActionSurface>
+        <p className="ui-text-row-description">
+          Accept a request to connect and open its approved Finance snapshot.
+        </p>
+        {requestStatus}
+        {items.length ? requestRows : null}
+      </SurfaceCardContent>
+    </SurfaceCard>
+  ) : (
+    <SurfaceCard role="region" aria-label={cardTitle}>
+      <SurfaceCardContent className="px-4 py-1.5">
+        <Collapsible>
+          <div className="flex flex-wrap items-center justify-between gap-x-2">
+            <CollapsibleTrigger className="group inline-flex min-h-11 items-center gap-1.5 ui-text-section-label">
+              Advisor requests{items.length ? ` · ${items.length}` : ""}
+              <ChevronDown aria-hidden className="size-3 transition-transform group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
+            {source ? (
+              <ShellActionSurface
+                variant="pill"
+                className="min-h-11 ui-text-compact-button-label"
+                disabled={!context}
+                onClick={() => setCreating(true)}
+              >
+                <Search aria-hidden="true" className="size-3.5" />
+                Find an advisor
+              </ShellActionSurface>
+            ) : null}
           </div>
-        ) : null}
+          <CollapsibleContent className="pb-2">
+            {requestStatus}
+            {items.length ? requestRows : null}
+          </CollapsibleContent>
+        </Collapsible>
       </SurfaceCardContent>
     </SurfaceCard>
   );
@@ -181,12 +186,15 @@ export function AdvisorReviewHub({
           scope={session}
         />
       ) : !advisor && source && model ? (
-        <SurfaceCard>
-          <SurfaceCardContent className="p-4">
-            <h2 className="ui-text-section-label">Portfolio review</h2>
-            <p className="ui-text-helper-text">Unlock One to view your portfolio review.</p>
-          </SurfaceCardContent>
-        </SurfaceCard>
+        <>
+          <SurfaceCard>
+            <SurfaceCardContent className="p-4">
+              <h2 className="ui-text-section-label">Portfolio review</h2>
+              <p className="ui-text-helper-text">Unlock One to view your portfolio review.</p>
+            </SurfaceCardContent>
+          </SurfaceCard>
+          <PortfolioAnalysis />
+        </>
       ) : null}
       {advisorCard}
       {context && creating && source ? (

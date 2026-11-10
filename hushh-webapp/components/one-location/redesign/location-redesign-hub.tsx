@@ -78,7 +78,7 @@ import {
   InvitePersonPlusIcon,
   ManageConnectionsIcon,
 } from "@/components/icons/ui/people-action-icons";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { FlowActionGroup, QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -136,7 +136,7 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { PERSON_ROW_FEEDBACK_CLASSNAME, PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 
@@ -149,6 +149,7 @@ import {
 } from "./share-lanes";
 import {
   LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+  LOCATION_LINK_COPY_PILL_CLASSNAME,
   LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
   LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME,
   LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME,
@@ -3301,6 +3302,8 @@ function LocationSettingsFlow({
                 <Button
                   type="button"
                   size="prominent"
+                  data-location-action-fit=""
+                  className="h-auto py-3"
                   disabled={!draftScope}
                   onClick={commitAutoApproveScope}
                 >
@@ -3312,6 +3315,8 @@ function LocationSettingsFlow({
                   type="button"
                   variant="ghost"
                   size="standard"
+                  className={QUIET_FLOW_ACTION_CLASSNAME}
+                  disableHoverRipple
                   onClick={() => setScopeSheetOpen(false)}
                 >
                   Cancel
@@ -3518,7 +3523,7 @@ export function PersonRow({
             ? "grid-cols-[auto_minmax(0,1fr)] gap-2 sm:gap-3"
             : "grid-cols-[auto_minmax(0,1fr)_auto] gap-3",
           "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-          "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+          PERSON_ROW_FEEDBACK_CLASSNAME,
         )}
       >
         <div className="relative shrink-0">
@@ -3760,7 +3765,7 @@ export function CircleSummaryGroup({
         className={cn(
           "grid min-h-[68px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left outline-none transition-colors motion-reduce:transition-none",
           "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-          "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+          PERSON_ROW_FEEDBACK_CLASSNAME,
         )}
       >
         <span className="min-w-0">
@@ -3785,7 +3790,7 @@ export function CircleSummaryGroup({
             "relative grid min-h-[56px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5 text-left outline-none transition-colors motion-reduce:transition-none",
             "before:absolute before:left-4 before:right-4 before:top-0 before:h-px before:bg-[color:var(--app-separator)] before:content-['']",
             "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-            "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+            PERSON_ROW_FEEDBACK_CLASSNAME,
           )}
           data-testid="one-location-circle-invitations-summary"
         >
@@ -4592,7 +4597,7 @@ export function PublicLinkActionRows({
           size="compact"
           className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
         >
-          <span data-location-type-role="compact-action" className={cn(LOCATION_CONNECT_ACTION_PILL_CLASSNAME, "w-[116px]")}>
+          <span data-location-type-role="compact-action" className={cn(LOCATION_CONNECT_ACTION_PILL_CLASSNAME, LOCATION_LINK_COPY_PILL_CLASSNAME)}>
             {copyBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Copy className="h-4 w-4" />}
             {copyBusy ? "Copying…" : copyLabel}
           </span>
@@ -5373,7 +5378,8 @@ function ShareFlow({
                 variant="ghost"
                 size="standard"
                 onClick={() => onClose()}
-                className="bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
+                className={QUIET_FLOW_ACTION_CLASSNAME}
+                disableHoverRipple
               >
                 Cancel
               </Button>
@@ -5663,6 +5669,8 @@ function LiveShareDurationEditor({
           <Button
             variant="ghost"
             size="standard"
+            className={QUIET_FLOW_ACTION_CLASSNAME}
+            disableHoverRipple
             onClick={onCancel}
             disabled={saving}
             data-testid="one-location-live-share-duration-cancel"
@@ -5806,7 +5814,10 @@ function RequestRecipientListRow({
         onClick={rowSelectable ? onSelect : undefined}
         aria-label={rowSelectable ? actionAriaLabel : undefined}
         aria-pressed={rowSelectable ? selected : undefined}
-        className="grid w-full min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
+        className={cn(
+          "grid w-full min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 text-left",
+          rowSelectable && PERSON_ROW_FEEDBACK_CLASSNAME,
+        )}
       >
         <ContactAvatar userId={userId} label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
         <span className="min-w-0 flex-1">
@@ -6257,7 +6268,8 @@ function AskFlow({
                   variant="ghost"
                   size="standard"
                   onClick={() => onClose()}
-                  className="h-[50px] min-h-[50px] bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
+                  className={QUIET_FLOW_ACTION_CLASSNAME}
+                  disableHoverRipple
                 >
                   Cancel
                 </Button>

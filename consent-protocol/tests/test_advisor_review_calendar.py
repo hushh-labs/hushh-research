@@ -155,6 +155,34 @@ async def test_automatic_booking_rechecks_approval_at_the_provider_boundary(monk
     provider._provider_request.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_manual_confirmation_rejects_an_invitee_change_before_provider_write(monkeypatch):
+    review, saved = service(monkeypatch)
+    value = {**meeting(), "status": "booking"}
+    monkeypatch.setattr(review, "_accepted_review", lambda *args: {"owner_user_id": "owner"})
+    monkeypatch.setattr(review, "_require_shared_organizer", AsyncMock())
+    monkeypatch.setattr(review, "_email", lambda owner: "changed@example.test")
+    review.calendar.connections.access_token = AsyncMock(return_value="synthetic")
+    provider = GoogleCalendarService(connections=review.calendar.connections)
+    monkeypatch.setattr(provider, "_provider_request", AsyncMock())
+
+    async def execute(*, user_id, proposal_id, before_create):
+        return await provider._request(
+            user_id=user_id,
+            method="POST",
+            path="/calendars/primary/events",
+            access="manage",
+            expected_binding=["original-grant"],
+            before_write=before_create,
+        )
+
+    review.calendar.execute = AsyncMock(side_effect=execute)
+    with pytest.raises(AdvisorReviewError, match="INVITATION_EMAIL_REQUIRED"):
+        await review._dispatch("advisor", "request-1", "confirm", value, "proposal-1")
+    provider._provider_request.assert_not_called()
+    assert saved[-1]["status"] == "agreed"
+
+
 def test_followup_archives_the_introduction_and_rejects_stale_offer_ids(monkeypatch):
     from contextlib import nullcontext
 
