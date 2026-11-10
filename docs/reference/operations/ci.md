@@ -33,6 +33,11 @@ directly and needs only Actions read access. It does not request another broker
 run. Deployment still refreshes live membership before mutation; candidate build
 jobs remain unprivileged.
 
+Pass the two protected security secrets by their declared names at every reusable
+workflow hop: `GH_SECURITY_ALERTS_TOKEN` and `CI_TEAM_APP_PRIVATE_KEY`. Keep both
+required mappings; a thin caller lacking an environment is not a reason to remove
+them. Do not replace these bindings with broad secret inheritance.
+
 Explicit Dev/UAT release CI uses the verified serving comparison through the
 existing `uat_base_sha` input (`scope=all`). For Dev, supply the accepted Dev
 serving SHA. Graph validation checks that transition before replaying a landed

@@ -75,7 +75,6 @@ export function PhoneMandatePageContent() {
   const verificationDestination = normalizeStaticExportPathname(
     (redirectPath ?? "").split(/[?#]/)[0] ?? "",
   );
-  const isNearbyVerification = verificationDestination === ROUTES.ONE_LOCATION_CHECK_IN;
   const recoveryId = phoneRecoveryId(searchParams.get("recovery"));
   const {
     user,
@@ -141,7 +140,7 @@ export function PhoneMandatePageContent() {
       // screen. Fails open — any error, timeout or miss continues as normal.
       const claimRoute = await (async () => {
         // Resume the chosen operation before optional discovery.
-        if (isNearbyVerification || normalizeInvitationReturnTo(redirectPath)) return null;
+        if (normalizeInvitationReturnTo(redirectPath)) return null;
         // identity.phone_number is the authoritative verified number. The
         // Firebase user object is null here whenever the phone was confirmed
         // through the backend test-code path or any non-Firebase channel --
@@ -196,7 +195,7 @@ export function PhoneMandatePageContent() {
       });
       router.replace(nextPath);
     },
-    [ownerId, redirectPath, refreshUser, router, user, phoneNumber, isNearbyVerification],
+    [ownerId, redirectPath, refreshUser, router, user, phoneNumber],
   );
 
   const [verificationStep, setVerificationStep] = useState<
@@ -242,9 +241,9 @@ export function PhoneMandatePageContent() {
         /^\/one\/location\/invite\/[^/]+$/.test(invitationPath!) ||
         (invitationPath === ROUTES.CIRCLE_JOIN && invitationUrl.searchParams.get("invite")?.trim())
       ));
-      // Setup and nearby check-in also need explicit verification for
+      // Setup also needs explicit verification for
       // established accounts that are exempt from generic onboarding.
-      if (isTokenInvitation || verificationDestination === ROUTES.ONE_SETUP || isNearbyVerification) {
+      if (isTokenInvitation || verificationDestination === ROUTES.ONE_SETUP) {
         const identity = await AccountIdentityService.syncCurrentUser(user);
         if (cancelled) return;
         if (typeof identity?.phone_verified !== "boolean") {

@@ -2765,6 +2765,38 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "5f122f298e673dd4",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "bab8cfa1aa259f7c",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:phone_mandate.change_number",
       "from_revision": "19ebeade48749115",
       "from_version": 1,

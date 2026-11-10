@@ -59,6 +59,7 @@ const {
   mockOpenLocationSettings,
   mockOpenAppSettings,
   mockCaptureCurrentPosition,
+  mockGetRecentSosPosition,
   mockBusGetState,
   mockBusEnsure,
   mockReverseGeocode,
@@ -130,6 +131,7 @@ const {
   mockOpenLocationSettings: vi.fn(),
   mockOpenAppSettings: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
+  mockGetRecentSosPosition: vi.fn(),
   mockBusGetState: vi.fn(),
   mockBusEnsure: vi.fn(),
   mockReverseGeocode: vi.fn(),
@@ -444,6 +446,7 @@ vi.mock("@/lib/one-location/service", () => ({
     storeEnvelope: mockStoreEnvelope,
     sendSosEmails: mockSendSosEmails,
     captureCurrentPosition: mockCaptureCurrentPosition,
+    getRecentSosPosition: mockGetRecentSosPosition,
     reverseGeocode: mockReverseGeocode,
     placesAutocomplete: mockPlacesAutocomplete,
     placeDetails: mockPlaceDetails,
@@ -4701,6 +4704,51 @@ describe("OneLocationAgentPage", () => {
     const calls = vi.mocked(toast.success).mock.calls.length;
     await act(async () => finishEmail({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] }));
     expect(vi.mocked(toast.success).mock.calls).toHaveLength(calls);
+  });
+
+  it.each(["timeout", "denied"] as const)("handles an SOS capture %s before delivery", async (failure) => {
+    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockStoreEnvelope.mockResolvedValue({ recipientAlerted: true });
+    mockGetPermissionState.mockResolvedValue({
+      state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true,
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const capturedAt = new Date(Date.now() - 31_000).toISOString();
+    mockGetRecentSosPosition.mockReset().mockReturnValue({
+      latitude: 12.3, longitude: 45.6, accuracyM: 12, capturedAt, sourcePlatform: "web",
+    });
+    const captureError = failure === "denied"
+      ? Object.assign(new Error("Location permission denied"), { code: 1 })
+      : new Error("Location reading timed out");
+    mockCaptureCurrentPosition.mockRejectedValue(captureError);
+    mockCreateGrant.mockClear();
+    mockStoreEnvelope.mockClear();
+    mockSendSosEmails.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold).toBeEnabled());
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+
+    if (failure === "denied") {
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Location access is blocked")), { timeout: 4000 });
+      expect(mockGetRecentSosPosition).not.toHaveBeenCalled();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+      expect(mockStoreEnvelope).not.toHaveBeenCalled();
+      expect(mockSendSosEmails).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(mockSendSosEmails).toHaveBeenCalledWith(expect.objectContaining({
+        latitude: 12.3, longitude: 45.6, capturedAt,
+      })), { timeout: 4000 });
+      expect(mockGetRecentSosPosition).toHaveBeenCalledWith("user_a");
+      expect(mockEncryptLocationForRecipient).toHaveBeenCalledWith(expect.objectContaining({
+        point: expect.objectContaining({ latitude: 12.3, longitude: 45.6, capturedAt }),
+      }));
+      expect(mockStoreEnvelope).toHaveBeenCalled();
+      expect(toast.success).toHaveBeenCalledWith("SMS alert sent with your last known location.", expect.anything());
+    }
+    mockGetRecentSosPosition.mockReset();
   });
 
   it("does not prompt for location merely by opening Save My Soul", async () => {
