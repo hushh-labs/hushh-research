@@ -65,7 +65,6 @@ concurrency:
 env:
   NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
-  PRODUCTION_RECOVERY_SHA: ${{ inputs.production_recovery_sha }}
   UAT_CI_CANDIDATE: ${{ inputs.uat_candidate_sha }}
   UAT_CI_BASE: ${{ inputs.uat_base_sha }}
   CI_VALIDATION_POLICY: core-focused-v1
@@ -101,6 +100,7 @@ jobs:
         name: Checkout exact production recovery application
         if: inputs.production_recovery_sha != ''
         env:
+          PRODUCTION_RECOVERY_SHA: &recovery_sha ${{ inputs.production_recovery_sha }}
           EXPECTED_TREE: ${{ inputs.production_recovery_tree }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
         run: |
@@ -178,6 +178,8 @@ jobs:
       - name: Scan exact recovery changes with Main secret policy
         if: inputs.production_recovery_sha != ''
         shell: bash
+        env:
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
         run: |
           set -euo pipefail
           git show "$GITHUB_SHA:.gitleaks.toml" > "$RUNNER_TEMP/recovery-gitleaks.toml"
@@ -206,6 +208,7 @@ jobs:
 
       - name: Validate DCO signoff
         env:
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
           GITHUB_BASE_SHA: ${{ inputs.uat_base_sha || github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
           GITHUB_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
           GITHUB_BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
@@ -270,7 +273,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
 
       - uses: actions/setup-node@v6
@@ -297,10 +300,19 @@ jobs:
           CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
         run: bash scripts/ci/resolve-ci-changed-files.sh
 
+      # Governance runs Main tooling, but its impact is the admitted application delta.
+      - name: Resolve exact recovery change inventory
+        if: inputs.production_recovery_sha != ''
+        env:
+          CI_IMPACT_BASE_SHA: ${{ inputs.uat_base_sha }}
+          CI_IMPACT_HEAD_SHA: *recovery_sha
+        run: bash scripts/ci/resolve-ci-changed-files.sh
+
       - name: Plan unit concurrency
         id: unit-plan
         env:
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
         run: |
           if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
             # The historical runner uses the complete Vitest suite in three shards.
@@ -313,6 +325,7 @@ jobs:
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
           CI_PROTOCOL_CONTROLLER_OWNER: ${{ inputs.production_recovery_sha == '' && needs.paths.outputs.backend_required || 'false' }}
           CAPABILITY_GRAPH_BASE_REF: ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
@@ -814,6 +827,8 @@ jobs:
       - *prepare_recovery
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
+        env:
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
         run: |
           if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
             base="$UAT_CI_BASE"
@@ -946,8 +961,22 @@ jobs:
             ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
 
       - name: Run core web check script
-        run: bash scripts/ci/orchestrate.sh web-core
+        shell: bash
+        run: |
+          if [ -z "$PRODUCTION_RECOVERY_SHA" ]; then
+            bash scripts/ci/orchestrate.sh web-core
+          else
+            # Keep Main validators outside the sealed application checkout.
+            policy="$(mktemp -d "$RUNNER_TEMP/recovery-web-policy.XXXXXX")"
+            trap 'rm -rf -- "$policy"' EXIT
+            git archive "$GITHUB_SHA" scripts/ci/web-core-check.sh scripts/ci/validation-results.sh \
+              hushh-webapp/scripts/architecture hushh-webapp/scripts/voice | tar -x -C "$policy"
+            npm ci --prefix "$policy/hushh-webapp/scripts/architecture/ui-contract-tools" \
+              --ignore-scripts --no-audit --progress=false
+            UI_CONTRACT_BASE_SHA="$UAT_CI_BASE" bash "$policy/scripts/ci/web-core-check.sh" --recovery
+          fi
         env:
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           NEXT_PUBLIC_BACKEND_URL: https://api.example.com
           NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
@@ -1640,6 +1669,7 @@ jobs:
         id: verification-plan
         shell: bash
         env:
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
           UAT_SOURCE_BASE: ${{ inputs.uat_base_sha }}
           DISPATCH_SCOPE: ${{ inputs.scope }}
           SOURCE_REF: ${{ github.ref }}
@@ -1839,6 +1869,7 @@ jobs:
       - name: Validate job outcomes
         shell: bash
         env:
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           SCOPE: ${{ inputs.scope }}

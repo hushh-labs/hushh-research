@@ -300,6 +300,21 @@ def test_release_always_adds_core_authority_checks_and_only_affected_regressions
     assert "production-verification" in ids
 
 
+def test_recovery_selects_main_controllers_without_replacing_the_application_delta() -> None:
+    app_path = "hushh-webapp/app/one/page.tsx"
+    env = {"CI_VALIDATION_LEVEL": "release", "CI_CHANGED_FILES": app_path}
+    assert "release-controller-contracts" not in build_selection(env).check_ids
+
+    recovery_env = {**env, "PRODUCTION_RECOVERY_SHA": "a" * 40}
+    selection = build_selection(recovery_env)
+    assert selection.error is None
+    assert selection.files == (app_path,)
+    assert "release-controller-contracts" in selection.check_ids
+    assert build_selection({
+        "CI_VALIDATION_LEVEL": "release", "PRODUCTION_RECOVERY_SHA": "a" * 40,
+    }).error
+
+
 def test_bad_or_missing_change_list_fails_conservatively() -> None:
     for env in (
         {"CI_VALIDATION_LEVEL": "focused"},
@@ -482,6 +497,7 @@ def main() -> int:
         test_hyphenated_memory_gate_has_the_same_controller_owner_as_its_tests,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
+        test_recovery_selects_main_controllers_without_replacing_the_application_delta,
         test_bad_or_missing_change_list_fails_conservatively,
         test_changed_file_input_is_bounded_and_rejects_traversal,
         test_cli_commands_group_is_machine_readable_and_static,

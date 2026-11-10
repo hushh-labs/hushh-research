@@ -214,10 +214,14 @@ require a receipt from the retired `ci-security.yml` alert observer.
 After the validation workflow is reviewed and lands on Main, a production
 operator can dispatch **Validate Production Recovery Source** on `main` with
 `sha=84b80bcab6b5b7a4de21a5a992d3c969dacba5b9`. A new dispatch is required if
-the attempt fails. Each functional job checks out the recorded application
-without a source overlay. The full release scope uses that checkout's test
-inventory, the current Main CI job graph, DCO and Gitleaks policy, and the
-protected Deployment Security job. Recovery also requires the snapshot’s selected
+the attempt fails. Application tests run from the sealed checkout without an
+overlay. Governance runs Main's controller checks and selects affected checks
+from the exact first-parent application delta. Web Core applies Main's read-only
+Back/Search validators to the historical application; a missing source snapshot
+is diagnostic, while malformed receipts and structural failures still block.
+The full release scope retains the historical test inventory, current Main CI
+job graph, DCO and Gitleaks policy, and protected Deployment Security job.
+Recovery also requires the snapshot’s selected
 Chromium and WebKit contracts and its native WebKit document check. The run
 records the application SHA, its
 tree and comparison SHA, and the separate Main tooling SHA.

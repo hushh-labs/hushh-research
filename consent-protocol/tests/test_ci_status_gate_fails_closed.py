@@ -130,7 +130,12 @@ def _resolve(text: str, run: Run) -> str:
             "inputs.scope": run.scope,
             **{
                 f"inputs.{name}": run.inputs.get(name, "")
-                for name in ("uat_base_sha", "uat_candidate_sha", "uat_candidate_tree")
+                for name in (
+                    "uat_base_sha",
+                    "uat_candidate_sha",
+                    "uat_candidate_tree",
+                    "production_recovery_sha",
+                )
             },
         }
         assert expression in contexts, (
@@ -316,6 +321,27 @@ def test_negative_control_a_green_run_passes(name: str, run: Run, tmp_path: Path
     assert passed, (
         f"{name}: CI Status Gate failed a green run, so the failures above prove nothing:\n{output}"
     )
+
+
+def test_recovery_gate_uses_its_own_input_and_requires_the_historical_partition(
+    tmp_path, monkeypatch
+):
+    # In the failed qualification, Governance's real recovery context leaked
+    # into its simulated ordinary runs, making their green controls fail.
+    monkeypatch.setenv("PRODUCTION_RECOVERY_SHA", "a" * 40)
+    ordinary = replace(
+        _dispatch(_selected(frontend=True, backend=True, document=True)), scope="all"
+    )
+    passed, output = _verdict(ordinary, tmp_path)
+    assert passed, output
+
+    recovery = replace(ordinary, inputs={"production_recovery_sha": HEAD_SHA}).with_result(
+        "protocol-database-check-two", "skipped"
+    )
+    passed, output = _verdict(recovery, tmp_path)
+    assert passed, output
+    assert not _verdict(recovery.with_result("protocol-database-check", "skipped"), tmp_path)[0]
+    assert not _verdict(replace(recovery, scope="auto"), tmp_path)[0]
 
 
 @pytest.mark.parametrize("override", ["uat_base_sha", "uat_candidate_sha", "uat_candidate_tree"])

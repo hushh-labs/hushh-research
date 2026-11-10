@@ -496,6 +496,9 @@ def build_selection(env: dict[str, str]) -> Selection:
     requested_groups = set(groups)
     if level == "release":
         requested_groups.add("release")
+        if env.get("PRODUCTION_RECOVERY_SHA"):
+            # Main owns these controller checks; historical Protocol cannot cover them.
+            requested_groups.add("controller")
     ids = tuple(
         check.check_id
         for check in CHECKS
@@ -571,10 +574,13 @@ def _checks_for_selection(selection: Selection, env: dict[str, str]) -> tuple[Ch
 
 def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> int:
     failures: list[tuple[str, str]] = []
+    # This selects Main's regression checks; it is not input to their child processes.
+    child_env = dict(os.environ)
+    child_env.pop("PRODUCTION_RECOVERY_SHA", None)
     for check in checks:
         print(f"\n[governance:{check.check_id}] {' '.join(check.argv)}", flush=True)
         try:
-            result = subprocess.run(check.argv, cwd=ROOT, check=False)
+            result = subprocess.run(check.argv, cwd=ROOT, env=child_env, check=False)
             status = result.returncode
         except OSError as exc:
             status = 127
