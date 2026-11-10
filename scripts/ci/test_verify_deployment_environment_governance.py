@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import traceback
 from pathlib import Path
 
 
@@ -583,10 +584,18 @@ def main() -> int:
         test_capacity_clock_summary_reports_due_checks_scope_and_next_wait,
         test_capacity_clock_refuses_to_queue_before_its_wait,
     ]
+    failures = []
     for test in tests:
-        test()
-        print(f"ok {test.__name__}")
-    return 0
+        try:
+            test()
+        except Exception:
+            traceback.print_exc()
+            failures.append(test.__name__)
+        else:
+            print(f"ok {test.__name__}")
+    if failures:
+        print("Failed environment checks: " + ", ".join(failures), file=sys.stderr)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
