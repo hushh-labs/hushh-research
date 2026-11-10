@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { CheckCircle2 } from "@/components/icons";
 
 import { CalendarConnectIllustration } from "@/components/calendar/calendar-connect-illustration";
 import { Button } from "@/components/ui/button";
@@ -14,34 +13,6 @@ type CalendarConnectHeroProps = {
   /** Sign-in progress and cancel affordance, rendered under the action. */
   children?: ReactNode;
 };
-
-/**
- * Everything one Google consent asks for, by product, so nothing is a surprise
- * on Google's screen. The same set is requested for the first and every added
- * account. Email follow-ups stay off until turned on for each account.
- */
-const SETUP_PERMISSIONS = [
-  "Calendar: see events and free time; create, move and answer meetings you approve",
-  "Google Meet: find your recordings and notes",
-  "Google Drive: open Meet files and see details of files shared with you",
-  "Gmail: find meeting follow-ups once turned on; send meeting emails you review",
-] as const;
-
-export function CalendarSetupPermissions() {
-  return (
-    <div className={`${presentationStyles.permissions} mt-5 w-full max-w-[320px] text-left`} data-testid="calendar-setup-permissions">
-      <p className={presentationStyles.permissionsHeading}>What you allow on Google</p>
-      <ul>
-        {SETUP_PERMISSIONS.map((item) => (
-          <li key={item}>
-            <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 /**
  * The illustration whenever Calendar needs a connection. Presentational
@@ -89,8 +60,6 @@ export function CalendarConnectHero({
       >
         Connect your calendar
       </Button>
-
-      <CalendarSetupPermissions />
 
       {children}
     </section>
