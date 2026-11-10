@@ -37,10 +37,10 @@ describe("One Location capture-options boundary", () => {
 
     // Declared with the parameter — a zero-arity declaration is the bug.
     expect(source).toContain(
-      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n    }): Promise<PlainLocationPoint> => {",
+      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n      requireMeasurement?: boolean;\n    }): Promise<PlainLocationPoint> => {",
     );
     expect(source).toContain(
-      "async (options?: { maxAgeMs?: number; fresh?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
+      "async (options?: { maxAgeMs?: number; fresh?: boolean; requireMeasurement?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
     );
 
     // And actually forwarded to the service, not dropped.
@@ -66,7 +66,9 @@ describe("One Location capture-options boundary", () => {
     const source = read(
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
     );
-    expect(source).toContain("captureCurrentPosition({ fresh: true })");
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "captureCurrentPosition(forceNew ? { maxAgeMs: 0, requireMeasurement: true } : { fresh: true, requireMeasurement: true })",
+    );
   });
 
   it("the check-in sheet's prop type accepts options at all", () => {
@@ -74,7 +76,7 @@ describe("One Location capture-options boundary", () => {
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
     );
     expect(source).toContain(
-      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n  }) => Promise<PlainLocationPoint>;",
+      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n    requireMeasurement?: boolean;\n  }) => Promise<PlainLocationPoint>;",
     );
   });
 });
