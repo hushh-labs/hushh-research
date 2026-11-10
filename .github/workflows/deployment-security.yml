@@ -44,7 +44,7 @@ permissions:
 
 jobs:
   alerts:
-    name: Verify request authority or release clearance
+    name: Verify repository secret clearance
     if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     environment: ci-security
@@ -67,7 +67,7 @@ jobs:
           owner: hushh-labs
           repositories: hushh-research
           permission-members: read
-      - name: Authorize request or inspect release inventory
+      - name: Read protected repository inventory
         id: clearance
         run: python3 scripts/ci/deployment_security.py
         env:
