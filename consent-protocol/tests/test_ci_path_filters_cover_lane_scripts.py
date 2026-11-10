@@ -444,7 +444,21 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
     assert schema["auth_health_only"] == "false"
 
     backend_output = jobs["preflight-gate"]["outputs"]["backend"]
-    assert "needs.paths.outputs.auth_health_only == 'true'" in backend_output
+    assert backend_output == "${{ needs.paths.outputs.backend_required }}"
+    required = jobs["paths"]["outputs"]["backend_required"]
+    assert (
+        required
+        == "${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || steps.resolve.outputs.auth_health_only == 'true') && 'false' || steps.resolve.outputs.backend }}"
+    )
+    governance_step = next(
+        step
+        for step in jobs["repo-governance"]["steps"]
+        if step.get("name") == "Run repo governance checks"
+    )
+    assert (
+        governance_step["env"]["CI_PROTOCOL_CONTROLLER_OWNER"]
+        == "${{ inputs.production_recovery_sha == '' && needs.paths.outputs.backend_required || 'false' }}"
+    )
     assert jobs["preflight-gate"]["needs"] == [
         "ui-contracts",
         "secret-scan",
