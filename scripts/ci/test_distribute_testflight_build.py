@@ -226,6 +226,25 @@ class DistributeTestFlightBuildTests(unittest.TestCase):
         self.assertLess(detail_post, relationship_posts[0])
         self.assertLess(localization_post, relationship_posts[0])
 
+    def test_internal_only_leaves_external_groups_and_review_untouched(self) -> None:
+        apple = FakeApple(external_review_state="REJECTED")
+        internal = subject.DistributionConfiguration.from_values(
+            internal_group_id=INTERNAL_GROUP_ID, external_group_id="",
+            review_contact_json="", review_notes="", internal_only=True,
+        )
+        result = subject.distribute_valid_build(
+            client=subject.AppStoreConnectClient("test", request=apple.request),
+            app_id=APP_ID, marketing_version="1.4.0", build_number="69",
+            configuration=internal, build_id=BUILD_ID,
+        )
+        self.assertEqual(result["external"], "not_requested")
+        self.assertEqual(apple.assignments[INTERNAL_GROUP_ID], {BUILD_ID})
+        self.assertEqual(apple.assignments[EXTERNAL_GROUP_ID], set())
+        for _, url, _ in apple.calls:
+            self.assertNotIn(EXTERNAL_GROUP_ID, url)
+            self.assertNotIn("betaAppReview", url)
+            self.assertNotIn("betaBuildLocalizations", url)
+
     def test_exact_build_id_handoff_does_not_requery_transient_upload(self) -> None:
         apple = FakeApple(external_review_state="APPROVED")
         result = subject.distribute_valid_build(

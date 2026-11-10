@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-"""Attach one VALID TestFlight build to internal and external beta groups.
+"""Attach one VALID TestFlight build to the explicitly selected beta groups.
 
 This tool is deliberately limited to App Store Connect's TestFlight beta
 resources. It never creates an App Store version, an App Store submission, or
@@ -98,8 +98,9 @@ class BetaReviewContact:
 class DistributionConfiguration:
     internal_group_id: str
     external_group_id: str
-    review_contact: BetaReviewContact
+    review_contact: BetaReviewContact | None
     review_notes: str
+    internal_only: bool = False
 
     @classmethod
     def from_values(
@@ -109,8 +110,11 @@ class DistributionConfiguration:
         external_group_id: str,
         review_contact_json: str,
         review_notes: str,
+        internal_only: bool = False,
     ) -> "DistributionConfiguration":
         internal = validate_resource_id("internal TestFlight group", internal_group_id)
+        if internal_only:
+            return cls(internal, "", None, "", internal_only=True)
         external = validate_resource_id("external TestFlight group", external_group_id)
         if internal == external:
             raise DistributionError("internal and external TestFlight groups must differ")
@@ -459,7 +463,16 @@ def distribute_valid_build(
         client, app_id, marketing_version, build_number, build_id=build_id
     )
     require_group_type(client, configuration.internal_group_id, is_internal=True)
+    if configuration.internal_only:
+        assignment = attach_build_once(client, configuration.internal_group_id, build_id)
+        return {
+            "build_id": build_id, "internal": "active", "internal_assignment": assignment,
+            "external": "not_requested", "external_assignment": "not_requested",
+            "external_beta_review_state": "NOT_REQUESTED",
+        }
     require_group_type(client, configuration.external_group_id, is_internal=False)
+    if configuration.review_contact is None:
+        raise DistributionError("external TestFlight requires beta review contact")
     # Apple requires the beta-review metadata to be present before an external
     # group can accept a build. Prepare it before the relationship writes, but
     # leave the actual beta-review submission to an explicit operator action.
@@ -536,6 +549,7 @@ def die(message: str) -> NoReturn:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--internal-only", action="store_true", help="Attach only to the internal group; do not prepare external review")
     parser.add_argument("--p8-path", default=os.environ.get("APPSTORE_CONNECT_API_KEY_PATH"))
     parser.add_argument("--key-id", default=os.environ.get("ASC_KEY_ID"))
     parser.add_argument("--issuer-id", default=os.environ.get("ASC_ISSUER_ID"))
@@ -606,10 +620,10 @@ def read_build_id_file(path: str, *, build_number: str) -> str:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     try:
-        review_contact_json = read_optional_file(
+        review_contact_json = None if args.internal_only else read_optional_file(
             args.beta_review_contact_file, "beta review contact"
         ) or args.beta_review_contact_json
-        review_notes = read_optional_file(
+        review_notes = None if args.internal_only else read_optional_file(
             args.beta_review_notes_file, "beta review notes"
         ) or args.beta_review_notes
         if args.build_id and args.build_id_file:
@@ -632,7 +646,9 @@ def main(argv: list[str]) -> int:
             ("--beta-review-contact-json", review_contact_json),
             ("--beta-review-notes", review_notes),
         )
-        if not value
+        if not value and not (args.internal_only and name in {
+            "--external-group-id", "--beta-review-contact-json", "--beta-review-notes",
+        })
     ]
     if missing:
         die(f"missing required argument(s): {', '.join(missing)}")
@@ -642,6 +658,7 @@ def main(argv: list[str]) -> int:
             external_group_id=args.external_group_id,
             review_contact_json=review_contact_json,
             review_notes=review_notes,
+            internal_only=args.internal_only,
         )
         token = mint_jwt(args.p8_path, args.key_id, args.issuer_id)
         client = AppStoreConnectClient(token)
