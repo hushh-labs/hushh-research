@@ -125,6 +125,9 @@ def test_actual_ios_resolve_retries_only_the_bounded_artifact_collision(
         for item in _steps(_load_workflow(MONO_WORKFLOW_PATH), "ios-native-check")
         if item.get("name") == "Resolve Swift package dependencies"
     )
+    partial = tmp_path / "spm-cache" / "artifacts" / "partial-download"
+    partial.parent.mkdir(parents=True)
+    partial.write_bytes(b"partial")
     result = subprocess.run(
         ["bash", "-eo", "pipefail"],
         input=step["run"],
@@ -134,6 +137,7 @@ def test_actual_ios_resolve_retries_only_the_bounded_artifact_collision(
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "RUNNER_TEMP": str(tmp_path),
             "SPM_CACHE_HIT": "false",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output"),
             "XCODE_PROJECT": "synthetic/App.xcodeproj",
             "XCODE_SCHEME": "App",
             "RESOLVE_TEST_ERROR": first_error,
@@ -146,6 +150,7 @@ def test_actual_ios_resolve_retries_only_the_bounded_artifact_collision(
         check=False,
     )
     assert result.returncode == expected_code, result.stdout + result.stderr
+    assert not partial.exists(), "an incomplete cache restore must not reach resolution"
     calls = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
     assert len(calls) == expected_calls
     assert all(call == calls[0] for call in calls)
