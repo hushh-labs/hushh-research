@@ -486,3 +486,39 @@ async def test_ria_cleanup_requires_its_own_scheduler_identity(monkeypatch):
     monkeypatch.setattr(routes, "test_config", lambda: ("synthetic-key", "synthetic-signer"))
     assert await routes.cleanup("Bearer synthetic-scheduler") == {"settled": 1}
     drain.assert_awaited_once_with(limit=2)
+
+
+@pytest.mark.asyncio
+async def test_sandbox_payout_status_reads_a_real_stripe_list_object():
+    from types import SimpleNamespace
+
+    import stripe
+
+    from hushh_mcp.services.advisor_review_payouts import AdvisorSandboxPayouts
+
+    payout = {
+        "id": "po_test",
+        "livemode": False,
+        "type": "bank_account",
+        "currency": "usd",
+        "status": "paid",
+        "amount": 2500,
+    }
+    listed = stripe.ListObject.construct_from({"object": "list", "data": [payout]}, "sk_test_x")
+    service = AdvisorSandboxPayouts.__new__(AdvisorSandboxPayouts)
+    service.viewer, service.key = "advisor", "sk_test_" + "x" * 24
+    service.payouts = SimpleNamespace(
+        refresh_account=lambda _viewer: _async(
+            {"stripe_account_id": "acct_test", "readiness": {"ready": True, "status": "ready"}}
+        )
+    )
+    service.provider = SimpleNamespace(Payout=SimpleNamespace(list=lambda **_kwargs: listed))
+    assert await service.status() == {
+        "mode": "test",
+        "setup": "ready",
+        "latest": {"status": "paid", "amountCents": 2500, "currency": "usd"},
+    }
+
+
+async def _async(value):
+    return value

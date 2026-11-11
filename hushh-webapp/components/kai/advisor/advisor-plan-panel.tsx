@@ -32,8 +32,6 @@ export function AdvisorPlanPanel({
 }) {
   const advisor = context.userId === review.advisorUserId;
   const canStartPlan = review.status === "accepted";
-  const introductionComplete = review.meeting?.status === "completed" ||
-    review.pastMeetings?.some((meeting) => meeting.status === "completed");
   const [price, setPrice] = useState("");
   const [services, setServices] = useState("");
   const [terms, setTerms] = useState("");
@@ -200,13 +198,12 @@ export function AdvisorPlanPanel({
           </>
         ) : (
           <p className="ui-text-helper-text">
-            {!introductionComplete ? "Available after the introduction."
-              : !advisor ? "Waiting for the advisor’s offer."
+            {!advisor ? "Waiting for the advisor’s offer."
               : payoutReady ? "Set a price and describe what’s included."
               : "Set up test payouts to offer a plan."}
           </p>
         )}
-        {advisor && introductionComplete && canStartPlan && payoutReady ? (
+        {advisor && canStartPlan && payoutReady ? (
           <details>
             <summary className="ui-text-button-label">Offer or update a plan</summary>
             <form className={styles.stack} onSubmit={(event) => {

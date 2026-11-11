@@ -84,11 +84,11 @@ meeting state.
 After the confirmed end time either participant can schedule another meeting.
 Past meetings remain in the workspace. The advisor can mark the original
 introduction complete after its end, including after a follow-up is proposed.
-Only that completed introduction makes the optional advisor plan available.
+A meeting is optional. The advisor plan is available once the review is accepted, with or without a meeting.
 
 ## Advisor offers and one-time payments
 
-After the introduction, the advisor sets a one-time USD price. Service details
+Once the review is accepted, the advisor sets a one-time USD price. Service details
 and cancellation terms are optional. The advisor must finish sandbox payout setup in Plan
 before offering a plan. The owner reviews the exact revision and explicitly
 approves the payment before Checkout. An uncertain checkout reuses its reserved

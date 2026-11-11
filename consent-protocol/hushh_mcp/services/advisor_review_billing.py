@@ -25,7 +25,6 @@ from hushh_mcp.services.advisor_payment_checkout import (
 from hushh_mcp.services.advisor_review_notifications import notify_counterpart
 from hushh_mcp.services.advisor_review_store import (
     AdvisorReviewError,
-    introduction_complete,
     load,
     lock_review,
     require_accepted,
@@ -111,8 +110,6 @@ class AdvisorBillingService:
             require_accepted(conn, row)
             if advisor != row["advisor_user_id"]:
                 raise AdvisorReviewError("ADVISOR_WRONG_PARTICIPANT", 403)
-            if not introduction_complete(row):
-                raise AdvisorReviewError("ADVISOR_INTRODUCTION_REQUIRED", 409)
             account = payee(conn, advisor)
             existing = one(
                 conn,

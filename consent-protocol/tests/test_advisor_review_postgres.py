@@ -1,6 +1,5 @@
 """Real transactional connection activation, sealed-snapshot release and erasure."""
 
-import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -236,11 +235,6 @@ def test_one_time_checkout_reuses_open_session_and_preserves_prior_payment(advis
         );
         INSERT INTO stripe_owner_payout_accounts VALUES ('bob','test','acct_advisor',true,true);
         """)
-        )
-        conn.execute(
-            text("""UPDATE advisor_review_requests SET meeting=CAST(:meeting AS jsonb)
-            WHERE id=CAST(:id AS uuid)"""),
-            {"id": request_id, "meeting": json.dumps({"status": "completed"})},
         )
     session = {
         "id": "cs_test_advisor",
