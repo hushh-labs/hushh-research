@@ -184,7 +184,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     ? `${laneStyles.surface} flex h-full min-h-0 flex-col overflow-visible bg-transparent`
     : `${inlineStyles.surface} overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card`}>
     {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
-      {collapsible ? <Button variant="link" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
+      {collapsible ? <Button variant="text" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
         <MessageCircle aria-hidden="true" className="size-4" /> Circle chat
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 text-primary-foreground">{state.unreadCount}</span> : null}
       </Button> : <div className="flex min-w-0 items-center gap-2 text-sm font-semibold"><MessageCircle className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Circle chat</span>
@@ -200,7 +200,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     {open && paneActive && state && !state.muted && !revoked ? <div className="px-3 pt-3"><FeedPushPrompt context="chat" /></div> : null}
     {!chatLane && !state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
-    {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="link" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
+    {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="text" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
     {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={`${threadScope.current.revision}:${state.membershipJoinedAt ?? "legacy"}`} circleName={circleName} session={session} membershipJoinedAt={state.membershipJoinedAt} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { accessLost.current?.(); setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
@@ -654,7 +654,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
       }
     } finally { if (sendAttempt.current === attempt) sendAttempt.current = null; sendLock.current = false; if (active.current) setSending(false); }
   };
-  const latestControl = anchored.current || !atBottom && messages.length ? <Button variant={chatLane ? "link" : "ghost"} size="sm" disabled={jumping} className={chatLane ? quietStyles.action : "min-h-11 rounded-full border border-border bg-card shadow-sm"} onClick={() => {
+  const latestControl = anchored.current || !atBottom && messages.length ? <Button variant={chatLane ? "text" : "ghost"} size="sm" disabled={jumping} className={chatLane ? quietStyles.action : "min-h-11 rounded-full border border-border bg-card shadow-sm"} onClick={() => {
       if (anchored.current) { void showWindow(); return; }
       atBottomRef.current = true;
       if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
@@ -665,7 +665,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
       className={chatLane
         ? `${laneStyles.transcript} overflow-y-auto overscroll-contain bg-transparent py-4 sm:py-5`
         : `${inlineStyles.transcript} h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5`}>
-      {hasOlder ? <Button variant="link" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
+      {hasOlder ? <Button variant="text" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
         rememberReadingPosition(true);
         atBottomRef.current = false; setAtBottom(false);
