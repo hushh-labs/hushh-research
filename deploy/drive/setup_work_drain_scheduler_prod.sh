@@ -29,6 +29,7 @@ TIMEZONE="${TIMEZONE:-${PROD_TIMEZONE}}"
 SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-${PROD_SCHEDULER_SERVICE_ACCOUNT_NAME}}"
 SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_EMAIL:-}"
 OIDC_AUDIENCE="${OIDC_AUDIENCE:-}"
+RESUME_PAUSED_WORKER_JOB="${RESUME_PAUSED_WORKER_JOB:-false}"
 
 if [[ -z "${BACKEND_URL}" || -z "${OIDC_AUDIENCE}" ]]; then
   echo "BACKEND_URL and OIDC_AUDIENCE are required" >&2
@@ -89,6 +90,13 @@ case "${BACKEND_URL}" in
     ;;
 esac
 
+if [[ ! "${RESUME_PAUSED_WORKER_JOB}" =~ ^(true|false)$ ||
+    ( "${RESUME_PAUSED_WORKER_JOB}" == true &&
+      ( "${BACKEND_URL}" == "${PROD_PUBLIC_BACKEND_ORIGIN}" || "${BACKEND_URL}" == "${PROD_RUNTIME_BACKEND_ORIGIN}" ) ) ]]; then
+  echo "Only an admitted private worker promotion may resume a paused Drive job" >&2
+  exit 1
+fi
+
 EXPECTED_SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 if [[ -n "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
   && "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" != "${EXPECTED_SCHEDULER_SERVICE_ACCOUNT_EMAIL}" ]]; then
@@ -142,28 +150,40 @@ else
     --headers="Content-Type=application/json" >/dev/null
 fi
 
-JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
-  --project="${PROJECT_ID}" \
-  --location="${SCHEDULER_LOCATION}" \
-  --format='value(state,schedule,httpTarget.uri,httpTarget.httpMethod,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience)')"
-EXPECTED="ENABLED"$'\t'"${CRON}"$'\t'"${URI}"$'\t'"POST"$'\t'"${SCHEDULER_SERVICE_ACCOUNT_EMAIL}"$'\t'"${OIDC_AUDIENCE}"
-if [[ "${JOB_EVIDENCE}" != "${EXPECTED}" ]]; then
-  echo "Cloud Scheduler verification failed for ${JOB_NAME}" >&2
-  exit 1
-fi
-if ! gcloud scheduler jobs describe "${JOB_NAME}" \
-  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format=json \
-  | EXPECTED_STAGE="${STAGE}" python3 -c '
+describe_job() {
+  gcloud scheduler jobs describe "${JOB_NAME}" \
+    --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
+    --format='value(state,schedule,httpTarget.uri,httpTarget.httpMethod,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience)'
+}
+
+verify_stage_body() {
+  gcloud scheduler jobs describe "${JOB_NAME}" \
+    --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format=json \
+    | EXPECTED_STAGE="${STAGE}" python3 -c '
 import base64, json, os, sys
 job = json.load(sys.stdin)
 body = ((job.get("httpTarget") or {}).get("body") or "")
 expected = json.dumps({"stage": os.environ["EXPECTED_STAGE"]}, separators=(",", ":")).encode()
 if base64.b64decode(body, validate=True) != expected:
     raise SystemExit("Drive scheduler stage body did not match the fixed job")
-'; then
-  echo "Cloud Scheduler stage verification failed for ${JOB_NAME}" >&2
+'
+}
+
+EXPECTED_TARGET=$'\t'"${CRON}"$'\t'"${URI}"$'\t'"POST"$'\t'"${SCHEDULER_SERVICE_ACCOUNT_EMAIL}"$'\t'"${OIDC_AUDIENCE}"
+JOB_EVIDENCE="$(describe_job)"
+if [[ "${RESUME_PAUSED_WORKER_JOB}" == true && "${JOB_EVIDENCE}" == "PAUSED${EXPECTED_TARGET}" ]]; then
+  # Updating the target leaves a paused job paused. Prove the exact retargeted
+  # body before resuming; the caller owns its original snapshot and rollback.
+  verify_stage_body
+  gcloud scheduler jobs resume "${JOB_NAME}" \
+    --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --quiet >/dev/null
+  JOB_EVIDENCE="$(describe_job)"
+fi
+if [[ "${JOB_EVIDENCE}" != "ENABLED${EXPECTED_TARGET}" ]]; then
+  echo "Cloud Scheduler verification failed for ${JOB_NAME}" >&2
   exit 1
 fi
+verify_stage_body
 
 # The job stores only a service-account identity and audience. It dispatches
 # background work; a successful attempt never means a person saw a prompt or

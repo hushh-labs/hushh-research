@@ -52,6 +52,7 @@ CI_PRODUCTION_TOOLS = (
     "resolve-rollback-target.sh",
     "production-capacity-bridge.py",
     "production_capacity_bridge_contract.py",
+    "production_recovery_capacity.py",
     "release_artifact_receipts.py",
     "release_cadence.py",
     "release_cadence_github.py",

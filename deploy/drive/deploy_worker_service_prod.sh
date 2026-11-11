@@ -326,7 +326,10 @@ for fixed_job in "${fixed_jobs[@]}"; do
     drive-work-suggestions-prod) fixed_stage=suggestions; fixed_cron='* * * * *' ;;
     drive-work-sharing-prod) fixed_stage=sharing; fixed_cron='* * * * *' ;;
   esac
-  JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \
+  resume_paused=false
+  if [[ "${release_phase}" == activate ]]; then resume_paused=true; fi
+  RESUME_PAUSED_WORKER_JOB="${resume_paused}" \
+    JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \
     BACKEND_URL="${worker_url}" OIDC_AUDIENCE="${SCHEDULER_AUDIENCE}" \
     bash deploy/drive/setup_work_drain_scheduler_prod.sh
 done
