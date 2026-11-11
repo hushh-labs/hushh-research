@@ -78,7 +78,7 @@ it("allows a recipient without a portfolio to manage received access but not cre
   expect(screen.getByText("Add a portfolio to share.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
   expect(await screen.findByText("Owner")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Shared by you" })).toBeDisabled();
+  expect(screen.queryByRole("tab", { name: "Shared by you" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "View", exact: true }));
   expect(await screen.findByText(/decrypted-sentinel/)).toBeVisible();
   expect(mocks.recipients).not.toHaveBeenCalled();
@@ -93,9 +93,7 @@ it("keeps existing outgoing access revocable after its portfolio is removed", as
   await screen.findByText("Recipient");
   view.rerender(<FinanceSharingManager open hasPortfolio={false} onOpenChange={vi.fn()} />);
   await waitFor(() => expect(screen.queryByText("Recipient")).toBeNull());
-  const byYou = screen.getByRole("button", { name: "Shared by you" });
-  await waitFor(() => expect(byYou).not.toBeDisabled());
-  fireEvent.click(byYou);
+  fireEvent.click(await screen.findByRole("tab", { name: "Shared by you" }));
   await screen.findByText("Recipient");
   fireEvent.click(screen.getByRole("button", { name: "Stop sharing", exact: true }));
   const confirmation = screen.getByRole("dialog", { name: "Stop sharing with Recipient?" });
@@ -264,7 +262,7 @@ it("does not append a late outgoing page after the owner switches to received sh
   render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
   await screen.findByText("outgoing");
   fireEvent.click(screen.getByRole("button", { name: "More shares" }));
-  fireEvent.click(screen.getByRole("button", { name: "Shared with you" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Shared with you" }));
   await screen.findByText("received");
   await act(async () => { finish({ items: [{ ...grant, id: "late", recipientName: "Late outgoing", senderName: "Late outgoing" }], nextCursor: null }); });
   expect(screen.queryByText("Late outgoing")).toBeNull();
@@ -304,7 +302,7 @@ it("uses the other person's identity in either sharing direction @feature_connec
     render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "View Recipient's profile" }));
     expect(preview.mock.calls[0][0].detail).toMatchObject({ personRef: "recipient-public", userId: "recipient" });
-    fireEvent.click(screen.getByRole("button", { name: "Shared with you" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Shared with you" }));
     fireEvent.click(await screen.findByRole("button", { name: "View Owner's profile" }));
     expect(preview.mock.calls[1][0].detail.userId).toBe("sender");
     expect(preview.mock.calls[1][0].detail.personRef).toBeUndefined();

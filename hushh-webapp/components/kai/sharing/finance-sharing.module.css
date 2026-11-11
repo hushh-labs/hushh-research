@@ -23,8 +23,6 @@
 .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--muted); }
 .value { font-size: 14px; line-height: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .toolbar { width: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.managerTabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.managerTabs :global(button[aria-pressed="true"]) { color: var(--app-accent-deep); border-color: var(--app-accent-border); background: var(--app-accent-surface); }
 .grantRow { padding-block: 22px; border-bottom: 1px solid var(--border); }
 .grantRow:last-child { border-bottom: 0; }
 .grantHeader, .grantPerson { display: flex; align-items: center; gap: 12px; min-width: 0; }
