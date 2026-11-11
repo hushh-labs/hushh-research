@@ -1434,7 +1434,7 @@ function OneLocationInteractionSurfaceHost({
           {directive.dismissible ? (
             <Button
               type="button"
-              variant="link"
+              variant="text"
               size="icon-sm"
               aria-label="Dismiss Location setup card"
               onClick={onDismiss}
@@ -1480,7 +1480,7 @@ function OneLocationInteractionSurfaceHost({
             <Button
               type="button"
               aria-label="Location device gate: Cancel exact run"
-              variant="link"
+              variant="text"
               className="w-full"
               isLoading={busyAction === "device_gate_cancel_exact_run"}
               disabled={Boolean(busyAction)}

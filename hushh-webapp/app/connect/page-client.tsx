@@ -700,7 +700,14 @@ export default function ConnectPageClient() {
   useEffect(() => {
     writeStoredConnectSearchQuery(query);
   }, [query]);
-  const debouncedQuery = useDebouncedValue(query, 300);
+  const draftDirectoryQuery = query.trim();
+  const [trimmedQuery, setDirectoryQuery] = useState(draftDirectoryQuery);
+  const directoryQueryPending = draftDirectoryQuery !== trimmedQuery;
+  useEffect(() => {
+    if (!directoryQueryPending) return;
+    const timer = window.setTimeout(() => setDirectoryQuery(draftDirectoryQuery), 300);
+    return () => window.clearTimeout(timer);
+  }, [draftDirectoryQuery, directoryQueryPending]);
 
   // The last People list this session showed, painted at once and replaced by
   // the refresh below. It also stays on screen when that refresh is refused, so
@@ -1262,7 +1269,6 @@ export default function ConnectPageClient() {
 
   // Both browsing and search load the directory in bounded server batches.
   // Scrolling appends the next batch without replacing people already visible.
-  const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
 
   // A new query, or a new page size, is a new result set: go back to page one
@@ -1387,7 +1393,9 @@ export default function ConnectPageClient() {
         let page;
         for (let index = firstPage; index <= currentPage; index++) {
           page = await ConnectionsService.searchDirectory({ idToken, query: trimmedQuery,
-            page: index, limit: pageSize, audience: directoryAudience });
+            page: index, limit: pageSize, audience: directoryAudience,
+            ...(trimmedQuery ? { typedSearch: true } : {}),
+          });
           restoredPeople.push(...page.items);
           if (!page.hasMore || cancelled) break;
         }
@@ -3138,7 +3146,7 @@ export default function ConnectPageClient() {
   if (mutualPersonRef) return <MutualConnectionsList key={`${userId}:${mutualPersonRef}`} personRef={mutualPersonRef} href={`${ROUTES.CONNECT}?${searchParams.toString()}`} />;
 
   const rememberDirectory = () => saveConnectListMemory(userId, "directory", {
-    query, tab, people, page: currentPage, hasMore, scrollTop: connectListScrollTop(),
+    query: trimmedQuery, tab, people, page: currentPage, hasMore, scrollTop: connectListScrollTop(),
   } satisfies DirectoryNavigationSnapshot);
 
   return (
@@ -3359,8 +3367,9 @@ export default function ConnectPageClient() {
                                         // iOS soft-keyboard "return" must dismiss the keyboard;
                                         // blurring the field is what actually closes it in the
                                         // Capacitor webview (there is no form submit here).
-                                        if (event.key === "Enter") {
+                                        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                                           event.preventDefault();
+                                          setDirectoryQuery(event.currentTarget.value.trim());
                                           event.currentTarget.blur();
                                         }
                                       }}
@@ -3418,7 +3427,7 @@ export default function ConnectPageClient() {
                               }
                             >
                               {exploreNetworkAction}
-                              {loading && people.length === 0 ? (
+                              {directoryQueryPending || (loading && people.length === 0) ? (
                                 <SettingsRow
                                   title="Finding people…"
                                   density="compact"
@@ -3723,7 +3732,7 @@ export default function ConnectPageClient() {
                                   );
                                 })
                               )}
-                              {people.length > 0 &&
+                              {!directoryQueryPending && people.length > 0 &&
                               (hasMore || loading || error) ? (
                                 <div
                                   ref={directoryLoadMoreRef}
@@ -3757,7 +3766,7 @@ export default function ConnectPageClient() {
                                     </Button>
                                   )}
                                 </div>
-                              ) : people.length > 0 ? (
+                              ) : !directoryQueryPending && people.length > 0 ? (
                                 <span className="sr-only" role="status">
                                   All people loaded
                                 </span>
@@ -4280,7 +4289,6 @@ export default function ConnectPageClient() {
         <ContactSyncResultsSheet
           {...contactSync.resultsSheetProps}
           onRequestConnection={requestConnectionFromContactMatch}
-          onViewConnections={() => setConnectionView("connections")}
         />
         <ContactDiscoverabilityConsentDialog
           {...contactSync.discoverabilityConsentDialogProps}
