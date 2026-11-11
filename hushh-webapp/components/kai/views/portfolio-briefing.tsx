@@ -35,7 +35,7 @@ export function PortfolioBriefing({
         <dl className="flex items-baseline justify-between gap-3">
           <dt className="ui-text-row-description">Portfolio score</dt>
           <dd className="shrink-0 ui-text-row-description tabular-nums">
-            {score === null ? (missing ? `Add ${missing}` : "Unavailable") : (
+            {score === null ? (missing ? "Complete your persona" : "Unavailable") : (
               <><strong className="ui-text-row-label-emphasized">{score}</strong> / 100</>
             )}
           </dd>

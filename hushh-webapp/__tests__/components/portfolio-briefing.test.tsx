@@ -37,9 +37,9 @@ describe("portfolio briefing", () => {
     fireEvent.click(screen.getByRole("button", { name: "View analysis" }));
     expect(open).toHaveBeenCalledOnce();
   });
-  it("names the missing answer instead of a bare Unavailable", () => {
+  it("asks to complete the persona instead of a bare Unavailable", () => {
     render(<PortfolioBriefing onOpen={vi.fn()} missing="ability to absorb losses" />);
-    expect(screen.getByText("Add ability to absorb losses")).toBeVisible();
+    expect(screen.getByText("Complete your persona")).toBeVisible();
     expect(screen.queryByText("Unavailable")).toBeNull();
   });
   it("computes a stock-decline scenario", () => {
