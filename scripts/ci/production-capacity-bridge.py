@@ -13,6 +13,7 @@ import concurrent.futures
 import copy
 from datetime import datetime
 import hashlib
+import http.client
 import importlib
 import json
 import os
@@ -526,6 +527,160 @@ def verify_superseded_predecessor(previous, source, inventory, service, profile)
             raise retention.UnsafeState("Predecessor secret pin is no longer enabled")
 
 
+def replace_service(service, template, targets):
+    # Preserve the exact live resourceVersion. The deployment lock also
+    # serializes cooperating operations, while CAS fences out-of-band changes.
+    body = {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+            key: copy.deepcopy(service["metadata"][key])
+            for key in ("name", "namespace", "resourceVersion", "annotations", "labels")
+            if key in service["metadata"]
+        },
+        "spec": {
+            **copy.deepcopy(service["spec"]),
+            "template": template,
+            "traffic": targets,
+        },
+    }
+    if not body["metadata"].get("resourceVersion"):
+        raise retention.UnsafeState("Bridge service resource version is unavailable")
+    with tempfile.TemporaryDirectory() as temporary:
+        spec_file = Path(temporary) / "service.json"
+        spec_file.write_text(json.dumps(body))
+        try:
+            retention.run_command(
+                ["gcloud", "run", "services", "replace", str(spec_file),
+                 f"--project={PROJECT}", f"--region={REGION}", "--quiet"],
+                timeout=150,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, retention.BudgetExpired):
+            raise retention.MutationUncertain(
+                "Bridge provider outcome requires reconciliation"
+            ) from None
+
+
+def recorded_probe_state(service, revision, receipt):
+    target = {"revisionName": recorded.REVISION, "tag": recorded.STARTUP_TAG}
+    desired = service["spec"].get("traffic", [])
+    tagged = [row for row in desired if row.get("revisionName") == recorded.REVISION]
+    observed = traffic(service)
+    expected = [tuple(row) for row in receipt["traffic"]]
+    if tagged:
+        if tagged not in ([target], [{**target, "percent": 0}]):
+            raise retention.MutationUncertain("Recorded bridge startup target changed")
+        expected = sorted([*expected, (recorded.REVISION, 0, recorded.STARTUP_TAG)])
+    if (
+        revision["metadata"].get("uid") != recorded.OBSERVED_BRIDGE_UID
+        or not recorded.inert_revision_matches(service, revision)
+        or not recorded.reconciled(service)
+        or service["status"].get("latestCreatedRevisionName") != recorded.REVISION
+        or service["status"].get("latestReadyRevisionName") not in {recorded.REVISION, recorded.DISPLACED}
+        or [row for row in desired if row not in tagged] != receipt["desiredTraffic"]
+        or observed != expected
+        or service_controls(service) != receipt["serviceControlsFingerprint"]
+    ):
+        raise retention.MutationUncertain("Recorded bridge startup identity or routes changed")
+    return bool(tagged)
+
+
+def recorded_startup_ready(service, revision):
+    return (
+        revision["metadata"].get("uid") == recorded.OBSERVED_BRIDGE_UID
+        and service["status"].get("latestReadyRevisionName") == recorded.REVISION
+        and recorded.ready(revision)
+        and any(
+            row.get("type") == "ContainerHealthy" and row.get("status") == "True"
+            for row in revision.get("status", {}).get("conditions", [])
+        )
+    )
+
+
+def wake_recorded_listener(service):
+    # The frozen launcher accepts and closes TCP. An HTTP failure is expected.
+    # Only Cloud Run's startup condition can prove it started.
+    url = urllib.parse.urlsplit(service["status"].get("url", ""))
+    if (
+        url.scheme != "https" or not re.fullmatch(r"consent-protocol-[a-z0-9-]+\.a\.run\.app", url.netloc)
+        or url.path or url.query or url.fragment
+    ):
+        raise retention.MutationUncertain("Recorded bridge startup address is unverified")
+    host = f"{recorded.STARTUP_TAG}---{url.netloc}"
+    if [
+        row.get("url") for row in service["status"]["traffic"]
+        if row.get("tag") == recorded.STARTUP_TAG
+    ] != [f"https://{host}"]:
+        raise retention.MutationUncertain("Recorded bridge startup address differs from its tag")
+    connection = http.client.HTTPSConnection(host, timeout=retention.remaining_seconds(20))
+    try:
+        connection.request("GET", "/")
+        connection.getresponse().close()
+    except (OSError, http.client.HTTPException):
+        pass
+    finally:
+        connection.close()
+
+
+def reconcile_recorded_startup(service, revision, receipt, save, *, create, profile, inventory):
+    """Read back the submitted revision, using one temporary zero-percent tag."""
+    def readback():
+        state = retention.service_state(SERVICE, PROJECT, REGION)
+        rows = [
+            row for row in retention.revision_state(SERVICE, PROJECT, REGION)
+            if row["metadata"]["name"] == recorded.REVISION
+        ]
+        if len(rows) != 1:
+            raise retention.MutationUncertain("Recorded bridge startup revision is ambiguous")
+        return state, rows[0]
+
+    tagged = recorded_probe_state(service, revision, receipt)
+    phase = receipt.get("startupProbe")
+    if not tagged and recorded_startup_ready(service, revision):
+        receipt["startupProbe"] = "complete"
+        return
+    if not create:
+        raise retention.MutationUncertain("Recorded bridge requires an explicit startup reconciliation")
+    if phase is None and not tagged:
+        report = budget.evaluate(profile, "production", inventory, candidate_services=frozenset())
+        if not report["admitted"]:
+            raise retention.UnsafeState("Recorded bridge startup capacity is not admitted")
+        receipt["startupProbe"] = "tag_requested"
+        save()
+        replace_service(service, service["spec"]["template"], [
+            *receipt["desiredTraffic"],
+            {"revisionName": recorded.REVISION, "tag": recorded.STARTUP_TAG},
+        ])
+        service, revision = readback()
+        tagged = recorded_probe_state(service, revision, receipt)
+        phase = "tag_requested"
+    if not tagged or phase not in {"tag_requested", "removal_requested"}:
+        raise retention.MutationUncertain("Recorded bridge startup tag outcome is unresolved")
+    try:
+        if phase == "tag_requested" and not recorded_startup_ready(service, revision):
+            wake_recorded_listener(service)
+            for _ in range(5):
+                service, revision = readback()
+                if not recorded_probe_state(service, revision, receipt):
+                    raise retention.MutationUncertain("Recorded bridge startup tag disappeared")
+                if recorded_startup_ready(service, revision):
+                    break
+                time.sleep(retention.remaining_seconds(2))
+    finally:
+        # A submitted tag can be removed from the exact observed generation.
+        # If routing has drifted, leave the durable intent for reconciliation.
+        service, revision = readback()
+        if not recorded_probe_state(service, revision, receipt):
+            raise retention.MutationUncertain("Recorded bridge startup tag is absent")
+        receipt["startupProbe"] = "removal_requested"
+        save()
+        replace_service(service, service["spec"]["template"], receipt["desiredTraffic"])
+    service, revision = readback()
+    if recorded_probe_state(service, revision, receipt) or not recorded_startup_ready(service, revision):
+        raise retention.MutationUncertain("Recorded bridge startup is unverified after tag removal")
+    receipt["startupProbe"] = "complete"
+
+
 def maintain(release, checkpoint_path: Path, *, create: bool):
     state = json.loads(checkpoint_path.read_text())
     previous = receipt_state(state.get("capacity_bridge"))
@@ -718,73 +873,15 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
             raise retention.UnsafeState(
                 "Fixed capacity bridge exceeds the unchanged global connection budget"
             )
-        # Optimistic provider precondition plus existing deployment lock. Never
-        # carry a latestRevision traffic pointer into a new zero-traffic spec.
-        body = {
-            "apiVersion": "serving.knative.dev/v1",
-            "kind": "Service",
-            "metadata": {
-                key: copy.deepcopy(service["metadata"][key])
-                for key in (
-                    "name",
-                    "namespace",
-                    "resourceVersion",
-                    "annotations",
-                    "labels",
-                )
-                if key in service["metadata"]
-            },
-            "spec": {
-                **copy.deepcopy(service["spec"]),
-                "template": template,
-                "traffic": [
-                    {
-                        "revisionName": row[0],
-                        "percent": row[1],
-                        **({"tag": row[2]} if row[2] else {}),
-                    }
-                    for row in old_traffic
-                ]
-                + [
-                    {
-                        "revisionName": name,
-                        "percent": 0,
-                        "tag": "capacity-" + name.rsplit("-", 1)[-1],
-                    }
-                ],
-            },
-        }
+        targets = [
+            {"revisionName": row[0], "percent": row[1], **({"tag": row[2]} if row[2] else {})}
+            for row in old_traffic
+        ] + [{"revisionName": name, "percent": 0, "tag": "capacity-" + name.rsplit("-", 1)[-1]}]
         if recorded_recovery:
-            # Keep the exact desired targets, including the serving revision's
-            # tag. Do not give the maintenance listener a tag or any route.
-            body["spec"]["traffic"] = copy.deepcopy(receipt["desiredTraffic"])
+            targets = receipt["desiredTraffic"]
         receipt["requested"] = True
         save()  # Durable intent BEFORE the possibly successful provider call.
-        with tempfile.TemporaryDirectory() as temporary:
-            spec_file = Path(temporary) / "service.json"
-            spec_file.write_text(json.dumps(body))
-            try:
-                retention.run_command(
-                    [
-                        "gcloud",
-                        "run",
-                        "services",
-                        "replace",
-                        str(spec_file),
-                        f"--project={PROJECT}",
-                        f"--region={REGION}",
-                        "--quiet",
-                    ],
-                    timeout=150,
-                )
-            except (
-                subprocess.CalledProcessError,
-                subprocess.TimeoutExpired,
-                retention.BudgetExpired,
-            ):
-                raise retention.MutationUncertain(
-                    "Bridge provider outcome requires reconciliation"
-                ) from None
+        replace_service(service, template, targets)
         inventory = budget.collect(profile, "production")
         service = inventory["services"][SERVICE]["service"]
         revisions = [
@@ -794,6 +891,28 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         ]
     if len(revisions) != 1:
         raise retention.MutationUncertain("Bridge revision is absent or ambiguous")
+    startup_phase = previous.get("startupProbe") if recorded_recovery and reuse else None
+    if startup_phase is not None:
+        receipt["startupProbe"] = startup_phase
+    if (
+        recorded_recovery and reuse and previous["status"] == "intent"
+        and previous["requested"] and (
+            startup_phase is not None
+            or revisions[0]["metadata"].get("uid") == recorded.OBSERVED_BRIDGE_UID
+            or service["status"].get("latestReadyRevisionName") == recorded.DISPLACED
+        )
+    ):
+        reconcile_recorded_startup(
+            service, revisions[0], receipt, save, create=create, profile=profile, inventory=inventory
+        )
+        inventory = budget.collect(profile, "production")
+        service = inventory["services"][SERVICE]["service"]
+        revisions = [
+            row for row in inventory["services"][SERVICE]["revisions"]
+            if row["metadata"]["name"] == name
+        ]
+        if len(revisions) != 1:
+            raise retention.MutationUncertain("Recorded bridge revision disappeared after startup")
     if recorded_recovery:
         status = service["status"]
         if (
@@ -803,6 +922,7 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
             or service["spec"].get("traffic") != receipt["desiredTraffic"]
             or traffic(service) != old_traffic
             or service_controls(service) != receipt["serviceControlsFingerprint"]
+            or receipt.get("startupProbe") == "complete" and not recorded_startup_ready(service, revisions[0])
         ):
             raise retention.MutationUncertain("Recorded bridge readiness or unchanged traffic is unverified")
     else:
@@ -829,7 +949,7 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         raise retention.UnsafeState(
             "Bridge/worker/job/reserve capacity is not admitted"
         )
-    # The normal retention pass removes the temporary zero-traffic health tag.
-    # Zero traffic never implies no background work in this existing runtime.
+    # Ordinary retention removes legacy profile tags. The recorded profile
+    # removes its startup tag before admitting capacity or marking verified.
     receipt["status"] = "verified"
     save()
