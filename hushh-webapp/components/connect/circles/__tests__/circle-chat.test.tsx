@@ -7,8 +7,17 @@ import { CircleChat } from "../circle-chat";
 import { CircleChatMessageActionDialog } from "../circle-chat-message-action-dialog";
 import type { OpenChatMessage } from "../circle-chat-message";
 import * as feedEvents from "@/lib/feed/feed-events";
+import type { ContextType } from "react";
+import { CircleMessagesPane } from "../circle-messages-pane";
+import { VaultContext } from "@/lib/vault/vault-context";
+import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
+import { ONE_LOCATION_STATE_CHANGED_EVENT } from "@/lib/one-location/one-location-state-events";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
+const paneOwner = vi.hoisted(() => ({ id: "alice", listCircles: vi.fn() }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: paneOwner.id }) }));
+vi.mock("@/lib/one-location/service", () => ({ OneLocationService: { listCircles: (...args: unknown[]) => paneOwner.listCircles(...args) } }));
 
 const api = vi.hoisted(() => ({ initialize: vi.fn(), state: vi.fn(), wait: vi.fn(), messages: vi.fn(), prepare: vi.fn(), send: vi.fn(), open: vi.fn(), read: vi.fn(), mute: vi.fn(), image: vi.fn(), refreshFeedRead: vi.fn(), updates: vi.fn(), resolve: vi.fn(), sealMutation: vi.fn(), edit: vi.fn(), delete: vi.fn() }));
 vi.mock("@/lib/services/circle-chat-service", () => ({ CircleChatService: api }));
@@ -19,10 +28,13 @@ const message = { id: "m1", sequence: 1, senderUserId: "bob", senderName: "Bob",
 
 beforeEach(() => {
   vi.resetAllMocks(); observations = [];
+  paneOwner.id = "alice";
+  paneOwner.listCircles.mockResolvedValue(["Family", "Work", "New"].map(name => ({ id: name, name, memberCount: 2, role: "owner", kind: "custom" })));
   vi.stubGlobal("IntersectionObserver", class {
     entry: Observation;
     constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) { this.entry = { callback, options }; observations.push(this.entry); }
     observe(target: Element) { this.entry.target = target; }
+    unobserve() {}
     disconnect() {}
   });
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -44,6 +56,111 @@ function observe(inViewport: boolean) {
     for (const item of observations) item.callback([{ isIntersecting: item.options?.root ? true : inViewport, target: item.target } as IntersectionObserverEntry], {} as IntersectionObserver);
   });
 }
+
+function messagesPane(token = session.vaultOwnerToken, vaultKey = session.vaultKey) {
+  return <VaultContext.Provider value={{ vaultOwnerToken: token, vaultKey } as NonNullable<ContextType<typeof VaultContext>>}>
+    <AgentDockProvider>
+      <AgentDockVoiceBoundary><AgentBarSurface><span>Talk to One</span></AgentBarSurface></AgentDockVoiceBoundary>
+    <CircleMessagesPane active initialCircleId="Family" />
+    </AgentDockProvider>
+  </VaultContext.Provider>;
+}
+
+it("returns directly to the latest circle transcript while revalidation is pending", async () => {
+  api.messages.mockImplementation(async current => ({ items: [{ ...message, id: current.circleId }], hasMore: false }));
+  api.open.mockImplementation(async (_session, row) => ({ text: `${row.id} latest message` }));
+  render(messagesPane());
+  await screen.findByText("Family latest message");
+  const familyEditor = await screen.findByRole("textbox", { name: "Message", exact: true });
+  fireEvent.change(familyEditor, { target: { value: "Family private draft" } });
+  fireEvent.click(screen.getByRole("button", { name: "Work 2 members" }));
+  await screen.findByText("Work latest message");
+  expect(screen.getAllByRole("textbox")).toHaveLength(1);
+  expect(screen.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("");
+  expect(familyEditor).not.toBeVisible();
+  expect(screen.getByRole("log", { name: "Circle message history" })).not.toHaveTextContent("Family latest message");
+
+  api.state.mockImplementation(() => new Promise(() => {}));
+  api.messages.mockImplementation(() => new Promise(() => {}));
+  fireEvent.click(screen.getByRole("button", { name: "Family 2 members" }));
+  expect(screen.getByRole("log", { name: "Circle message history" })).toHaveTextContent("Family latest message");
+  expect(screen.getByRole("textbox", { name: "Message", exact: true })).toBe(familyEditor);
+  expect(familyEditor).toHaveValue("Family private draft");
+  expect(screen.queryByText("Connecting chat…")).not.toBeInTheDocument();
+  expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "New 2 members" }));
+  expect(screen.getByRole("region", { name: "New chat" })).toHaveAttribute("aria-busy", "true");
+  expect(screen.queryByRole("log", { name: "Circle message history" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Connecting chat…")).not.toBeInTheDocument();
+  expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+});
+
+it("retires hidden revoked membership before the first return after rejoining", async () => {
+  api.messages.mockImplementation(async current => ({ items: [{ ...message, id: current.circleId }], hasMore: false }));
+  api.open.mockImplementation(async (_session, row) => ({ text: `${row.id} latest message` }));
+  render(messagesPane());
+  await screen.findByText("Family latest message");
+  fireEvent.click(screen.getByRole("button", { name: "Work 2 members" }));
+  await screen.findByText("Work latest message");
+  act(() => window.dispatchEvent(new CustomEvent(ONE_LOCATION_STATE_CHANGED_EVENT, { detail: {
+    userId: "alice", domains: ["circles"], changedAt: Date.now(), notificationType: "location_circle_member_removed",
+    circleId: "Family", memberUserId: "alice",
+  } })));
+  expect(screen.queryByText("Family latest message")).not.toBeInTheDocument();
+  // Current live admission now succeeds for the newly joined membership.
+  fireEvent.click(screen.getByRole("button", { name: "Family 2 members" }));
+  expect(await screen.findByText("Family latest message")).toBeVisible();
+  expect(api.initialize.mock.calls.filter(([current]) => current.circleId === "Family")).toHaveLength(2);
+});
+
+it("does not let late metadata undo known membership revocation", async () => {
+  let failWait!: (error: Error) => void;
+  api.wait.mockImplementationOnce(() => new Promise((_resolve, reject) => { failWait = reject; }));
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  let finishState!: (value: unknown) => void;
+  api.state.mockImplementationOnce(() => new Promise(resolve => { finishState = resolve; }));
+  act(() => window.dispatchEvent(new Event("online")));
+  await waitFor(() => expect(finishState).toBeDefined());
+  await act(async () => failWait(new ApiError("Membership removed", 403)));
+  await screen.findByText("You no longer have access to this circle chat.");
+  await act(async () => finishState({ unreadCount: 1, latestSequence: 1, members: [], rosterVersion: "old", muted: false }));
+  expect(screen.getByText("You no longer have access to this circle chat.")).toBeVisible();
+  expect(screen.queryByText("Incoming private message")).not.toBeInTheDocument();
+  expect(api.wait).toHaveBeenCalledTimes(1);
+});
+
+it("pauses hidden chat reads without overlapping an uncancellable native wait", async () => {
+  let finish!: (value: unknown) => void;
+  let signal!: AbortSignal;
+  api.wait.mockImplementationOnce((_session, _cursor, currentSignal) => {
+    signal = currentSignal;
+    return new Promise(resolve => { finish = resolve; });
+  });
+  const view = render(<CircleChat session={session} circleName="Family" initialOpen active />);
+  await screen.findByText("Incoming private message");
+  view.rerender(<CircleChat session={session} circleName="Family" initialOpen active={false} />);
+  expect(signal.aborted).toBe(true);
+  observe(true);
+  await act(async () => {});
+  expect(api.read).not.toHaveBeenCalled();
+  view.rerender(<CircleChat session={session} circleName="Family" initialOpen active />);
+  expect(api.wait).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ latestSequence: 1, changed: false }));
+  await waitFor(() => expect(api.wait).toHaveBeenCalledTimes(2));
+});
+
+it.each(["owner", "token", "key"] as const)("purges retained circle text when the %s changes", async boundary => {
+  const view = render(messagesPane());
+  await screen.findByText("Incoming private message");
+  api.state.mockImplementation(() => new Promise(() => {}));
+  paneOwner.listCircles.mockImplementation(() => new Promise(() => {}));
+  if (boundary === "owner") paneOwner.id = "another-owner";
+  view.rerender(messagesPane(boundary === "token" ? "renewed-token" : session.vaultOwnerToken,
+    boundary === "key" ? "another-key" : session.vaultKey));
+  expect(screen.queryByText("Incoming private message")).not.toBeInTheDocument();
+});
 
 async function attachPhoto() {
   const bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);

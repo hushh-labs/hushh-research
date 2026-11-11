@@ -7,6 +7,7 @@ import type { FeedItem } from "../../lib/services/feed-service";
 import { createRoot } from "react-dom/client";
 import { Fragment, useRef, useState } from "react";
 import { AgentDockProvider, AgentDockVoiceBoundary, useAgentDockSurface } from "../../components/agent/agent-dock";
+import { AgentBarSurface } from "../../components/agent/agent-bar-surface";
 import peopleStyles from "../../components/direct-messages/direct-messages-page.module.css";
 import { CircleMessagesPane } from "../../components/connect/circles/circle-messages-pane";
 import { CircleChat } from "../../components/connect/circles/circle-chat";
@@ -72,13 +73,20 @@ function Workspace() {
 function Lane() {
   const dock = useAgentDockSurface();
   const dark = document.documentElement.classList.contains("dark");
-  return <AppPageShell className={peopleStyles.shell}><div className={peopleStyles.page} data-direct-message-page style={{ display: "block" }} data-theme={dark ? "dark" : "light"}>
-    <div className="flex h-dvh min-h-0 flex-col">
+  const switching = new URLSearchParams(location.search).has("switch");
+  return <><AppPageShell className={peopleStyles.shell}><div className={peopleStyles.page} data-direct-message-page style={{ display: "block" }} data-theme={dark ? "dark" : "light"}>
+    <div className={`flex ${switching ? "h-full" : "h-dvh"} min-h-0 flex-col`}>
       <div className="min-h-0 flex-1"><CircleMessagesPane initialCircleId={new URLSearchParams(location.search).has("list") ? null : "circle"} theme={dark ? "dark" : "light"}
         headerActions={<button type="button" className={peopleStyles.refreshButton} aria-label="Switch theme"><MoonIcon className="size-5" aria-hidden="true" /></button>} /></div>
-      <div ref={dock?.setHost} className="shrink-0 rounded-full bg-background" />
+      {!switching && <div ref={dock?.setHost} className="shrink-0 rounded-full bg-background" />}
     </div>
-  </div></AppPageShell>;
+  </div></AppPageShell>
+    {/* Switching exercises the real shared dock outside the page's clipped
+        transcript, matching the fixed bottom shell rather than an inline seat. */}
+    {switching && <div className="fixed inset-x-0 bottom-4 z-50 px-4">
+      <AgentBarSurface className="mx-auto"><span>Talk to One</span></AgentBarSurface>
+    </div>}
+  </>;
 }
 function GroupedFeed() {
   const [opened, setOpened] = useState("");

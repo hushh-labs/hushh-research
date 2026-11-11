@@ -646,6 +646,71 @@ test("the native keyboard reveal keeps an image caption and send control above t
   await page.screenshot({ path: test.info().outputPath("circle-caption-keyboard.png"), animations: "disabled" });
 });
 
+for (const width of [393, 1100]) test(`circle switches preserve the active dock and working state at ${width}px`, async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width, height: 844 });
+  await page.route("**/fixture-person-*.webp", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><circle cx="20" cy="20" r="20" fill="#789"/></svg>' }));
+  await page.route("http://localhost/circle-switch-fixture*", route => route.fulfill({ contentType: "text/html",
+    body: `<!doctype html><html><head><title>Circle switch diagnostic</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+  }));
+  await page.goto("http://localhost/circle-switch-fixture?lane=1&switch=1");
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.fill("Keep this circle draft");
+  const transcript = page.getByRole("region", { name: "Weekend friends chat", exact: true }).getByLabel("Circle messages", { exact: true });
+  await expect(page.getByRole("log", { name: "Circle message history" })).toContainText("LongText");
+  await expect.poll(() => page.evaluate(() => (window as any).chatFixture.read.includes(45))).toBe(true);
+  await transcript.evaluate(node => { node.scrollTop = 300; });
+  await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
+  const readingPosition = await transcript.evaluate(node => node.scrollTop);
+  const original = await editor.elementHandle();
+  try {
+    if (width < 768) await page.getByRole("button", { name: "Back to circles" }).click();
+    await page.getByRole("button", { name: "Work 2 members" }).click();
+    await expect(page.getByRole("heading", { name: "Work", exact: true })).toBeVisible();
+    await expect(editor).toHaveCount(1);
+    await expect(editor).toHaveValue("");
+    if (width < 768) await page.getByRole("button", { name: "Back to circles" }).click();
+    await page.getByRole("button", { name: "Weekend friends 2 members" }).click();
+    await expect(editor).toHaveValue("Keep this circle draft");
+    await expect(editor).toBeInViewport();
+    await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeInViewport();
+    await expect.poll(async () => Math.abs(await transcript.evaluate(node => node.scrollTop) - readingPosition)).toBeLessThanOrEqual(3);
+    expect(await editor.evaluate((element, retained) => element === retained, original)).toBe(true);
+    await expect(page.getByText("Connecting chat…", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Loading messages…", { exact: true })).toHaveCount(0);
+    const frame = await page.locator("[data-circle-chat-lane]:visible").boundingBox();
+    expect(frame?.height).toBeGreaterThan(200);
+    expect(frame!.x + frame!.width).toBeLessThanOrEqual(width + 1);
+    await expect(page).toHaveTitle("Circle switch diagnostic");
+    await expect(page.locator("vite-error-overlay")).toHaveCount(0);
+    expect(errors).toEqual([]);
+    await page.getByRole("button", { name: "Go to latest messages" }).click();
+    if (width < 768) await page.getByRole("button", { name: "Back to circles" }).click();
+    await page.getByRole("button", { name: "Work 2 members" }).click();
+    if (width < 768) await page.getByRole("button", { name: "Back to circles" }).click();
+    await page.getByRole("button", { name: "Weekend friends 2 members" }).click();
+    await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(8);
+    await page.evaluate(() => { (window as any).chatFixture.olderDelayMs = 400; });
+    await page.getByRole("button", { name: "Load earlier messages", exact: true }).click();
+    const anchorId = await transcript.evaluate(node => Array.from(node.querySelectorAll<HTMLElement>("[data-chat-message]"))
+      .find(row => row.getBoundingClientRect().bottom >= node.getBoundingClientRect().top)!.dataset.chatMessage);
+    const anchor = page.getByRole("region", { name: "Weekend friends chat", exact: true }).locator(`[data-chat-message="${anchorId}"]`);
+    const anchorOffset = async () => (await anchor.boundingBox())!.y - (await transcript.boundingBox())!.y;
+    const beforePrepend = await anchorOffset();
+    if (width < 768) await page.getByRole("button", { name: "Back to circles" }).click();
+    await page.getByRole("button", { name: "Work 2 members" }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).chatFixture.olderCompletions)).toBe(1);
+    if (width < 768) await page.getByRole("button", { name: "Back to circles" }).click();
+    await page.getByRole("button", { name: "Weekend friends 2 members" }).click();
+    await expect.poll(async () => Math.abs(await anchorOffset() - beforePrepend)).toBeLessThanOrEqual(3);
+    await expect(page.getByRole("log", { name: "Circle message history" })).toContainText("Message 1 with a friendly reply.");
+    await page.screenshot({ path: test.info().outputPath(`circle-warm-switch-${width}.png`), animations: "disabled" });
+  } finally { await original?.dispose(); }
+});
+
 for (const width of [320, 393, 1100, 1440]) {
   test(`Circle Messages list heading matches People sizing at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });

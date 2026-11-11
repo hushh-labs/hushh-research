@@ -115,6 +115,22 @@ received message-change signals and connection changes. Read receipts keep them 
 account deletion and cache clear purge snapshots and verified route mappings;
 request-session fences prevent late responses from restoring purged entries.
 
+## Circle message working state
+
+The Messages Circles pane retains up to four recently visited threads in React
+memory, including their history, sequence/version fences and uncertain send state.
+Each thread keeps its original session object. Switching back shows its latest
+available transcript while the existing state/history requests revalidate it.
+Cold entries keep the circle header and an accessible busy state without separate
+connection or message-loading panels.
+
+Only the selected thread polls and acknowledges reads. Hidden threads release
+file/video viewers and keep the existing revocation listener. Owner, owner-token
+or vault-key changes synchronously discard the retained working set; directory
+removal prunes a thread, and a changed membership incarnation resets its editor
+and transcript. No thread contents or credentials are added to device storage.
+Existing live membership, roster and mutation checks remain authoritative.
+
 ## Mail receipt snapshots
 
 Legacy read-only history is a separate owner archive, not a Google-account
