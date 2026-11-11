@@ -372,6 +372,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/scripts/verify_managed_vertex_runtime.py",
         "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/scripts/managed_vertex_readiness.py",
+        "consent-protocol/scripts/probe_managed_text.py",
         "consent-protocol/scripts/generate_capability_graph.py",
         "consent-protocol/tests/helpers/capability_graph_fixture.py",
         "consent-protocol/tests/helpers/plg_qualification.py",
