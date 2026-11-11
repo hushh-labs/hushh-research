@@ -19,6 +19,8 @@ def _assert_targeted_node(workflow: str) -> None:
     node = _job_block(workflow, "web-targeted-check")
     _assert_job_name(node, "Web Targeted Contracts (node)")
     assert "WEB_TARGETED_PART: node" in node
+    assert "WEB_TARGETED_FULL_SUITE_OWNED: ${{ inputs.production_recovery_sha == '' && 'static' || '0' }}" in node
+    assert "needs['preflight-gate'].outputs.frontend == 'true'" in node
     assert "run: bash scripts/ci/orchestrate.sh web-targeted" in node
     assert "playwright install" not in workflow
     assert "web-targeted-browser:" not in workflow
@@ -32,6 +34,7 @@ def _assert_unit_job(workflow: str) -> None:
     _assert_job_name(unit, "Web Unit Contracts")
     assert "fail-fast: false" in unit and "max-parallel: 3" in unit
     assert "needs: [preflight-gate, ui-contracts]" in unit
+    assert "needs['preflight-gate'].outputs.frontend == 'true'" in unit
     assert "fromJSON(needs.ui-contracts.outputs.unit_matrix" in unit
     assert "WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}" in unit
     assert "run: bash scripts/ci/orchestrate.sh web-full-suite" in unit
