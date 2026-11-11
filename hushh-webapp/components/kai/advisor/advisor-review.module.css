@@ -383,6 +383,7 @@
   overflow: hidden auto;
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
+  padding-inline: 2px;
 }
 .handshakePager > div > [role="tabpanel"]:first-child {
   scrollbar-gutter: auto;
