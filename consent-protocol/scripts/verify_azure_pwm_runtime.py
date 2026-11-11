@@ -394,7 +394,9 @@ async def _probe_managed_text() -> None:
     from scripts.probe_managed_text import probe_managed_text
 
     try:
-        receipt = await probe_managed_text("azure_openai")
+        receipt = await probe_managed_text(
+            "azure_openai", qualification_mode=os.environ.get("MANAGED_READINESS_MODE", "full")
+        )
     except ActivityPlannerContractError as error:
         # The terminal verdict must retain semantic failure even when its
         # earlier fixed-reason log has not reached Cloud Logging yet.
