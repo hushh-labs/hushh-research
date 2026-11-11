@@ -6,6 +6,7 @@ import copy
 import hashlib
 import hmac
 import json
+import logging
 import time
 from datetime import timedelta
 from types import SimpleNamespace
@@ -35,6 +36,58 @@ from tests.helpers.scope_commerce_provider import (
     _receipt_fixture,
 )
 from tests.helpers.scope_commerce_provider_db import provider_postgres as provider_postgres
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (CommerceProviderError("provider_invalid_signature"), 400, "provider_invalid_signature"),
+        (RuntimeError("fixture-sensitive-provider-error"), 503, "scope_commerce_unavailable"),
+    ],
+)
+async def test_webhook_rejection_logs_only_public_code(monkeypatch, caplog, error, status, code):
+    import httpx
+    from fastapi import FastAPI
+
+    from api.routes import scope_commerce as routes
+    from mcp_modules.log_redaction import SensitiveLogFilter
+
+    class Provider:
+        async def process_webhook(self, **kwargs):
+            assert kwargs["payload"] == b"fixture-sensitive-payload"
+            assert kwargs["signature"] == "fixture-sensitive-signature"
+            raise error
+
+    monkeypatch.setattr(routes, "_provider", Provider)
+    app = FastAPI()
+    app.include_router(routes.webhook_router)
+    route_logger = logging.getLogger(routes.__name__)
+    privacy_filter = SensitiveLogFilter()
+    route_logger.addFilter(privacy_filter)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/payments/scope-commerce/webhook",
+                content=b"fixture-sensitive-payload",
+                headers={"Stripe-Signature": "fixture-sensitive-signature"},
+            )
+    finally:
+        route_logger.removeFilter(privacy_filter)
+    assert response.status_code == status
+    assert response.json() == {"detail": {"code": code}}
+    assert response.headers["cache-control"] == "private, no-store"
+    records = [record for record in caplog.records if record.name == routes.__name__]
+    assert [json.loads(record.getMessage()) for record in records] == [
+        {
+            "message": "scope_commerce.webhook_rejected",
+            "status_code": status,
+            "error": {"code": code},
+        }
+    ]
+    assert "fixture-sensitive" not in caplog.text + response.text
 
 
 @pytest.mark.asyncio
@@ -222,6 +275,33 @@ def test_live_configuration_requires_business_approvals_even_when_enabled():
         enabled=True, platform_account_id="acct_fixture", frontend_origin="https://example.test"
     )
     sandbox.validate(new_activity=True)
+
+
+def test_website_returns_are_additive_server_owned_and_fail_closed(monkeypatch):
+    from hushh_mcp.services.scope_commerce.provider_return_surfaces import resolve_return_surface
+
+    config = ScopeCommerceProviderConfig(
+        frontend_origin="https://uat.one.hussh.ai",
+        website_origin="https://uat.hussh.si",
+    )
+    assert resolve_return_surface(config) == ("https://uat.one.hussh.ai", "/one/profile/payouts")
+    assert resolve_return_surface(config, "website") == ("https://uat.hussh.si", "/profile")
+    for surface in ("https://evil.example", "other", "//evil.example"):
+        with pytest.raises(ValueError):
+            resolve_return_surface(config, surface)
+    with pytest.raises(ValueError):
+        resolve_return_surface(ScopeCommerceProviderConfig(), "website")
+    for origin in (
+        "http://uat.hussh.si",
+        "https://uat.hussh.si/evil",
+        "https://user@uat.hussh.si",
+        "https://uat.hussh.si?next=evil",
+        "https://uat.hussh.si#evil",
+    ):
+        with pytest.raises(ValueError):
+            resolve_return_surface(ScopeCommerceProviderConfig(website_origin=origin), "website")
+    monkeypatch.setenv("SCOPE_COMMERCE_WEBSITE_ORIGIN", "https://uat.hussh.si")
+    assert ScopeCommerceProviderConfig.from_env().website_origin == "https://uat.hussh.si"
 
 
 def test_country_configuration_rejects_unattributed_costs(monkeypatch):

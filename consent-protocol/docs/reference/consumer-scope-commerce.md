@@ -1798,6 +1798,22 @@ obligation age and imbalance alerts before accepting operational readiness.
 
 ## Configuration, erasure and rollback
 
+### Website payment return surface (source implementation)
+
+Funding checkout and onboarding accept the optional closed selector
+`return_surface: "website"`; omission retains One's existing return behavior.
+The website surface requires the server-owned `scope_commerce_website_origin`
+runtime policy (`SCOPE_COMMERCE_WEBSITE_ORIGIN`) and fixes its return path to
+`/profile`. Clients cannot provide a return URL. The resolved return participates
+in the existing durable provider operation request, so a retry cannot change
+its destination. Sandbox readiness accepts only the configured One or website
+origin and binds its response to the exact requested origin. Existing account
+pins, reviewer policy, fees, activation and consent remain authoritative.
+
+This source addition does not establish a configured website sandbox, deployed
+support, successful funding, or encrypted information delivery. Website returns
+are refresh hints only; financial status must be read from the ledger.
+
 [Environment and secrets](../../../docs/reference/operations/env-and-secrets.md)
 owns configuration provenance. Nonsecret lowercase `scope_commerce_*` values travel
 in `BACKEND_RUNTIME_CONFIG_JSON`; country objects hydrate as JSON. SDK and webhook
@@ -1950,6 +1966,18 @@ remain supported. Private ignored
 state contains only bounded intent identifiers and
 timestamps; uncertain capital attempts remain reserved, and expired provider
 idempotency windows require reconciliation before another submission.
+
+Webhook setup uses snapshot Event Destinations with explicit `events_from`:
+`@self` for platform notices and `@accounts` for Connect notices. The provider
+receipt must confirm that exact scope, callback, API version, event list, test
+mode and intent metadata before the signing secret reaches its private sink.
+A label or legacy `connect=true` create intent is not routing evidence. Stripe
+does not let an update change the destination's event scope; an incorrectly
+scoped destination requires a fresh, recorded `--operation-id`; never reuse a
+legacy v1 intent with the new request format. Preserve the old
+destination until the replacement's genuine signed delivery is verified, then
+disable only the superseded destination. Never loosen receiver signature or
+account-scope checks to accommodate a misconfigured sender.
 
 Preflight checks actual provider identity, signed-source settlement receipts,
 capital provenance, original-source refunds, attributed treasury backing and

@@ -118,8 +118,16 @@ class ConnectOnboarding(ProviderContext):
         await self.store._transaction(update)
         return {"accountId": saved["account_id"], "eligible": eligible, "country": saved["country"]}
 
-    async def onboarding(self, *, user_id: str, country: str, operation_id: str) -> dict[str, Any]:
+    async def onboarding(
+        self, *, user_id: str, country: str, operation_id: str, return_surface: str = "one"
+    ) -> dict[str, Any]:
+        from .provider_return_surfaces import resolve_return_surface
+
         operation_id = _operation_id(operation_id)
+        try:
+            return_origin, return_route = resolve_return_surface(self.config, return_surface)
+        except ValueError:
+            raise CommerceProviderError("provider_configuration_invalid") from None
         self._admit_actor(user_id)
         await self._admit()
         if country not in self.config.countries:
@@ -128,7 +136,7 @@ class ConnectOnboarding(ProviderContext):
         request = {
             "account": saved["account_id"],
             "type": "account_onboarding",
-            **onboarding_urls(self.config.frontend_origin, self.config.return_path, operation_id),
+            **onboarding_urls(return_origin, return_route, operation_id),
             "collection_options": {"fields": "currently_due"},
         }
 

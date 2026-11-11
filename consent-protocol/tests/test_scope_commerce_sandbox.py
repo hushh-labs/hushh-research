@@ -59,6 +59,7 @@ def provider(monkeypatch):
         "topups": [],
         "endpoints": [],
         "created": 0,
+        "http_closed": 0,
     }
 
     def topup(**parameters):
@@ -75,31 +76,52 @@ def provider(monkeypatch):
         facts["topups"].append(value)
         return value
 
-    def endpoint(**parameters):
+    def endpoint(parameters, options):
         facts["created"] += 1
+        facts["webhook_request"] = parameters
+        facts["webhook_options"] = options
         value = {
-            "id": "we_fixture",
-            "object": "webhook_endpoint",
+            "id": "ed_test_fixture",
+            "object": "v2.core.event_destination",
+            "type": "webhook_endpoint",
             "livemode": False,
             "status": "enabled",
-            "url": parameters["url"],
+            "webhook_endpoint": {
+                "url": parameters["webhook_endpoint"]["url"],
+                "signing_secret": "whsec_synthetic_setup_fixture",
+            },
             "metadata": parameters["metadata"],
-            "api_version": parameters["api_version"],
+            "snapshot_api_version": parameters["snapshot_api_version"],
+            "events_from": parameters["events_from"],
+            "event_payload": parameters["event_payload"],
             "enabled_events": parameters["enabled_events"],
-            "secret": "whsec_synthetic_setup_fixture",
-            "application": "ca_fixture" if parameters["connect"] else None,
         }
         facts["endpoints"].append(value)
         return value
 
+    def close():
+        facts["http_closed"] += 1
+
+    destination_api = SimpleNamespace(
+        list=lambda _params: SimpleNamespace(auto_paging_iter=lambda: iter(facts["endpoints"])),
+        create=endpoint,
+    )
+    facts["destination_api"] = destination_api
+
+    def client(key, **options):
+        assert key == "test-only"
+        assert options["stripe_version"] == _provider.EVENT_DESTINATION_API_VERSION
+        return SimpleNamespace(
+            v2=SimpleNamespace(core=SimpleNamespace(event_destinations=destination_api))
+        )
+
     api = SimpleNamespace(
+        RequestsClient=lambda **_kwargs: SimpleNamespace(close=close),
+        StripeClient=client,
         Account=SimpleNamespace(retrieve=lambda **_kwargs: facts["account"]),
         Balance=SimpleNamespace(retrieve=lambda **_kwargs: facts["balance"]),
         Topup=SimpleNamespace(
             list=lambda **_kwargs: {"data": facts["topups"], "has_more": False}, create=topup
-        ),
-        WebhookEndpoint=SimpleNamespace(
-            list=lambda **_kwargs: {"data": facts["endpoints"], "has_more": False}, create=endpoint
         ),
     )
     for name in (
@@ -208,11 +230,14 @@ async def test_capital_enumeration_failure_never_creates_provider_credit(provide
 
 
 @pytest.mark.asyncio
-async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_private_sink(provider):
+@pytest.mark.parametrize("scope", ["platform", "connect"])
+async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_private_sink(
+    provider, scope
+):
     service, facts = provider
     secrets, commits = [], []
     result = await WebhookProvisioner(service).provision(
-        scope="connect",
+        scope=scope,
         url="https://api.example.test/api/payments/scope-commerce/webhook",
         api_version="2025-02-24.acacia",
         operation_id=str(uuid4()),
@@ -220,15 +245,17 @@ async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_privat
         persist=lambda state: commits.append(copy.deepcopy(state)),
         write_secret=secrets.append,
     )
-    assert result["scope"] == "connect" and result["secretStored"] is True
+    assert result["scope"] == scope and result["secretStored"] is True
+    assert facts["webhook_request"]["events_from"] == [
+        "@accounts" if scope == "connect" else "@self"
+    ]
+    assert facts["webhook_options"]["idempotency_key"].startswith("scope-commerce-sandbox-webhook-")
+    assert facts["http_closed"] == 2
     assert "secret" not in result and "whsec_" not in str(commits)
     assert secrets == ["whsec_synthetic_setup_fixture"]
-    assert set(facts["endpoints"][0]["enabled_events"]) == {
-        "account.updated",
-        "payout.paid",
-        "payout.failed",
-        "payout.canceled",
-    }
+    assert set(facts["endpoints"][0]["enabled_events"]) == set(
+        _provider.CONNECT_EVENTS if scope == "connect" else _provider.PLATFORM_EVENTS
+    )
     with pytest.raises(CommerceProviderError, match="sandbox_webhook_configuration_invalid"):
         await WebhookProvisioner(service).provision(
             scope="platform",
@@ -240,6 +267,67 @@ async def test_webhook_provision_scopes_are_explicit_and_secrets_use_only_privat
             write_secret=secrets.append,
         )
     assert facts["created"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["platform", "connect"])
+@pytest.mark.parametrize("mutation", ["events_from", "metadata"])
+async def test_webhook_wrong_scope_receipt_never_reaches_secret_sink(provider, scope, mutation):
+    service, facts = provider
+    original = facts["destination_api"].create
+
+    def wrong_scope(parameters, options):
+        receipt = original(parameters, options)
+        if mutation == "events_from":
+            receipt["events_from"] = ["@self" if scope == "connect" else "@accounts"]
+        else:
+            receipt["metadata"] = {
+                **receipt["metadata"],
+                "scope": "platform" if scope == "connect" else "connect",
+            }
+        return receipt
+
+    facts["destination_api"].create = wrong_scope
+    secrets, state = [], {}
+    with pytest.raises(CommerceProviderError, match="sandbox_webhook_receipt_mismatch"):
+        await WebhookProvisioner(service).provision(
+            scope=scope,
+            url="https://api.example.test/api/payments/scope-commerce/webhook",
+            api_version="2025-02-24.acacia",
+            operation_id=str(uuid4()),
+            state=state,
+            persist=lambda _state: None,
+            write_secret=secrets.append,
+        )
+    assert not secrets
+    assert facts["created"] == 1
+    assert facts["http_closed"] == 2
+    assert all("provider_id" not in attempt for attempt in state["webhook_attempts"].values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["transport", "overflow"])
+async def test_destination_inventory_failure_closes_transport_before_mutation(provider, failure):
+    service, facts = provider
+
+    def inventory(_params):
+        if failure == "transport":
+            raise RuntimeError("fixture-sensitive-provider-error")
+        return SimpleNamespace(auto_paging_iter=lambda: iter({"id": str(i)} for i in range(1001)))
+
+    facts["destination_api"].list = inventory
+    secrets = []
+    with pytest.raises(CommerceProviderError, match="sandbox_provider_"):
+        await WebhookProvisioner(service).provision(
+            scope="connect",
+            url="https://api.example.test/api/payments/scope-commerce/webhook",
+            api_version="2025-02-24.acacia",
+            operation_id=str(uuid4()),
+            state={},
+            persist=lambda _state: None,
+            write_secret=secrets.append,
+        )
+    assert facts["created"] == 0 and facts["http_closed"] == 1 and not secrets
 
 
 def test_isolation_is_account_bound_operator_evidence_and_reviewers_are_distinct():
