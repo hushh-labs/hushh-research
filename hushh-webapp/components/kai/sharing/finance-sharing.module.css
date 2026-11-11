@@ -36,6 +36,7 @@
 .grantDates dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
 .grantActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 16px; }
 .sharedSheet.sharedSheet { width: min(100%, 728px); margin-inline: auto; height: min(620px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; }
+.managerSheet.managerSheet { width: min(100%, 728px); margin-inline: auto; max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; }
 .sharedBody { display: flex; flex-direction: column; overflow: hidden; }
 .sharedLayout { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 16px; }
 .sharedPager { flex: 1; min-height: 0; }
