@@ -345,7 +345,7 @@ def _preparation_records():
         "Retain bounded publication evidence",
     ]
     job = {
-        "name": "Pod Release Publication",
+        "name": "Publish pod / Pod Release Publication",
         "conclusion": "success",
         "status": "completed",
         "run_id": 77,
@@ -372,6 +372,9 @@ def _preparation_records():
         None,
         "attempt",
         "failed_job",
+        "bare_job_name",
+        "foreign_job_name",
+        "duplicate_job",
         "skipped_prepare",
         "failed_upload",
         "job_attempt",
@@ -403,6 +406,10 @@ def test_preparation_attempt_cannot_borrow_native_build_tags(monkeypatch, fault)
         run["run_attempt"] = 3
     if fault == "failed_job":
         job["conclusion"] = "failure"
+    if fault == "bare_job_name":
+        job["name"] = "Pod Release Publication"
+    if fault == "foreign_job_name":
+        job["name"] = "Other workflow / Pod Release Publication"
     if fault == "job_attempt":
         job["run_attempt"] = 1
     if fault == "skipped_prepare":
@@ -432,7 +439,11 @@ def test_preparation_attempt_cannot_borrow_native_build_tags(monkeypatch, fault)
     artifact.update(size_in_bytes=len(packed), digest="sha256:" + pin["preparationArtifactSha256"])
     if fault == "artifact_digest":
         artifact["digest"] = "sha256:" + "0" * 64
-    jobs = {"total_count": 2 if fault == "incomplete_jobs" else 1, "jobs": [job]}
+    job_rows = [job, job] if fault == "duplicate_job" else [job]
+    jobs = {
+        "total_count": len(job_rows) + (1 if fault == "incomplete_jobs" else 0),
+        "jobs": job_rows,
+    }
     artifacts = [artifact, artifact] if fault == "ambiguous" else [artifact]
 
     def command(*args):
