@@ -68,7 +68,7 @@ class PrivateFinanceRoute(APIRoute):
             except (FinanceSharingError, DirectMessagesError) as exc:
                 if exc.status_code >= 500:
                     logger.warning(
-                        "finance_sharing.error code=%s status=%s route=%s",
+                        "finance_sharing.error reason=%s status=%s route=%s",
                         exc.code,
                         exc.status_code,
                         route_path,

@@ -560,5 +560,5 @@ def test_a_503_logs_where_it_failed_without_logging_what_it_said(caplog):
     assert "error=TypeError" in unavailable and "route=/boom/{item}" in unavailable
     assert "tests/test_advisor_review_contract.py:" in unavailable and ":boom" in unavailable
     assert "owner portfolio 1234" not in unavailable and "abc" not in unavailable
-    assert "finance_sharing.error code=ADVISOR_BILLING_UNCONFIRMED status=503" in " ".join(lines)
+    assert "finance_sharing.error reason=ADVISOR_BILLING_UNCONFIRMED status=503" in " ".join(lines)
     assert not any("ADVISOR_PLAN_CHANGED" in line for line in lines)
