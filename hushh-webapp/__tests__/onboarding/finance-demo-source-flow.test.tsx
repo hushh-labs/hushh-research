@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { KaiPreferences } from "@/lib/services/kai-profile-service";
 import { beforeEach, expect, it, vi } from "vitest";
 import { FinanceImportOnboardingSetupClient } from "@/app/one/setup/finance/import/finance-import-onboarding-setup-client";
+import FinanceOnboardingSetupPage from "@/app/one/setup/finance/page";
 import { PortfolioPersona } from "@/components/kai/advisor/portfolio-persona";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
@@ -24,6 +25,7 @@ const state = vi.hoisted(() => ({
   ready: false,
   resumed: false,
   blocked: true,
+  sourceBack: undefined as (() => void) | undefined,
   source: null as
     | null
     | ((
@@ -100,8 +102,12 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   },
 }));
 vi.mock("@/components/kai/kai-flow", () => ({
-  KaiFlow: (props: { onSetupSourceSettled: typeof state.source }) => {
+  KaiFlow: (props: {
+    onSetupSourceSettled: typeof state.source;
+    onSetupPersonaBack?: () => void;
+  }) => {
     state.source = props.onSetupSourceSettled;
+    state.sourceBack = props.onSetupPersonaBack;
     return <p>Real source workflow</p>;
   },
 }));
@@ -110,6 +116,7 @@ beforeEach(() => {
   state.current = true;
   state.vaultLocked = false;
   state.source = null;
+  state.sourceBack = undefined;
   state.resumed = false;
   state.bootstrap.mockResolvedValue(state.journey);
   state.sync.mockResolvedValue(undefined);
@@ -122,14 +129,14 @@ beforeEach(() => {
   );
 });
 
-it("keeps the demo local and shows Plaid confirmation before automatic settlement", async () => {
-  render(<FinanceImportOnboardingSetupClient showIntroduction />);
+it("starts at the questionnaire and shows Plaid confirmation before automatic settlement", async () => {
+  render(<FinanceOnboardingSetupPage />);
   expect(
-    screen.getByRole("heading", { name: "Follow the market." }),
-  ).toBeTruthy();
+    screen.getByRole("heading", { name: "Let’s build your financial persona" }),
+  ).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Meet Finance" })).toBeNull();
   expect(state.ready).toBe(false);
   expect(state.blocked).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
   for (const choice of screen.getAllByRole("radio", { name: "I’m not sure yet" })) {
     fireEvent.click(choice);
   }
@@ -158,24 +165,23 @@ it("keeps the demo local and shows Plaid confirmation before automatic settlemen
   }
 });
 
-it("saves the persona before import and keeps risk comfort separate from near-term needs", async () => {
-  render(<FinanceImportOnboardingSetupClient showIntroduction />);
-  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+it("saves the original three starter preferences before import without overwriting loss capacity", async () => {
+  render(<FinanceOnboardingSetupPage />);
   expect(
     screen.getByRole("heading", { name: "Let’s build your financial persona" }),
   ).toBeVisible();
   act(() => {
-    expect(unwindBackLayer("/one/setup/finance")).toBe(true);
+    expect(unwindBackLayer("/one/setup/finance")).toBe(false);
   });
-  expect(
-    screen.getByRole("heading", { name: "Follow the market." }),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  expect(screen.getAllByRole("group").map((group) => group.querySelector("legend")?.textContent)).toEqual([
+    "01How long will this stay invested?",
+    "02Portfolio down 20%, what's your move?",
+    "03Which feels more comfortable to you?",
+  ]);
   for (const label of [
     "Less than 3 years",
-    "Consider investing more if my plan still fits",
-    "Lose 30% or gain 35%",
-    "I’d probably need to sell to cover bills",
+    "Invest more at lower prices",
+    "Larger swings for higher potential returns",
   ]) {
     fireEvent.click(screen.getByRole("radio", { name: label }));
   }
@@ -188,19 +194,21 @@ it("saves the persona before import and keeps risk comfort separate from near-te
         investment_horizon: "short_term",
         drawdown_response: "buy_more",
         volatility_preference: "large",
-        loss_capacity: "essentials",
       },
     }),
   );
   expect(state.ready).toBe(false);
   expect(screen.getByText("Real source workflow")).toBeVisible();
+  expect(state.sourceBack).toBeTypeOf("function");
+  act(() => state.sourceBack?.());
+  expect(screen.getByRole("heading", { name: "Let’s build your financial persona" })).toBeVisible();
+  expect(screen.getByRole("radio", { name: "Invest more at lower prices" })).toBeChecked();
 });
 
 it("skips unanswered persona questions and continues to import with a locked vault", () => {
   state.vaultLocked = true;
   state.bootstrap.mockResolvedValue({ ...state.journey, hasVault: true });
-  render(<FinanceImportOnboardingSetupClient showIntroduction />);
-  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  render(<FinanceOnboardingSetupPage />);
   fireEvent.click(screen.getByRole("radio", { name: "Less than 3 years" }));
   fireEvent.click(screen.getByRole("button", { name: "Skip all" }));
   expect(screen.getByText("Real source workflow")).toBeVisible();
@@ -211,7 +219,7 @@ it("skips unanswered persona questions and continues to import with a locked vau
 
 it("recovers the explicit completion screen from a verified persisted source callback", () => {
   state.resumed = true;
-  render(<FinanceImportOnboardingSetupClient showIntroduction />);
+  render(<FinanceOnboardingSetupPage />);
   expect(screen.getByRole("heading", { name: "You're all set" })).toBeTruthy();
   expect(screen.queryByText("Real source workflow")).toBeNull();
   expect(state.blocked).toBe(false);

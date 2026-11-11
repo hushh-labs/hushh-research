@@ -26,42 +26,37 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import { resolveOneSetupReturnTo } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { takeFinanceSetupPlaidSuccess } from "@/lib/kai/brokerage/plaid-oauth-session";
-import {
-  FinanceOnboardingComplete,
-  FinanceOnboardingDemo,
-} from "@/components/kai/onboarding/finance-onboarding";
+import { FinanceOnboardingComplete } from "@/components/kai/onboarding/finance-onboarding";
 import {
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
 } from "@/lib/auth/session-owner";
 
 export function FinanceImportOnboardingSetupClient({
-  showIntroduction = false,
+  startWithPersona = false,
 }: {
-  showIntroduction?: boolean;
+  startWithPersona?: boolean;
 }) {
   const { userId } = useAuth();
   const generation = snapshotValidatedAuthSessionOwner()?.generation;
   return (
     <OwnedFinanceImportSetup
       key={`${userId}:${generation}`}
-      showIntroduction={showIntroduction}
+      startWithPersona={startWithPersona}
     />
   );
 }
 
 function OwnedFinanceImportSetup({
-  showIntroduction,
+  startWithPersona,
 }: {
-  showIntroduction: boolean;
+  startWithPersona: boolean;
 }) {
   const { user, userId, loading } = useAuth();
   const { vaultOwnerToken, getVaultKey, retryOwnerTokenRenewal } = useVault();
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const [introductionComplete, setIntroductionComplete] =
-    useState(!showIntroduction);
-  const [personaComplete, setPersonaComplete] = useState(!showIntroduction);
+  const [personaComplete, setPersonaComplete] = useState(!startWithPersona);
   const [personaSaving, setPersonaSaving] = useState(false);
   const [personaVaultPrompt, setPersonaVaultPrompt] = useState<"unlock" | "create" | null>(null);
   const resolvePersonaVaultPrompt = useRef<((unlocked: boolean) => void) | null>(null);
@@ -98,7 +93,7 @@ function OwnedFinanceImportSetup({
   const autoContinuing = plaidFinanceHandoff && plaidHandoff !== "retry";
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "finance",
-    allowCompletedFinanceEntry: showIntroduction && !returnTo && !searchParams.has("stage"),
+    allowCompletedFinanceEntry: startWithPersona && !returnTo && !searchParams.has("stage"),
     isOperationallyReady: sourceSettled !== null,
     finishActionId: "setup.finish_finance",
     skipActionId: "setup.skip_finance",
@@ -115,10 +110,9 @@ function OwnedFinanceImportSetup({
     if (sourceSettled !== null || !isCurrent() || !coordinator.isReady) return;
     const plaidConnected = takeFinanceSetupPlaidSuccess(pathname);
     // A verified connector callback survives a refresh. Recover its explicit
-    // terminal instead of replaying the demo or asking for a second import.
+    // terminal without repeating the questionnaire or import.
     if (plaidConnected || coordinator.operationallyReady) {
       setSourceSettled(plaidConnected ? "plaid" : "resumed");
-      setIntroductionComplete(true);
       setPersonaComplete(true);
     }
   }, [coordinator.isReady, coordinator.operationallyReady, sourceSettled, isCurrent, pathname]);
@@ -143,14 +137,7 @@ function OwnedFinanceImportSetup({
     return () => window.clearTimeout(timer);
   }, [plaidFinanceHandoff, plaidHandoff, coordinator.isReady, coordinator.operationallyReady, isCurrent, openFinanceAfterPlaid]);
 
-  useBackLayer(pathname, 1, () => {
-    if (coordinator.isSettling || personaSaving || autoContinuing) return true;
-    if (showIntroduction && introductionComplete && !personaComplete) {
-      setIntroductionComplete(false);
-      return true;
-    }
-    return false;
-  });
+  useBackLayer(pathname, 1, () => coordinator.isSettling || personaSaving || autoContinuing);
 
   function closePersonaVaultPrompt(unlocked: boolean) {
     const resolve = resolvePersonaVaultPrompt.current;
@@ -229,10 +216,10 @@ function OwnedFinanceImportSetup({
     >
       <NativeTestBeacon
         routeId={
-          showIntroduction ? "/one/setup/finance" : "/one/setup/finance/import"
+          startWithPersona ? "/one/setup/finance" : "/one/setup/finance/import"
         }
         marker={
-          showIntroduction
+          startWithPersona
             ? "native-route-one-setup-finance"
             : "native-route-one-setup-finance-import"
         }
@@ -240,21 +227,9 @@ function OwnedFinanceImportSetup({
         dataState="loaded"
       />
       <FinanceOnboardingPages
-        stage={
-          !introductionComplete
-            ? 0
-            : !personaComplete
-              ? 1
-              : sourceSettled
-                ? 3
-                : 2
-        }
+        stage={!personaComplete ? 1 : sourceSettled ? 3 : 2}
       >
-        {!introductionComplete ? (
-          <FinanceOnboardingDemo
-            onContinue={() => setIntroductionComplete(true)}
-          />
-        ) : !personaComplete ? (
+        {!personaComplete ? (
           <FinancePersonaForm
             onboarding
             initial={savedPreferences}
@@ -279,8 +254,8 @@ function OwnedFinanceImportSetup({
             userId={userId}
             mode="import"
             setupSourcePicker
-            onSetupIntroductionBack={
-              showIntroduction ? () => setPersonaComplete(false) : undefined
+            onSetupPersonaBack={
+              startWithPersona ? () => setPersonaComplete(false) : undefined
             }
             vaultOwnerToken={vaultOwnerToken ?? ""}
             onSetupSourceSettled={async (source, callbackAttemptId) => {
