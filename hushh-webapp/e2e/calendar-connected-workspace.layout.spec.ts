@@ -210,7 +210,7 @@ for (const width of [390, 1440]) {
   });
 }
 for (const width of [320, 390, 1440]) {
-  test(`connected Calendar geometry, timeline, windows and shared session recovery at ${width}px`, async ({ page }, testInfo) => {
+  test(`connected Calendar geometry, timeline, windows and shared session recovery at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests, calls, failAvailability } = await openFixture(page, width);
     const tabs = page.getByRole("tablist", { name: "Calendar navigation" });
     const tabBounds = (await tabs.boundingBox())!;
