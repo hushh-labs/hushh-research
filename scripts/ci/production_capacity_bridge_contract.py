@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import tempfile
 import release_artifact_receipts
+import production_recovery_capacity as recorded
 
 retention = importlib.import_module("cloudrun-retention")
 
@@ -76,6 +77,20 @@ def bridge_revision_names(receipt):
 
 
 def validate_receipt_extension(value, validate_receipt):
+    if value.get("profile") == recorded.PROFILE:
+        if (
+            value["revision"] != recorded.REVISION
+            or value["sourceRevision"] != recorded.SERVING_BACKEND
+            or value["displacedLatestRevision"] != recorded.DISPLACED
+            or value["pins"] != {}
+            or not isinstance(value.get("desiredTraffic"), list)
+            or not recorded.unrouted(
+                {"spec": {"traffic": value["desiredTraffic"]},
+                 "status": {"traffic": value["desiredTraffic"]}},
+                recorded.REVISION,
+            )
+        ):
+            raise retention.UnsafeState("Invalid recorded recovery bridge receipt")
     if (value.get("profile") == RECOVERY_PROFILE) != (
         value.get("recovery") == RECOVERY_RECEIPT
     ):
@@ -83,11 +98,14 @@ def validate_receipt_extension(value, validate_receipt):
     retired = value.get("retiredPredecessor")
     if retired is not None:
         if (
-            value.get("profile") != RECOVERY_PROFILE
+            value.get("profile") not in {RECOVERY_PROFILE, recorded.PROFILE}
             or value.get("retiredPredecessorObservation") != "verified_and_absent"
             or not isinstance(retired, dict)
             or retired.get("status") != "verified"
-            or "retiredPredecessor" in retired
+            or (
+                "retiredPredecessor" in retired
+                and not (value.get("profile") == recorded.PROFILE and retired.get("profile") == RECOVERY_PROFILE)
+            )
             or value.get("retiredPredecessorFingerprint") != fingerprint(retired)
             or retired.get("revision")
             in {
@@ -136,6 +154,80 @@ def retired_bridge_transition(
     ):
         raise retention.UnsafeState("Previously retired bridge reappeared")
     return previous, retired_predecessor
+
+
+def retired_recorded_transition(previous, service, existing_names, create):
+    """Preserve the old custody chain; only its fully absent terminal state can advance."""
+    if previous is None:
+        return None, None
+    same_profile = previous.get("profile") == recorded.PROFILE
+    if not same_profile and (not create or previous["status"] != "verified"):
+        raise retention.UnsafeState("An unresolved prior bridge blocks recorded recovery")
+    retired = previous.get("retiredPredecessor") if same_profile else previous
+    names = set()
+    item = retired
+    while item is not None:
+        names.update(bridge_revision_names(item))
+        item = item.get("retiredPredecessor")
+    status = service["status"]
+    referenced = existing_names | {name for name, _, _ in traffic(service)} | {
+        status.get("latestCreatedRevisionName"), status.get("latestReadyRevisionName"),
+        *(target.get("revisionName") for target in service["spec"]["traffic"]),
+    }
+    if names & referenced:
+        raise retention.UnsafeState("Prior bridge custody remains present")
+    return (previous if same_profile else None), retired
+
+
+def verify_recorded_displacement(service, rows):
+    displaced = [row for row in rows if row["metadata"]["name"] == recorded.DISPLACED]
+    status = service["status"]
+    if (
+        not recorded.reconciled(service)
+        or not recorded.unrouted(service, recorded.DISPLACED)
+        or not recorded.unrouted(service, recorded.REVISION)
+        or status.get("latestCreatedRevisionName") != recorded.DISPLACED
+        or status.get("latestReadyRevisionName") != recorded.DISPLACED
+        or len(displaced) != 1
+        or displaced[0]["metadata"]["uid"] != recorded.DISPLACED_UID
+        or fingerprint([displaced[0]["spec"], displaced[0]["status"]["imageDigest"]])
+        != recorded.DISPLACED_FINGERPRINT
+    ):
+        raise retention.UnsafeState("Recorded blocked candidate is not the exact unrouted latest revision")
+
+    owner = importlib.import_module("uat-retention-maintenance")
+    repo, run_id = "hushh-labs/hushh-research", 40983118449
+    run = owner.uncached_api(repo, f"runs/{run_id}")
+    if (
+        run.get("id") != run_id or run.get("run_attempt") != 1
+        or run.get("head_sha") != "9e397f0eed52e8ee250c08b0704e7bd4cfda15c0"
+        or run.get("status") != "completed" or run.get("conclusion") != "failure"
+        or not owner.trusted_origin(run, repo, owner.LANES["production"]["workflow"])
+        or not owner.governed_dispatch(run, repo, "production")
+    ):
+        raise retention.UnsafeState("Recorded blocked release origin changed")
+    artifact, _ = release_artifact_receipts.current_attempt_artifact(
+        repo, run, owner.LANES["production"], api=owner.api, timestamp=owner._github_timestamp,
+    )
+    if (
+        artifact["id"] != 12947631003
+        or artifact["digest"] != "sha256:8d8b627cd0d170ab4a166abae23a3ad75d7abd60da6cd81df10004cd80fac089"
+    ):
+        raise retention.UnsafeState("Recorded blocked release archive changed")
+    archive = release_artifact_receipts.immutable_archive(
+        repo, artifact, run_command=retention.run_command, timeout=30,
+    )
+    release = json.loads(release_artifact_receipts._status_bytes(
+        archive, "prod-release-status.json", allow_legacy_production=True
+    ))
+    if (
+        release.get("status") != "blocked"
+        or release.get("sha") != "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+        or release.get("candidate", {}).get("backend_revision") != recorded.DISPLACED
+        or release.get("final", {}).get("backend_revision") != recorded.SERVING_BACKEND
+        or not owner._same_production_run(run, owner.uncached_api(repo, f"runs/{run_id}"))
+    ):
+        raise retention.UnsafeState("Recorded release does not prove the displaced backend")
 
 
 def configure_clone_launcher(source, container, env, maintenance_profile):
