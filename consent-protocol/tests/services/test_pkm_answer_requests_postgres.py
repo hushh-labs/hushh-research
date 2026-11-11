@@ -56,7 +56,8 @@ MIGRATIONS.append(
 )
 
 MIGRATIONS.append(
-    Path(__file__).resolve().parents[2] / "db/migrations/989_pkm_answer_processing_runtime.sql"
+    Path(__file__).resolve().parents[2]
+    / "db/migrations/parked/989_pkm_answer_processing_runtime.sql"
 )
 
 # The owner's registry. attr.financial.holdings is deliberately present so a
