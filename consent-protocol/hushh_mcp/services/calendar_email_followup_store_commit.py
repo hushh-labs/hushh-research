@@ -312,7 +312,7 @@ def insert_request(
             "source_body_digest": message.body_digest,
             "source_internal_date_ms": message.internal_date_ms,
             "kind": candidate.kind,
-            "state": "pending" if reminder_at and candidate.kind != "meeting" else "needs_review",
+            "state": "pending" if reminder_at else "needs_review",
             "title_ciphertext": seal(candidate.title, monitor, request_id, "title"),
             "quote_ciphertext": seal(candidate.quote, monitor, request_id, "quote"),
             "due_wording_ciphertext": wording,

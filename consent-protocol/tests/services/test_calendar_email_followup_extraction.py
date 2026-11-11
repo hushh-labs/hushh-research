@@ -10,6 +10,7 @@ import pytest
 
 from hushh_mcp.services.calendar_email_followup_extraction import (
     assess_complete_message,
+    assess_section,
     validate_chunk,
 )
 from hushh_mcp.services.calendar_email_followup_reader import (
@@ -148,3 +149,30 @@ def test_unoffered_quote_and_update_are_rejected():
             prior_request_ids=set(),
             evidence_key=b"synthetic-key",
         )
+
+
+@pytest.mark.asyncio
+async def test_the_model_is_given_the_owners_received_day_to_resolve_dates_like_the_20th():
+    message = _message("Please send the document before the 20th and set up a meeting on the 21st.")
+    seen: dict = {}
+
+    async def fake_gene(**kwargs):
+        seen.update(json.loads(kwargs["prompt"]))
+        return {"candidates": [], "updates": []}
+
+    async def current():
+        return None
+
+    await assess_section(
+        message=message,
+        section=message.sections[0],
+        user_id="synthetic-owner",
+        consent_token=_SYNTHETIC_CONSENT,
+        owner_time_zone="America/Los_Angeles",
+        prior_requests=[],
+        evidence_key=b"synthetic-evidence",
+        require_current=current,
+        gene_runner=fake_gene,
+    )
+    # 10 Oct 00:00 UTC is still the evening of 9 Oct for this owner.
+    assert seen["message_received_on"] == "2026-10-09 Friday"

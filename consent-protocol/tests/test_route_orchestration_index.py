@@ -10,8 +10,10 @@ def test_resolves_static_finance_setup_route() -> None:
     assert entry is not None
     assert entry["route_pattern"] == "/one/setup/finance"
     assert entry["instruction_id"] == "route.one.setup.finance"
-    assert entry["voice_playbook"]["primary_action_id"] == "kai.setup.answer_horizon"
-    assert "kai.setup.answer_horizon" in entry["action_ids"]
+    # The Finance setup screen finishes or skips Finance; the horizon question
+    # belongs to the Kai setup screen (`/one/setup/kai`).
+    assert entry["voice_playbook"]["primary_action_id"] == "setup.finish_finance"
+    assert {"setup.finish_finance", "setup.skip_finance"} <= set(entry["action_ids"])
 
 
 def test_route_matching_is_segment_bounded() -> None:

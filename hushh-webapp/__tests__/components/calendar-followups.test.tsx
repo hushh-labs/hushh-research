@@ -144,6 +144,8 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(await screen.findByText("Find Calendar follow-ups in email.")).toBeInTheDocument();
     expect(screen.getByText(/check account_C@example.test/)).toBeInTheDocument();
     expect(screen.queryByText("Send the research document")).not.toBeInTheDocument();
+    // There is no look-back choice: a first scan is always the most recent 30 days.
+    expect(screen.queryByText(/Look back/)).not.toBeInTheDocument();
     // One action both asks for Mail and turns monitoring on: no second "Enable" step.
     fireEvent.click(screen.getByRole("button", { name: "Allow email access" }));
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
@@ -152,6 +154,8 @@ describe("Calendar Insights Follow-ups card", () => {
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
       "owner", "account_C", "synthetic-id-token", "synthetic-owner-token"));
     expect(onConnectMail).toHaveBeenCalledOnce();
+    const approved = service.post.mock.calls.find(([path]) => path === "preferences")![1];
+    expect(Math.round((Date.now() - Date.parse(approved.historical_start_at)) / 86_400_000)).toBe(30);
     expect(screen.queryByRole("button", { name: "Allow email access" })).not.toBeInTheDocument();
     expect(service.post.mock.calls.some(([, body]) => body.account_id === "account_B")).toBe(false);
     expect(service.scan.mock.calls.some(call => call[1] === "account_B")).toBe(false);
@@ -162,7 +166,7 @@ describe("Calendar Insights Follow-ups card", () => {
     const onConnectMail = vi.fn(async () => true);
     service.post.mockResolvedValue({ account_id: "account_granted" });
     render(<CalendarFollowups {...props("account_granted", onConnectMail)} />);
-    expect(await screen.findByText(/check account_granted@example.test/)).toBeInTheDocument();
+    expect(await screen.findByText(/last 30 days of account_granted@example.test/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Connect Mail|Allow email access/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true }), expect.anything(), expect.anything()));
@@ -252,6 +256,18 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.scan).toHaveBeenCalledTimes(1);
   });
 
+  it("turns reminders on for a monitored account that had them off, without asking", async () => {
+    service.status.mockResolvedValue(status("account_quiet_off", { notifications_enabled: false }));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_quiet_off" });
+    service.post.mockResolvedValue({ account_id: "account_quiet_off" });
+    render(<CalendarFollowups {...props("account_quiet_off")} />);
+    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
+      account_id: "account_quiet_off", enabled: true, notifications_enabled: true,
+      historical_start_at: "2026-09-10T00:00:00Z",
+    }), "synthetic-id-token", "synthetic-owner-token", expect.anything()));
+    expect(screen.queryByText(/Remind me/)).not.toBeInTheDocument();
+  });
+
   it("rebinds a renewed Mail grant silently, keeping the approved period", async () => {
     service.status.mockResolvedValue(status("account_renewed", { monitor_current: false }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_renewed" });
@@ -276,7 +292,8 @@ describe("Calendar Insights Follow-ups card", () => {
     const request = (preview: typeof bList.conversations[0]["preview_requests"][number]) => ({
       ...preview, source_excerpt: "Could we have a call on 27 October", due_relation: null,
       proposed_at: null, time_zone: "Asia/Kolkata", responsibility: "owner",
-      reminder_at: null, reminder_status: "none", linked_event: null,
+      reminder_at: preview.kind === "meeting" ? "2026-10-26T03:30:00Z" : null,
+      reminder_status: preview.kind === "meeting" ? "scheduled" : "none", linked_event: null,
       source_internal_date_ms: Date.parse("2026-10-10T12:00:00Z"),
       revision: 1, booking_state: preview.kind === "meeting" ? "not_booked" : null,
     });
@@ -297,6 +314,9 @@ describe("Calendar Insights Follow-ups card", () => {
     // A proposed meeting is never described as scheduled.
     expect(screen.getByText(/Meeting proposed · .*27 · Time to confirm · Not on your Calendar yet/)).toBeInTheDocument();
     expect(screen.queryByText(/scheduled/i)).not.toBeInTheDocument();
+    // The reminder reaches the call too, and the way to book it is one clear action.
+    expect(screen.getByText(/^Reminder .*26/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schedule" })).toBeInTheDocument();
     expect(document.activeElement?.textContent).toContain("Review proposed call with Jhumma");
     window.history.replaceState(null, "", "/one/calendar");
   });

@@ -33,7 +33,7 @@ export function MeetingReview({ request, zone, busy, onReview }: {
         if (Date.parse(startAt) <= Date.now()) { setError("Choose a future meeting time."); return; }
         onReview(request, startAt, new Date(Date.parse(startAt) + Number(duration) * 60_000).toISOString(), timeZone);
       } catch { setError("Choose a valid meeting time."); }
-    }}>Review meeting</Button>
+    }}>Schedule</Button>
   </>;
 }
 

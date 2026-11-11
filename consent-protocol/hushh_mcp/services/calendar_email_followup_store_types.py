@@ -68,7 +68,35 @@ def candidate_reminder_at(
         ambiguities=candidate.ambiguities,
         monitor=monitor,
         now=now,
+        kind=candidate.kind,
+        proposed_date=candidate.proposed_date,
+        proposed_at=candidate.proposed_at,
+        meeting_state=candidate.meeting_state,
     )
+
+
+def _meeting_day(
+    proposed_date: str | date | None, proposed_at: str | datetime | None, zone: str
+) -> date | None:
+    """The calendar day a proposed meeting falls on, in the owner's time zone."""
+    if proposed_date:
+        return (
+            date.fromisoformat(proposed_date) if isinstance(proposed_date, str) else proposed_date
+        )
+    if proposed_at:
+        instant = (
+            datetime.fromisoformat(proposed_at) if isinstance(proposed_at, str) else proposed_at
+        )
+        return instant.astimezone(ZoneInfo(zone)).date() if instant.tzinfo else None
+    return None
+
+
+def _local_reminder(day: date, monitor: Monitor, *, now: datetime | None) -> datetime | None:
+    local = datetime.combine(
+        day, time(hour=monitor.reminder_hour), tzinfo=ZoneInfo(monitor.time_zone)
+    )
+    reminder = local.astimezone(UTC)
+    return reminder if reminder > (now or datetime.now(UTC)) else None
 
 
 def _reminder_at_from_fields(
@@ -80,7 +108,23 @@ def _reminder_at_from_fields(
     ambiguities: list[str] | tuple[str, ...],
     monitor: Monitor,
     now: datetime | None = None,
+    kind: str = "action",
+    proposed_date: str | date | None = None,
+    proposed_at: str | datetime | None = None,
+    meeting_state: str = "none",
 ) -> datetime | None:
+    if kind == "meeting":
+        # A meeting someone proposes is reminded the day before, so there is still
+        # time to schedule it. One already on the Calendar, one for someone else to
+        # arrange, or one whose day is unclear gets no reminder of its own.
+        if meeting_state == "confirmed" or responsibility == "other" or "date" in ambiguities:
+            return None
+        day = _meeting_day(proposed_date, proposed_at, monitor.time_zone)
+        if day is None:
+            return None
+        return _local_reminder(
+            day - timedelta(days=max(monitor.reminder_lead_days, 1)), monitor, now=now
+        )
     if not due_date or responsibility != "owner":
         return None
     if set(ambiguities) & {"date", "time_zone", "responsibility"}:
@@ -93,10 +137,4 @@ def _reminder_at_from_fields(
         if due_relation == "before"
         else monitor.reminder_lead_days
     )
-    local = datetime.combine(
-        due - timedelta(days=lead_days),
-        time(hour=monitor.reminder_hour),
-        tzinfo=ZoneInfo(monitor.time_zone),
-    )
-    reminder = local.astimezone(UTC)
-    return reminder if reminder > (now or datetime.now(UTC)) else None
+    return _local_reminder(due - timedelta(days=lead_days), monitor, now=now)
