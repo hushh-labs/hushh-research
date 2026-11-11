@@ -148,7 +148,7 @@ Every dossier includes:
 
 ## Good Output Standard
 
-For operator-authorized bulk retirement, record the CLI identity, exact age and
+For operator-authorized bulk retirement, record the acting identity, exact age and
 inactivity cutoff, head/base guards, batch size and direct links. Closure does
 not accept, merge, retarget or harvest code, or delete branches. Use distinct
 request identities and explicit targets; reject mismatched response IDs. Verify
