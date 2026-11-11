@@ -417,6 +417,21 @@ async def _drain(
             break
 
 
+async def _schedule_meeting_reminders(
+    store: CalendarEmailFollowupStore, monitor: Monitor, now: datetime | None
+) -> None:
+    """A finished pass also reminds about proposals stored before meetings had reminders.
+
+    Best effort: it must never turn a finished scan into a failed one.
+    """
+    try:
+        await store.refresh_meeting_reminders(monitor, now=now)
+    except Exception as exc:
+        logger.warning(
+            "calendar_followup_meeting_reminders_deferred error_type=%s", type(exc).__name__
+        )
+
+
 async def scan_once(
     *,
     user_id: str,
@@ -473,6 +488,8 @@ async def scan_once(
                 progress=progress,
                 deadline=deadline,
             )
+        if progress["done"]:
+            await _schedule_meeting_reminders(store, monitor, now)
         state = (
             "partial"
             if checkpoint.get("incomplete_sources")

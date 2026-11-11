@@ -8,8 +8,9 @@ stored rows, and then only the rows that no longer belong.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 
@@ -62,42 +63,86 @@ def drop_out_of_period(
     )
 
 
+def _apply_reminder(
+    conn: Any, request: Any, monitor: Monitor, *, now: datetime | None = None
+) -> bool:
+    """Recompute one request's reminder from the owner's timing; True when it changed."""
+    next_at = _reminder_at_from_fields(
+        due_date=request["due_date"],
+        due_relation=request["due_relation"],
+        time_zone=request["time_zone"],
+        responsibility=request["responsibility"],
+        ambiguities=request["ambiguities"],
+        monitor=monitor,
+        now=now,
+        kind=request["kind"],
+        proposed_date=request["proposed_date"],
+        proposed_at=request["proposed_at"],
+        meeting_state=request["meeting_state"],
+    )
+    conn.execute(
+        text("""UPDATE calendar_email_followup_requests SET
+        reminder_at=:reminder_at,
+        state=:state, revision=revision+1, updated_at=NOW()
+        WHERE id=CAST(:id AS UUID)"""),
+        {
+            "id": str(request["id"]),
+            "reminder_at": next_at,
+            "state": "pending" if next_at else "needs_review",
+        },
+    )
+    return next_at is not None
+
+
+_REMINDER_COLUMNS = """id,kind,due_date,due_relation,time_zone,responsibility,ambiguities,
+        proposed_date,proposed_at,meeting_state"""
+
+
 def recompute_reminders(conn: Any, user_id: str, account_id: str, monitor: Monitor) -> None:
     """New reminder timing: recompute unsent, non-manual reminders only."""
     requests = (
         conn.execute(
-            text("""SELECT id,due_date,due_relation,time_zone,responsibility,
-        ambiguities FROM calendar_email_followup_requests
+            text(f"""SELECT {_REMINDER_COLUMNS} FROM calendar_email_followup_requests
         WHERE user_id=:user_id AND account_id=:account_id
-        AND kind<>'meeting' AND state IN ('pending','needs_review')
+        AND state IN ('pending','needs_review')
         AND suppressed_at IS NULL
         AND reminder_sent_revision IS DISTINCT FROM revision
-        AND reminder_is_manual=FALSE FOR UPDATE"""),
+        AND reminder_is_manual=FALSE FOR UPDATE"""),  # nosec B608 # module-constant column list only
             {"user_id": user_id, "account_id": account_id},
         )
         .mappings()
         .all()
     )
     for request in requests:
-        next_at = _reminder_at_from_fields(
-            due_date=request["due_date"],
-            due_relation=request["due_relation"],
-            time_zone=request["time_zone"],
-            responsibility=request["responsibility"],
-            ambiguities=request["ambiguities"],
-            monitor=monitor,
-        )
+        _apply_reminder(conn, request, monitor)
+
+
+def schedule_meeting_reminders(
+    conn: Any, user_id: str, account_id: str, monitor: Monitor, *, now: datetime | None = None
+) -> int:
+    """Remind about proposed meetings stored before meetings had reminders.
+
+    Only a still-upcoming proposal with a day and no reminder yet is touched; a
+    row the owner or a later email already decided is left alone. Idempotent.
+    """
+    instant = now or datetime.now(UTC)
+    today = instant.astimezone(ZoneInfo(monitor.time_zone)).date()
+    requests = (
         conn.execute(
-            text("""UPDATE calendar_email_followup_requests SET
-            reminder_at=:reminder_at,
-            state=:state, revision=revision+1, updated_at=NOW()
-            WHERE id=CAST(:id AS UUID)"""),
-            {
-                "id": str(request["id"]),
-                "reminder_at": next_at,
-                "state": "pending" if next_at else "needs_review",
-            },
+            text(f"""SELECT {_REMINDER_COLUMNS} FROM calendar_email_followup_requests
+        WHERE user_id=:user_id AND account_id=:account_id AND kind='meeting'
+        AND state='needs_review' AND reminder_at IS NULL AND reminder_is_manual=FALSE
+        AND suppressed_at IS NULL AND merged_into IS NULL
+        AND reminder_sent_revision IS DISTINCT FROM revision
+        AND COALESCE(proposed_date,(proposed_at AT TIME ZONE :tz)::date)>=:today
+        ORDER BY COALESCE(proposed_date,(proposed_at AT TIME ZONE :tz)::date)
+        LIMIT 50 FOR UPDATE"""),  # nosec B608 # module-constant column list only
+            {"user_id": user_id, "account_id": account_id, "tz": monitor.time_zone, "today": today},
         )
+        .mappings()
+        .all()
+    )
+    return sum(_apply_reminder(conn, request, monitor, now=instant) for request in requests)
 
 
 def update_monitor(

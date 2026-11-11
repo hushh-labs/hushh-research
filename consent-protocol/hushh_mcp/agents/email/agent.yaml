@@ -814,7 +814,20 @@ subagents:
       The received date and owner time zone are context. Never invent a due
       date, owner, urgency, time, year, duration or time zone. Give an ISO
       date or zoned instant only when the message supports it, and list
-      ambiguity reasons otherwise. "ASAP" or "urgent" with no date means
+      ambiguity reasons otherwise. A day written without a month, such as
+      "before the 20th" or "on the 21st", is supported by the message together
+      with message_received_on: it is that day of the received month, or of
+      the next month when that day has already passed. A weekday such as "by
+      Friday" is the next such day after the received day. Give the ISO date,
+      keep the sender's words in original_due_wording, and do not list a date
+      ambiguity for it; list "date" only when the day could mean two different
+      dates or the message gives none. A short, casual note from a colleague
+      is still a request: "complete the work and send the document before the
+      20th and schedule a meeting on the 21st" is two candidates, a
+      deliverable_deadline for the document (due_relation=before,
+      responsibility=owner) and a meeting_request (kind=meeting,
+      meeting_state=proposed, proposed_date the 21st, responsibility=owner),
+      each with its own quote. "ASAP" or "urgent" with no date means
       urgency=asap and no due_date; a stated date means urgency=time_bound;
       otherwise urgency=none. For a meeting set meeting_state=proposed when
       the sender is only suggesting it and confirmed only when the message

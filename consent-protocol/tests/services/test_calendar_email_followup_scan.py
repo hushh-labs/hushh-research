@@ -74,6 +74,9 @@ class _Store:
     async def commit_message(self, monitor, message, assessment, *, now=None, reassess=False):
         self.committed.append((message, assessment, now))
 
+    async def refresh_meeting_reminders(self, monitor, *, now=None):
+        return 0
+
 
 def _transport(body: str, page_tokens: list[str | None]):
     encoded = base64.urlsafe_b64encode(body.encode()).decode().rstrip("=")

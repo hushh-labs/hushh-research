@@ -451,6 +451,7 @@ async def test_existing_calendar_meeting_is_linked_not_recreated_and_new_one_nee
     monitor = await store.monitor(user_id=OWNER, account_id=selected)
     listing = await store.list_conversations(monitor, limit=10, now=SCAN_DAY)
     request = listing["conversations"][0]["preview_requests"][0]
-    # Nothing was booked: it is surfaced as a proposal that still needs the owner.
+    # Nothing was booked: it is surfaced as a proposal that still needs the owner,
+    # with its day-before reminder scheduled (27 Oct call, scanned 11 Oct).
     assert request["kind"] == "meeting" and request["meeting_state"] == "proposed"
-    assert request["state"] == "needs_review"
+    assert request["state"] == "pending"
