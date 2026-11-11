@@ -562,6 +562,8 @@ def main() -> int:
         test_recovery_selects_main_controllers_without_replacing_the_application_delta,
         test_bad_or_missing_change_list_fails_conservatively,
         test_changed_file_input_is_bounded_and_rejects_traversal,
+        test_bulk_review_snapshot_cleanup_keeps_every_changed_path,
+        test_changed_file_path_count_still_refuses_an_oversized_selection,
         test_cli_commands_group_is_machine_readable_and_static,
         test_runner_reports_every_failure_instead_of_stopping_early,
         test_validation_results_collect_independent_failures_and_preserve_stops,
