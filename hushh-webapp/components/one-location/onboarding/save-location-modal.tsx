@@ -90,7 +90,7 @@ const SheetContent = withLocationTypography(UnscopedSheetContent);
 const touchTargetClassName =
   "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
 
-const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
+const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 /**
  * The same control, laid out instead of absolutely positioned. Written as its
@@ -99,7 +99,7 @@ const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center ju
  * key and `relative` is the only one -- which is exactly the trap documented
  * on `touchTargetClassName`.
  */
-const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
+const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
