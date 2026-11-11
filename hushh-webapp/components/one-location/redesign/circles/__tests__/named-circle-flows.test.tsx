@@ -119,6 +119,15 @@ describe("named Circle flows", () => {
     expect(await screen.findByRole("dialog", { name: "Add people" })).toBeVisible();
   });
 
+  it.each([false, true])("places Add people above an empty roster and beside Delete after a member joins (%s)", async (hasMember) => {
+    const detail = circle("family", "Family");
+    if (hasMember) { detail.members.push({ ...detail.members[0]!, userId: "friend", displayName: "Friend", role: "member" }); detail.memberCount = 2; }
+    render(<CircleDetailFlow circleId="family" {...detailProps(async () => detail)} />);
+    const add = await screen.findByRole("button", { name: "Add people", exact: true });
+    expect(Boolean(add.closest("[data-circle-member-actions]"))).toBe(hasMember);
+    expect(screen.getByRole("button", { name: "Delete circle", exact: true }).closest("[data-circle-member-actions]")).not.toBeNull();
+  });
+
   it("retains the created ID if the server drops a custom type, then updates it on retry", async () => {
     const props = createProps();
     const saved = { ...circle("new-circle", "Investments"), kind: "other" as const };

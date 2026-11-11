@@ -1,10 +1,11 @@
+import { ConnectTypeScale } from "../../lib/morphy-ux/ui/connect-type-scale";
 import { MoonIcon } from "../../components/icons";
 import { FeedRow } from "../../components/feed/feed-row";
 import { presentFeedItem } from "../../lib/feed/feed-item-renderers";
 import { appendFeedPage, createFeedPaginationState, reconcileFeedFirstPage } from "../../lib/feed/feed-pagination";
 import type { FeedItem } from "../../lib/services/feed-service";
 import { createRoot } from "react-dom/client";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { AgentDockProvider, AgentDockVoiceBoundary, useAgentDockSurface } from "../../components/agent/agent-dock";
 import peopleStyles from "../../components/direct-messages/direct-messages-page.module.css";
 import { CircleMessagesPane } from "../../components/connect/circles/circle-messages-pane";
@@ -96,9 +97,10 @@ function GroupedFeed() {
     <output className="sr-only" data-testid="opened-chat">{opened}</output>
   </AppPageShell>;
 }
-createRoot(document.getElementById("root")!).render(<div data-app-scroll-root="true" className="h-dvh overflow-y-auto overscroll-contain">
+const Scope = new URLSearchParams(location.search).has("v14") ? ConnectTypeScale : Fragment;
+createRoot(document.getElementById("root")!).render(<Scope><div data-app-scroll-root="true" className="h-dvh overflow-y-auto overscroll-contain">
   {new URLSearchParams(location.search).has("lane") ? <AgentDockProvider><AgentDockVoiceBoundary><Lane /></AgentDockVoiceBoundary></AgentDockProvider> : new URLSearchParams(location.search).has("feed") ? <GroupedFeed /> : new URLSearchParams(location.search).has("workspace") ? <Workspace /> : <main className="mx-auto max-w-2xl space-y-4 px-4 py-6">
   <h1 className="text-xl font-semibold">Weekend friends</h1>
   <CircleChat initialOpen circleName="Weekend friends" session={{ userId: "alice", circleId: "circle", vaultKey: "fixture", vaultOwnerToken: "fixture" }} />
 </main>}
-</div>);
+</div></Scope>);

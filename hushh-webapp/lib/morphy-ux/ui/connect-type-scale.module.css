@@ -221,3 +221,15 @@
 .surface [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"]:hover {
   background-color: transparent;
 }
+
+/* Balance the 44px composer around the scoped 22px text line. */
+.surface [data-conversation-composer] textarea {
+  padding-block: 11px;
+  line-height: 22px;
+}
+
+/* Shrink Back artwork without reducing its accessible hit target. */
+.surface :is(button[aria-label^="Back"], button[aria-label="Go back"]) > svg {
+  scale: .9;
+}
+:global(body):has(.root) :global([data-workspace-back]) > svg { scale: .9; }

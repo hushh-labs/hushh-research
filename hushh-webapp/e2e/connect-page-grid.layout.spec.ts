@@ -391,7 +391,7 @@ for (const dark of [false, true]) {
         if (testInfo.project.use.hasTouch) await riaBadge.tap();
         else await riaBadge.hover();
         const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });
-        await expect(riaDetails).toContainText("Hussh verified this person's advisor profile.");
+        await expect(riaDetails).toContainText("Advisor verified by Hussh.");
         await page.keyboard.press("Escape");
         await expect(riaDetails).toHaveCount(0);
 

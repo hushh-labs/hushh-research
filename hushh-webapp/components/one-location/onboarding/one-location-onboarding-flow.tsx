@@ -339,7 +339,7 @@ function ContactsScreen({
     <div
       className={cn(
         embedded
-          ? "rounded-[18px] bg-[color:var(--app-card-surface-compact)] p-3.5"
+          ? "rounded-[18px] bg-[color:var(--app-card-surface-compact)] px-3.5 pb-3.5"
           : "flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]",
       )}
       data-testid="one-location-onboarding-contacts-surface"
@@ -944,7 +944,7 @@ function ReadyScreen({
                 <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
               </button>
               <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "contacts"} onClose={() => onCloseDisclosure("contacts")} title="Find contacts" busy={contactState.kind === "busy" || addingContactIds.length > 0}>
-                <div id="onboarding-contacts-panel" className="mt-3">
+                <div id="onboarding-contacts-panel" className="-mt-2">
                   <ContactsScreen
                     embedded
                     state={contactState}

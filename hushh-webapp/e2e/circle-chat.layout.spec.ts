@@ -47,13 +47,13 @@ test.beforeAll(async () => {
   });
   css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
-async function mount(page: Page, dark = false, workspace = false, inviteCode = false) {
+async function mount(page: Page, dark = false, workspace = false, inviteCode = false, v14 = false) {
   await page.route("http://localhost/fixture-person-*.webp", (route) => {
     const index = Number(route.request().url().match(/person-(\d+)/)![1]);
     return route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${index + 1}.webp`)) });
   });
   await page.route("http://localhost/circle-chat-fixture*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`http://localhost/circle-chat-fixture${workspace ? `?workspace=1${inviteCode ? "&inviteCode=1" : ""}` : ""}`);
+  await page.goto(`http://localhost/circle-chat-fixture${workspace ? `?workspace=1${inviteCode ? "&inviteCode=1" : ""}${v14 ? "&v14=1" : ""}` : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
@@ -710,3 +710,27 @@ for (const width of [320, 393, 1100, 1440]) {
     await expect(page).toHaveURL("http://localhost/one");
   });
 }
+
+for (const width of [393, 1440]) test(`Connect circle controls stay compact and aligned at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await mount(page, false, true, false, true);
+  const input = page.getByRole("textbox", { name: "Message", exact: true });
+  const spacing = await input.evaluate(node => {
+    const s = getComputedStyle(node);
+    return { top: s.paddingTop, bottom: s.paddingBottom, line: s.lineHeight, height: node.getBoundingClientRect().height };
+  });
+  expect(spacing.top).toBe(spacing.bottom);
+  expect(spacing.line).toBe("22px");
+  expect(spacing.height).toBe(44);
+  await page.getByRole("tab", { name: "Members", exact: true }).click();
+  const actions = page.locator("[data-circle-member-actions]");
+  await expect(actions.getByRole("button", { name: "Add people", exact: true })).toBeVisible();
+  const remove = actions.getByRole("button", { name: "Delete circle", exact: true });
+  expect((await remove.boundingBox())!.width).toBeLessThan(180);
+  await page.getByTestId("one-location-circle-invite-code-row").click();
+  const dialog = page.getByRole("dialog", { name: "Invite code", exact: true });
+  await expect(dialog.getByRole("button", { name: "Create code", exact: true })).toBeVisible();
+  await expect(dialog.locator('[data-task-region="footer"]')).toHaveCSS("border-top-width", "0px");
+  await expect(dialog.locator('[data-task-region="footer"]')).toHaveCSS("padding-top", "8px");
+  await page.screenshot({ path: test.info().outputPath(`compact-invite-${width}.png`), animations: "disabled" });
+});

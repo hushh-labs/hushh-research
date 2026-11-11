@@ -50,7 +50,7 @@ describe("canonical person avatar", () => {
     expect(verification).toHaveClass("-top-0.5");
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "View Aadhi's profile" })).toHaveAccessibleDescription(
-      "Hussh verified this person's advisor profile. Matched from your contacts.",
+      "Advisor verified by Hussh. Matched from your contacts.",
     );
 
     fireEvent.pointerMove(contact, { pointerType: "mouse" });
@@ -60,7 +60,7 @@ describe("canonical person avatar", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
     fireEvent.pointerMove(verification, { pointerType: "mouse" });
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hussh verified this person's advisor profile.");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Advisor verified by Hussh.");
   });
 
   it("opens a compact profile from its larger target without activating the parent row", () => {

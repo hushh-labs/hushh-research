@@ -844,7 +844,7 @@ function locationActivity() {
 }
 
 async function openLocationFeatureStep() {
-  expect(await screen.findByRole("heading", { name: "Your place." })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Your location" })).toBeTruthy();
 }
 
 async function expectLocationInviteStep() {
@@ -5121,7 +5121,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Your place.",
+        name: "Your location",
       }),
     ).toBeTruthy();
     await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
@@ -5179,7 +5179,7 @@ describe("OneLocationAgentPage", () => {
       await expectLocationInviteStep();
       expect(
         screen.queryByRole("heading", {
-          name: "Your place.",
+          name: "Your location",
         }),
       ).toBeNull();
       expect(await locationFinishButton()).toBeEnabled();
@@ -5233,7 +5233,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "Your place.",
+        name: "Your location",
       }),
     ).toBeNull();
   });
@@ -5633,12 +5633,12 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Your place.",
+          name: "Your location",
         }),
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "Your place.",
+          name: "Your location",
         }),
       ).toBeNull();
     },
@@ -5683,7 +5683,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "Your place.",
+        name: "Your location",
       }),
     ).toBeTruthy();
     const onboardingShellClass =

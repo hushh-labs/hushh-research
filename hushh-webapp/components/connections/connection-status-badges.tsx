@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const CONNECTION_BADGE_DESCRIPTIONS = {
-  advisor: "Hussh verified this person's advisor profile.",
+  advisor: "Advisor verified by Hussh.",
   contacts: "Matched from your contacts.",
 } as const;
 

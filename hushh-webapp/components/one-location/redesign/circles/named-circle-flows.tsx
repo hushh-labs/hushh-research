@@ -142,17 +142,9 @@ const CIRCLES_EMPTY_STATE_WRAPPER =
 
 const CIRCLE_CREATE_FIELD_CLASSNAME = "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 ui-text-input-value shadow-[var(--app-card-shadow-standard)] outline-none transition dark:shadow-none";
 
-/**
- * Leave / Delete circle.
- *
- * `variant="outline"` gave these a filled neutral slab with a red hairline and
- * red label -- a painted button that reads as the loudest control on a screen
- * whose actual primary action is "Add people". iOS puts a destructive row on
- * the same card surface as everything else and lets the red label carry it,
- * which is what this does.
- */
+/** Compact destructive action beside Add people; colour carries its purpose. */
 const CIRCLE_DESTRUCTIVE_ACTION =
-  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";
+  "ui-text-button-label h-11 min-h-11 w-auto rounded-full px-2.5 text-[color:var(--app-destructive)] hover:bg-destructive/10 hover:text-[color:var(--app-destructive)]";
 
 /**
  * A circle is a group of trusted people, so its glyph carries the PEOPLE role
@@ -2730,7 +2722,7 @@ export function CircleDetailFlow({
             </Sheet>
           ) : null}
 
-          {canInviteMembers ? (
+          {canInviteMembers && visibleMemberCount <= 1 ? (
             <AddPeopleAction
               onClick={openPeopleSheet}
               disabled={busy}
@@ -2864,7 +2856,7 @@ export function CircleDetailFlow({
                     </p>
                   </TaskSurfaceBody>
                 ) : (
-                  <TaskSurfaceFooter>
+                  <TaskSurfaceFooter className="!border-t-0 !pt-2">
                     <FlowActionGroup
                       separateSecondary={false}
                       className={taskSurfaceStyles.actionGroup}
@@ -3327,13 +3319,16 @@ export function CircleDetailFlow({
               rename, invite, remove. The API and a database trigger refuse the
               delete too; this only keeps the person from being offered
               something that cannot happen. */}
+          <div className="flex flex-wrap items-center justify-between gap-3" data-circle-member-actions>
+            {canInviteMembers && visibleMemberCount > 1 ? <AddPeopleAction data-connect-role="action" onClick={openPeopleSheet} disabled={busy} className="rounded-full px-2.5" data-testid="one-location-circle-add-people-row" /> : null}
           {canDeleteCircle ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
                   type="button"
                   variant="ghost"
-                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
+                  data-connect-role="action"
+                  className={CIRCLE_DESTRUCTIVE_ACTION}
                 >
                   <Trash2 inheritColor className="mr-2 h-4 w-4" />
                   Delete circle
@@ -3408,6 +3403,7 @@ export function CircleDetailFlow({
               </AlertDialog>
             </div>
           ) : null}
+          </div>
           </TabsContent>
         </>
       ) : null}
