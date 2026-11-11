@@ -40,6 +40,37 @@ import unicodedata
 
 import phonenumbers
 
+TYPED_DIRECTORY_IGNORED_CHARS = (
+    "-'._/, \t\n\r\f\v\x1c\x1d\x1e\x1f\u0085\u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
+_REMOVE_TYPED_NAME_SEPARATORS = str.maketrans("", "", TYPED_DIRECTORY_IGNORED_CHARS)
+
+
+def typed_directory_name_query(query: str) -> tuple[str, bool] | None:
+    """Keep the one-letter name index and ignore separators in longer names."""
+    query = query.strip().lower()
+    if len(query) == 1 and query.isalpha():
+        return None
+    compact = query.translate(_REMOVE_TYPED_NAME_SEPARATORS)
+    return (compact, True) if len(compact) >= 3 else (query, False)
+
+
+def _typed_directory_name_rank(name: str, query: str) -> int | None:
+    typed_query = typed_directory_name_query(query)
+    if typed_query is None:
+        return directory_name_rank(name, query)
+    needle, compact = typed_query
+    name = name.lower()
+    if compact:
+        name = name.translate(_REMOVE_TYPED_NAME_SEPARATORS)
+    if not needle or name == needle:
+        return 0
+    if name.startswith(needle):
+        return 1
+    return 2 if needle in name else None
+
 
 def normalize_directory_name(value: str) -> str:
     """Fold the directory's supported separators and repeated whitespace."""
@@ -144,16 +175,26 @@ def _directory_phone_queries(query: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(value for value in variants if value))
 
 
-def directory_contact_match_params(query: str, *, name_only: bool = False) -> dict[str, object]:
+def _matches_email_input(query: str, *, typed_search: bool) -> bool:
+    return (
+        bool(query)
+        and not any(char.isspace() for char in query)
+        and (not typed_search or "@" in query)
+    )
+
+
+def directory_contact_match_params(
+    query: str, *, name_only: bool = False, typed_search: bool = False
+) -> dict[str, object]:
     """Literal contact fragments for SQL; name matching keeps its existing tiers."""
     query = query.strip().lower()
     escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
     variants = () if name_only else _directory_phone_queries(query)
     return {
-        "name_search": not query or bool(normalize_directory_name(query)),
+        "name_search": typed_search or not query or bool(normalize_directory_name(query)),
         "email_contains": (
             f"%{escaped}%"
-            if not name_only and query and not any(char.isspace() for char in query)
+            if not name_only and _matches_email_input(query, typed_search=typed_search)
             else None
         ),
         # Match the entered digits anywhere so national numbers and partial
@@ -171,16 +212,21 @@ def directory_search_rank(
     phone_number: str | None = None,
     phone_verified: bool = False,
     name_only: bool = False,
+    typed_search: bool = False,
 ) -> int | None:
     """Rank names first, then email/verified-phone fragments, before pagination."""
     query = query.strip().lower()
-    if not query or normalize_directory_name(query):
-        rank = directory_name_rank(name, query)
+    if typed_search or not query or normalize_directory_name(query):
+        rank = (
+            _typed_directory_name_rank(name, query)
+            if typed_search
+            else directory_name_rank(name, query)
+        )
         if rank is not None:
             return rank
     if name_only:
         return None
-    if query and not any(char.isspace() for char in query) and query in (email or "").lower():
+    if _matches_email_input(query, typed_search=typed_search) and query in (email or "").lower():
         return 4
     variants = _directory_phone_queries(query)
     if phone_verified and any(

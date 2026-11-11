@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { Search } from "@/components/icons";
@@ -28,7 +28,6 @@ export function NetworkPeopleList(props: ListProps) {
   return <NetworkListSession key={`${userId ?? "signed-out"}:${generation}`} {...props} />;
 }
 function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: ListProps) {
-  const filterHelpId = useId();
   const { user, userId: owner } = useAuth();
   const generation = getAuthSessionGeneration();
   const memoryKey = `network:${visitKey}`;
@@ -190,14 +189,13 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: Li
           onChange={event => { restore.current = false; setQuery(event.target.value); setPage(1); }} />
       </div>
     ) : null}
-    {mode === "discovery" ? <div className="space-y-1.5">
+    {mode === "discovery" ? (
       <div className="grid grid-cols-2 gap-1.5 min-[480px]:flex min-[480px]:flex-wrap" role="group" aria-label="Connection degree filters">
         {([undefined, 1, 2, 3] as const).map(value => (
           <button
             key={value ?? "all"}
             type="button"
             aria-pressed={degree === value}
-            aria-describedby={filterHelpId}
             className="min-h-11 min-w-0 rounded-full border px-2 py-1.5 text-xs leading-tight [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground min-[360px]:text-sm sm:px-3"
             onClick={() => { restore.current = false; setDegree(value); setPage(1); }}
           >
@@ -205,8 +203,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: Li
           </button>
         ))}
       </div>
-      <p id={filterHelpId} className="text-sm text-muted-foreground">{degree === 1 ? "People you’re directly connected to." : degree === 2 ? "People who share a connection with you." : degree === 3 ? "People one step beyond your connections’ connections, where sharing is enabled." : "Your connections and wider network."}</p>
-    </div> : null}
+    ) : null}
     {busy && !result ? <p role="status" className="py-3 text-sm text-muted-foreground">Loading connections…</p> : null}
     {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRetry(value => value + 1)}>Try again</button></div> : null}
     {result?.items.length ? <ul className="divide-y rounded-xl border bg-card" aria-busy={busy}>

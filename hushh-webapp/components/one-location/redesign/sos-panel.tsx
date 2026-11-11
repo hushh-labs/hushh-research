@@ -550,7 +550,11 @@ export function SosPanel({
                 aria-label={tapCountdownActive
                   ? "Cancel pending Save My Soul alert"
                   : "Send message: tap for a two-second countdown or hold for two seconds"}
-                aria-describedby={customMessageLimitExceeded ? "sos-short-message-error" : "sos-send-hint"}
+                aria-describedby={
+                  customMessageLimitExceeded
+                    ? "sos-short-message-error"
+                    : tapCountdownActive ? "sos-send-hint" : undefined
+                }
                 onClick={handleSendClick}
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
                 onPointerUp={handlePointerEnd}
@@ -570,7 +574,7 @@ export function SosPanel({
                     : "Send · 2s"}
               </button>
             </div>
-            <div className="mt-1 flex min-h-5 items-baseline justify-between gap-3">
+            <div className="mt-1 flex min-h-5 items-baseline gap-3">
               {customMessageLimitExceeded ? (
                 <HelperText
                   id="sos-short-message-error"
@@ -580,18 +584,16 @@ export function SosPanel({
                 >
                   Message is too long
                 </HelperText>
-              ) : (
+              ) : tapCountdownActive ? (
                 <HelperText id="sos-send-hint" as="p" className="text-[color:var(--sos-label)]">
-                  {tapCountdownActive
-                    ? `Sending in ${remainingSeconds}s · Tap Cancel`
-                    : "Hold Send for 2 seconds, or tap to start a 2-second countdown"}
+                  Sending in {remainingSeconds}s · Tap Cancel
                 </HelperText>
-              )}
+              ) : null}
               <HelperText
                 as="div"
                 id="sos-short-message-count"
                 className={cn(
-                  "shrink-0 text-right",
+                  "ml-auto shrink-0 text-right",
                   customMessageLimitExceeded
                     ? "text-[color:var(--app-destructive)]"
                     : "text-[color:var(--sos-label)]",
@@ -642,7 +644,7 @@ export function SosPanel({
               {dispatchStatus === "failed" && !busy && !isHolding ? "Alert not sent · Hold to retry" : statusLabel}
             </StatusText>
             <HelperText as="p" className="mt-1 text-center text-[color:var(--sos-label)]">
-              Alerts your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
+              Alert your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
             </HelperText>
           </div>
         </>

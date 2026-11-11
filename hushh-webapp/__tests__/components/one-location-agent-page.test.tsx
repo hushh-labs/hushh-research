@@ -4502,8 +4502,14 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("heading", { name: "Who can see you?" }),
     ).toBeNull();
-    await waitFor(() => expect(screen.getByText("Can see you")).toBeTruthy());
-    expect(screen.getByText("Abdul Rashid")).toBeTruthy();
+    const recipients = await screen.findByRole("list", {
+      name: "People who can see your location",
+    });
+    expect(within(recipients).getByText("Abdul Rashid")).toBeTruthy();
+    expect(screen.queryByText("Can see you", { exact: true })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Change who can see you" }),
+    ).toHaveTextContent("Edit");
     const startSharing = screen.getByRole("button", { name: "Start sharing" });
     expect(startSharing).toBeEnabled();
     fireEvent.click(startSharing);
@@ -8020,14 +8026,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeInTheDocument();
     expect(mockSendConnectionRequest).not.toHaveBeenCalled();
 
-    const proceed = within(sheet).getByRole("link", {
-      name: "Proceed to connections",
-    });
-    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-    proceed.addEventListener("click", (event) => event.preventDefault(), {
-      once: true,
-    });
-    fireEvent.click(proceed);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(sheet).not.toBeInTheDocument());
     expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1);
   });
@@ -8112,8 +8111,8 @@ describe("OneLocationAgentPage", () => {
     expect(within(results).getByText("Asha Rao")).toBeTruthy();
     expect(within(results).getByText("Connected now")).toBeTruthy();
     expect(
-      within(results).getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
+      within(results).getByRole("button", { name: "Invite contacts" }),
+    ).toBeVisible();
     expect(
       within(results).queryByRole("button", {
         name: "Choose Google account",
@@ -8962,10 +8961,8 @@ describe("OneLocationAgentPage", () => {
     await act(async () => finishRetry(contactSyncOutcomeFixture({ sourcePlatform: "google" })));
     const updatedSheet = await screen.findByRole("dialog", { name: "Contact sync results" });
     expect(
-      within(updatedSheet).getByRole("link", {
-        name: "Proceed to connections",
-      }),
-    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
+      within(updatedSheet).getByRole("button", { name: "Invite contacts" }),
+    ).toBeVisible();
     expect(
       within(updatedSheet).queryByRole("button", { name: "Sync again" }),
     ).toBeNull();
