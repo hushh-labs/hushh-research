@@ -20,6 +20,8 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_secret_metadata_inventory.py",
+    "consent-protocol/tests/test_managed_provider_collection.py",
     "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
     "consent-protocol/tests/test_pwm_runtime_probe.py",
@@ -142,6 +144,10 @@ RiskSnapshot.load(str(manifest))
            groups=("controller",)),
     _check("capability-graph-integrity", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "consent-protocol/scripts/generate_capability_graph.py", "--check", groups=("controller",)),
+    _check("route-index-integrity", "node", "--input-type=module", "-e",
+           "process.chdir('hushh-webapp'); process.argv.push('--check'); await import('./hushh-webapp/scripts/voice/generate-route-orchestration-index.mjs');"),
+    _check("route-index-reader", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", "consent-protocol/tests/test_route_orchestration_index.py"),
     _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
@@ -460,6 +466,14 @@ EMAIL_RISK_INPUTS = frozenset({
     "consent-protocol/config/email-auth/disposable-domains.txt",
     "consent-protocol/config/email-auth/risk-manifest.json",
 })
+GENERATED_MIRROR_INPUTS = frozenset(
+    f"{prefix}contracts/kai/one-{name}.v1.json"
+    for prefix in ("", "hushh-webapp/", "consent-protocol/")
+    for name in ("capability-graph", "route-orchestration-index")
+)
+GENERATED_MIRROR_CHECKS = frozenset({"route-index-integrity", "route-index-reader"})
+
+
 EMAIL_RISK_CHECKS = frozenset({"email-risk-artifact-integrity", "email-risk-policy-contracts"})
 
 
@@ -507,7 +521,11 @@ def build_selection(env: dict[str, str]) -> Selection:
         and (
             not check.groups.intersection({"controller", "retention", "agent", "release"})
             or bool(check.groups.intersection(requested_groups))
+            or (check.check_id == "capability-graph-integrity"
+                and bool(GENERATED_MIRROR_INPUTS.intersection(files)))
         )
+        and (check.check_id not in GENERATED_MIRROR_CHECKS
+             or selection_error or bool(GENERATED_MIRROR_INPUTS.intersection(files)))
         and (check.check_id not in EMAIL_RISK_CHECKS
              or selection_error or bool(EMAIL_RISK_INPUTS.intersection(files)))
         and (

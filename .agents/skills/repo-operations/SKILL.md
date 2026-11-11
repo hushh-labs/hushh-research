@@ -58,6 +58,8 @@ Non-owned surfaces:
 
 Follow [Main-owned release control](../../../docs/reference/operations/ci.md#main-owned-release-control) for live-team authority, exact-source admission and protected secret pass-through. Workflow execution stays on Main; application sources remain isolated; a merge never deploys.
 
+For CI timing work, follow the runbook's [deployment-overhead policy](../../../docs/reference/operations/ci.md#deployment-overhead-and-retention-limits). Preserve normal worker rollout until complete accepted input/state proof and measured benefit qualify reuse; image equality alone is insufficient. Selected UAT SQL preservation does not repeat already-qualified source suites or install browser dependencies. Browser analytics remains explicit secondary diagnostics; failed restoration of any partially changed deployment template still blocks promotion. Keep measurements separate from the 10–15-minute routine design target.
+
 For private pod hosting, owner updates and legacy bootstrap, follow the
 [Dev pod runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md).
 It owns durable admission, spend, owner custody, release provenance and cleanup.

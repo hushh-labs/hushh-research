@@ -419,6 +419,10 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Generated mirrors are recomputed and reader-checked by Governance.
+              # Authored runtime/compiler changes and unknown mirrors remain backend-owned.
+              - '!consent-protocol/contracts/kai/one-capability-graph.v1.json'
+              - '!consent-protocol/contracts/kai/one-route-orchestration-index.v1.json'
               # Governance owns these probe/compiler controllers and their exact contracts.
               - '!consent-protocol/scripts/generate_capability_graph.py'
               - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
@@ -426,6 +430,8 @@ jobs:
               - '!consent-protocol/scripts/verify_managed_vertex_runtime.py'
               - '!consent-protocol/scripts/managed_vertex_readiness.py'
               - '!consent-protocol/tests/test_pwm_runtime_probe.py'
+              - '!consent-protocol/tests/test_secret_metadata_inventory.py'
+              - '!consent-protocol/tests/test_managed_provider_collection.py'
               - '!consent-protocol/tests/scripts/test_trust_failure_verdict.py'
               - '!consent-protocol/tests/scripts/test_probe_drive_activity_planner.py'
               - '!consent-protocol/tests/scripts/test_readiness_exam_runner.py'
