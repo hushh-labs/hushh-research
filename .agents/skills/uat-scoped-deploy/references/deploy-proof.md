@@ -51,8 +51,10 @@ gh workflow run deploy-uat.yml --ref main -f scope=auto \
 The locked release rechecks the exact candidate, current full-CI attempt, both
 observed serving revisions, schema compatibility and qualified rollback. Different
 frontend/backend serving SHAs are supported. Legacy `uat-isolated` recovery retains
-its separately reviewed PR-scope contract. Production still requires UAT acceptance
-and Main approval.
+its separately reviewed PR-scope contract. Production uses the canonical Admin
+SOP: an authorized operator may qualify protected Main directly; an earlier UAT
+deployment is not mandatory. Production compatibility and rollback gates remain
+required.
 
 Then watch:
 

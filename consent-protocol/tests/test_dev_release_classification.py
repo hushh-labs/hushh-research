@@ -162,7 +162,18 @@ def test_selected_pkm_gate_runs_without_a_backend_deployment(environment):
     # execute the same preservation gate instead of merely installing its deps.
     assert gate["if"] == "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'"
     assert gate.get("continue-on-error", False) is False
-    assert gate["run"] == f"bash scripts/ci/run-release-pkm-gate.sh {environment}"
+    if environment == "dev":
+        assert gate["run"] == "bash scripts/ci/run-release-pkm-gate.sh dev"
+    else:
+        for branch, expected in (("uat", "uat --sql-only"), ("uat-isolated", "uat")):
+            result = subprocess.run(  # noqa: S603 - authored workflow with a synthetic bash stub
+                ["bash", "-c", 'bash() { printf "%s" "$*"; };\n' + gate["run"]],
+                capture_output=True,
+                text=True,
+                check=True,
+                env={**os.environ, "UAT_SOURCE_BRANCH": branch},
+            )
+            assert result.stdout == "scripts/ci/run-release-pkm-gate.sh " + expected
     proxy = next(step for step in steps if step["name"] == "Install Cloud SQL Auth Proxy")
     assert "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'" in proxy["if"]
     assert steps.index(gate) < next(
