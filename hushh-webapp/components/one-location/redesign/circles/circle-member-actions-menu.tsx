@@ -77,6 +77,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import {
   ProfilePaneShareIcon,
 } from "@/components/profile/profile-pane-icons";
@@ -447,16 +448,18 @@ export function CircleMemberActionsMenu({
                       className="w-full justify-center text-[color:var(--app-destructive)] hover:bg-transparent hover:text-[color:var(--app-destructive)]"
                       onClick={() => setSheetConfirmingRemove(true)}
                     >
-                      <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                      <Trash2 inheritColor className="mr-2 h-4 w-4" aria-hidden="true" />
                       Remove from Circle
                     </Button>
                   ) : null}
                   <Button
                     type="button"
                     variant="ghost"
-                    size="prominent"
+                    size="standard"
+                    disableHoverRipple
                     className={cn(
-                      "h-[52px] min-h-[52px] w-full justify-center bg-[#F2F2F7] text-center text-[17px] font-medium text-[color:var(--app-accent-deep)] shadow-none [--type-button-label-weight:500] hover:bg-[#E5E5EA]",
+                      QUIET_FLOW_ACTION_CLASSNAME,
+                      "h-[52px] min-h-[52px] w-full justify-center text-[color:var(--app-accent-deep)]",
                       LOCATION_ACTION_SHAPE,
                     )}
                     onClick={closeSheet}
@@ -529,7 +532,7 @@ export function CircleMemberActionsMenu({
                 setConfirmRemoveOpen(true);
               }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 inheritColor className="h-4 w-4" />
               Remove from Circle
             </DropdownMenuItem>
           ) : null}

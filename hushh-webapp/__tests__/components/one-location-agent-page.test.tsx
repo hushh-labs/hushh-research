@@ -24,6 +24,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
+import * as locationNotifications from "@/lib/one-location/notifications";
+import * as liveMapModule from "@/components/one-location/live-map";
 import {
   OneLocationContactSyncError,
   type OneLocationContactSignalResult,
@@ -40,6 +42,16 @@ import { ApiError } from "@/lib/services/api-client";
 // Do not mock operation/gesture owners or relax the behavioral assertions here.
 vi.mock("@/lib/morphy-ux/hooks/use-page-enter", () => ({
   usePageEnterAnimation: () => undefined,
+}));
+
+const activityAttempt = vi.hoisted(() => ({
+  capture: vi.fn(),
+  started: vi.fn(),
+  settled: vi.fn(),
+}));
+vi.mock("@/lib/observability/product-activity-client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/observability/product-activity-client")>(),
+  captureProductAttempt: activityAttempt.capture,
 }));
 
 function openDropdownMenu(trigger: HTMLElement) {
@@ -59,6 +71,7 @@ const {
   mockOpenLocationSettings,
   mockOpenAppSettings,
   mockCaptureCurrentPosition,
+  mockGetRecentSosPosition,
   mockBusGetState,
   mockBusEnsure,
   mockReverseGeocode,
@@ -130,6 +143,7 @@ const {
   mockOpenLocationSettings: vi.fn(),
   mockOpenAppSettings: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
+  mockGetRecentSosPosition: vi.fn(),
   mockBusGetState: vi.fn(),
   mockBusEnsure: vi.fn(),
   mockReverseGeocode: vi.fn(),
@@ -424,6 +438,8 @@ vi.mock("@/lib/one-location/location-bus", () => ({
     request: vi.fn(),
     invalidate: vi.fn(),
     getLastCaptureError: vi.fn(() => null),
+    getRecentMeasuredFix: vi.fn(() => null),
+    getAccountGeneration: vi.fn(() => 0),
     __resetForTests: vi.fn(),
   },
 }));
@@ -444,6 +460,7 @@ vi.mock("@/lib/one-location/service", () => ({
     storeEnvelope: mockStoreEnvelope,
     sendSosEmails: mockSendSosEmails,
     captureCurrentPosition: mockCaptureCurrentPosition,
+    getRecentSosPosition: mockGetRecentSosPosition,
     reverseGeocode: mockReverseGeocode,
     placesAutocomplete: mockPlacesAutocomplete,
     placeDetails: mockPlaceDetails,
@@ -2252,7 +2269,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(primary).getByRole("button", { name: "Share location" }),
     ).toHaveClass(
-      "h-[50px]",
+      "h-auto",
       "min-h-[50px]",
       "w-full",
       "max-w-[244px]",
@@ -2354,6 +2371,20 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
     expect(screen.queryByText("Check-In")).toBeNull();
     expect(screen.queryByText("Quick actions")).toBeNull();
+  });
+
+  it("records a single Location Settings attempt when the person opens the in-app controls", async () => {
+    activityAttempt.capture.mockReturnValue(activityAttempt);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings", exact: true }));
+
+    expect(await screen.findByRole("heading", { name: "Settings", exact: true })).toBeTruthy();
+    expect(activityAttempt.capture).toHaveBeenCalledExactlyOnceWith("location.open_settings", "user_a");
+    expect(activityAttempt.started).toHaveBeenCalledTimes(1);
+    expect(activityAttempt.settled).toHaveBeenCalledExactlyOnceWith("returned");
+    expect(mockOpenLocationSettings).not.toHaveBeenCalled();
   });
 
   it("keeps the heading and location toggle inline as the only header action", async () => {
@@ -3312,6 +3343,39 @@ describe("OneLocationAgentPage", () => {
     await act(async () => {
       (releaseCheckout as unknown as () => void)();
     });
+  });
+
+  it("keeps a restored local Pause when Nearby still reports an active visit and checkout fails", async () => {
+    const { readOneLocationControlState, updateOneLocationControlState } =
+      await import("@/lib/one-location/location-control-state");
+    updateOneLocationControlState("user_a", (current) => ({ ...current, paused: true }));
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: "2026-07-31T00:00:00.000Z",
+        expiresAt: "2026-07-31T01:00:00.000Z",
+        placeLabel: "Event venue",
+      },
+      attendees: [],
+    });
+    mockCheckoutNearby.mockRejectedValueOnce(new Error("Checkout unavailable"));
+    const view = render(<OneLocationAgentPage />);
+    try {
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+        "Location is paused on this device. Nearby checkout did not complete.",
+      ));
+      expect(readOneLocationControlState("user_a").paused).toBe(true);
+      expect(screen.getByRole("switch", { name: "Turn location on" })).not.toBeChecked();
+    } finally {
+      view.unmount();
+      updateOneLocationControlState("user_a", (current) => ({ ...current, paused: false }));
+    }
   });
 
   it("separates people who can already see you from people who cannot", async () => {
@@ -4648,14 +4712,34 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it.each(["full", "partial", "unknown", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {
+  it.each(["full", "partial", "unknown", "email", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {
     mockGetSmsContacts.mockResolvedValue(outcome === "partial" ? ["user_b", "user_d"] : ["user_b"]);
     let publicationCount = 0;
     mockStoreEnvelope.mockImplementation(async () => {
       if (outcome === "none") throw new Error("publish unavailable");
       if (outcome === "unknown") return { recipientAlerted: null };
+      if (outcome === "email") return { recipientAlerted: false };
       return { recipientAlerted: outcome === "full" || publicationCount++ === 0 };
     });
+    if (outcome === "email") {
+      const baseState = locationState();
+      const smsGrant = {
+        ...baseState.ownerGrants[0]!,
+        id: "grant_email_only",
+        shareKind: "sos",
+        expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      };
+      let active = false;
+      mockCreateGrant.mockImplementation(async () => {
+        active = true;
+        return smsGrant;
+      });
+      mockGetState.mockImplementation(async () => ({
+        ...baseState,
+        ownerGrants: active ? [smsGrant] : baseState.ownerGrants,
+      }));
+      mockSendSosEmails.mockResolvedValueOnce({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] });
+    }
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
@@ -4663,7 +4747,11 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(hold).not.toBeDisabled());
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     if (outcome === "none") {
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The alert could not be sent. Call for help directly."), { timeout: 4000 });
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Delivery could not be confirmed. Call for help directly."), { timeout: 4000 });
+    } else if (outcome === "email") {
+      expect(await screen.findByText("Alert sent by email", {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(toast.success).not.toHaveBeenCalledWith("SMS alert sent.", expect.anything());
+      expect(screen.getByRole("button", { name: "Stop SMS alert" })).toBeEnabled();
     } else {
       await waitFor(() => expect(outcome === "partial" ? toast.warning : toast.success).toHaveBeenCalledWith(
         outcome === "full" ? "SMS alert sent." : outcome === "unknown" ? "SMS location shared." : "Some contacts may miss this alert.",
@@ -4692,15 +4780,60 @@ describe("OneLocationAgentPage", () => {
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     await waitFor(() => expect(mockSendSosEmails).toHaveBeenCalled(), { timeout: 4000 });
     expect(toast.success).toHaveBeenCalledWith("SMS alert sent.", expect.anything());
-    const stop = screen.getByRole("button", { name: "Stop Save My Soul alert" });
+    const stop = screen.getByRole("button", { name: "Stop SMS alert" });
     expect(stop).toBeEnabled();
     fireEvent.click(stop);
-    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop SMS alert?" })).getByRole("button", { name: "Stop alert" }));
     await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop SMS alert" })).toBeNull());
     const calls = vi.mocked(toast.success).mock.calls.length;
     await act(async () => finishEmail({ emailed: 1, attempted: 1, configured: true, withoutEmail: [] }));
     expect(vi.mocked(toast.success).mock.calls).toHaveLength(calls);
+  });
+
+  it.each(["timeout", "denied"] as const)("handles an SOS capture %s before delivery", async (failure) => {
+    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockStoreEnvelope.mockResolvedValue({ recipientAlerted: true });
+    mockGetPermissionState.mockResolvedValue({
+      state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true,
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const capturedAt = new Date(Date.now() - 31_000).toISOString();
+    mockGetRecentSosPosition.mockReset().mockReturnValue({
+      latitude: 12.3, longitude: 45.6, accuracyM: 12, capturedAt, sourcePlatform: "web",
+    });
+    const captureError = failure === "denied"
+      ? Object.assign(new Error("Location permission denied"), { code: 1 })
+      : new Error("Location reading timed out");
+    mockCaptureCurrentPosition.mockRejectedValue(captureError);
+    mockCreateGrant.mockClear();
+    mockStoreEnvelope.mockClear();
+    mockSendSosEmails.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold).toBeEnabled());
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+
+    if (failure === "denied") {
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Location access is blocked")), { timeout: 4000 });
+      expect(mockGetRecentSosPosition).not.toHaveBeenCalled();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+      expect(mockStoreEnvelope).not.toHaveBeenCalled();
+      expect(mockSendSosEmails).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(mockSendSosEmails).toHaveBeenCalledWith(expect.objectContaining({
+        latitude: 12.3, longitude: 45.6, capturedAt,
+      })), { timeout: 4000 });
+      expect(mockGetRecentSosPosition).toHaveBeenCalledWith("user_a");
+      expect(mockEncryptLocationForRecipient).toHaveBeenCalledWith(expect.objectContaining({
+        point: expect.objectContaining({ latitude: 12.3, longitude: 45.6, capturedAt }),
+      }));
+      expect(mockStoreEnvelope).toHaveBeenCalled();
+      expect(toast.success).toHaveBeenCalledWith("SMS alert sent with your last known location.", expect.anything());
+    }
+    mockGetRecentSosPosition.mockReset();
   });
 
   it("does not prompt for location merely by opening Save My Soul", async () => {
@@ -4739,14 +4872,14 @@ describe("OneLocationAgentPage", () => {
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1), { timeout: 3500 });
     await waitFor(() => expect(mockStoreEnvelope.mock.calls.length).toBeGreaterThan(writesBefore));
-    await screen.findByRole("button", { name: "Stop Save My Soul alert" });
+    await screen.findByRole("button", { name: "Stop SMS alert" });
     const grantsAfter = mockCreateGrant.mock.calls.length;
     await act(async () => { releasePassive({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true }); });
     expect(mockCreateGrant).toHaveBeenCalledTimes(grantsAfter);
-    fireEvent.click(screen.getByRole("button", { name: "Stop Save My Soul alert" }));
-    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop Save My Soul alert?" })).getByRole("button", { name: "Stop alert" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop SMS alert" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Stop SMS alert?" })).getByRole("button", { name: "Stop alert" }));
     await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop Save My Soul alert" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop SMS alert" })).toBeNull());
   });
 
   it("resolves a fresh local emergency number as Save My Soul opens", async () => {
@@ -5624,8 +5757,8 @@ describe("OneLocationAgentPage", () => {
       name: /Create link/i,
     });
     expect(createLinkButton).toHaveClass(
-      "h-12",
-      "min-h-12",
+      "h-[50px]",
+      "min-h-[50px]",
       "w-auto",
       "self-start",
       "rounded-full",
@@ -6167,11 +6300,13 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("keeps only the refresh action below a stale shared map", async () => {
+    const liveMap = vi.spyOn(liveMapModule, "LiveMap");
     const staleGrant = {
       id: "grant_stale",
       ownerUserId: "user_a",
       recipientUserId: "user_b",
       ownerDisplayName: "Trusted A",
+      ownerPhotoUrl: "https://example.test/trusted-a.jpg",
       recipientKeyId: "key_b",
       status: "active",
       consentScope: "cap.location.live.view",
@@ -6244,6 +6379,10 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/^Live until /)).toBeNull();
 
     const mapPreview = screen.getByTitle("Live location map preview");
+    expect(liveMap.mock.calls.map(([props]) => props)).toContainEqual(
+      expect.objectContaining({ avatarUrl: staleGrant.ownerPhotoUrl, displayName: staleGrant.ownerDisplayName }),
+    );
+    liveMap.mockRestore();
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
     );
@@ -6876,6 +7015,7 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
     expect(screen.queryByPlaceholderText("What should they know?")).toBeNull();
+    const playSound = vi.spyOn(locationNotifications, "playOneLocationNotificationSound");
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
@@ -6908,10 +7048,12 @@ describe("OneLocationAgentPage", () => {
     // something that stopped being news a second later.
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining("Request sent."),
+        "Location Request sent",
       ),
     );
-    expect(screen.queryByText("Request sent.")).toBeNull();
+    expect(playSound).not.toHaveBeenCalled();
+    playSound.mockRestore();
+    expect(screen.queryByText("Location Request sent")).toBeNull();
   });
 
   it("returns to My Location after a complete request and reopens cleanly", async () => {
@@ -6931,7 +7073,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining("Request sent."),
+        "Location Request sent",
       ),
     );
 
@@ -6989,7 +7131,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining("Request sent."),
+        "Location Request sent",
       ),
     );
     await waitFor(() =>
@@ -7050,7 +7192,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   // The confirmation used to latch the instant the button was tapped, so a send
-  // that failed still reported "Request sent."
+  // that failed still reported "Location Request sent".
   it("does not claim a request was sent when the send fails", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -7081,7 +7223,7 @@ describe("OneLocationAgentPage", () => {
     // it would pass for the wrong reason. The channel that DOES carry a
     // success is the one that has to stay silent.
     expect(toast.success).not.toHaveBeenCalledWith(
-      expect.stringContaining("Request sent."),
+      "Location Request sent",
     );
   });
 
@@ -7536,7 +7678,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockShortenGrant).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "Asked Trusted B for 1 hour more.",
+        "Location Request sent",
       ),
     );
   }, 10_000);

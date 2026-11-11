@@ -71,10 +71,12 @@ vi.mock("@/lib/vault/vault-context", () => ({
   }),
 }));
 
-vi.mock("@/lib/services/person-profile-service", () => ({
+vi.mock("@/lib/services/person-profile-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/person-profile-service")>(),
   PersonProfileService: {
     getPublic: mocks.getPublic,
     peekPublic: mocks.peekPublic,
+    invalidatePublicProfiles: vi.fn(),
     getViewer: mocks.getViewer,
     getRelationship: mocks.getRelationship,
     createInformationRequest: vi.fn(),
@@ -338,6 +340,28 @@ describe("PersonProfilePage native profile route", () => {
     expect(screen.queryByText("friend@example.test")).toBeNull();
   });
 
+  it("retires an open deleted profile and ignores an older successful identity read", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    const { PersonProfileNotFoundError } = await import("@/lib/services/person-profile-service");
+    const cached = { personRef: "actual-public-ref", displayName: "Actual Person", photoUrl: null, verifiedRole: null };
+    let resolveOld!: (profile: typeof cached) => void;
+    mocks.peekPublic.mockReturnValue(cached);
+    mocks.getPublic
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockRejectedValueOnce(new PersonProfileNotFoundError("This profile is unavailable."));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Actual Person" });
+
+    act(() => { window.dispatchEvent(new CustomEvent(CONNECTION_GRAPH_CHANGED_EVENT, {
+      detail: { userId: "viewer", changedAt: 1 },
+    })); });
+    expect(await screen.findByRole("alert")).toHaveTextContent("This profile is unavailable.");
+    await act(async () => { resolveOld(cached); });
+    expect(screen.queryByRole("heading", { name: "Actual Person" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share profile" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("uses the real iOS pathname person ref when native serves the static export shell", async () => {
     render(
       <PersonProfilePage
@@ -371,7 +395,7 @@ describe("PersonProfilePage native profile route", () => {
     });
   });
 
-  it("uses the shared connection avatar with the verified advisor badge for RIA profiles", async () => {
+  it("shows the shared RIA badge explanation on a verified profile", async () => {
     render(
       <PersonProfilePage
         personRef="actual-public-ref"
@@ -387,7 +411,8 @@ describe("PersonProfilePage native profile route", () => {
     expect(
       await screen.findByRole("heading", { name: "Divya Rajendran" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Verified advisor")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Verified Advisor" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Verified Advisor");
     expect(
       document.querySelector('[data-avatar-size="profile"]'),
     ).not.toBeNull();
@@ -414,7 +439,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(
       await screen.findByRole("heading", { name: "Plain Person" }),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Verified advisor")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Verified Advisor" })).not.toBeInTheDocument();
   });
 
   it("keeps the share profile icon and label separated inside the existing action", async () => {

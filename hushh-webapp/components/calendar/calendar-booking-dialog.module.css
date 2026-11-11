@@ -2,9 +2,9 @@
 .header { flex: none; gap: .2rem; padding-right: 1.5rem; text-align: left; }
 .body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: .5rem; }
 .fields { display: grid; min-width: 0; gap: .7rem; }
-.fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 600); color: var(--app-label); line-height: var(--app-side-pane-row-title-line, normal); }
+.fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: var(--type-form-label-size); font-weight: var(--type-form-label-weight); color: var(--app-label); line-height: var(--type-form-label-line); }
 .selectField { position: relative; display: block; min-width: 0; }
-.fields select { display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; min-height: 44px; padding: .55rem .7rem; padding-inline-end: 2.5rem; appearance: none; -webkit-appearance: none; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: var(--profile-type-label-size, 14px); font-weight: 400; color: var(--app-label); line-height: var(--profile-type-label-line, normal); }
+.fields select { display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; min-height: 44px; padding: .55rem .7rem; padding-inline-end: 2.5rem; appearance: none; -webkit-appearance: none; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: var(--type-input-value-size); font-weight: 400; color: var(--app-label); line-height: var(--type-input-value-line); }
 .selectChevron { position: absolute; inset-inline-end: .75rem; top: 50%; transform: translateY(-50%); width: 1rem; height: 1rem; color: var(--app-secondary-label); pointer-events: none; }
 @media (forced-colors: active) { .fields select { appearance: auto; -webkit-appearance: auto; } .selectChevron { display: none; } }
 .fields input { font-weight: 400; }
@@ -13,6 +13,7 @@
 .timeGrid input[type="date"], .timeGrid input[type="time"] { display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none; text-align: left; }
 .timeGrid input::-webkit-date-and-time-value { min-width: 0; margin: 0; text-align: left; }
 .timeGrid input::-webkit-datetime-edit { padding: 0; }
+.guestField { display: grid; min-width: 0; gap: .3rem; }
 .guestEntry { display: flex; gap: .4rem; min-width: 0; }
 .guestEntry button { min-height: 44px; }
 .guests { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; padding: 0; }
@@ -20,25 +21,15 @@
 .guests li > span { min-width: 0; overflow-wrap: anywhere; }
 .guests button { flex: none; min-width: 44px; min-height: 44px; border-radius: 50%; font-size: 20px; }
 .accountIdentity { display: flex; align-items: center; gap: .5rem; min-width: 0; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 13px); font-weight: 400; line-height: var(--profile-type-description-line, normal); }
-.accountIdentity :global([data-slot="avatar"]) { width: 1.75rem; height: 1.75rem; flex: none; background: var(--app-accent-surface); }
-.accountIdentity :global([data-slot="avatar-fallback"]) { color: var(--app-accent); background: transparent; font-size: .75rem; }
 .accountIdentity > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .description { font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
-.description summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.description summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: var(--type-form-label-size); line-height: var(--type-form-label-line); font-weight: var(--type-form-label-weight); }
 .description textarea { margin-top: .2rem; field-sizing: fixed; min-height: 6rem; max-height: 10rem; resize: vertical; }
-.review { display: grid; gap: .3rem; padding: .8rem; border-radius: .75rem; border: 1px solid var(--app-separator); background: var(--app-card-surface-compact); font-size: var(--profile-type-description-size, 13px); overflow-wrap: anywhere; line-height: var(--profile-type-description-line, normal); }
-.review h3 { font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 650); line-height: var(--app-side-pane-row-title-line, normal); }
-.review ul { padding-left: 1.2rem; color: var(--app-destructive); }
+.conflicts { padding-left: 1.2rem; color: var(--app-destructive); overflow-wrap: anywhere; }
 .error { color: var(--app-destructive); font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, 19px); }
 .alternatives { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, normal); }
 .alternatives p { width: 100%; font-weight: 600; }
 .alternatives button { min-height: 44px; }
 .actions { flex: none; display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; padding-top: .5rem; background: var(--app-card-surface-default-solid); }
 .actions button { min-height: 44px; }
-@media (max-width: 480px) { .dialog { width: calc(100vw - 1rem); border-radius: 1rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); } .fields { gap: .85rem; } .timeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; } .timeGrid label:first-child { grid-column: 1 / -1; } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .actions button:last-child:nth-child(3) { grid-column: 1 / -1; height: auto; padding-block: .6rem; white-space: normal; line-height: 1.2; } }
-
-/* Profile roles for dialog chrome: primary buttons take the label role and the
-   dialog description the description role. Outside the Calendar scope the
-   fallbacks keep the app-wide values. */
-.dialog { --type-button-label-size: var(--app-side-pane-row-title-size, 17px); --type-button-label-line: var(--app-side-pane-row-title-line, 22px); --type-button-label-weight: var(--app-side-pane-row-title-weight, 650); }
-.dialog :global([data-slot="dialog-description"]) { font-size: var(--profile-type-description-size, 14px); line-height: var(--profile-type-description-line, 20px); }
+@media (max-width: 480px) { .dialog { width: calc(100vw - 1rem); border-radius: 1rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); } .fields { gap: .85rem; } .timeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; } .timeGrid label:first-child { grid-column: 1 / -1; } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }

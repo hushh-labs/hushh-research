@@ -72,6 +72,9 @@ export function PhoneMandatePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || undefined;
+  const verificationDestination = normalizeStaticExportPathname(
+    (redirectPath ?? "").split(/[?#]/)[0] ?? "",
+  );
   const recoveryId = phoneRecoveryId(searchParams.get("recovery"));
   const {
     user,
@@ -136,7 +139,7 @@ export function PhoneMandatePageContent() {
       // lists a firm or advisers at it, show that instead of the generic next
       // screen. Fails open — any error, timeout or miss continues as normal.
       const claimRoute = await (async () => {
-        // Finish the invitation the person chose before optional discovery.
+        // Resume the chosen operation before optional discovery.
         if (normalizeInvitationReturnTo(redirectPath)) return null;
         // identity.phone_number is the authoritative verified number. The
         // Firebase user object is null here whenever the phone was confirmed
@@ -238,12 +241,9 @@ export function PhoneMandatePageContent() {
         /^\/one\/location\/invite\/[^/]+$/.test(invitationPath!) ||
         (invitationPath === ROUTES.CIRCLE_JOIN && invitationUrl.searchParams.get("invite")?.trim())
       ));
-      // Setup's explicit Verify action must remain usable after reset too:
-      // vault ownership exempts generic admission, not a chosen phone operation.
-      const isSetupVerification = normalizeStaticExportPathname(
-        (redirectPath ?? "").split(/[?#]/)[0] ?? "",
-      ) === ROUTES.ONE_SETUP;
-      if (isTokenInvitation || isSetupVerification) {
+      // Setup also needs explicit verification for
+      // established accounts that are exempt from generic onboarding.
+      if (isTokenInvitation || verificationDestination === ROUTES.ONE_SETUP) {
         const identity = await AccountIdentityService.syncCurrentUser(user);
         if (cancelled) return;
         if (typeof identity?.phone_verified !== "boolean") {
@@ -348,7 +348,6 @@ export function PhoneMandatePageContent() {
         className={styles.backButton}
       >
         <ChevronLeft className="h-[18px] w-[18px]" weight="bold" />
-        <span className={styles.backLabel}>Back</span>
       </button>
 
       <div className={styles.accountActions}>

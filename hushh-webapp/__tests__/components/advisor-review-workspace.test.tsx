@@ -15,22 +15,28 @@ const mocks = vi.hoisted(() => ({
   meeting: vi.fn(),
   time: vi.fn(),
   billing: vi.fn(),
+  sandboxPayout: vi.fn(),
+  calendarStatus: vi.fn(),
 }));
 vi.mock("@/lib/advisor-review/service", () => ({
   AdvisorReviewService: mocks,
 }));
+vi.mock("@/lib/services/google-calendar-service", () => ({ GoogleCalendarService: { status: mocks.calendarStatus } }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/ria/clients" }));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({
   KaiControlSurface: ({
     title,
     children,
+    footer,
   }: {
     title: ReactNode;
     children: ReactNode;
+    footer?: ReactNode;
   }) => (
     <section role="dialog" aria-label="Advisor review">
       <h1>{title}</h1>
       {children}
+      {footer}
     </section>
   ),
 }));
@@ -66,7 +72,14 @@ const value: AdvisorReview = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(window.matchMedia).mockImplementation((query) => ({
+    matches: false, media: query, onchange: null,
+    addListener: vi.fn(), removeListener: vi.fn(),
+    addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn(),
+  }));
   mocks.view.mockResolvedValue({ ...value });
+  mocks.sandboxPayout.mockResolvedValue({ mode: "test", setup: "setup_required", latest: null });
+  mocks.calendarStatus.mockResolvedValue({ status: "disconnected", connected: false });
   Object.defineProperty(document, "hidden", {
     configurable: true,
     value: false,
@@ -91,11 +104,19 @@ it("withholds the snapshot and scheduling until advisor acceptance is acknowledg
   );
   fireEvent.click(screen.getByRole("button", { name: "Accept & connect" }));
   await screen.findByRole("alert");
-  expect(mocks.decide).toHaveBeenCalledWith(context, value.id, "accept");
+  expect(mocks.decide).toHaveBeenCalledWith(context, value.id, "accept", undefined);
   expect(mocks.decrypt).not.toHaveBeenCalled();
   expect(
     screen.queryByRole("button", { name: "Review Calendar booking" }),
   ).toBeNull();
+});
+
+it("offers plain Accept for an existing connection and waits for authorized snapshot access", async () => {
+  mocks.view.mockResolvedValue({ ...value, alreadyConnected: true });
+  render(<AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Accept", exact: true }));
+  await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(context, value.id, "accept", true));
+  expect(mocks.decrypt).not.toHaveBeenCalled();
 });
 
 it("consumes Back while acceptance settles, then closes the workspace before its route", async () => {
@@ -147,7 +168,7 @@ it("offers a Calendar recovery path without marking a failed booking as confirme
   );
   await screen.findByRole("alert");
   expect(
-    screen.getByRole("link", { name: "Connect or manage Calendar" }),
+    await screen.findByRole("link", { name: "Connect Calendar" }),
   ).toHaveAttribute("href", "/one/calendar");
   expect(screen.queryByRole("button", { name: "Confirm meeting" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Join Google Meet" })).toBeNull();
@@ -171,14 +192,74 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
   render(
     <AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "Plan" }));
   await screen.findByRole("button", { name: "Check payment status" });
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
-  expect(
-    screen.getByRole("link", { name: "Finish Stripe setup" }),
-  ).toHaveAttribute("href", "/one/profile/payouts");
+  expect(await screen.findByRole("button", { name: "Set up test payouts" })).toBeEnabled();
+  expect(screen.queryByRole("link", { name: /Stripe setup/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Check payment status" }));
   await waitFor(() =>
     expect(screen.getByRole("status")).toHaveTextContent("past due"),
   );
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
+});
+
+it("opens a one-time Stripe return on Plan and only shows Paid after provider readback", async () => {
+  mocks.view.mockResolvedValue({
+    ...value,
+    status: "accepted",
+    direction: "outgoing",
+    plan: {
+      amountCents: 2500,
+      currency: "usd",
+      interval: "one_time",
+      services: "One portfolio review and follow-up call.",
+      cancellationTerms: "Cancel before the advisor starts work.",
+    },
+    planRevision: 2,
+  });
+  mocks.billing.mockResolvedValue({ mode: "test", status: "processing", planRevision: 2 });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }}
+    openPlan onClose={vi.fn()} />);
+  expect(await screen.findByRole("tab", { name: "Plan" })).toHaveAttribute("aria-selected", "true");
+  expect(await screen.findByText("Payment pending")).toBeVisible();
+  expect(screen.queryByText(/^Paid /)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Pay $25.00" })).toBeNull();
+  mocks.billing.mockResolvedValue({
+    mode: "test", status: "paid", planRevision: 2, amountCents: 2500, paidAt: "2026-11-11T12:00:00Z",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check payment status" }));
+  expect(await screen.findByText(/^Paid \$25\.00/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Pay $25.00" })).toBeNull();
+});
+
+it.each(["owner", "advisor"])("reads and refreshes the %s’s own connected Calendar", async (userId) => {
+  mocks.view.mockResolvedValue({ ...value, status: "accepted", direction: userId === "advisor" ? "received" : "outgoing" });
+  mocks.calendarStatus.mockResolvedValueOnce({
+    status: "connected", connected: true,
+    accounts: [{ account_id: "default", google_email: `${userId}@example.test`, status: "connected", connected: true, access_level: "manage" }],
+  });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId }} onClose={vi.fn()} />);
+  expect(await screen.findByText(`${userId}@example.test`)).toBeVisible();
+  expect(mocks.calendarStatus).toHaveBeenCalledWith("synthetic", userId);
+  expect(screen.getByRole("link", { name: "Manage Calendar" })).toBeVisible();
+  fireEvent.focus(window);
+  expect(await screen.findByRole("link", { name: "Connect Calendar" })).toBeVisible();
+  expect(screen.queryByText(`${userId}@example.test`)).toBeNull();
+});
+
+it("opens accepted reviews on Meeting and supports keyboard navigation without changing access", async () => {
+  const close = vi.fn();
+  mocks.view.mockResolvedValue({ ...value, status: "accepted", direction: "outgoing" });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }} onClose={close} />);
+  expect(await screen.findByRole("button", { name: "Stop advisor review" })).toHaveTextContent(/^Stop$/);
+  const meeting = screen.getByRole("tab", { name: "Meeting" });
+  expect(meeting).toHaveAttribute("aria-selected", "true");
+  expect(await screen.findByRole("link", { name: "Connect Calendar" })).toBeVisible();
+  fireEvent.keyDown(meeting, { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: "Portfolio" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.queryByRole("link", { name: "Connect Calendar" })).toBeNull();
+  expect(mocks.decide).not.toHaveBeenCalled();
+  expect(unwindBackLayer("/ria/clients")).toBe(true);
+  expect(close).toHaveBeenCalledOnce();
 });

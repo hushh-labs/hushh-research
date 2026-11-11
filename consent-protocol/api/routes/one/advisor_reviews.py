@@ -20,6 +20,7 @@ from hushh_mcp.services.advisor_review_contract import (
     ReviewDecision,
 )
 from hushh_mcp.services.advisor_review_meetings import AdvisorMeetingService
+from hushh_mcp.services.advisor_review_payouts import AdvisorSandboxPayouts
 from hushh_mcp.services.advisor_review_service import AdvisorReviewService
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError
 from hushh_mcp.services.finance_sharing_contract import StrictObject
@@ -99,8 +100,8 @@ async def portfolio_analysis(
 
 
 @router.get("")
-async def history(viewer: str = Depends(identity)):
-    return await asyncio.to_thread(AdvisorReviewService().history, viewer)
+async def history(viewer: str = Depends(identity), ui: Literal["2"] | None = None):
+    return await asyncio.to_thread(AdvisorReviewService().history, viewer, ui == "2")
 
 
 @router.post("")
@@ -110,14 +111,18 @@ async def create(request: Request, body: CreateAdvisorReview, viewer: str = Depe
 
 
 @router.get("/{request_id}")
-async def view(request_id: UUID, viewer: str = Depends(identity)):
-    return await asyncio.to_thread(AdvisorReviewService().view, viewer, str(request_id))
+async def view(request_id: UUID, viewer: str = Depends(identity), ui: Literal["2"] | None = None):
+    return await asyncio.to_thread(AdvisorReviewService().view, viewer, str(request_id), ui == "2")
 
 
 @router.post("/{request_id}/decision")
 async def decision(request_id: UUID, body: ReviewDecision, viewer: str = Depends(identity)):
     return await asyncio.to_thread(
-        AdvisorReviewService().decide, viewer, str(request_id), body.action
+        AdvisorReviewService().decide,
+        viewer,
+        str(request_id),
+        body.action,
+        body.requireExistingConnection,
     )
 
 
@@ -184,3 +189,22 @@ async def billing(request_id: UUID, viewer: str = Depends(identity)):
 @router.delete("/{request_id}/billing")
 async def cancel_billing(request_id: UUID, viewer: str = Depends(identity)):
     return await asyncio.to_thread(AdvisorBillingService().cancel, viewer, str(request_id))
+
+
+@router.get("/{request_id}/sandbox-payout")
+@limiter.limit("10/minute")
+async def sandbox_payout(request: Request, request_id: UUID, viewer: str = Depends(identity)):
+    payouts = await AdvisorSandboxPayouts.for_request(viewer, request_id)
+    return await payouts.status()
+
+
+@router.post("/{request_id}/sandbox-payout/{action}")
+@limiter.limit("5/minute")
+async def sandbox_payout_link(
+    request: Request,
+    request_id: UUID,
+    action: Literal["onboarding", "dashboard"],
+    viewer: str = Depends(identity),
+):
+    payouts = await AdvisorSandboxPayouts.for_request(viewer, request_id)
+    return await payouts.link(action)

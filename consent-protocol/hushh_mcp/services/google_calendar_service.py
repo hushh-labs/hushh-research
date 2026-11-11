@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import secrets
+from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -211,6 +212,7 @@ class GoogleCalendarService:
         payload: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         required_scope: str | None = None,
+        before_write: Callable[[], Awaitable[None]] | None = None,
         expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         # Include token refresh and grant checks in one wall-clock read budget.
@@ -229,6 +231,7 @@ class GoogleCalendarService:
                     headers=headers,
                     required_scope=required_scope,
                     expected_binding=expected_binding,
+                    **({"before_write": before_write} if before_write is not None else {}),
                 )
         except (TimeoutError, httpx.TimeoutException) as exc:
             raise GoogleConnectionError(
@@ -255,6 +258,7 @@ class GoogleCalendarService:
         headers: dict[str, str] | None,
         required_scope: str | None,
         expected_binding: tuple[str, ...] | None = None,
+        before_write: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         before = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
@@ -333,6 +337,8 @@ class GoogleCalendarService:
         async with httpx.AsyncClient(timeout=timeout) as client:
             for attempt in range(2 if access == "read" else 1):
                 try:
+                    if before_write is not None:
+                        await before_write()
                     response = await self._provider_request(
                         client,
                         method=method,
@@ -919,7 +925,14 @@ class GoogleCalendarService:
             ),
         }
 
-    async def get_event(self, *, user_id: str, calendar_id: str, event_id: str) -> dict[str, Any]:
+    async def get_event(
+        self,
+        *,
+        user_id: str,
+        calendar_id: str,
+        event_id: str,
+        expected_binding: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
         """Read an exact event; IDs come from a live list or owner-provided link."""
         if not calendar_id or len(calendar_id) > 1024 or not event_id or len(event_id) > 2048:
             raise GoogleConnectionError("Calendar event selection is invalid", status_code=422)
@@ -928,6 +941,7 @@ class GoogleCalendarService:
             method="GET",
             path=f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
             access="read",
+            expected_binding=expected_binding,
         )
         if not response.get("id"):
             raise GoogleConnectionError("Calendar event is unavailable", status_code=502)
@@ -1494,7 +1508,12 @@ class GoogleCalendarService:
         ]
 
     async def execute(
-        self, *, user_id: str, proposal_id: str, account_id: str = "default"
+        self,
+        *,
+        user_id: str,
+        proposal_id: str,
+        account_id: str = "default",
+        before_create: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
         proposal = await self.proposals.claim(user_id=user_id, proposal_id=proposal_id)
@@ -1543,7 +1562,12 @@ class GoogleCalendarService:
                 if plan.get("opening_selection") or plan.get("shared_opening_selection"):
                     await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
                 response = await booking.execute_create(
-                    self, user_id=user_id, proposal_id=proposal_id, plan=plan, binding=binding
+                    self,
+                    user_id=user_id,
+                    proposal_id=proposal_id,
+                    plan=plan,
+                    binding=binding,
+                    before_write=before_create,
                 )
             else:
                 current = await self._request(

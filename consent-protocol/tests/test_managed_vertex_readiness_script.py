@@ -19,9 +19,10 @@ SUMMARY_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "summarize_uat_managed_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["full", "core"])
 @pytest.mark.parametrize("ready", [True, False])
 async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_probes(
-    monkeypatch, ready
+    monkeypatch, ready, mode
 ):
     from unittest.mock import AsyncMock
 
@@ -34,6 +35,7 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("MANAGED_READINESS_MODE", mode)
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
     profile = load_profile("uat")
     binding = SimpleNamespace(project=profile["project"])
@@ -79,6 +81,16 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
     )
     report = await module.main()
     text_probe.assert_awaited_once_with("vertex")
+    if mode == "core":
+        complete.assert_not_awaited()
+        assert report["ok"] is True
+        assert report["one_voice_probe_ok"] is None
+        assert report["managed_runtime_capabilities_ready"] is None
+        assert report["candidate_models_exercised"] is False
+        assert report["core_models_exercised"] is True
+        assert report["config_hash"]
+        assert len(report["probes"]) == 2
+        return
     complete.assert_awaited_once()
     assert (
         complete.call_args.kwargs["deadline"] <= module.monotonic() + module.PROBE_SEQUENCE_SECONDS
@@ -90,6 +102,58 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
             next(p for p in report["probes"] if p["probe"] == "capability:one_text_root")["ok"]
             is False
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["dev", "production"])
+@pytest.mark.parametrize("failure", [None, "empty_response", "timeout"])
+async def test_common_core_proves_only_the_actual_chat_target(monkeypatch, environment, failure):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash
+
+    spec = importlib.util.spec_from_file_location("common_core_readiness", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("MANAGED_READINESS_MODE", "core")
+    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
+    profile = load_profile(environment)
+    selected_model = object()
+    binding = SimpleNamespace(
+        locations_for_model=lambda model: profile["text_locations"],
+        build_regional_adk_model=lambda model: selected_model,
+    )
+    monkeypatch.setattr(
+        module, "_one_chat_target", lambda: (profile["project"], profile["text_model"], binding)
+    )
+    monkeypatch.setattr(
+        module, "managed_ai_settings", lambda: SimpleNamespace(config_hash=profile_hash(profile))
+    )
+    monkeypatch.setattr(
+        module, "_managed_manifest_models", lambda: pytest.fail("core must not sweep models")
+    )
+    monkeypatch.setattr(module, "_readiness_bindings", lambda: pytest.fail("full secondary setup"))
+    error = (
+        None
+        if failure is None
+        else (TimeoutError() if failure == "timeout" else RuntimeError("no usable text"))
+    )
+    probe = AsyncMock(side_effect=error)
+    monkeypatch.setattr(module, "_probe_adk_response", probe)
+    if error is not None:
+        with pytest.raises(type(error)):
+            await module.main()
+    else:
+        report = await module.main()
+        assert report["environment"] == environment
+        assert report["models"] == [profile["text_model"]]
+        assert report["locations"] == profile["text_locations"]
+        assert report["core_contract_version"] == 2
+        assert report["secondary_diagnostics"] == "not_run"
+        assert report["ok"] is report["one_chat_probe_ok"] is True
+        assert report["candidate_models_exercised"] is False
+    probe.assert_awaited_once_with(selected_model, profile["text_model"])
 
 
 @pytest.mark.parametrize("transport", ["textPayload", "jsonPayload", "prefixed_text"])

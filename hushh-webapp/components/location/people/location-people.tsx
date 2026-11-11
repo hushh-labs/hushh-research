@@ -363,7 +363,7 @@ export function LocationPeople({
               ? ` · ${people.totalCount}`
               : ""}
           </p>
-          <Button asChild variant="ghost" size="sm" className="min-h-11">
+          <Button asChild variant="link" disableHoverRipple size="sm" className="min-h-11 rounded-full">
             <Link
               href={ROUTES.CONNECT}
               data-testid="location-people-invite-link"
@@ -435,10 +435,12 @@ export function LocationPeople({
                   <PersonRow
                     key={recipient.userId}
                     userId={recipient.userId}
+                    publicPersonRef={recipient.publicPersonRef}
                     name={recipient.displayName}
                     photoUrl={recipient.photoUrl}
                     relationship={relationshipLabel(recipient)}
-                    verified={recipient.phoneVerified}
+                    verified={recipient.isRia}
+                    fromContacts={recipient.connectedFromContacts}
                     canReceiveLocation={recipient.canReceiveLocation}
                     status={rowStatusFor(
                       recipient,

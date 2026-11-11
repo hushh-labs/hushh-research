@@ -1691,7 +1691,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.calendar",
-      "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking dialog with exact review and confirmation; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
+      "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking form whose Schedule meeting action confirms the displayed details; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
       "screen": "calendar",
       "entryCue": "Connect Calendar when you want schedule help from One.",
       "proactivity": "ambient",
@@ -2659,7 +2659,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
+      "completionBoundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2676,7 +2676,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: an occupied-number conflict returns to phone entry; active verification or deletion-review handoff consumes Back until the request settles. Deletion requires independent previous-account sign-in and confirmation; phone proof cannot transfer or delete the number holder. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: transfer review and linked-account deletion review return to recovery choices, choices return to phone entry, and a dispatched transfer or unconfirmed deletion consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {
@@ -4682,7 +4682,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The requested portfolio review sheet dismisses before route navigation. Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
+      "reason": "The investing persona assessment dismisses before route navigation. Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace. Stripe returns may open Plan; closing the workspace clears both query fields."
     }
   },
   {
@@ -5774,7 +5774,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.payouts",
-      "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
+      "purpose": "Help the person manage payout setup, earnings and transaction history without changing consent or financial authority.",
       "screen": "profile_payouts",
       "entryCue": "",
       "proactivity": "ambient",
@@ -6961,7 +6961,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
+      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace. Stripe returns may open Plan; closing the workspace clears both query fields."
     }
   },
   {

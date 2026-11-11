@@ -1,20 +1,28 @@
 "use client";
 
+import presentationStyles from "./calendar-presentation.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Mail, MoreHorizontal } from "@/components/icons";
-import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { ExternalLink, MoreHorizontal } from "@/components/icons";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import { CalendarFollowupRow } from "./calendar-followup-row";
+import styles from "./calendar-insights.module.css";
+import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import {
-  coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, senderName, shortDate,
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, primaryRequest, shortDate,
 } from "@/lib/calendar/calendar-followup-presentation";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
-import { clearMailChoice, hasMailChoice } from "@/lib/calendar/calendar-mail-choice";
 import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
-import { CalendarFollowupsService, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
+import { CalendarFollowupsService, type FollowupConversation, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupStatus, type FollowupView } from "@/lib/services/calendar-followups-service";
 
 type Props = {
   userId: string; accountId: string; accountEmail: string; zone: string; expanded: boolean;
@@ -37,17 +45,32 @@ const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
 // the card keeps asking, so the first results arrive in seconds, not scheduler
 // ticks. Capped, and it stops the moment the card goes away.
 const CATCH_UP_MAX_CALLS = 20;
+const FOLLOWUP_PAGE_SIZE = 15;
+type ActiveView = Exclude<FollowupView, "history">;
+const FOLLOWUP_VIEWS: Record<ActiveView, string> = {
+  upcoming: "Upcoming",
+  overdue: "Overdue",
+  snoozed: "Snoozed",
+};
+
+function isVisible(request: FollowupRequest) {
+  return isActive(request) && request.bucket !== "history";
+}
 
 export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
   const [list, setList] = useState<FollowupList | null>(null);
   const [detail, setDetail] = useState<FollowupDetail | null>(null);
-  const [source, setSource] = useState<FollowupSource | null>(null);
+  const [removal, setRemoval] = useState<{ conversationId: string; requestId: string; title: string } | null>(null);
+  const removeTrigger = useRef<HTMLButtonElement | null>(null);
+  const removing = useRef(false);
   const [emailLinks, setEmailLinks] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const [pageOffset, setPageOffset] = useState(0);
+  const [view, setView] = useState<ActiveView>("upcoming");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -56,11 +79,15 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [reminderInput, setReminderInput] = useState("");
   const [reminderOpen, setReminderOpen] = useState<string | null>(null);
   const detailSeq = useRef(0);
-  const sourceSeq = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
+  const pageOffsetRef = useRef(0);
+  const viewRef = useRef<ActiveView>("upcoming");
+  const firstPageRef = useRef<FollowupList | null>(null);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   const tokenGetter = useRef(getIdToken); tokenGetter.current = getIdToken;
   const ownerTokenGetter = useRef(getVaultOwnerToken); ownerTokenGetter.current = getVaultOwnerToken;
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -69,12 +96,13 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const rebound = useRef(false);
   const progressChecks = useRef(0);
   const vaultAvailable = Boolean(getVaultOwnerToken());
-  const chosenAtConnect = hasMailChoice(userId, accountId);
   const remind = notify ?? Boolean(status?.background_available);
 
   /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
   const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
     const seq = ++requestSeq.current;
+    // A refresh supersedes a pending page request, including its loading state.
+    setLoadingPage(false);
     const alive = () => !signal?.aborted && requestSeq.current === seq;
     if (!quiet) { setLoading(true); setError(""); }
     try {
@@ -87,14 +115,43 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         setList(null); setLoading(false); return;
       }
       const ownerToken = ownerTokenGetter.current();
-      if (!ownerToken) { if (!quiet) setError("Unlock One to view follow-ups."); setLoading(false); return; }
-      const nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal);
-      if (alive()) { setList(nextList); setLoading(false); setError(""); }
+      if (!ownerToken) {
+        firstPageRef.current = null;
+        setList(null);
+        if (!quiet) setError("Unlock One to view follow-ups.");
+        setLoading(false);
+        return;
+      }
+      let offset = pageOffsetRef.current;
+      const selectedView = viewRef.current;
+      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, selectedView);
+      if (!alive()) return;
+      if (offset > 0 && offset >= nextList.total_conversations) {
+        offset = Math.max(0, Math.ceil(nextList.total_conversations / FOLLOWUP_PAGE_SIZE) - 1) * FOLLOWUP_PAGE_SIZE;
+        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, selectedView);
+      }
+      if (alive()) {
+        if (offset === 0 && selectedView === "upcoming") firstPageRef.current = nextList;
+        pageOffsetRef.current = offset; setPageOffset(offset); setList(nextList); setLoading(false); setError("");
+      }
     } catch (failure) {
       // A background refresh never replaces verified items with an error.
       if (alive() && !quiet) { setError(followupErrorText(failure)); setLoading(false); }
     }
   }, [userId, accountId]);
+
+  useEffect(() => {
+    if (expanded) return;
+    // Collapse also cancels a first Next request that has not applied its offset.
+    if (loadingPage) { requestSeq.current += 1; setLoadingPage(false); }
+    if (pageOffsetRef.current === 0 && viewRef.current === "upcoming") return;
+    pageOffsetRef.current = 0;
+    viewRef.current = "upcoming";
+    setView("upcoming");
+    setPageOffset(0);
+    setList(firstPageRef.current);
+    void refresh(lifetime.current?.signal, true);
+  }, [expanded, loadingPage, refresh]);
 
   useEffect(() => {
     const controller = new AbortController(); lifetime.current = controller;
@@ -167,6 +224,17 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   }, [catchingUp, status, list, refresh]);
 
   useEffect(() => {
+    if (vaultAvailable) return;
+    detailSeq.current += 1;
+    selectedIdRef.current = null;
+    setSelectedId(null);
+    setDetail(null);
+    setEmailLinks({});
+    setFocusedRequestId(null);
+    setRemoval(null);
+  }, [vaultAvailable]);
+
+  useEffect(() => {
     if (!focusedRequestId || !detail || !focusedCard.current) return;
     focusedCard.current.focus();
     focusedCard.current.scrollIntoView?.({ block: "nearest" });
@@ -179,25 +247,23 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (!detail) return;
     const ownerToken = ownerTokenGetter.current();
     if (!ownerToken) return;
-    let current = true;
-    void Promise.all(detail.requests.map(async request => {
+    const controller = new AbortController();
+    void Promise.all(detail.requests.filter(isVisible).map(async request => {
       try {
-        const link = await CalendarFollowupsService.sourceLink(userId, accountId, request.id, await tokenGetter.current(), ownerToken);
+        const link = await CalendarFollowupsService.sourceLink(userId, accountId, request.id, await tokenGetter.current(), ownerToken, controller.signal);
         return [request.id, gmailMessageUrl(accountEmail, link.gmail_message_id)] as const;
       } catch { return null; }
     })).then(entries => {
-      if (current) setEmailLinks(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))));
+      if (!controller.signal.aborted) setEmailLinks(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))));
     });
-    return () => { current = false; };
+    return () => controller.abort();
   }, [detail, userId, accountId, accountEmail]);
 
-  const selected = list?.conversations.find(entry => entry.id === selectedId) || null;
   const openDetail = async (conversationId: string, from?: HTMLButtonElement | null, focusRequestId?: string): Promise<boolean> => {
     const seq = ++detailSeq.current;
-    sourceSeq.current += 1;
     selectedIdRef.current = conversationId;
     if (from) trigger.current = from;
-    setSelectedId(conversationId); setDetail(null); setSource(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
+    setSelectedId(conversationId); setDetail(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
     setFocusedRequestId(focusRequestId || null);
     try {
       const ownerToken = getVaultOwnerToken();
@@ -255,7 +321,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         time_zone: existing?.time_zone || zone,
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
       }, await getIdToken(), ownerToken);
-      clearMailChoice();
       const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
       lastCatchUp.set(`${userId}:${accountId}`, Date.now());
       progressChecks.current = 0;
@@ -299,28 +364,25 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     finally { setBusy(false); }
   };
 
-  const loadMore = async () => {
-    const offset = list?.next_offset;
-    if (offset == null || loadingMore) return;
-    const seq = requestSeq.current;
-    setLoadingMore(true); setError("");
+  const changePage = async (offset: number, targetView = view) => {
+    if (!expanded || loadingPage || offset < 0 || (offset === pageOffset && targetView === view)) return;
+    const seq = ++requestSeq.current;
+    setLoadingPage(true); setError("");
     try {
       const ownerToken = getVaultOwnerToken();
       if (!ownerToken) throw new Error("Unlock One to view follow-ups.");
       const page = await CalendarFollowupsService.list(
-        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset,
+        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset, targetView,
       );
-      if (requestSeq.current !== seq || lifetime.current?.signal.aborted) return;
-      setList(current => {
-        if (!current || current.next_offset !== offset) return current;
-        const ids = new Set(current.conversations.map(entry => entry.id));
-        return { ...page, conversations: [
-          ...current.conversations,
-          ...page.conversations.filter(entry => !ids.has(entry.id)),
-        ] };
-      });
+      if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
+      if (offset === 0 && targetView === "upcoming") firstPageRef.current = page;
+      viewRef.current = targetView;
+      setView(targetView);
+      pageOffsetRef.current = offset;
+      setPageOffset(offset);
+      setList(page);
     } catch (failure) { if (requestSeq.current === seq) setError(followupErrorText(failure)); }
-    finally { setLoadingMore(false); }
+    finally { if (requestSeq.current === seq) setLoadingPage(false); }
   };
 
   const disable = async () => {
@@ -331,23 +393,45 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       await CalendarFollowupsService.post("preferences", {
         user_id: userId, account_id: accountId, enabled: false,
       }, await getIdToken(), ownerToken);
-      setSelectedId(null); setDetail(null); setSource(null);
+      setSelectedId(null); setDetail(null);
       await refresh(lifetime.current?.signal);
     } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
-  const openSource = async (request: FollowupRequest) => {
-    const seq = ++sourceSeq.current;
-    const currentSelection = selectedIdRef.current;
-    setBusy(true); setActionError("");
+  const askRemove = (entry: FollowupConversation, from: HTMLButtonElement) => {
+    const request = primaryRequest(entry);
+    if (!request || removing.current) return;
+    removeTrigger.current = from;
+    setRemoval({ conversationId: entry.id, requestId: request.id, title: request.title });
+  };
+
+  const removeRequest = async () => {
+    if (!removal || removing.current) return;
+    removing.current = true;
+    setBusy(true);
     try {
       const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to open this email.");
-      const value = await CalendarFollowupsService.source(userId, accountId, request.id, await getIdToken(), ownerToken);
-      if (!lifetime.current?.signal.aborted && sourceSeq.current === seq && selectedIdRef.current === currentSelection) setSource(value);
-    } catch (failure) { if (sourceSeq.current === seq) setActionError(followupErrorText(failure)); }
-    finally { setBusy(false); }
+      if (!ownerToken) throw new Error("Unlock One to remove this follow-up.");
+      const idToken = await getIdToken();
+      const latest = await CalendarFollowupsService.detail(userId, accountId, removal.conversationId, idToken, ownerToken);
+      if (lifetime.current?.signal.aborted) return;
+      const request = latest.requests.find(item => item.id === removal.requestId && isVisible(item));
+      if (!request) {
+        await refresh(lifetime.current?.signal);
+        toast.info("This follow-up is no longer available.");
+        return;
+      }
+      await CalendarFollowupsService.change(userId, accountId, request, "dismiss", null, idToken, ownerToken);
+      if (lifetime.current?.signal.aborted) return;
+      toast.success("Removed from Follow-ups");
+      await refresh(lifetime.current?.signal);
+    } catch (failure) {
+      if (!lifetime.current?.signal.aborted) toast.error(followupErrorText(failure));
+    } finally {
+      removing.current = false;
+      setBusy(false);
+    }
   };
 
   const finishDeepLink = (requestId: string) => {
@@ -360,7 +444,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   const retryDetail = async () => {
     if (!selectedId) return;
-    if (await openDetail(selectedId, undefined, deepLinkRequestId || undefined) && deepLinkRequestId) {
+    if (await openDetail(selectedId, undefined, focusedRequestId || deepLinkRequestId || undefined) && deepLinkRequestId) {
       finishDeepLink(deepLinkRequestId);
     }
   };
@@ -371,11 +455,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       try {
         const ownerToken = getVaultOwnerToken();
         if (!ownerToken) throw new Error("Unlock One to open this follow-up.");
-        const conversationId = await CalendarFollowupsService.resolve(
+        const target = await CalendarFollowupsService.resolve(
           userId, accountId, deepLinkRequestId, await getIdToken(), ownerToken, lifetime.current?.signal,
         );
         if (lifetime.current?.signal.aborted) return;
-        if (!await openDetail(conversationId, undefined, deepLinkRequestId)) return;
+        if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
         finishDeepLink(deepLinkRequestId);
       } catch (failure) { setError(followupErrorText(failure)); }
     })();
@@ -383,26 +467,27 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
-  const rows = expanded ? list?.conversations || [] : (list?.conversations || []).slice(0, 2);
+  const rows = expanded ? list?.conversations || [] : pageOffset === 0 && view === "upcoming" ? (list?.conversations || []).slice(0, 2) : [];
+  const viewCounts = list?.view_counts;
+  const hasMoreViews = Boolean(viewCounts && (viewCounts.overdue || viewCounts.snoozed));
   const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
-  const card = <SectionCard title="Follow-ups" description="From your email">
-    <div className="space-y-2" aria-busy={loading}>
-      {!status && loading ? <p className="text-sm text-muted-foreground" role="status">Checking this account…</p> : null}
-      {needsMailChoice && renewing ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span>Email access for {accountEmail} was removed. Your follow-ups stay as they are.</span>
+  const card = <SectionCard title="Follow-ups" className={styles.followupCard}>
+    <div className="min-w-0 space-y-2" aria-busy={loading}>
+      {!status && loading ? <p className={styles.muted} role="status">Checking follow-ups…</p> : null}
+      {needsMailChoice && renewing ? <div className={`${styles.muted} flex flex-wrap items-center justify-between gap-2`}>
+        <span>Renew email access for {accountEmail}.</span>
         <Button size="compact" disabled={busy || !onConnectMail} onClick={() => void turnOn()}>Allow email access</Button>
       </div> : null}
-      {needsMailChoice && !renewing ? <div className="space-y-3 text-sm">
+      {needsMailChoice && !renewing ? <div className="space-y-3">
         <div className="space-y-1">
-          <p className="font-medium">Find meeting requests and reminders in my email.</p>
-          <p className="text-muted-foreground">
+          <p className="font-medium">Find Calendar follow-ups in email.</p>
+          <p className={styles.muted}>
             {status?.mail_connected
-              ? `Your private agent already has read access to ${accountEmail}. Choose how far back to look.`
-              : `This asks Google for one extra permission to read ${accountEmail}. Your private agent uses it only to find requests and proposed times. Calendar works the same without it.`}
-            {chosenAtConnect ? " You chose this when connecting Calendar." : ""}
+              ? `Choose how far back to check ${accountEmail}.`
+              : `Allow your private agent to check ${accountEmail} for meetings and deadlines.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -412,86 +497,125 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           <label className="flex items-center gap-2"><input type="checkbox" checked={remind && Boolean(status?.background_available)} onChange={event => setNotify(event.target.checked)} disabled={busy || !status?.background_available} />Remind me</label>
           <Button size="compact" disabled={busy || (!status?.mail_connected && !onConnectMail)} onClick={() => void turnOn()}>{status?.mail_connected ? "Turn on" : "Allow email access"}</Button>
         </div>
-        {status && !status.background_available ? <p className="text-muted-foreground">Background reminders are unavailable right now.</p> : null}
+        {status && !status.background_available ? <p className={styles.muted}>Background reminders are unavailable right now.</p> : null}
       </div> : null}
-      {status?.monitoring_enabled && rows.map(entry => {
-        const summary = rowSummary(entry, zone);
-        return <div key={entry.id} className="flex min-w-0 items-center gap-3 border-t py-2 first:border-t-0">
-          <Mail className="size-4 shrink-0 text-blue-600" aria-hidden />
-          <div className="min-w-0 flex-1"><strong className="block line-clamp-2 break-words text-sm">{summary.title}</strong>
-            <span className="block line-clamp-2 break-words text-xs text-muted-foreground">{summary.detail}</span>
-            {summary.more ? <span className="block text-xs text-muted-foreground">{summary.more === 1 ? "1 more in this email" : `${summary.more} more in this email`}</span> : null}
-          </div>
-          <Button size="compact" variant="ghost" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${summary.title}`}>Review</Button>
-        </div>;
-      })}
-      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">No pending follow-ups.</p> : null}
-      {notice ? <div className={notice.tone === "action" ? "flex flex-wrap items-center justify-between gap-2 text-sm" : "text-xs text-muted-foreground"} role="status">
+      {expanded && viewCounts ? <div className="flex flex-wrap gap-1" role="group" aria-label="Follow-up views">
+        {(Object.keys(FOLLOWUP_VIEWS) as ActiveView[]).map(option => <Button
+          key={option} size="compact" variant={view === option ? "default" : "ghost"}
+          aria-pressed={view === option} disabled={loadingPage}
+          onClick={() => void changePage(0, option)}
+        >{FOLLOWUP_VIEWS[option]} ({viewCounts[option]})</Button>)}
+      </div> : null}
+      {status?.monitoring_enabled && rows.length > 0 ? <div>
+        {rows.map(entry => {
+          const summary = rowSummary(entry, zone);
+          if (!primaryRequest(entry)) return null;
+          return <CalendarFollowupRow key={entry.id} title={summary.title} description={summary.detail} busy={busy}
+            onReview={from => void openDetail(entry.id, from)}
+            onKeep={() => toast.success("Kept in Follow-ups")} onRemove={from => askRemove(entry, from)} />;
+        })}
+      </div> : null}
+      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className={styles.muted}>{viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups."}</p> : null}
+      {notice ? <div className={notice.tone === "action" ? `${styles.muted} flex flex-wrap items-center justify-between gap-2` : styles.muted} role="status">
         <span>{notice.text}</span>
-        {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void (notice.action === "reconnect" ? reconnect() : checkAgain())}>{notice.action === "reconnect" ? "Reconnect email" : "Check again"}</Button> : null}
+        {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
       </div> : null}
-      {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+      {error ? <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
-        {!expanded && (list?.total_conversations || 0) > 2 ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
+        {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
         {status?.monitoring_enabled ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="end"><DropdownMenuItem disabled={busy} onSelect={() => void checkAgain()}>Check email again</DropdownMenuItem><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
+          <DropdownMenuContent align="end" className={presentationStyles.scope} data-connect-type-scale="page"><DropdownMenuItem disabled={busy} onSelect={() => void checkAgain()}>Check email again</DropdownMenuItem><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
       </div>
-      {expanded && list?.next_offset != null ? <Button size="compact" variant="outline" disabled={loadingMore || loading} onClick={() => void loadMore()}>{loadingMore ? "Loading…" : "Load more"}</Button> : null}
+      {expanded && list ? <PaginatedListFooter
+        page={Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1}
+        limit={FOLLOWUP_PAGE_SIZE}
+        total={list.total_conversations}
+        hasMore={list.next_offset != null}
+        pending={loadingPage || loading}
+        onPrevious={() => void changePage(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}
+        onNext={() => { if (list.next_offset != null) void changePage(list.next_offset); }}
+        className="px-0"
+      /> : null}
     </div>
   </SectionCard>;
 
+  const requests = detail?.requests.filter(isVisible) ?? [];
   return <>
     {card}
-    <AdaptiveDetailSurface open={Boolean(selectedId)} onOpenChange={open => { if (!open) { detailSeq.current += 1; sourceSeq.current += 1; selectedIdRef.current = null; setSelectedId(null); setDetail(null); setSource(null); setFocusedRequestId(null); } }}
-      onCloseAutoFocus={event => { if (trigger.current?.isConnected) { event.preventDefault(); trigger.current.focus(); } }}
-      mobilePresentation="sheet" title={source?.subject || detail?.subject || selected?.subject || "Follow-up"}
-      description={source ? `${senderName(source.sender)} · ${new Date(source.internal_date_ms).toLocaleDateString()}` : detail ? `${senderName(detail.sender)} · ${new Date(detail.latest_internal_date_ms).toLocaleDateString()}` : "Checking conversation…"}
-      headerTextOverflow="wrap">
-      <div className="space-y-4 text-sm">
-        {actionError ? <div><p role="alert" className="text-red-600">{actionError}</p>{!detail && selectedId ? <Button size="compact" variant="outline" onClick={() => void retryDetail()}>Retry</Button> : null}</div> : null}
-        {source ? <><Button variant="ghost" size="compact" onClick={() => setSource(null)}>Back to follow-up</Button>
-          <p className="text-xs text-muted-foreground">Text of the email in {accountEmail}. Links and images are hidden here; use Open original email for the full message.</p>
-          <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border p-3">{source.body}</div></> : detail ? <>
-          {detail.source_completeness === "partial" ? <p className="text-xs text-muted-foreground">Still checking the rest of this conversation.</p> : null}
-          {detail.requests.map((request, index) => {
-            const closed = !isActive(request);
-            // Several requests often come from one email: link it once, on the first.
-            const link = detail.requests.findIndex(item => emailLinks[item.id] === emailLinks[request.id]) === index ? emailLinks[request.id] : undefined;
-            return <div key={request.id} ref={request.id === focusedRequestId ? focusedCard : undefined} tabIndex={request.id === focusedRequestId ? -1 : undefined} className="space-y-2 rounded-lg border p-3">
-              <div className="flex items-start justify-between gap-2"><div className="min-w-0"><strong className="break-words">{request.title}</strong>
-                <p className="text-muted-foreground">{request.kind === "meeting" ? meetingStatus(request, zone) : dueText(request, zone)}</p>
-                {request.kind !== "meeting" && request.linked_event ? <p className="text-muted-foreground">About: {request.linked_event[1]}{shortDate(request.linked_event[2]) ? ` · ${shortDate(request.linked_event[2])}` : ""}</p> : null}
+    <Dialog modal open={Boolean(selectedId)} onOpenChange={open => {
+      if (open) return;
+      detailSeq.current += 1;
+      selectedIdRef.current = null;
+      setSelectedId(null); setDetail(null); setFocusedRequestId(null);
+    }}>
+      <DialogContent data-connect-type-scale="page" className={`${styles.reviewDialog} ${presentationStyles.portal}`} srDescription="Review Calendar follow-ups"
+        onCloseAutoFocus={event => {
+          if (trigger.current?.isConnected) { event.preventDefault(); trigger.current.focus(); }
+        }}>
+        <DialogTitle className={styles.reviewTitle}>Follow-up{requests.length > 1 ? "s" : ""}</DialogTitle>
+        <div className="min-w-0 space-y-3">
+          {actionError ? <div><p role="alert" className={`${presentationStyles.support} text-destructive`}>{actionError}</p>{!detail && selectedId ? <Button size="compact" variant="outline" onClick={() => void retryDetail()}>Retry</Button> : null}</div> : null}
+          {detail?.source_completeness === "partial" ? <p className={styles.muted}>Still checking this conversation.</p> : null}
+          {requests.map((request, index) => {
+            const href = emailLinks[request.id];
+            const link = href && requests.findIndex(item => emailLinks[item.id] === href) === index ? href : null;
+            return <div key={request.id} ref={request.id === focusedRequestId ? focusedCard : undefined} tabIndex={request.id === focusedRequestId ? -1 : undefined} className="min-w-0 space-y-2 rounded-lg border p-3">
+              <div className={styles.reviewHeader}>
+                <div className="min-w-0">
+                  <h3 className={styles.followupTitle}>{request.title}</h3>
+                  <p className={styles.muted}>{request.kind === "meeting" ? meetingStatus(request, zone) : dueText(request, zone)}</p>
+                </div>
+                {link ? <Button asChild variant="ghost" size="compact" className={styles.sourceAction}>
+                  <a href={link} target="_blank" rel="noopener noreferrer" aria-label="Open original email"><span>Open original email</span><ExternalLink className="size-4" aria-hidden /></a>
+                </Button> : null}
               </div>
-                {request.kind !== "meeting" && !closed ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
-              </div>
-              {request.source_excerpt ? <p className="line-clamp-3 whitespace-pre-wrap break-words text-muted-foreground">“{request.source_excerpt}”</p> : null}
-              <div className="flex flex-wrap items-center gap-1">
-                {link ? <Button asChild variant="ghost" size="compact"><a href={link} target="_blank" rel="noopener noreferrer">Open original email<ExternalLink className="ml-1 size-3" aria-hidden /></a></Button> : null}
-                <Button variant="ghost" size="compact" disabled={busy} onClick={() => void openSource(request)}>View email text</Button>
-              </div>
-              {request.kind === "meeting" ? <>
-                <MeetingReview key={request.id} request={request} zone={zone} busy={busy} onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
-              </> : <>
-                <p>{reminderText(request, zone)}</p>
-                {!closed ? <div className="flex flex-wrap items-end gap-2"><Button size="compact" disabled={busy} onClick={() => void act(request, "done")}>Mark done</Button>
-                  <Button variant="ghost" size="compact" disabled={busy} onClick={() => void act(request, "snooze", new Date(Date.now() + 86_400_000).toISOString())}>Snooze 1 day</Button>
-                  <Button variant="ghost" size="compact" aria-expanded={reminderOpen === request.id} onClick={() => setReminderOpen(reminderOpen === request.id ? null : request.id)}>Change reminder</Button>
-                  {reminderOpen === request.id ? <><label>Reminder<Input type="datetime-local" value={reminderInput} onChange={event => setReminderInput(event.target.value)} /></label>
-                    <Button variant="outline" size="compact" disabled={busy || !reminderInput} onClick={() => {
-                      try {
-                        const [date, time] = reminderInput.split("T");
-                        if (!date || !time) throw new Error("invalid reminder");
-                        const reminder = bookingInstant(date, time, zone);
-                        if (Date.parse(reminder) <= Date.now()) throw new Error("past reminder");
-                        void act(request, "set_reminder", reminder);
-                      } catch { setActionError("Choose a future reminder."); }
-                    }}>Set reminder</Button></> : null}
+              {request.kind !== "meeting" && request.linked_event ? <p className={styles.muted}>{request.linked_event[1]}{shortDate(request.linked_event[2]) ? ` · ${shortDate(request.linked_event[2])}` : ""}</p> : null}
+              {request.kind === "meeting" ? <MeetingReview key={request.id} request={request} zone={zone} busy={busy}
+                onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
+              : <>
+                {request.reminder_at ? <p className={styles.muted}>{reminderText(request, zone)}</p> : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="compact" disabled={busy} onClick={() => void act(request, "done")}>Mark done</Button>
+                  <Button variant="ghost" size="compact" aria-expanded={reminderOpen === request.id}
+                    onClick={() => setReminderOpen(reminderOpen === request.id ? null : request.id)}>Reminder</Button>
+                </div>
+                {reminderOpen === request.id ? <div className="flex min-w-0 flex-wrap items-end gap-2">
+                  <label className="min-w-0 max-w-full">Reminder time<Input type="datetime-local" value={reminderInput} onChange={event => setReminderInput(event.target.value)} /></label>
+                  <Button variant="outline" size="compact" disabled={busy || !reminderInput} onClick={() => {
+                    try {
+                      const [date, time] = reminderInput.split("T");
+                      if (!date || !time) throw new Error("invalid reminder");
+                      const reminder = bookingInstant(date, time, zone);
+                      if (Date.parse(reminder) <= Date.now()) throw new Error("past reminder");
+                      void act(request, "set_reminder", reminder);
+                    } catch { setActionError("Choose a future reminder."); }
+                  }}>Save reminder</Button>
                 </div> : null}
               </>}
             </div>;
           })}
-        </> : <p role="status">Checking follow-up…</p>}
-      </div>
-    </AdaptiveDetailSurface>
+          {!detail && !actionError ? <p role="status" className={styles.muted}>Checking follow-up…</p> : null}
+          {detail && !requests.length ? <p role="status" className={styles.muted}>No active follow-ups.</p> : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+    <AlertDialog open={Boolean(removal)} onOpenChange={open => { if (!open) setRemoval(null); }}>
+      <AlertDialogContent size="sm" className={`${styles.reviewDialog} ${presentationStyles.portal}`} data-connect-type-scale="page"
+        onCloseAutoFocus={event => {
+          if (removeTrigger.current?.isConnected) {
+            event.preventDefault();
+            removeTrigger.current.focus();
+          }
+        }}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove follow-up?</AlertDialogTitle>
+          <AlertDialogDescription>{removal?.title}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void removeRequest()}>Remove</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </>;
 }

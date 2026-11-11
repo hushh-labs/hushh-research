@@ -48,7 +48,7 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
   if (item.state !== "available" || (item.kind !== "recording" && item.kind !== "notes")) return null;
   const link = safeMeetingProviderUrl(item.url);
   return <div className="space-y-2 border-b py-3 last:border-0">
-    <strong className="block break-words">{item.title || (item.kind === "recording" ? "Meeting recording" : "Meeting notes")}</strong>
+    <strong className={`${styles.rowTitle} block break-words`}>{item.title || (item.kind === "recording" ? "Meeting recording" : "Meeting notes")}</strong>
     {item.provenance === "calendar_linked" ? <span className={styles.muted}>Linked from this Calendar event</span> : item.provenance === "approved_request" ? <span className={styles.muted}>Shared after the organizer approved your request</span> : null}
     <div className="flex flex-wrap items-center gap-3">
       {link ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onOpen(item)}>Open<ExternalLink className="size-3" /></Button> : <span className={styles.muted}>Google did not provide an opening link.</span>}
@@ -464,7 +464,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   </button>;
   const errorCard = error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null;
 
-  return <div className={styles.insights} data-view={view} aria-busy={loading}>
+  return <div className={styles.insights} data-connect-type-scale="page" data-view={view} aria-busy={loading}>
     {refreshControl === "inline" ? <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
       disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); }}>Refresh</Button></div> : null}
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
@@ -478,7 +478,6 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       refreshRevision={refreshRevision} onViewAll={() => setView("followups")} onReviewMeeting={(request, startAt, endAt, timeZone) => onReviewFollowupMeeting?.(request, startAt, endAt, timeZone)}
       deepLinkRequestId={followupRequestId} onDeepLinkHandled={onFollowupIntentHandled} /> : null}
     {view === "overview" ? <>
-      <p className={styles.muted}>Understand your time. Make room for what matters.</p>
       {loading && !overview ? <p role="status" className={styles.muted}>Checking Insights…</p> : null}
       {errorCard}
       <SectionCard title="Executive snapshot" description="This week · scheduled time, not attendance statistics">
@@ -488,11 +487,8 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
         {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : error ? <p className={styles.muted}>Weekly chart unavailable.</p> : <Skeleton className="h-40 w-full" />}
       </SectionCard>
       <SectionCard title="Schedule risks"><p>{overview ? String(overview.overlaps) + " overlapping pairs · " + String(overview.back_to_back) + " back-to-back pairs" : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
-      <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>No recurring commitments in the loaded events.</p>}</SectionCard>
+      <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={`${styles.copy} ${styles.rowTitle}`}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>No recurring commitments in the loaded events.</p>}</SectionCard>
       <button ref={entryRef} type="button" className={styles.entry} onClick={() => { autoAdvance.current = 0; setCursor(null); setView("library"); }}><span className={styles.icon}><Video className="size-5" /></span><span className={styles.copy}><strong>Recordings &amp; Notes</strong><span className={styles.muted}>Find recordings and notes by meeting day</span></span><ChevronRight className="size-4" /></button>
-      <SectionCard title="Focus opportunities" description="Gaps of at least one hour · weekdays, 9 AM–5 PM">
-        {overview?.focus.length ? overview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : <p className={styles.muted}>No verified focus windows to show.</p>}
-      </SectionCard>
     </> : view === "followups" ? null : view === "library" ? <>
       <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Every timed meeting on this day, with file access checked separately.</p></div>
       <CalendarDateNavigation date={day} today={today} onChange={changeDay} label="Recording and notes date" />

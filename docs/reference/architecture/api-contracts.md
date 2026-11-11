@@ -1,5 +1,62 @@
 # API Contracts
 
+## Visual Map
+
+Which credential plane authorizes which FastAPI route family, and how first-party
+clients reach them through the Next.js proxy layer.
+
+```mermaid
+flowchart TB
+  subgraph creds["Credential planes"]
+    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
+    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
+    devtok["Developer Token<br/>Authorization Bearer"]
+    hct["Consent Token HCT<br/>app-bound scoped grant"]
+    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
+    anon["No auth<br/>public reads"]
+  end
+
+  subgraph client["First-party client transport"]
+    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
+    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
+  end
+
+  subgraph api["FastAPI route families in consent-protocol/api/routes"]
+    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
+    con["consent.py and sse.py<br/>/api/consent"]
+    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
+    vault["db_proxy.py<br/>/db/vault wrappers"]
+    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
+    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
+    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
+    ria["ria.py and account.py<br/>/api/ria and /api/account"]
+    dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
+  end
+
+  fb --> vo
+  fb --> dev
+  fb --> commerce
+  anon --> pub
+  vo --> svc
+  svc --> proxy
+  proxy --> con
+  proxy --> pkm
+  proxy --> vault
+  proxy --> kai
+  proxy --> one
+  proxy --> fabric
+  proxy --> ria
+  proxy --> commerce
+  devtok --> dev
+  devtok --> fabric
+  con --> hct
+  hct --> dev
+  maint --> one
+```
+
+---
+
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
@@ -9,7 +66,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`; filtering precedes logical pagination. |
 | `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
 | `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
 
@@ -135,62 +192,31 @@ confirmation metadata remain until reconciliation or account erasure. Production
 qualification must separately verify the migration, exact authenticated
 two-person journey, platform transport and current processing-provider approval.
 
-## Visual Map
+## V1 chat memory preparation
 
-Which credential plane authorizes which FastAPI route family, and how first-party
-clients reach them through the Next.js proxy layer.
+`POST /api/one/agent-chat` accepts the current owner's
+`forwardedProps.emailMemoryProjection` with a declared `budget_chars` of up to
+96,000 UTF-16 code units, matching the complete `one_memory.markdown` document.
+The document must fit both that declared budget and the server maximum. Email
+session reads and prompt preparation use the same memory bound without truncation.
+Owner matching, strict projection fields and request-only secret references remain
+required; the separate 18,000-character draft and 2,048-character fact-write limits
+are unchanged.
 
-```mermaid
-flowchart TB
-  subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
-    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
-    devtok["Developer Token<br/>Authorization Bearer"]
-    hct["Consent Token HCT<br/>app-bound scoped grant"]
-    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
-    anon["No auth<br/>public reads"]
-  end
-
-  subgraph client["First-party client transport"]
-    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
-    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
-  end
-
-  subgraph api["FastAPI route families in consent-protocol/api/routes"]
-    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
-    con["consent.py and sse.py<br/>/api/consent"]
-    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
-    vault["db_proxy.py<br/>/db/vault wrappers"]
-    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
-    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
-    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
-    ria["ria.py and account.py<br/>/api/ria and /api/account"]
-    dev["developer.py<br/>/api/v1 and /api/developer"]
-    commerce["scope_commerce.py<br/>/api/scope-commerce"]
-  end
-
-  fb --> vo
-  fb --> dev
-  fb --> commerce
-  anon --> pub
-  vo --> svc
-  svc --> proxy
-  proxy --> con
-  proxy --> pkm
-  proxy --> vault
-  proxy --> kai
-  proxy --> one
-  proxy --> fabric
-  proxy --> ria
-  proxy --> commerce
-  devtok --> dev
-  devtok --> fabric
-  con --> hct
-  hct --> dev
-  maint --> one
-```
-
----
+`POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
+owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
+admission, held owner incarnation and AI-selection checks before and after inference.
+The request contains `user_id`, `current_markdown`, incremental `messages`
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. Whitespace-only messages are
+rejected during request validation before inference. Meaningful Markdown
+indentation is preserved, and `current_markdown` may be empty for initial memory.
+The response is
+`{markdown}`: a proposed complete document with no persistence authority. The
+client validates and atomically commits ciphertext and its source checkpoint
+through the existing PKM writer. Invalid generation returns a bounded failure;
+there is no partial replacement or client-visible success before storage ACK.
+The platform-aware PKM proxy/native transport and explicit pod allowlists own
+placement; unknown/private owners never fall back to Shared inference.
 
 ## Public market quotes
 
@@ -724,6 +750,11 @@ ID token stays in memory, bound to the current user, phone and verification
 attempt. It is cleared on resend, retirement, owner change, unmount or success.
 Ordinary successful links never create a secondary sign-in session.
 
+Linked-account deletion is a separate contract: confirming deletion links no
+phone to the surviving account. It releases the consumed proof and requires a
+fresh verification afterward. An uncertain confirmation uses the existing
+read-only recheck; it never replays deletion or reuses the spent SMS proof.
+
 After linking, clients send `{ "verified_phone_number": "+…" }` through the
 existing account proxy or shared native transport. The backend reads the current
 Firebase user, checks the authenticated UID and exact phone, and saves the claim
@@ -741,7 +772,12 @@ known same-owner app claim during a temporary lookup failure. The fixed-code
 fixture transport remains application-only. Isolated phone proof remains
 available to recovery flows. A legacy client cannot write a new claim through
 `/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
-the updated native clients and frontend before rolling out that enforcement. An
+the updated native clients and frontend before rolling out that enforcement.
+After an occupied-number deletion is admitted, the consumed real-SMS proof never
+authorizes a follow-up claim. The interface reports deletion requested and requires
+fresh verification; an uncertain deletion response is reconciled by observation.
+Configured test numbers use a new server-bound challenge through the existing
+qualified test transport. An
 expired challenge retires only its captured owner and attempt. Missing local
 state is `phone-verification-required`, distinct from provider `code-expired`.
 
@@ -2701,6 +2737,9 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/conflicts/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Preflight account grants and event versions, accept the kept pending invitation if needed, then claim each selected decline and reviewed organizer note. Provider operations are not atomic; child ledgers prevent duplicate effects, and separate outcomes disclose partial or unknown results. |
 | POST | `/api/one/calendar/conflicts/workspace/review` | Firebase Bearer + each selected owner-bound Calendar and Gmail OAuth grant | Prepare the exact first-party keep/decline and organizer-Mail plan under complete conflict coverage. |
 | POST | `/api/one/calendar/conflicts/workspace/confirm` | Firebase Bearer + each selected owner-bound Google grant | Confirm the sealed conflict plan with preflight and child ledgers; disclose partial or unknown provider outcomes. |
+| POST | `/api/one/calendar/followups/list` and `/detail` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Return the assessed Calendar action, verified timing and status at the current assessment version. Detail omits historical siblings. Raw evidence fields remain empty for older clients. |
+| POST | `/api/one/calendar/followups/source/link` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Return an exact Gmail message reference after account and grant checks. The link lookup reads no message body. |
+| POST | `/api/one/calendar/followups/request` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Apply a revision-checked, idempotent action to one request. Remove maps to `dismiss`. |
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
@@ -2714,9 +2753,10 @@ checks the full selected local day. A Board Free time row opens a compact
 review dialog with a bounded duration and editable date, time, zone, guests and
 meeting place. Per-account rows bind their destination to the clicked account;
 shared openings require an explicit writable account and use its primary
-calendar. The existing short-lived proposal and one-time confirmation ledger
-own the write. Review and execution recheck every connected account and its
-included calendars, and the destination's management grant. Changed accounts,
+calendar. Schedule meeting confirms the visible form and uses the existing short-lived
+proposal and one-time confirmation ledger. Preparation and execution check every
+connected account and its included calendars and the destination's management
+grant. Independent account checks run concurrently. Changed accounts,
 selection, grants, or availability require a new review. Discord uses a valid
 existing link and creates no Meet conference; no guests sends no invitations.
 Only a confirmed Google event publishes the Board refresh. Slot taps,
@@ -3039,18 +3079,29 @@ connection ended.
 | Method | Path | Description |
 | --- | --- | --- |
 | POST | `/api/one/messages/route-token` | Mint with exactly one of `{conversationId, personRef}`, or restore with `{token}`. Firebase authenticated, participant checked on both mint and restore, and private/no-store. Returns `{token, kind, ref}`; business identifiers remain in memory and API bodies. |
-| GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
+| GET | `/api/one/messages/conversations?limit=&cursor=` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. Returns `{items, unreadCount, nextCursor}`; `limit` is 1–100 (default 100). `unreadCount` is global across pages; nullable `nextCursor` continues descending `(activity timestamp, conversation UUID)` order. Cursors are signed, purpose/owner-bound and bounded to 512 characters. Invalid or foreign cursors fail privately before database reads. |
 | DELETE | `/api/one/messages/conversations/{conversationId}` | Hide the entire chat for the authenticated participant using existing per-message deletion timestamps. Returns `{conversationId, deleted:true, scope:"me"}`; preserves the other participant's history and the connection. |
 | GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
 | POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?, clientMessageId?}`. Optional UUID makes a retry return the original message without another Feed/push event. A reused ID with different normalized text, reply target, conversation or sender returns the same generic 409. Every replay rechecks the active connection and block gate. Creates the canonical pair conversation on first message; empty text, self-send, unconnected pair, and a block fail closed. | A reply must reference a message in the same participant conversation.
 | GET | `/api/one/messages/conversations/{conversationId}/messages?before=&limit=` | Participant-only chronological history page; `before` is an opaque message id and `limit` is bounded. |
 | PATCH | `/api/one/messages/conversations/{conversationId}/messages/{messageId}` | Edit the caller's non-deleted sent message using `{content}`. The envelope is re-encrypted with its original message identity, and the response is the participant-safe updated projection. |
-| DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only and replaces content with the durable deleted-message marker for both participants. |
+| DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only, atomically clears durable reactions and replaces content with the deleted-message marker for both participants. Reactions and global deletion serialize on the message row; tombstone projections always have `reactions:[]`, including legacy rows. |
 | PUT | `/api/one/messages/conversations/{conversationId}/messages/{messageId}/reaction` | Set the caller's one durable emoji reaction using `{emoji}`. The response aggregates emoji counts without exposing participant identities. |
 | POST | `/api/one/messages/conversations/{conversationId}/delivered` | Recipient acknowledgment of received bodies using `{messageIds: UUID[]}` (1–100). Every id must be a visible received message in this participant conversation; own, hidden, deleted or foreign messages fail the entire batch without updates. Delivery is idempotent and monotonic; returns `deliveredCount` and `deliveredAt`. |
 | POST | `/api/one/messages/conversations/{conversationId}/read?throughMessageId=` | Mark the viewer's received unread messages through the supplied message's `(created_at,id)` boundary. The optional UUID must belong to this participant-scoped conversation; a foreign boundary returns 404 without updates. Returns `readCount`, `readAt` and, when bounded, `readThroughCreatedAt`. Omitting the boundary preserves the legacy whole-conversation behavior. Reading preserved history remains available after a connection ends. |
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
+
+The People inbox loads further pages on demand and searches the remaining pages
+while a People query is active. Page failures preserve loaded results and expose
+a retry; incomplete discovery never claims an empty result. Background head
+refreshes retain the loaded tail and its continuation. This is a live keyset list,
+not a frozen snapshot under arbitrary concurrent activity. Reactions reconcile
+only their own emoji while their optimistic lease remains current; completion
+never restores an older message body, receipt or tombstone. History revalidation
+remains fenced to the selected conversation and owner.
+Message actions acquire the participant conversation lock before the message
+lock, matching whole-chat deletion and the reaction trigger's parent read.
 
 Opening a person returns their participant-safe `peerDisplayName` and
 `peerPhotoUrl` alongside `peerPersonRef`, including an accepted, unblocked
@@ -5391,7 +5442,14 @@ unavailable row with a retry action.
 ### Connect directory mutual connections
 
 Directory rows additionally return `mutualConnectionCount` and optional
-`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`). Counts use distinct shared
+`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`), plus
+`mutualConnectionPreviews` containing up to two eligible public identities. The
+singular field remains the first eligible preview for existing clients. The same
+metadata is returned on mutual-list and network-list rows, with viewer-relative
+`relationship` (`none`, `pending_outgoing`, `pending_incoming`, `connected`).
+Preview reads are batched across at most 50 page rows and 100 selected identities;
+final graph, block, profile and reference checks reject mid-read changes with 503.
+Counts use distinct shared
 neighbors across active canonical connections, scoped to the returned page,
 excluding blocked relationships. A bounded batch lookup resolves shared peers
 through the canonical directory's live visibility and account checks, independent
@@ -5402,6 +5460,12 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+The authenticated, private/no-store person-context lookup also returns the
+canonical `publicPersonRef`. UID-only portrait entry points use this reference
+to open the existing shared profile preview; they never reinterpret a UID as a
+public reference. Connection requests continue through the existing authenticated
+`POST /api/one/people/{person_ref}/connection` endpoint.
 
 ### Private email send recovery
 
@@ -5676,22 +5740,24 @@ app contracts, name directory behavior, location grants and native UI are unchan
 
 ### Phone conflict recovery and trusted-device boundary
 
-Across Web, iOS and Android, a verified phone number can belong to only one active email account.
-A number already linked to another account cannot be transferred or reclaimed
-using SMS possession or a configured test code. The conflict offers **Sign in to
-existing account** and **Use a different number**, without revealing that
-account's email, name, identifiers, devices or information. Recovery uses the
-existing opaque fifteen-minute continuation and requires independent sign-in to
-the matching original account. The continuation grants no account authority.
-Same-owner retries and replacement with an unoccupied number remain supported.
-Proper full-account deletion releases its number through the existing lifecycle;
-this rule does not permanently reserve phone numbers or merge accounts by email.
-
-Existing original-owner deletion and trusted-device review require that owner's
-independent authentication and retain their confirmation and proof boundaries.
-Historical recovery links remain supported. Phone-origin proof cannot admit a
-primary application session, enumerate another owner's information, mint an
-owner capability, or approve a new trusted device.
+Web, iOS and Android use the same phone conflict model. A conflict reveals no
+previous-account name, email, identifiers, devices or information. The choices
+are **Use this number on this account**, **Recover my previous account**,
+**Delete my previous account**, and **Review previous device access**. Recovery,
+deletion and device review create an opaque, fifteen-minute continuation and
+resume the selected action at `/register-phone?recovery=<uuid>` after Google or
+Apple sign-in. The continuation grants no account authority. Only the matching
+independently authenticated previous owner may see its masked phone hint and
+their own account/device details. An expired or changed binding ends the request.
+Deletion reuses existing owner verification, fresh same-owner reauthentication,
+any required linked-phone proof, and explicit irreversible confirmation. A final
+continuation refusal is a definite pre-erasure failure and preserves the session. Phone-origin proof
+is accepted only as the secondary possession proof and cannot admit a primary
+application session, read a previous owner profile, mint an owner capability or approve a new trusted device. Existing
+owner-authenticated trusted-device listing and revocation keep their hub-first,
+pod-propagation and uncertain-outcome contracts. This does not create a universal
+browser/mobile session registry; currently enrolled trusted devices retain their
+existing platform coverage.
 
 `POST /api/account/phone/recovery/continuations` accepts the selected `recover`,
 `delete` or `revoke` action and normalized phone. Its response is deliberately
@@ -5723,34 +5789,117 @@ fences a prepared operation before reporting `not_started`.
 Unknown dispatches remain visible and require status reconciliation or support.
 A completed hub receipt is separate from signed pod-delivery completion.
 
-`POST /api/account/phone/claim` refuses an occupied number with HTTP 409
-`PHONE_ALREADY_VERIFIED`. The canonical writer checks ownership under the shared
-per-phone advisory lock and ordered row locks, so concurrent real, native,
-configured-test, and background claims cannot displace another active account.
-The existing partial unique verified-phone index remains authoritative; no new
-email index or phone-to-email history reservation is introduced.
+`POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
+`expected_user_id` matching the captured application owner and an independent
+`phone_id_token`. The server verifies its phone provider, revocation, exact UID,
+authentication age and provider fictional-number config. Membership in a server
+fixed-code list does not disqualify an independently verified real SMS proof.
+The response is an opaque `transfer_id` and intent `expires_at`. This is a
+server authorization deadline, not a promise about provider OTP lifetime.
+Provider fictional-number, emulator, reviewer and shared test-code proofs cannot
+transfer a number. Occupied fixed-code challenges do not silently switch to SMS: a
+human may explicitly request a fresh SMS proof. Failed or malformed eligibility
+checks stop with a typed error; only a successful non-test result permits ordinary
+SMS fallback. The shared production Firebase mutation fence remains authoritative
+in nonproduction; that refusal is permanent for the current authentication plane,
+not a reason to retry the same transfer.
+If removing the phone would strand an established phone-only identity, existing
+account recovery is required first.
 
-The compatibility `/phone/transfer/prepare` and `/phone/transfer/confirm` endpoints
-also refuse with `PHONE_ALREADY_VERIFIED`, before provider proof, intent creation,
-capability revocation or ownership changes. Previously prepared transfers cannot
-be confirmed. Owner-scoped `GET /phone/transfer/{transfer_id}`, existing committed
-provider-effect settlement, notices and erasure fences remain supported. Release
-must drain older producer revisions; do not reverse historical committed effects.
+`POST /api/account/phone/transfer/confirm` repeats those proofs and requires
+`transfer_id` and literal `confirmed: true`. The canonical phone writer consumes
+the proof event and expected source/receiving binding revisions atomically under
+existing lifecycle, identity-generation, per-phone and ordered row locks. A
+stale/expired intent, generation change, ABA binding change or concurrent loser
+moves nothing. Only the old phone link changes; old files, encrypted PKM, vault
+and account remain. A phone credential already owned by the receiving identity
+is preserved. A temporary phone-only proof identity is also never unlinked or
+deleted by transfer; it supplies possession only. Established phone-only accounts
+require independent recovery. Old phone-origin admission is fenced, and existing owner-token
+lineage is retired under its canonical renewal lock; Google/Apple access can
+renew through the existing owner flow.
 
-Phone-proven linked-account deletion uses `HUSHH_PHONE_LINKED_DELETION_ENABLED`:
-explicit false disables preparation and confirmation; otherwise it defaults on
-outside production and off in production. The independent phone-recovery producer
-gate remains required. A fresh real Firebase SMS authentication event for the
-exact stored number is required; configured/shared test codes never authorize
-cross-account deletion. Proof expiry is rechecked after admission lock waits.
-Final account erasure detaches only the deleting owner's raw references after its
-tombstone exists, retaining hashed, requester-scoped receipts and consumed-event
-uniqueness for the existing 90-day retention window, including after either account
-is erased. Status and cancellation remain available
-when new deletion is disabled. Existing full-account provider cleanup and release
-fences still apply; admission is not proof of completed erasure. This restores
-backend availability only; the current UI continues its independent previous-account
-sign-in journey. It does not restore phone transfers or authorize a live deletion.
+External unlink reserves the existing Firebase mutation journal in that same
+transaction and dispatches at most once. It never deletes or disables an identity,
+and does not explicitly revoke independent Google/Apple refresh sessions.
+`GET /api/account/phone/transfer/{transfer_id}` is owner-scoped and reports
+`not_started`, `in_progress`, `action_required`, or `completed`. Before reporting
+`not_started`, it expires the prepared intent under its row lock so a confirm
+still awaiting provider preflight cannot commit afterward. The spent proof receipt
+remains through the maximum five-minute proof window, including for the per-owner
+intent bound. A lost confirm response permits only status checks until
+authoritative readback. The hub worker
+resumes reserved effects, fairly scans uncertain receipts and reconciles local completion from the journal
+without replaying an uncertain POST. A transient provider read cannot settle an
+uncertain write or release its generation fence. An unchanged uncertain provider
+outcome needs operator reconciliation; the screen names support rather than
+claiming ongoing automatic completion. Account erasure waits for committed
+provider work so its recovery context cannot disappear. Existing deletion 202
+and cleanup-pending behavior remains authoritative.
+
+Phone-proven deletion of the linked account (migration 436) lets a signed-in
+person who proves possession of a number delete the account that currently holds
+it, then verify the number on their own account. One number belongs to one
+account. `POST /api/account/phone/linked-account/deletions` takes
+`{phone_number}` and always returns the same `prepared` shape: operation ID,
+`expires_at` (five minutes), a `••NN` hint from the submitted number and
+`transport`. Whether the number has a holder, or a protected one, is never
+revealed before proof. `POST /api/account/phone/linked-account/deletions/confirm`
+requires `operation_id`, the same `phone_number`, literal `confirmed: true` and
+exactly one proof: a fresh real-SMS `phone_id_token` (transfer-grade: Firebase
+phone provider, authentication within 300 seconds, not a provider fictional
+number, single-use authentication event) or, only for configured UAT fixture
+numbers outside any production runtime, the fixture `test_code`. Five wrong
+fixture codes cancel the operation. After proof the server rechecks the
+holder's exact binding (digest, binding revision, generation) under its locks,
+refuses reviewer fixtures (`PHONE_LINKED_ACCOUNT_PROTECTED`) and phone-only
+identities that could never be claimed afterwards
+(`PHONE_LINKED_DELETION_RECOVERY_REQUIRED`), records admission before dispatch,
+and runs the existing full-account erasure for the holder. The erasure's
+admission transaction rechecks the binding again under the holder's exclusive
+lifecycle locks; a moved number refuses with `PHONE_LINKED_DELETION_STALE` and
+commits nothing. Receipts are `admitted`, `refused` (with the existing deletion
+refusal codes) or `action_required`. A lost response is read back through
+`GET /api/account/phone/linked-account/deletions/{operation_id}`, which settles
+only from the committed full-account tombstone and never dispatches again;
+`POST …/{operation_id}/cancel` fences a prepared operation. The person then
+claims the number through the existing `/phone/claim` or `/phone/uat-test/*`
+writers. An explicit OTP claim is never blocked by a holder whose full-account
+deletion is committed: the canonical per-number writer detaches that dead
+binding atomically. Provisional phone-orphan intents and background provider
+hydration never release a binding. Production stays off until
+`HUSHH_PHONE_LINKED_DELETION_ENABLED` is set; while off, the delete choice
+keeps the previous-account sign-in handoff.
+
+Native verification extends the existing isolated proof bridge rather than
+linking the primary Firebase user. Owner/attempt fences suppress stale native
+callbacks. Harmless rerenders, typing and background/foreground events do not
+start a challenge. Resend is explicit and retires the prior local challenge.
+Web reCAPTCHA keeps its React-owned host attached and creates a fresh SDK-owned
+child for each attempt. Clearing or retrying the SDK cannot detach React's
+insertion anchor when the OTP form changes to account-conflict recovery.
+Native Profile Close consults the same visit-scoped pending-operation guard as
+the phone flow; it cannot discard an uncertain transfer before status settles.
+No provider expiry countdown is invented. Native provider error mapping follows
+[Firebase's published error contract](https://docs.cloud.google.com/identity-platform/docs/error-codes);
+wrong code, provider-expired code, missing local session, ownership conflict and
+provider outage remain distinct.
+
+Migration `425` holds short-lived transfer receipts and independent hash-only
+retired-phone admission fences. Unsettled remote work blocks rollback; rollback
+removes its erasure trigger before the workflow table and retains security fences.
+The existing `AUTH_PHONE_RECOVERY_ENABLED` rollout flag and request-scoped auth
+traces are reused. Monitoring extends the existing auth failure metric, without
+phone/token labels. The existing verified-email gate sends static phone-link
+security notices after the binding commit; uncertain sends are not blindly replayed.
+
+Verification has separate lanes: focused unit/component tests, disposable
+PostgreSQL concurrency/rollback proof, generated UI/native contracts, hosted CI,
+deployment schema/provider qualification, and physical-device real-SMS journeys.
+Passing an earlier lane does not declare a later lane complete. Release requires
+Identity Platform config-read permission, permitted identity mutation authority,
+qualified migrations 425 and 428, existing alert delivery and real Web/iOS/Android SMS,
+resend, account-switch, outage and device-revocation rehearsals.
 
 ## Private-pod memory processing consent
 
@@ -5780,6 +5929,49 @@ marketing subscription and carry `readAuthority=verified_owner` plus the hashed
 `ownerEpoch`; they never carry delivery authority. Identity changes and account
 reset during a snapshot invalidate it. No raw email or private content is exported.
 Production marketing/reporting contracts remain separate.
+
+Memory's explicit export, edit, delete, preparation, section retry and reviewed
+save controls report paired `pkm.*` client attempts under Personal Information.
+They retain the original owner and admission generation and expose only a closed
+action ID, opaque operation ID and phase. Their authored action contracts remain
+manual-only; observation does not add an executor or authorize a write or email.
+Preparation is distinct from saving. Partial saves, expired authority, transport
+timeouts and an unacknowledged file handoff remain unknown. A confirmed write is
+not changed to failure by a later metadata refresh. Existing aggregate Memory
+observations remain unpaired and cannot create additional attempt emails.
+
+Manual KYC profile imports in Mail and Email setup report `kyc.save_profile`
+under KYC. Both preserve the originally admitted owner and generation. Local
+Memory staging does not settle the attempt: the existing encrypted-write queue
+notifies a RAM-only, zero-payload observer after a write acknowledgement or its
+existing commit-receipt recovery. A confirmed write remains returned if local
+checkpoint cleanup needs retry; that retry cannot emit the outcome twice. A
+fully synced, already persisted no-op may return, while a duplicate of pending
+work remains unknown. Explicit no-write preparation rejection is blocked;
+transport loss, retired ownership, reset and page exit never infer a terminal
+outcome. Observers are not persisted or replayed after reload, and observer
+errors cannot change the product's result. These observations add no email
+permission and do not cover every KYC action or prove live delivery.
+
+World Model confirmation, rejection, edit and removal report under Memory.
+The shared web and native controller returns an attempt only after the current
+owner’s existing encrypted memory decision has been verified. A lost commit
+acknowledgement or retired owner remains unknown. Reports carry action metadata
+only. Fact keys, wording and evidence never enter PLG or its email body.
+
+The Mail workspace reports an explicit retry of saved receipt restoration as
+`profile.gmail.restore_saved_receipts` under Email. A current, verified saved
+snapshot is required for a returned outcome. Confirmed unavailable storage or
+invalid receipt binding can report failure. Missing snapshots, expired reads
+and retired owners or account/vault scopes supply no terminal outcome.
+Automatic hydration and the follow-up sync do not create another attempt.
+Only activity metadata is reported, with no receipt or account data.
+
+Manual Calendar connection and disconnection report against the original attempt.
+Terminal returns require an acknowledged connection or confirmed disconnection.
+Meeting file upgrades wait for the matching grant. An expired popup, a lost
+response, a handoff that leaves the page, and a same-window reload can leave the
+attempt unknown. Calendar reports contain no Google account or event details.
 
 Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
 `snapshot-dev`, with matching distinct HMAC purposes. It requires exactly

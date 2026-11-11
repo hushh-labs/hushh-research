@@ -34,6 +34,9 @@ case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
     exit 1
     ;;
 esac
+if [[ "${_DEPLOY_ENV}" == uat && "${_MANAGED_READINESS_MODE:-full}" == core && "$(python3 scripts/ci/managed_provider_readiness.py configured-provider)" != vertex ]]; then
+  exit 0
+fi
 genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
   genai_project_id="$(python3 -c 'import json,sys; print(json.load(open("consent-protocol/config/managed-ai-runtime.json"))["environments"][sys.argv[1]]["project"])' "${_DEPLOY_ENV}")"
@@ -55,7 +58,7 @@ gcloud run jobs deploy "${job_name}" \
   --set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest" \
   --command="python3" \
   --args="scripts/verify_managed_vertex_runtime.py" \
-  --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|HUSHH_UAT_MANAGED_AI_PROVIDER=vertex|HUSHH_UAT_MANAGED_TEXT_PROVIDER=vertex|ENVIRONMENT=${_DEPLOY_ENV}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
+  --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|HUSHH_UAT_MANAGED_AI_PROVIDER=vertex|HUSHH_UAT_MANAGED_TEXT_PROVIDER=vertex|ENVIRONMENT=${_DEPLOY_ENV}|MANAGED_READINESS_MODE=${_MANAGED_READINESS_MODE:-full}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
   --cpu=2 \
   --memory=2Gi \
   --max-retries=0 \
@@ -124,7 +127,7 @@ PY
 
 # Keep main's tightly qualified Azure UAT resource-exhaustion disposition. This
 # is not a general provider-outage waiver; the receipt evaluator checks every probe.
-if [[ "${_DEPLOY_ENV}" == "uat" && "$PROJECT_ID" == "hushh-pda-uat" &&
+if [[ "${_MANAGED_READINESS_MODE:-full}" == "full" && "${_DEPLOY_ENV}" == "uat" && "$PROJECT_ID" == "hushh-pda-uat" &&
       "${_CLOUD_RUN_NO_TRAFFIC:-false}" == "true" &&
       "${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER:-gemini}" == "azure_openai" &&
       "${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED:-false}" == "true" &&
@@ -152,7 +155,7 @@ fi
 # A successful release must prove that production's enabled One Voice
 # can open its pinned Live session before the candidate gets traffic.
 # The general provider-outage advisory still applies to other probes.
-if [[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
+if [[ "${_MANAGED_READINESS_MODE:-full}" == "full" && "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
   printf '%s\n' "${probe_line}" | python3 scripts/ci/assert_one_voice_live_probe.py \
     --model "${_VERTEX_LIVE_MODEL_ID}" \
     --location "${_VERTEX_LIVE_LOCATION}"
@@ -175,7 +178,7 @@ if verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"] or ver
     raise SystemExit("Vertex target did not pass its scoped runtime-identity probe")
 PY
 fi
-if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
+if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" && "${_MANAGED_READINESS_MODE:-full}" == "full" ]]; then
   PROBE_LINE="${probe_line}" EXPECTED_VOICE_PROJECT="${_GENAI_PROJECT_ID}" EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" python3 - <<'PY'
 import json
 import os
@@ -202,7 +205,7 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" ]]; th
     echo "Required UAT runtime-identity probe execution failed." >&2
     exit 1
   fi
-  PROBE_LINE="${probe_line}" python3 - <<'PY'
+  PROBE_LINE="${probe_line}" READINESS_MODE="${_MANAGED_READINESS_MODE:-full}" python3 - <<'PY'
 import json
 import os
 
@@ -215,13 +218,46 @@ if (
     verdict.get("check") != "managed_vertex_runtime"
     or verdict.get("ok") is not True
     or verdict.get("classification") != "dependency_ok"
-    or verdict.get("candidate_models_exercised") is not True
+    or verdict.get("qualification_mode", "full") != os.environ["READINESS_MODE"]
+    or (
+        (verdict.get("core_models_exercised") is not True
+         or verdict.get("one_chat_probe_ok") is not True
+         or verdict.get("drive_document_requests_probe_ok") is not True)
+        if os.environ["READINESS_MODE"] == "core"
+        else verdict.get("candidate_models_exercised") is not True
+    )
     or not isinstance(probes, list)
     or not probes
     or any(not isinstance(probe, dict) or probe.get("ok") is not True
            or probe.get("classification") != "dependency_ok" for probe in probes)
 ):
     raise SystemExit("Required UAT runtime probe did not fully pass")
+PY
+fi
+if [[ "${_DEPLOY_ENV}" != "uat" && "${_MANAGED_READINESS_MODE:-full}" == "core" ]]; then
+  if [[ "${execute_status}" -ne 0 ]]; then
+    echo "Active-model core probe failed; provider outages do not qualify chat." >&2
+    exit 1
+  fi
+  PROBE_LINE="${probe_line}" DEPLOY_ENV="${_DEPLOY_ENV}" python3 - <<'PY'
+import json
+import os
+
+try:
+    verdict = json.loads(os.environ["PROBE_LINE"].split("managed_vertex_probe_result", 1)[1])
+except (IndexError, ValueError):
+    raise SystemExit("Core readiness acknowledgement is missing") from None
+if not (
+    verdict.get("check") == "managed_vertex_runtime"
+    and verdict.get("environment") == os.environ["DEPLOY_ENV"]
+    and verdict.get("core_contract_version") == 2
+    and verdict.get("qualification_mode") == "core"
+    and verdict.get("ok") is True
+    and verdict.get("one_chat_probe_ok") is True
+    and verdict.get("core_models_exercised") is True
+    and verdict.get("classification") == "dependency_ok"
+):
+    raise SystemExit("Candidate image did not prove the common core readiness contract")
 PY
 fi
 if [[ "${execute_status}" -eq 0 ]]; then

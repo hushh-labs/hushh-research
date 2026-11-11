@@ -15,6 +15,7 @@ def git(*args):
 
 def resolve():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+    protected_uat_release = False
     if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
         # Event base.sha can lag the synthetic merge's first parent. Only use
         # the tested parent after proving this is the expected PR head's merge.
@@ -37,11 +38,16 @@ def resolve():
                 base = inputs.get("uat_base_sha", "")
                 if base and git("rev-parse", "HEAD") != os.environ.get("GITHUB_SHA"):
                     raise ValueError("UAT review base requires the exact checked-out source")
+                protected_uat_release = os.environ.get("GITHUB_REF") == "refs/heads/uat"
             if not base:
                 return ""  # Preserve ordinary manual validation's own receipts.
     if not re.fullmatch(r"[0-9a-f]{40}", base):
         raise ValueError("Missing valid UI review base")
-    subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], check=True)
+    # Normal UAT can replace a release from the retained isolated history.
+    # Compare the observed commit's contents; ancestry is not release authority.
+    git("cat-file", "-e", f"{base}^{{commit}}")
+    if not protected_uat_release:
+        subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], check=True)
     return base
 
 

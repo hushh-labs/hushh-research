@@ -2,6 +2,11 @@ name: UAT deployment implementation
 
 on:
   workflow_call:
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: true
+      GH_SECURITY_ALERTS_TOKEN:
+        required: true
     inputs:
       operation:
         description: "Inspect prerequisites without deploying, or deploy a qualified application"
@@ -126,29 +131,35 @@ concurrency:
 
 jobs:
   inspect-prerequisites:
+    needs: deployment-security
     name: Inspect UAT prerequisites (no deployment)
     env:
       UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
-    if: inputs.operation == 'inspect'
+    if: ${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read
+      actions: write
       checks: read
       id-token: write
     environment:
       name: uat
       deployment: false
     steps:
-      - name: Assert inspection originates from uat
-        run: test "$GITHUB_REF_NAME" = uat
+      - name: Assert inspection originates from Main
+        run: test "$GITHUB_REF_NAME" = main
       - name: Checkout Main inspection tooling
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0
       - name: Assert manual UAT dispatch actor policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
       - name: Refuse release overrides before authentication
         env:
@@ -171,51 +182,21 @@ jobs:
         run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"
 
   deployment-security:
-    name: Request Main security clearance
-    if: always() && (inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
+    name: Deployment security
+    if: always() && (inputs.operation == 'inspect' || inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
     needs: select-target
-    runs-on: ubuntu-24.04
-    timeout-minutes: 7
     permissions:
+      pull-requests: read
       contents: read
-      actions: write
-    outputs:
-      application_sha: ${{ steps.clearance.outputs.sha }}
-      attempt: ${{ steps.clearance.outputs.attempt }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          persist-credentials: false
-      - name: Validate explicit operation
-        env:
-          OPERATION: ${{ inputs.operation }}
-          TARGET: ${{ inputs.target }}
-        run: |
-          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
-          if [[ "$OPERATION" == inspect-routing ]]; then
-            test "$TARGET" = shared-uat
-          fi
-      - name: Request and verify Main clearance
-        id: clearance
-        run: python3 scripts/ci/deployment_security.py --request-broker
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
-          DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
-          DEPLOY_SECURITY_ENVIRONMENT: uat
-          DEPLOY_SECURITY_APPLICATION_BRANCH: ${{ env.UAT_SOURCE_BRANCH }}
-          DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: deployment-security-request-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/deployment-security-request.json
-            ${{ runner.temp }}/deployment-security.json
-          if-no-files-found: warn
-          retention-days: 7
+      actions: read
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
+      environment_name: uat
+      scope: ${{ inputs.scope || 'auto' }}
 
   select-target:
     name: Select UAT target
@@ -236,7 +217,7 @@ jobs:
       sha: ${{ steps.resolve-sha.outputs.sha }}
       decision: ${{ steps.resolve-sha.outputs.decision }}
     steps:
-      - name: Assert manual dispatch originates from uat
+      - name: Assert manual dispatch originates from Main
         shell: bash
         env:
           REQUESTED_TARGET: ${{ inputs.target || 'shared-uat' }}
@@ -246,8 +227,8 @@ jobs:
             echo "Refusing unsupported UAT target."
             exit 1
           fi
-          if [ "$GITHUB_REF_NAME" != uat ]; then
-            echo "Refusing UAT target selection outside uat."
+          if [ "$GITHUB_REF_NAME" != main ]; then
+            echo "Refusing UAT target selection outside Main."
             exit 1
           fi
 
@@ -264,9 +245,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ job.workflow_sha }}
 
-
-      - name: Assert manual UAT dispatch actor policy
-        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${{ github.actor }}"
 
       - name: Resolve deployment SHA
         id: resolve-sha
@@ -316,13 +294,8 @@ jobs:
           LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
         run: |
           set -euo pipefail
-          if [[ "$REQUESTED_SHA" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
-                "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
-                "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
-                "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
-            echo "One-time Vertex exception is limited to the approved UAT release." >&2
-            exit 1
-          fi
+          echo "The historical one-time Vertex exception has expired; use normal qualification." >&2
+          exit 1
 
       - name: Summarize unchanged UAT target
         if: steps.resolve-sha.outputs.decision == 'NO_OP'
@@ -391,6 +364,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
@@ -406,6 +381,12 @@ jobs:
     name: Deploy UAT Scope
     needs: [select-target, wait-capacity, deployment-security]
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
+    permissions:
+      contents: write
+      checks: read
+      pull-requests: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     concurrency:
       group: deploy-uat
@@ -428,12 +409,12 @@ jobs:
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
-      - name: Assert manual dispatch originates from uat
+      - name: Assert manual dispatch originates from Main
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF_NAME" != uat ]; then
-            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'uat' only."
+          if [ "$GITHUB_REF_NAME" != main ]; then
+            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
             exit 1
           fi
 
@@ -458,6 +439,10 @@ jobs:
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
@@ -507,6 +492,7 @@ jobs:
           cp deploy/drive/document_reader_compatibility.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/await-prebuilt-image.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-uat-verification-plan.py "${RUNNER_TEMP}/release-tools/"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/api/routes/document_delivery.py \
@@ -541,8 +527,16 @@ jobs:
             deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
-          cp config/runtime-capacity.json \
-            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          # Preserve Main's budget/inventory, but never resize the selected
+          # worker by overwriting its approved capacity with Main's default.
+          if [[ "${{ needs.wait-capacity.outputs.scope }}" == frontend ]]; then
+            cp config/runtime-capacity.json "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          else
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              --profile config/runtime-capacity.json \
+              --target-sha "${{ steps.resolve-sha.outputs.sha }}" --resolve-profile-only \
+              > "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          fi
           cp scripts/ops/verify_passkey_domain_associations.py \
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
@@ -590,6 +584,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/document_reader_compatibility.py" deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/process_group.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/await-prebuilt-image.sh" scripts/ci/
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
@@ -844,6 +839,60 @@ jobs:
               --output /tmp/uat-dev-backend-image.json
           fi
 
+      # Build-only work overlaps read-only preparation. The exact join remains
+      # before the deletion fence; no runtime configuration or lifecycle mutation moves.
+      - name: Start backend image build in parallel
+        id: start-backend-image-build
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source || 'auto' }}
+        run: |
+          set -euo pipefail
+          image_tag="uat-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
+          dev_image="$(python3 -c '
+          import json, re
+          pin = json.load(open("/tmp/uat-dev-backend-image.json"))
+          ref = pin.get("image_reference", "")
+          if "image_reference" in pin:
+              assert isinstance(ref, str) and re.fullmatch(r"gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}", ref), "Invalid accepted Dev image"
+          print(ref)
+          ')"
+          case "${BACKEND_IMAGE_SOURCE}" in
+            auto)
+              if [ -n "${dev_image}" ]; then
+                image_source=promote-from-dev
+              else
+                image_source=build-from-source
+                echo "::notice title=Historical Dev acceptance::No accepted Dev image proof is available; building the selected UAT backend from source."
+              fi
+              ;;
+            build-from-source|promote-from-dev) image_source="${BACKEND_IMAGE_SOURCE}" ;;
+            *) echo "Invalid backend image source." >&2; exit 1 ;;
+          esac
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_repository=${image_repository}" >> "$GITHUB_OUTPUT"
+          echo "image_source=${image_source}" >> "$GITHUB_OUTPUT"
+          if [ "${image_source}" = promote-from-dev ]; then
+            if [[ ! "${dev_image}" =~ ^gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}$ ]]; then
+              echo "Accepted Dev executable image proof is required for promotion." >&2
+              exit 1
+            fi
+            echo "dev_image=${dev_image}" >> "$GITHUB_OUTPUT"
+          else
+            build_id="$(gcloud builds submit --async \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --config=deploy/backend-image.cloudbuild.yaml \
+              --format='value(id)' \
+              "--substitutions=_IMAGE_TAG=${image_tag}")"
+            if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+              echo "Backend image build did not return a Cloud Build id." >&2
+              exit 1
+            fi
+            echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Resolve retained protected document maintenance
         id: document-mode
         shell: bash
@@ -1079,7 +1128,7 @@ jobs:
             --json-output /tmp/uat-verification-plan.json
 
       - name: Upload verification-plan artifact
-        if: always()
+        if: always() && steps.verification-plan.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
           name: uat-verification-plan
@@ -1097,11 +1146,11 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Cache UAT Chromium binaries
-        if: inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          # CI's browser cache also promises WebKit; this lane installs Chromium.
+          # Frontend analytics and explicit diagnostics share Chromium only.
           key: ${{ runner.os }}-uat-chromium-${{ hashFiles('hushh-webapp/package-lock.json') }}
 
       - name: Install UAT browser verification dependencies
@@ -1110,12 +1159,12 @@ jobs:
         timeout-minutes: 8
         shell: bash
         env:
-          RUN_BROWSER_DIAGNOSTICS: ${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
+          RUN_CHROMIUM_VERIFICATION: ${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
-          if [ "${RUN_BROWSER_DIAGNOSTICS:-false}" != true ]; then
-            echo "Runtime dependencies installed; app-browser diagnostics were not requested."
+          if [ "${RUN_CHROMIUM_VERIFICATION:-false}" != true ]; then
+            echo "Runtime dependencies installed; selected verification does not require Chromium."
             exit 0
           fi
           # Keep the runner's signed archive/security fallbacks. PR CI uses this
@@ -1480,44 +1529,25 @@ jobs:
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
-          BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source || 'auto' }}
+          IMAGE_SOURCE: ${{ steps.start-backend-image-build.outputs.image_source }}
+          IMAGE_TAG: ${{ steps.start-backend-image-build.outputs.image_tag }}
+          IMAGE_REPOSITORY: ${{ steps.start-backend-image-build.outputs.image_repository }}
+          DEV_IMAGE: ${{ steps.start-backend-image-build.outputs.dev_image }}
+          BACKEND_IMAGE_BUILD_ID: ${{ steps.start-backend-image-build.outputs.build_id }}
         run: |
           set -euo pipefail
-          image_tag="uat-${{ steps.resolve-sha.outputs.sha }}"
-          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
-          dev_image="$(python3 -c '
-          import json, re
-          pin = json.load(open("/tmp/uat-dev-backend-image.json"))
-          ref = pin.get("image_reference", "")
-          if "image_reference" in pin:
-              assert isinstance(ref, str) and re.fullmatch(r"gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}", ref), "Invalid accepted Dev image"
-          print(ref)
-          ')"
-          case "${BACKEND_IMAGE_SOURCE}" in
-            auto)
-              if [ -n "${dev_image}" ]; then
-                image_source=promote-from-dev
-              else
-                image_source=build-from-source
-                echo "::notice title=Historical Dev acceptance::No accepted Dev image proof is available; building the selected UAT backend from source."
-              fi
-              ;;
-            build-from-source|promote-from-dev) image_source="${BACKEND_IMAGE_SOURCE}" ;;
-            *) echo "Invalid backend image source." >&2; exit 1 ;;
-          esac
+          image_source="$IMAGE_SOURCE"
+          image_tag="$IMAGE_TAG"
+          image_repository="$IMAGE_REPOSITORY"
+          dev_image="$DEV_IMAGE"
           if [ "${image_source}" = promote-from-dev ]; then
-            if [[ ! "${dev_image}" =~ ^gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}$ ]]; then
-              echo "Accepted Dev executable image proof is required for promotion." >&2
-              exit 1
-            fi
-            # Copy immutable bytes into UAT. Missing permission or a missing
-            # image fails before migrations; there is no automatic build retry.
             gcloud container images add-tag --quiet "${dev_image}" "${image_repository}:${image_tag}"
+          elif [ "${image_source}" = build-from-source ]; then
+            bash "${RUNNER_TEMP}/release-tools/await-prebuilt-image.sh" \
+              --project "${{ env.GCP_PROJECT_ID }}" --build-id "$BACKEND_IMAGE_BUILD_ID" --wait-only
           else
-            gcloud builds submit \
-              --project="${{ env.GCP_PROJECT_ID }}" \
-              --config=deploy/backend-image.cloudbuild.yaml \
-              "--substitutions=_IMAGE_TAG=${image_tag}"
+            echo "Backend image preparation is missing its admitted source." >&2
+            exit 1
           fi
           image_digest="$(gcloud container images describe \
             "${image_repository}:${image_tag}" \
@@ -2012,6 +2042,7 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
+          trap 'result=$?; finished_at="$(date +%s)"; echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"; echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"; echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"; exit "$result"' EXIT
           source deploy/drive/uat_stripe_bindings.sh
           SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}##_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
@@ -2086,6 +2117,15 @@ jobs:
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
+          # Older approved images retain full qualification. Only a candidate
+          # recipe declaring the new mode may request core; the receipt also
+          # verifies the actual image producer acknowledged it.
+          qualification_mode=full
+          if grep -Fq '_MANAGED_READINESS_MODE:' deploy/backend.cloudbuild.yaml; then
+            qualification_mode=core
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_MANAGED_READINESS_MODE=${qualification_mode}"
+          fi
+          echo "qualification_mode=${qualification_mode}" >> "$GITHUB_OUTPUT"
           verify_managed_vertex_runtime=true
           if [ "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}" != "0" ]; then
             verify_managed_vertex_runtime=true
@@ -2113,17 +2153,14 @@ jobs:
           build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=/tmp/uat-backend-parallel.cloudbuild.json \
-            --suppress-logs --format='value(id)' \
+            --async --suppress-logs --format='value(id)' \
             "--substitutions=^##^${SUBSTITUTIONS}")"
           if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
             echo "Backend deployment did not return an exact Cloud Build id." >&2
             exit 1
           fi
           echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
-          finished_at="$(date +%s)"
-          echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
-          echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
-          echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/await-prebuilt-image.sh --project "${{ env.GCP_PROJECT_ID }}" --build-id "$build_id" --wait-only
 
       - name: Capture managed provider readiness receipt
         if: always() && steps.scope.outputs.deploy_backend == 'true'
@@ -2137,6 +2174,7 @@ jobs:
           READINESS_REGION: ${{ env.GCP_REGION }}
           READINESS_GITHUB_RUN: ${{ github.run_id }}
           READINESS_ENVIRONMENT: uat
+          READINESS_QUALIFICATION_MODE: ${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}
           READINESS_LEGACY_EXCEPTION: ${{ inputs.skip_managed_vertex_probe_once || false }}
         run: |
           python3 scripts/ci/capture_managed_provider_receipt.py \
@@ -2313,6 +2351,7 @@ jobs:
           FRONTEND_PARALLEL_IMAGE: ${{ steps.prepare-frontend-rollout.outputs.image_reference }}
           FRONTEND_PENDING_IMAGE_BUILD_ID: ${{ steps.prepare-frontend-rollout.outputs.pending_image_build_id }}
           FRONTEND_SHARED_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
+          FRONTEND_BACKEND_QUALIFICATION_MODE: ${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
@@ -2327,6 +2366,7 @@ jobs:
               --github-run "${{ github.run_id }}" \
               --github-attempt "${{ github.run_attempt }}" \
               --backend-image "${{ steps.build-backend-image.outputs.image_reference }}" \
+              --qualification-mode "$FRONTEND_BACKEND_QUALIFICATION_MODE" \
               --legacy-exception "${{ inputs.skip_managed_vertex_probe_once || false }}" \
               --manifest-output /tmp/uat-frontend-image-manifest.json \
               --output /tmp/uat-frontend-image.json \
@@ -2838,8 +2878,14 @@ jobs:
           fi
 
           if [[ "$PREPROMOTION_UAT_GATES" == true ]]; then
-            gh api "repos/$GITHUB_REPOSITORY/branches/$UAT_SOURCE_BRANCH" \
-              | jq -e --arg sha "$APPLICATION_SHA" '.protected and .commit.sha == $sha' >/dev/null
+            python3 - <<'PY_SOURCE'
+          import os
+          import sys
+          sys.path.insert(0, os.path.join(os.environ["RUNNER_TEMP"], "release-tools"))
+          import uat_exact_ci as exact
+          api = exact.GitHub(exact.REPOSITORY, os.environ["GH_TOKEN"])
+          exact.require_protected_tip(api, os.environ["APPLICATION_SHA"], os.environ["UAT_SOURCE_BRANCH"])
+          PY_SOURCE
             check_serving() {
               gcloud run services describe "$1" --project="$GCP_PROJECT_ID" \
                 --region="$GCP_REGION" --format=json \
@@ -3209,6 +3255,24 @@ jobs:
           import json
           import os
           from pathlib import Path
+
+          verification_outcomes = [os.environ.get(name, "") for name in (
+              "PARITY_ATTEMPT_1", "PARITY_ATTEMPT_2", "SEMANTIC_ATTEMPT_1", "SEMANTIC_ATTEMPT_2",
+              "BACKEND_PROVENANCE_OUTCOME", "FRONTEND_PROVENANCE_OUTCOME", "DB_OUTCOME")]
+          if all(value in {"", "skipped"} for value in verification_outcomes):
+              reason = ("frontend_image_build_failed" if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure"
+                        else "prerequisite_failed")
+              payload = {"status": "blocked", "phase": "verification_not_reached", "release_failed": True,
+                         "blocking_classifications": [reason], "backend_failure": False, "frontend_failure": False,
+                         "parity": {"status": "not_reached", "success": False},
+                         "provenance": {"status": "not_reached"},
+                         "semantic": {"status": "not_reached", "success": False},
+                         "db_contract": {"status": "not_reached"}}
+              Path("/tmp/uat-release-classification.json").write_text(json.dumps(payload, indent=2))
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                  output.write("release_failed=true\nbackend_failure=false\nfrontend_failure=false\n")
+              print("Release verification was not reached; inspect the preceding prerequisite failure.")
+              raise SystemExit(0)
 
           def load_json(path: str) -> dict:
               candidate = Path(path)
@@ -4081,7 +4145,7 @@ jobs:
           test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Resolve final Cloud Run state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         id: final-state
         shell: bash
         run: |
@@ -4364,26 +4428,38 @@ jobs:
           path: /tmp/uat-acceptance/acceptance.json
           if-no-files-found: ignore
 
-      - name: Cancel an unused parallel frontend image build
-        # Hygiene only: a release that stopped before the frontend deploy leaves
-        # the web build running. It never affects release classification.
-        if: always() && steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success' && steps.begin-uat-mutation.outcome != 'skipped'
+      - name: Cancel unused parallel image builds
+        # Build-only preparation can fail before mutation. Never leave this
+        # run's known in-flight image builds running after the release stops.
+        if: always() && ((steps.start-backend-image-build.outputs.build_id != '' && steps.build-backend-image.outcome != 'success') || (steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success'))
         continue-on-error: true
         shell: bash
         env:
+          BACKEND_IMAGE_BUILD_ID: ${{ steps.start-backend-image-build.outputs.build_id }}
           FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
         run: |
           set -euo pipefail
-          status="$(gcloud builds describe "${FRONTEND_IMAGE_BUILD_ID}" \
-            --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
-          case "${status}" in
-            QUEUED|PENDING|WORKING)
-              gcloud builds cancel "${FRONTEND_IMAGE_BUILD_ID}" --project="${{ env.GCP_PROJECT_ID }}"
-              ;;
-            *)
-              echo "Frontend image build ${FRONTEND_IMAGE_BUILD_ID} is already ${status}; nothing to cancel."
-              ;;
-          esac
+          cleanup_failed=0
+          for build_id in "$BACKEND_IMAGE_BUILD_ID" "$FRONTEND_IMAGE_BUILD_ID"; do
+            [ -n "$build_id" ] || continue
+            if [[ ! "$build_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+              echo "Image cleanup refused an invalid build identity." >&2
+              cleanup_failed=1
+              continue
+            fi
+            if ! status="$(gcloud builds describe "$build_id" --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"; then
+              cleanup_failed=1
+              continue
+            fi
+            case "$status" in
+              QUEUED|PENDING|WORKING)
+                gcloud builds cancel "$build_id" --project="${{ env.GCP_PROJECT_ID }}" || cleanup_failed=1 ;;
+              SUCCESS|FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                echo "Image build $build_id is already $status; nothing to cancel." ;;
+              *) echo "Image build $build_id has unknown cleanup state." >&2; cleanup_failed=1 ;;
+            esac
+          done
+          exit "$cleanup_failed"
 
       - name: Upload UAT deploy artifacts
         if: always()
@@ -4659,7 +4735,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF_NAME" = uat
+          test "$GITHUB_REF_NAME" = main
           test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
           [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
       - name: Authenticate to the matching environment

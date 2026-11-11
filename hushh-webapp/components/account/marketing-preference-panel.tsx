@@ -7,15 +7,15 @@ import type { useMarketingPreference } from "./use-marketing-preference";
 
 export function MarketingPreferencePanel({ model }: { model: ReturnType<typeof useMarketingPreference> }) {
   const enabled = model.enabledDraft, frequency = model.frequencyDraft;
-  return <section aria-label="Optional One email updates" className="rounded-xl border p-4 text-left space-y-3">
-    <h2 className="text-sm font-medium">One email updates (optional)</h2>
-    <p className="text-sm text-muted-foreground">Useful tips, demos and product news by email. You can unsubscribe anytime.</p>
+  return <section aria-label="Optional One email updates" data-profile-email-card className="rounded-xl border p-4 text-left space-y-3">
+    <h2 className="text-sm font-medium" data-profile-role="name">Email updates (optional)</h2>
+    <p className="text-sm text-muted-foreground" data-profile-role="description">Tips, demos and news. Unsubscribe anytime.</p>
     {model.loading ? <p role="status" className="text-sm">Loading saved preference…</p> : null}
     {model.error ? <p role="alert" className="text-sm">{model.error}</p> : null}
     {model.value ? <form onSubmit={(event) => { event.preventDefault(); void model.save(enabled, frequency); }} className="space-y-3">
       <label className="flex min-h-11 items-center justify-between gap-3 text-sm">
-        Email me One tips and product updates
-        <Switch data-voice-control-id="one_email_updates_enabled" checked={enabled} disabled={model.busy} onCheckedChange={(value) => model.edit(value, frequency)} aria-label="Email me One tips and product updates" />
+        Email me updates
+        <Switch data-voice-control-id="one_email_updates_enabled" checked={enabled} disabled={model.busy} onCheckedChange={(value) => model.edit(value, frequency)} aria-label="Email me updates" />
       </label>
       <label className="block text-sm">Email frequency
         <select data-voice-control-id="one_email_updates_frequency" value={frequency} disabled={model.busy} onChange={(event) => model.edit(enabled, event.target.value as EmailFrequency)} className="mt-2 block min-h-11 w-full rounded-[var(--app-input-radius)] border bg-background px-3">

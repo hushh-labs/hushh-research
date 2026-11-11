@@ -16,6 +16,101 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  const navigation = () => ({ status: "started" as const, actionId: "setup.open_calendar", label: "Connect your calendar",
+    routeBefore: "/one/setup", routeAfter: "/one/setup/calendar", screenBefore: "one_setup", screenAfter: "one_setup_calendar",
+    resultSummary: "PRIVATE_RESULT", data: { privateValue: "PRIVATE_VALUE" } });
+  const arrived = { getCurrentRoute: () => ({ pathname: "/one/setup/calendar", screen: "one_setup_calendar", subview: null }),
+    getCurrentSurfaceMetadata: () => ({ screenId: "one_setup_calendar", title: "Calendar Setup", publisherRouteKey: "/one/setup/calendar" }) };
+
+  it("settles the Location chat attempt when the destination publishes after Chat unmounts", async () => {
+    const f = await fixture();
+    const { settleChatLocationNavigation } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const { clearVoiceSurfaceMetadata, publishVoiceSurfaceMetadata } =
+      await import("@/lib/kai/actions/voice-surface-metadata");
+    const originalUrl = window.location.href;
+    const actionId = "route.one_location";
+    const destination = "/one/location";
+    try {
+      window.history.replaceState(null, "", "/");
+      const result = await f.observeDispatch(actionId, Promise.resolve({
+        status: "started" as const, actionId, label: "Open Location", routeBefore: "/",
+        routeAfter: destination, screenBefore: "chat", resultSummary: "Opening Location",
+      }));
+      const settlement = settleChatLocationNavigation(result);
+      await vi.waitFor(() => expect(posts()).toHaveLength(1));
+      expect(JSON.parse(posts()[0][1].body)).toMatchObject({ actionId, phase: "started" });
+      window.history.replaceState(null, "", destination);
+      publishVoiceSurfaceMetadata("location", { screenId: "one_location", title: "Location" },
+        { routeKey: destination });
+      expect((await settlement).status).toBe("succeeded");
+      await vi.waitFor(() => expect(posts()).toHaveLength(2));
+      expect(JSON.parse(posts()[1][1].body)).toEqual({ ...JSON.parse(posts()[0][1].body), phase: "returned" });
+    } finally {
+      clearVoiceSurfaceMetadata("location");
+      window.history.replaceState(null, "", originalUrl);
+    }
+  });
+
+  it("reports a navigation terminal once only after its destination actually settles", async () => {
+    const f = await fixture();
+    const { settleAgentGatewayAction } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const value = navigation();
+    const result = await f.observeDispatch(value.actionId, Promise.resolve(value));
+    expect(result).toBe(value);
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    const original = JSON.parse(posts()[0][1].body);
+    const settled = await settleAgentGatewayAction(result, arrived);
+    expect(settled.status).toBe("succeeded");
+    await vi.waitFor(() => expect(posts().some(call => JSON.parse(call[1].body).phase === "returned")).toBe(true));
+    await settleAgentGatewayAction(result, arrived);
+    await settleAgentGatewayAction(settled, arrived);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const terminals = posts().map(call => JSON.parse(call[1].body)).filter(body => body.phase === "returned");
+    expect(terminals).toEqual([{ ...original, phase: "returned" }]);
+    expect(JSON.stringify(posts())).not.toMatch(/PRIVATE_RESULT|PRIVATE_VALUE|\/one\/setup\/calendar/);
+  });
+
+  it("keeps route timeout unknown and retains the original attempt for later settlement", async () => {
+    const f = await fixture();
+    const { settleAgentGatewayAction } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const value = navigation();
+    const result = await f.observeDispatch(value.actionId, Promise.resolve(value));
+    const waiting = await settleAgentGatewayAction(result, {
+      getCurrentRoute: () => ({ pathname: "/one/setup", screen: "one_setup", subview: null }),
+      getCurrentSurfaceMetadata: () => null, timeoutMs: 0,
+    });
+    expect(waiting.status).toBe("started");
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    expect(posts().every(call => JSON.parse(call[1].body).phase === "started")).toBe(true);
+    const original = JSON.parse(posts()[0][1].body);
+    // Timeout describes the current screen, not the requested destination.
+    // Its projection must never acquire terminal-report authority.
+    await settleAgentGatewayAction(waiting, {
+      getCurrentRoute: () => ({ pathname: "/one/setup", screen: "one_setup", subview: null }),
+      getCurrentSurfaceMetadata: () => ({ screenId: "one_setup", title: "Setup", publisherRouteKey: "/one/setup" }),
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts().every(call => JSON.parse(call[1].body).phase === "started")).toBe(true);
+    await settleAgentGatewayAction(result, arrived);
+    await vi.waitFor(() => expect(posts().some(call => JSON.parse(call[1].body).phase === "returned")).toBe(true));
+    expect(JSON.parse(posts().at(-1)![1].body)).toEqual({ ...original, phase: "returned" });
+  });
+
+  it.each(["reset", "switch"])("does not attach a delayed route terminal to an owner after %s", async change => {
+    const f = await fixture();
+    const { settleAgentGatewayAction } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const value = navigation();
+    const result = await f.observeDispatch(value.actionId, Promise.resolve(value));
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const count = posts().length;
+    if (change === "reset") mocks.reset!("owner-a");
+    else f.publishValidatedAuthSessionOwner("owner-b");
+    expect((await settleAgentGatewayAction(result, arrived)).status).toBe("succeeded");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts()).toHaveLength(count);
+  });
+
   it("keeps a streamed attempt on its original epoch and admits only its first terminal", async () => {
     const f = await fixture();
     const now = Date.now();
@@ -187,5 +282,18 @@ describe("private product observation lifecycle", () => {
     await expect(f.observeDispatch("calendar.event.create", Promise.reject(failure))).rejects.toBe(failure);
     await vi.waitFor(() => expect(posts()).toHaveLength(2));
     expect(JSON.stringify(posts())).not.toContain("PRIVATE_ERROR");
+  });
+  it.each([
+    new DOMException("PRIVATE_ABORT", "AbortError"),
+    new DOMException("PRIVATE_TIMEOUT", "TimeoutError"),
+    Object.assign(new Error("PRIVATE_ABORT"), { name: "AbortError" }),
+    Object.assign(new Error("PRIVATE_TIMEOUT"), { name: "TimeoutError" }),
+  ])("keeps a rejected $name dispatch unknown without changing its rejection", async (error) => {
+    const f = await fixture();
+    await expect(f.observeDispatch("calendar.event.create", Promise.reject(error))).rejects.toBe(error);
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts().map(call => JSON.parse(call[1].body).phase)).toEqual(["started"]);
+    expect(JSON.stringify(posts())).not.toMatch(/PRIVATE_ABORT|PRIVATE_TIMEOUT/);
   });
 });

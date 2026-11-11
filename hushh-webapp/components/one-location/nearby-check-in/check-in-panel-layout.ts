@@ -13,6 +13,7 @@
  * place name is longer than the room it has.
  */
 
+import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
 import type { ButtonProps } from "@/components/ui/button";
 
 /**
@@ -65,11 +66,7 @@ export const CHECK_IN_SUBSECTION_TITLE_CLASSNAME =
 export const CHECK_IN_CATEGORY_CHIP_CLASSNAME =
   "shrink-0 rounded-full text-[14px] font-semibold leading-[18px] sm:text-[15px] sm:leading-5";
 
-/** Visibility controls use Location blue, not the global neutral checkbox or
- * success-green switch. These are preferences, not success confirmations. */
-export const CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME =
-  "mt-0.5 data-[state=checked]:!border-[color:var(--app-accent)] data-[state=checked]:!bg-[color:var(--app-accent)] data-[state=checked]:!text-[color:var(--app-accent-fg)]";
-
+/** The visibility preference uses the Location accent. */
 export const CHECK_IN_VISIBILITY_SWITCH_CLASSNAME =
   "data-[state=checked]:!bg-[color:var(--app-accent)]";
 
@@ -98,13 +95,13 @@ export const CHECK_IN_CATEGORY_ROW_CLASSNAME = [
  * width rather than pushing the distance off the row.
  */
 export const CHECK_IN_PLACE_ROW_CLASSNAME =
-  "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors";
+  "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
 
 export const CHECK_IN_PLACE_ROW_OFF_CLASSNAME =
-  "border-border/60 bg-muted/50 hover:bg-muted";
+  `border-border/60 bg-transparent ${PERSON_ROW_FEEDBACK_CLASSNAME}`;
 
 export const CHECK_IN_PLACE_ROW_ON_CLASSNAME =
-  "border-[var(--app-accent)] bg-[var(--app-accent-surface)]";
+  `border-[var(--app-accent)] bg-[color:var(--app-accent)]/[0.045] ${PERSON_ROW_FEEDBACK_CLASSNAME}`;
 
 /** The venue name. One line, always — a wrapped name doubles every row. */
 export const CHECK_IN_PLACE_NAME_CLASSNAME =

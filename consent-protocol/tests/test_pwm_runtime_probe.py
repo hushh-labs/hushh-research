@@ -300,6 +300,27 @@ def capability_fixture(monkeypatch):
     return module, report, capability_probe
 
 
+def test_core_readiness_does_not_call_secondary_providers(monkeypatch, capsys):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import tavily_search
+
+    module, _, capabilities = capability_fixture(monkeypatch)
+    monkeypatch.setenv("MANAGED_READINESS_MODE", "core")
+    policy = module.load_pwm_policy(environment="uat")
+    monkeypatch.setattr(
+        module, "load_pwm_policy", lambda **_: {**policy, "provider": "azure_openai_tavily"}
+    )
+    search = AsyncMock(side_effect=AssertionError("secondary search must not run"))
+    monkeypatch.setattr(tavily_search, "search_tavily", search)
+    assert module.main() == 0
+    module._probe_managed_text.assert_awaited_once()
+    module._probe_primary.assert_awaited_once()
+    capabilities.assert_not_awaited()
+    search.assert_not_awaited()
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["qualification_mode"] == "core"
+
+
 @pytest.mark.parametrize("timeout_type", ["TimeoutError", "APITimeoutError"])
 @pytest.mark.parametrize("embedding_first", [False, True])
 @pytest.mark.parametrize("failure_reason", [None, "unlisted", "root.clock_selection"])

@@ -27,7 +27,13 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
+from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
 
 OWNER = "owner"
 
@@ -215,6 +221,64 @@ def _requested(conn: Connection, requester: str, addressee: str, status: str = "
     )
 
 
+def test_deleted_people_are_excluded_before_connections_pagination(connection, monkeypatch):
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+            USING public_person_ref::UUID;
+        ALTER TABLE connections ADD COLUMN id TEXT DEFAULT gen_random_uuid()::text;
+        ALTER TABLE connections ADD COLUMN created_at TIMESTAMPTZ DEFAULT now();
+        CREATE TABLE connection_origins (
+            connection_id TEXT, status TEXT, origin_kind TEXT, source_ref TEXT
+        );
+        CREATE TABLE account_deletion_tombstones (user_id_hash TEXT PRIMARY KEY);
+    """)
+    )
+    for owner, name in [("retired", "Aardvark Person"), ("active", "Zebra Person")]:
+        _person(connection, owner, name)
+        _connected(connection, owner)
+    retired_ref = str(uuid4())
+    active_ref = str(uuid4())
+    for owner, person_ref in [("retired", retired_ref), ("active", active_ref)]:
+        connection.execute(
+            text(
+                "UPDATE actor_profiles SET public_person_ref=CAST(:ref AS UUID) WHERE user_id=:owner"
+            ),
+            {"ref": person_ref, "owner": owner},
+        )
+
+    def execute_many(sql, params):
+        return [dict(row) for row in connection.execute(text(sql), params).mappings()]
+
+    graph = ConnectionsService()
+    monkeypatch.setattr(graph, "_execute_many", execute_many)
+    profile = PersonProfileService(connections=graph, consent_db=object())
+    monkeypatch.setattr(
+        profile, "_execute_one", lambda sql, params: next(iter(execute_many(sql, params)), None)
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.person_profile_service.active_directory_user_ids",
+        lambda owners, **_: set(owners),
+    )
+
+    # An active control proves the same rows and pagination really were eligible.
+    assert graph.list_connections_page(OWNER, limit=1)["items"][0]["userId"] == "retired"
+    assert profile.get_public_profile(retired_ref)["displayName"] == "Aardvark Person"
+    connection.execute(
+        text("INSERT INTO account_deletion_tombstones (user_id_hash) VALUES (:hash)"),
+        {"hash": account_deletion_user_hash("retired")},
+    )
+
+    page = graph.list_connections_page(OWNER, limit=1)
+    assert [row["userId"] for row in page["items"]] == ["active"]
+    assert page["totalCount"] == 1
+    assert page["hasMore"] is False
+    assert [row["userId"] for row in graph.list_connections(OWNER)] == ["active"]
+    with pytest.raises(PersonProfileNotFoundError):
+        profile.get_public_profile(retired_ref)
+    assert profile.get_public_profile(active_ref)["displayName"] == "Zebra Person"
+
+
 def _network(connection: Connection):
     from hushh_mcp.services.connection_network_service import ConnectionNetworkService
     from hushh_mcp.services.connections_service import ConnectionsService
@@ -232,6 +296,152 @@ def _network_edge(connection: Connection, a: str, b: str, status: str = "active"
     connection.execute(
         text("INSERT INTO connections VALUES (:a, :b, :status)"), {"a": a, "b": b, "status": status}
     )
+
+
+@pytest.mark.parametrize(
+    "change", [None, "disconnect", "block", "disabled", "reference", "unlisted"]
+)
+def test_row_metadata_has_two_public_previews_and_rejects_mid_read_revocation(connection, change):
+    from hushh_mcp.services.connection_row_metadata import ConnectionRowMetadata
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "target", "mutual-a", "mutual-b", "mutual-c"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text("UPDATE actor_profiles SET public_person_ref = gen_random_uuid()::text")
+    )
+    for peer in ("mutual-a", "mutual-b", "mutual-c"):
+        _network_edge(connection, OWNER, peer)
+        _network_edge(connection, "target", peer)
+    people = network.profiles(OWNER, ["target"])
+    calls = []
+
+    def profiles(viewer, ids):
+        calls.append(ids)
+        result = network.profiles(viewer, ids)
+        if change == "disconnect":
+            connection.execute(
+                text(
+                    "UPDATE connections SET status='revoked' WHERE user_a_id='mutual-b' AND user_b_id='target'"
+                )
+            )
+        elif change == "block":
+            connection.execute(
+                text(
+                    "INSERT INTO connection_requests VALUES ('target','mutual-b','rejected','{\"blocked_by\":\"target\"}')"
+                )
+            )
+        elif change == "disabled":
+            connection.execute(
+                text(
+                    "UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id='mutual-b'"
+                )
+            )
+        elif change == "reference":
+            connection.execute(
+                text(
+                    "UPDATE actor_profiles SET public_person_ref=gen_random_uuid()::text WHERE user_id='mutual-b'"
+                )
+            )
+        elif change == "unlisted":
+            connection.execute(
+                text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='target'")
+            )
+        return result
+
+    projection = ConnectionRowMetadata(network.connections, OWNER, people, profiles)
+    assert calls == [["mutual-a", "mutual-b"]]
+    if change:
+        with pytest.raises(ConnectionsError) as failure:
+            projection.settle()
+        assert failure.value.status_code == 503
+    else:
+        item = projection.settle()["target"]
+        assert item["relationship"] == "none"
+        assert item["mutualConnectionCount"] == 3
+        assert len(item["mutualConnectionPreviews"]) == 2
+        assert all(
+            set(peer) == {"publicPersonRef", "displayName", "photoUrl"}
+            for peer in item["mutualConnectionPreviews"]
+        )
+        # Relationship metadata settles from the current graph, not an old read.
+        connection.execute(
+            text("INSERT INTO connection_requests VALUES ('target',:viewer,'pending','{}')"),
+            {"viewer": OWNER},
+        )
+        assert projection.settle()["target"]["relationship"] == "pending_incoming"
+        connection.execute(
+            text("INSERT INTO connection_requests VALUES (:viewer,'target','pending','{}')"),
+            {"viewer": OWNER},
+        )
+        assert projection.settle()["target"]["relationship"] == "pending_outgoing"
+        _network_edge(connection, OWNER, "target")
+        assert projection.settle()["target"]["relationship"] == "connected"
+
+
+def test_directory_excludes_blocked_people_before_pagination(connection):
+    _person(connection, "blocked", "Aaron Blocked")
+    _person(connection, "visible", "Bella Visible")
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES (:viewer,'blocked','rejected','{\"blocked_by\":\"owner\"}')"
+        ),
+        {"viewer": OWNER},
+    )
+    result = _Directory(connection).search_directory_candidates(owner_user_id=OWNER, limit=1)
+    assert [person["userId"] for person in result["items"]] == ["visible"]
+    assert result["hasMore"] is False
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_mutual_list_settles_target_authority_even_on_empty_pages(connection, monkeypatch, empty):
+    from hushh_mcp.services import one_location_agent_service
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "target", "peer-a", "peer-b"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(text("UPDATE actor_profiles SET public_person_ref=gen_random_uuid()::text"))
+    connection.execute(
+        text(
+            "ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID USING public_person_ref::uuid"
+        )
+    )
+    for peer in ("peer-a", "peer-b"):
+        _network_edge(connection, OWNER, peer)
+        _network_edge(connection, "target", peer)
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id='target'")
+        ).scalar_one()
+    )
+    directory = network.directory()
+    network.connections._directory_profiles = network.profiles
+    monkeypatch.setattr(one_location_agent_service, "OneLocationAgentService", lambda: directory)
+    # Page beyond the end still returns a current count and validates the target.
+    page = 3 if empty else 1
+    result = network.connections.list_mutual_connections_page(
+        OWNER, person_ref=target_ref, page=page, limit=1
+    )
+    assert result["totalCount"] == 2
+    assert len(result["items"]) == (0 if empty else 1)
+    original = directory.search_directory_candidates
+
+    def read_then_unlist(**kwargs):
+        result = original(**kwargs)
+        if "mutual_target_user_id" in kwargs:
+            connection.execute(
+                text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='target'")
+            )
+        return result
+
+    monkeypatch.setattr(directory, "search_directory_candidates", read_then_unlist)
+    with pytest.raises(ConnectionsError) as failure:
+        network.connections.list_mutual_connections_page(
+            OWNER, person_ref=target_ref, page=page, limit=1
+        )
+    assert failure.value.status_code == 503
 
 
 def test_extended_network_shortest_degrees_require_shared_paths_and_live_accounts(connection):
@@ -343,7 +553,16 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
     page = network.browse(OWNER, person_ref=target_ref)
     assert len(page["items"]) == 1
     assert page["items"][0]["networkDegree"] == 2
-    assert set(page["items"][0]) == {"publicPersonRef", "displayName", "photoUrl", "networkDegree"}
+    assert set(page["items"][0]) == {
+        "publicPersonRef",
+        "displayName",
+        "photoUrl",
+        "networkDegree",
+        "relationship",
+        "mutualConnectionCount",
+        "mutualConnectionPreview",
+        "mutualConnectionPreviews",
+    }
     original = network.directory().search_directory_candidates
 
     def read_then_revoke(**kwargs):

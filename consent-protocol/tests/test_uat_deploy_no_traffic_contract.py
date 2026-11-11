@@ -382,8 +382,9 @@ def test_candidate_pkm_evaluator_inherits_exact_revision_resources(
 
 
 @pytest.mark.parametrize("pwm_provider", ["azure_openai_web_search", "azure_openai_tavily"])
+@pytest.mark.parametrize("mode", ["full", "core"])
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
-    tmp_path: Path, pwm_provider: str
+    tmp_path: Path, pwm_provider: str, mode: str
 ) -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
@@ -407,8 +408,17 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             {
                 "pwm_research": {"provider": "vertex_google_search"},
                 "pwm_research_uat": {"provider": pwm_provider},
+                "managed_provider_selection": {"uat": "azure_openai"},
             }
         ),
+        encoding="utf-8",
+    )
+    helper = tmp_path / "scripts/ci/managed_provider_readiness.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        "import sys\n"
+        "if sys.argv[1:] != ['configured-provider']: raise SystemExit(2)\n"
+        "print('azure_openai')\n",
         encoding="utf-8",
     )
     fake_bin = tmp_path / "bin"
@@ -436,6 +446,8 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "PROJECT_ID": "hushh-pda-uat",
         "BUILD_ID": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "_DEPLOY_ENV": "uat",
+        "_MANAGED_READINESS_MODE": mode,
+        "READINESS_QUALIFICATION_MODE": mode,
         "_REGION": "us-central1",
         "_CLOUD_RUN_NO_TRAFFIC": "true",
         "_RUNTIME_SERVICE_ACCOUNT": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
@@ -451,6 +463,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         ("missing_http", digest, runtime_identity, 1, True),
         ("missing_managed", digest, runtime_identity, 1, True),
         ("wrong_scope", digest, runtime_identity, 1, True),
+        ("wrong_mode", digest, runtime_identity, 1, True),
         ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 1, False),
         ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 1, False),
     )
@@ -470,6 +483,13 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             {"azure_managed_text_contract": "ok", "scopes": 1 if verdict == "wrong_scope" else 2},
             {"azure_pwm_runtime_probe_result": "failed" if verdict == "failed" else "ok"},
         ]
+        if mode == "core":
+            records[-1]["qualification_mode"] = "core"
+        if verdict == "wrong_mode":
+            if mode == "core":
+                records[-1].pop("qualification_mode")
+            else:
+                records[-1]["qualification_mode"] = "core"
         if verdict == "missing_http":
             records.pop(0)
         if verdict == "missing_managed":
@@ -1228,13 +1248,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         step for step in steps if step["name"] == "Validate one-time Vertex probe exception"
     )
     assert validation["if"] == "inputs.skip_managed_vertex_probe_once"
-    for required in (
-        "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
-        '"$REQUESTED_SCOPE" != "all"',
-        '"$LIVE_CHECKS" != "false"',
-        '"$GITHUB_ACTOR" != "ankitkumarsingh1702"',
-    ):
-        assert required in validation["run"]
+    assert "historical one-time Vertex exception has expired" in validation["run"]
     allowed_dispatch = {
         "REQUESTED_SHA": "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
         "REQUESTED_SCOPE": "all",
@@ -1253,7 +1267,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         )
         return result.returncode
 
-    assert validate_dispatch() == 0
+    assert validate_dispatch() != 0
     assert validate_dispatch(REQUESTED_SHA="b" * 40) != 0
     assert validate_dispatch(REQUESTED_SCOPE="backend") != 0
     assert validate_dispatch(LIVE_CHECKS="true") != 0
@@ -1385,13 +1399,22 @@ def _healthy_vertex_verdict(project):
     }
 
 
-def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
+@pytest.mark.parametrize("mode", ["full", "core"])
+def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict(mode) -> None:
     probe = managed_vertex_probe_script()
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
     project = load_profile("uat")["project"]
     healthy = _healthy_vertex_verdict(project)
+    if mode == "core":
+        healthy.update(
+            qualification_mode="core",
+            core_models_exercised=True,
+            candidate_models_exercised=False,
+            one_chat_probe_ok=True,
+            one_voice_probe_ok=None,
+        )
 
     def run_verdict(
         report: dict | str,
@@ -1419,6 +1442,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
                 "_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER": drive_provider,
                 "_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED": drive_enabled,
                 "_CLOUD_RUN_NO_TRAFFIC": "true",
+                "_MANAGED_READINESS_MODE": mode,
                 "_MANAGED_AI_CONFIG_HASH": "checked-profile-hash",
                 "_GENAI_PROJECT_ID": project,
                 "_VERTEX_LIVE_MODEL_ID": "reviewed-live-model",
@@ -1439,10 +1463,21 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         {**healthy, "config_hash": "different-profile"},
         {**healthy, "one_chat_project": "different-project"},
         {**healthy, "drive_document_requests_probe_ok": False},
-        {**healthy, "one_voice_probe_ok": False},
+        {
+            **healthy,
+            **({"one_chat_probe_ok": False} if mode == "core" else {"one_voice_probe_ok": False}),
+        },
         {**healthy, "ok": False},
         {**healthy, "check": "different-check"},
-        {**healthy, "candidate_models_exercised": False},
+        {
+            **healthy,
+            **(
+                {"core_models_exercised": False}
+                if mode == "core"
+                else {"candidate_models_exercised": False}
+            ),
+        },
+        {**healthy, "qualification_mode": "full" if mode == "core" else "core"},
         {**healthy, "classification": "provider_unavailable"},
         {**healthy, "probes": []},
         {k: v for k, v in healthy.items() if k != "probes"},
@@ -1451,6 +1486,32 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     ):
         rejected = run_verdict(invalid)
         assert rejected.returncode != 0, invalid
+
+    if mode == "full":
+        # Shared helper changes must preserve both non-UAT release paths.
+        ordinary = {**healthy, "one_chat_probe_ok": True}
+        ordinary["probes"] = [
+            *healthy["probes"][:-1],
+            {
+                "probe": "one_voice_live:reviewed-live-model@reviewed-live-location",
+                "ok": True,
+                "classification": "dependency_ok",
+            },
+        ]
+        for environment in ("dev", "production"):
+            assert run_verdict(ordinary, deploy_env=environment).returncode == 0
+            assert (
+                run_verdict(
+                    {**ordinary, "one_chat_probe_ok": False}, deploy_env=environment
+                ).returncode
+                != 0
+            )
+            assert (
+                run_verdict(
+                    {**ordinary, "one_voice_probe_ok": False}, deploy_env=environment
+                ).returncode
+                != 0
+            )
 
     # Regression: chat success alone used to let a failed full runtime job
     # enter the provider-outage advisory and green the candidate build.
@@ -1487,7 +1548,9 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
             )
         ],
     }
-    assert run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0
+    assert (run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0) is (
+        mode == "full"
+    )
     assert (
         run_verdict(exhausted, 1, drive_provider="azure_openai", drive_enabled="false").returncode
         != 0
@@ -1525,8 +1588,8 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     legacy = run_verdict(
         {**partial, "one_chat_probe_ok": True}, 85, deploy_env="dev", voice_enabled="false"
     )
-    assert legacy.returncode == 0, legacy.stderr
-    assert "Release CONTINUES" in legacy.stdout
+    assert (legacy.returncode == 0) is (mode == "full"), legacy.stderr
+    assert ("Release CONTINUES" in legacy.stdout) is (mode == "full")
 
 
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
@@ -1657,8 +1720,8 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     assert "_ONE_VOICE_LIVE_ENABLED=true" in production_workflow
     assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
     assert (
-        '[[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]'
-        in backend_build
+        '[[ "${_MANAGED_READINESS_MODE:-full}" == "full" && "${_DEPLOY_ENV}" == "production" '
+        '&& "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]' in backend_build
     )
     assert "python3 scripts/ci/assert_one_voice_live_probe.py" in backend_build
 
@@ -1798,6 +1861,10 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     assert promote["if"].startswith(
         "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' &&"
     )
+    recheck = next(step for step in steps if step.get("id") == "main-source-recheck")
+    assert steps.index(recheck) < steps.index(promote)
+    assert "--predecessor /tmp/prod-predecessor-acceptance.json" in recheck["run"]
+    assert "steps.main-source-recheck.outcome == 'success'" in promote["if"]
     assert '--backend-revision "${{ steps.candidate-state.outputs.backend_revision }}"' in workflow
     assert (
         '--frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"' in workflow
@@ -2151,8 +2218,9 @@ def _provider_fixture(module, provider, *, document=None):
 )
 @pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
 @pytest.mark.parametrize("account", ["packaged", "switched"])
+@pytest.mark.parametrize("mode", ["full", "core"])
 def test_provider_release_admission_qualifies_the_configured_provider(
-    azure, vertex, configured, account
+    azure, vertex, configured, account, mode
 ):
     module = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
@@ -2170,6 +2238,11 @@ def test_provider_release_admission_qualifies_the_configured_provider(
         accounts["selection"]["uat"] = "spare"
     expected, a = _provider_fixture(module, "azure_openai", document=document)
     _, v = _provider_fixture(module, "vertex", document=document)
+    if mode == "core":
+        expected["qualification_mode"] = mode
+        a["context"] = v["context"] = expected
+        a.pop("capability_proof")
+        v.pop("capability_proof")
     result = module.evaluate(
         {"azure_openai": a if azure else None, "vertex": v if vertex else None},
         expected,
@@ -2266,9 +2339,13 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
     "defect",
     ["image", "context", "scope", "model", "generation", "duplicate_trust", "failed_trust"],
 )
-def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect):
+@pytest.mark.parametrize("mode", ["full", "core"])
+def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect, mode):
     module = _managed_provider_gate()
     expected, value = _provider_fixture(module, "azure_openai")
+    if mode == "core":
+        expected["qualification_mode"] = mode
+        value.pop("capability_proof")
     if defect == "image":
         value["execution_image"] = "wrong-image"
     elif defect == "context":
@@ -2286,6 +2363,7 @@ def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect):
     assert module.evaluate({"azure_openai": value}, expected)["ready"] is False
     if defect == "failed_trust":
         _, alternate = _provider_fixture(module, "vertex")
+        alternate["context"] = expected
         assert (
             module.evaluate({"azure_openai": value, "vertex": alternate}, expected)["ready"]
             is False

@@ -61,7 +61,12 @@ def _current_actor() -> str:
 
 
 def _governance_policy() -> dict[str, Any]:
-    return json.loads(GOVERNANCE_POLICY_PATH.read_text(encoding="utf-8"))
+    policy = json.loads(GOVERNANCE_POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("authorization", {}).get("native_teams"):
+        sys.path.insert(0, str(REPO_ROOT / "scripts/ci"))
+        from github_team_authority import local_policy
+        return local_policy(policy)
+    return policy
 
 
 def _team_membership(org_id: int, team_id: int, actor: str) -> bool:

@@ -23,12 +23,14 @@ class CreateAdvisorReview(StrictObject):
 
 class ReviewDecision(StrictObject):
     action: Literal["accept", "decline", "withdraw", "stop"]
+    requireExistingConnection: StrictBool = False
 
 
 class MeetingTime(StrictObject):
     startAt: datetime
     endAt: datetime
     timeZone: str = Field(max_length=80)
+    expectedMeetingId: UUID | None = None
 
     @model_validator(mode="after")
     def valid_time(self):
@@ -48,9 +50,9 @@ class MeetingTime(StrictObject):
 class AdvisorPlan(StrictObject):
     amountCents: StrictInt = Field(ge=100, le=100000)
     currency: Literal["usd"] = "usd"
-    services: str = Field(min_length=20, max_length=1500)
-    cancellationTerms: str = Field(min_length=20, max_length=1500)
-    interval: Literal["month"] = "month"
+    services: str = Field(default="", max_length=1500)
+    cancellationTerms: str = Field(default="", max_length=1500)
+    interval: Literal["one_time"]
 
     @field_validator("services", "cancellationTerms", mode="before")
     @classmethod
@@ -60,15 +62,34 @@ class AdvisorPlan(StrictObject):
 
 class PlanCheckout(StrictObject):
     planRevision: StrictInt = Field(ge=1)
-    acceptRecurringPayment: StrictBool
+    acceptPayment: StrictBool
 
     @model_validator(mode="after")
     def confirmed(self):
-        if not self.acceptRecurringPayment:
-            raise ValueError("Recurring payment approval is required")
+        if not self.acceptPayment:
+            raise ValueError("Payment approval is required")
         return self
 
 
 class MeetingAction(StrictObject):
-    action: Literal["agree", "prepare", "confirm", "cancel", "complete", "check"]
+    action: Literal[
+        "agree",
+        "prepare",
+        "confirm",
+        "cancel",
+        "complete",
+        "check",
+        "propose_booking",
+        "accept_booking",
+    ]
+    meetingId: UUID | None = None
+    time: MeetingTime | None = None
     proposalId: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def exact_booking_offer(self):
+        if (self.action == "propose_booking") != (self.time is not None):
+            raise ValueError("An exact time is required to authorize automatic booking")
+        if self.action == "accept_booking" and self.meetingId is None:
+            raise ValueError("The accepted offer is required")
+        return self

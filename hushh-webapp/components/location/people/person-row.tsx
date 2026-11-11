@@ -26,13 +26,14 @@ export type PersonRowAction = "ask" | "share";
 
 export type PersonRowProps = {
   userId: string;
+  publicPersonRef?: string | null;
   /** Server-sent display name. */
   name: string;
   photoUrl?: string | null;
   /** Server-sent relationship label ("Family", "Friend", ...), if any. */
   relationship?: string | null;
-  /** Phone-verified badge on the avatar. */
   verified?: boolean;
+  fromContacts?: boolean;
   /** False when the person has not finished Location setup (no recipient key). */
   canReceiveLocation?: boolean;
   status?: PersonRowStatus | null;
@@ -49,10 +50,12 @@ const ACTION_PRIMARY =
 
 export function PersonRow({
   userId,
+  publicPersonRef,
   name,
   photoUrl,
   relationship,
   verified = false,
+  fromContacts,
   canReceiveLocation = true,
   status,
   focused = false,
@@ -96,9 +99,11 @@ export function PersonRow({
       <div className="flex items-center gap-3">
         <ConnectionPersonAvatar
           userId={userId}
+          personRef={publicPersonRef}
           label={name}
           photoUrl={photoUrl}
           verified={verified}
+          fromContacts={fromContacts}
         />
         <div className="min-w-0 flex-1">
           <p className="ui-text-row-label truncate">{name}</p>

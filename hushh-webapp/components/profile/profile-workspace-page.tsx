@@ -3733,7 +3733,7 @@ function ProfilePageContent({
         <SettingsRow
           iconTone="capability"
           leading={
-              <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+              <span className="profile-account-provider-icon inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-lg">
                 <ProviderIcon providerId={provider.id} email={user.email} />
               </span>
           }
@@ -3754,9 +3754,9 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Payments">
         <SettingsRow icon={FinanceAgentIcon} iconTone="capability"
-          title="Payments and earnings" description="Purchase balance, earnings and transactions."
+          title="Payouts" description="Bank setup, earnings and transactions."
           voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
-          voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."
+          voiceLabel="Payouts" voicePurpose="Opens payout setup and transaction history."
           chevron onClick={() => openVaultBackedPanel("payouts")} />
       </SettingsGroup>
       <SettingsGroup title="Account actions">
@@ -3808,7 +3808,7 @@ function ProfilePageContent({
         <SettingsRow
           leading={<Brain className="h-8 w-8" />}
           title="AI connection"
-          description="Cloud connection or your own key."
+          description="Cloud or your own key."
           chevron
           onClick={() =>
             updateProfileView(
@@ -3821,7 +3821,7 @@ function ProfilePageContent({
           icon={PROFILE_ICONS.voice}
           iconTone="capability"
           title="Voice"
-          description="What One's voice can do, and its safety controls."
+          description="Abilities and safety controls."
           chevron
           onClick={() =>
             updateProfileView({ panel: "preferences", detail: "voice" }, "push")
@@ -3895,6 +3895,7 @@ function ProfilePageContent({
             variant="none"
             effect="fill"
             showRipple={false}
+            data-profile-role="cta"
             className="h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             onClick={() => {
               setSupportComposerState({ status: "editing" });
@@ -3985,8 +3986,8 @@ function ProfilePageContent({
             {supportReplyLine}
           </p>
           <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">
-            Your message goes to One support, with an internal copy to our
-            support lead. No automatic receipt is sent.
+            Goes to One support, with a copy to our support lead. No
+            automatic receipt.
           </p>
 
           {supportComposerState.status === "error" ? (
@@ -4006,6 +4007,7 @@ function ProfilePageContent({
             effect="fill"
             showRipple={false}
             loading={sendingSupportMessage}
+            data-profile-role="cta"
             className="mt-5 h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
             aria-describedby={
               supportComposerState.status === "error"
@@ -4274,9 +4276,10 @@ function ProfilePageContent({
       title: activePanel === "hosting" ? "Hosting" : "Software updates",
       description:
         activePanel === "hosting"
-          ? "Where Agent One runs."
+          ? "Where your private agent runs."
           : "Your version and available updates.",
       content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} controller={agentSettings} />,
+      typeScale: activePanel === "hosting" ? "connect" : undefined,
     });
   } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
@@ -4284,6 +4287,7 @@ function ProfilePageContent({
       title: "Account",
       content: accountContent,
       presentation: "account",
+      typeScale: "connect",
     });
     if (activeDetail === "phone") {
       profileStackEntries.push({
@@ -4334,7 +4338,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />
+          <PaymentsAndEarnings key={applicationOwnerId} answer={nativePayout.answer} />
         </div>
       ),
     });
@@ -4342,7 +4346,7 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:net-worth-score",
       title: "Net Worth Score",
-      content: <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary} secondary={nws.secondary} detail />,
+      content: <NetWorthScoreCard report={nws.report} status={nws.status ?? nws.coverageStatus} primary={nws.primary} secondary={nws.secondary} detail />,
     });
   } else if (!routeBlockedByVault && activePanel === "world-model") {
     // The Profile pane is how /one/profile/world-model is presented (proxy.ts
@@ -4552,6 +4556,7 @@ function ProfilePageContent({
       title: PROFILE_LABELS.preferences,
       description: "Theme, accent and how One writes.",
       content: preferencesContent,
+      typeScale: "connect",
     });
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
@@ -4664,8 +4669,9 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:support",
       title: PROFILE_LABELS.support,
-      description: "Tell us what you need. We'll route it to the right team.",
+      description: "Tell us what you need.",
       content: supportContent,
+      typeScale: "connect",
     });
   }
 
@@ -4723,7 +4729,7 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary}
-            secondary={nws.secondary} onOpen={() => openVaultBackedPanel("net-worth-score")} />
+            onOpen={() => openVaultBackedPanel("net-worth-score")} />
           <div className="profile-home-content">
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
@@ -4992,7 +4998,7 @@ function ProfilePageContent({
             provider={cloudCleanupProvider ?? undefined} purpose={cloudCleanupProvider === "gcp" ? "remove_cloud" : "account"}
             continueAccountDeletion={cloudCleanupProvider === "gcp"}
             onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
-            onFinish={handleDeleteAccount} /> : null}
+            onFinish={handleDeleteAccount} onLeave={handleSignOut} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <AlertDialogCancel
               className="w-full sm:w-auto"
@@ -5274,7 +5280,7 @@ function ProfilePageContent({
       },
       groups: menuGroups, actions: menuActions,
       ...(nws.unlocked ? { scoreCard: {
-        ...netWorthScoreDisplay(nws.report), status: nws.status, primary: nws.primary, secondary: nws.secondary,
+        amount: netWorthScoreDisplay(nws.report).amount, status: nws.status, primary: nws.primary,
         onOpen: () => openVaultBackedPanel("net-worth-score"),
       } } : {}) }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",

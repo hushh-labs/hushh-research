@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Pencil, Trash2 } from "@/components/icons";
+import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Pencil, Smile, Trash2 } from "@/components/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
 import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { OneChatTimeSeparator } from "@/components/agent/chat-message-styles";
 import { conversationDayLabel, messagesFormGroup } from "@/components/app-ui/conversation-message";
@@ -65,11 +67,28 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   const [reactionError, setReactionError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const longPress = useLongPress(!confirmed || !visible || layoutBlocked);
+  const longPress = useLongPress(!confirmed || !visible || layoutBlocked, false, messagesLane ? 500 : 1_000);
   const selecting = useRef(false);
   const saving = useRef(false);
   const deleted = confirmed && Boolean(message.deletedForEveryoneAt);
   const current = useRef(message); current.current = message;
+  const copyScope = useRef({ session, visible, layoutBlocked, messagesLane });
+  copyScope.current = { session, visible, layoutBlocked, messagesLane };
+  const copyLifetime = useRef(true);
+  useEffect(() => { copyLifetime.current = true; return () => { copyLifetime.current = false; }; }, []);
+  const copyText = async () => {
+    const text = message.content?.text;
+    if (!messagesLane || !confirmed || deleted || message.failed || !visible || layoutBlocked || !text?.trim()) return;
+    const isCurrent = () => copyLifetime.current && copyScope.current.session === session &&
+      copyScope.current.visible && !copyScope.current.layoutBlocked && copyScope.current.messagesLane &&
+      current.current.id === message.id && current.current.content?.text === text && !current.current.failed &&
+      !("deletedForEveryoneAt" in current.current && current.current.deletedForEveryoneAt);
+    const copied = await copyToClipboard(text, isCurrent);
+    if (isCurrent()) {
+      if (copied) morphyToast.success("Copied.");
+      else morphyToast.error("Couldn't copy. Try again.");
+    }
+  };
   useEffect(() => {
     if (!visible || layoutBlocked || deleted) { setMenuOpen(false); setPickerOpen(false); }
   }, [visible, layoutBlocked, deleted]);
@@ -99,9 +118,9 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   return <li data-chat-message={message.id} className={`${styles.item} ${grouped ? styles.grouped : ""}`}>
     {showDay ? <div className="pb-4 pt-1"><OneChatTimeSeparator dateTime={message.createdAt} label={conversationDayLabel(message.createdAt)} /></div> : null}
     <div className={`${styles.row} ${own ? styles.own : ""}`} data-message-role={own ? "user" : "peer"}>
-      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className="!size-8" label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
+      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className={styles.senderAvatar} label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
       <div className={styles.stack}>
-        <div className={styles.bubbleWrap}>
+        <div className={styles.bubbleWrap} onPointerDownCapture={longPress.resetClick} onClickCapture={longPress.consumeClick}>
           <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}
             data-chat-bubble="true"
             onPointerDown={(event) => longPress.start(event, () => setMenuOpen(true))}
@@ -129,6 +148,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             </div>
           </div>
           {confirmed && !deleted ? <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked} messagesLane={messagesLane}
+            triggerIcon={messagesLane ? <Smile className="h-5 w-5" /> : undefined}
             open={pickerOpen} onOpenChange={setPickerOpen}
             triggerClassName={styles.addReaction}
             dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} /> : null}
@@ -136,16 +156,17 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             <DropdownMenuTrigger asChild><ShellActionSurface wrapperClassName={styles.messageOptions} className="size-11" aria-label="Message options" disabled={!visible || layoutBlocked}>
               <ChevronDown className="size-4" aria-hidden="true" />
             </ShellActionSurface></DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className="min-w-52 motion-reduce:animate-none" data-messages-type-scale={messagesLane || undefined}
+            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className={`${styles.messageMenu} motion-reduce:animate-none`} data-messages-type-scale={messagesLane || undefined}
               onCloseAutoFocus={(event) => { if (selecting.current) { event.preventDefault(); selecting.current = false; } }}>
               {!deleted ? <>
                 <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />
                 <DropdownMenuItem className="min-h-11" disabled={busy} onSelect={() => { selecting.current = true; setPickerOpen(true); }}>More reactions…</DropdownMenuItem>
               </> : null}
               {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><ArrowBendUpLeft weight="fill" aria-hidden="true" />Reply</DropdownMenuItem> : null}
+              {messagesLane && !deleted && !message.failed && message.content?.text?.trim() ? <DropdownMenuItem className="min-h-11" data-voice-control-id="messages-circles-copy-text" onSelect={() => { void copyText(); }}>Copy text</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
-              <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 aria-hidden="true" />Delete for me</DropdownMenuItem>
-              {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}
+              <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 inheritColor aria-hidden="true" />Delete for me</DropdownMenuItem>
+              {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 inheritColor aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu> : null}
         </div>

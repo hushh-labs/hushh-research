@@ -1108,7 +1108,10 @@ struct NativeDrawerContent: View {
                                     }
                                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                                         Text(score.label).font(.custom("PlusJakartaSans-Bold", size: 38, relativeTo: .largeTitle))
-                                        Text("/ 1,000").font(.footnote)
+                                            .lineLimit(1).minimumScaleFactor(0.6)
+                                        if score.id == "nws-score-value" {
+                                            Text("/ 1,000").font(.footnote)
+                                        }
                                     }.monospacedDigit().foregroundStyle(Color(red: 0.94, green: 0.79, blue: 0.36))
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)

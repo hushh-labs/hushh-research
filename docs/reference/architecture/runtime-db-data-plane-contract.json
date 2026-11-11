@@ -2398,11 +2398,11 @@
         "account_phone_linked_deletions"
       ],
       "primary_access_path": "Opaque prepare, single-use phone-proof confirm and status read for deleting the account that holds a verified number; the existing full-account erasure performs the deletion.",
-      "retention_policy": "Prepared operations expire after five minutes and prune one hour later; admitted and refused receipts prune after ninety days or with either account. Consumed proof digests stay with their receipt to prevent replay.",
-      "deletion_behavior": "Erasure of the requester or the deleted holder removes its receipts (ON DELETE CASCADE); no account projection survives either erasure.",
+      "retention_policy": "Prepared operations expire after five minutes and prune one hour later; admitted and refused receipts prune ninety days after expiry. Consumed proof digests stay with their receipt to prevent replay, including after either account's erasure.",
+      "deletion_behavior": "Erasure detaches consumed receipts instead of cascading them: the erased owner's raw account id is cleared once its tombstone exists and an erased holder's phone digest is blanked, so the spent proof stays single-use and the live requester can still read the outcome. An erased requester's receipts are deleted once they cannot be replayed (configured test-code proofs, or SMS dispatched over ten minutes ago); unconsumed rows still cascade (ON DELETE CASCADE).",
       "trust_boundary": "No phone number, OTP, bearer token, Firebase identity or email. Requester and holder are account ids plus keyed hashes; proofs are single-use digests.",
       "plaintext_posture": "metadata_and_hashes_only",
-      "expected_row_growth": "At most five operations per requester per five minutes plus unsettled dispatches; opportunistic cleanup removes at most one hundred expired rows per prepare."
+      "expected_row_growth": "At most five operations per requester per five minutes plus unsettled dispatches; opportunistic cleanup removes at most one hundred expired rows per prepare and per account erasure."
     },
     {
       "id": "account_phone_auth_fences",
@@ -2473,14 +2473,15 @@
       "exact_tables": [
         "advisor_review_requests",
         "advisor_review_subscriptions",
-        "advisor_billing_cleanup"
+        "advisor_billing_cleanup",
+        "advisor_review_payments"
       ],
-      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans.",
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request, participant-scoped review workspaces, Calendar time agreement and test-only one-time Stripe payments.",
       "retention_policy": "Pending request and snapshot access expire after seven days. Expired ciphertext is cleared on participant reconciliation; terminal requests retain minimal consent metadata until account reset or erasure. Billing cleanup retains provider references without owner identity until confirmed cancellation.",
-      "deletion_behavior": "Ordered account cleanup removes either participant request; actor-profile foreign keys cascade. Subscription deletion queues checkout expiry and subscription cancellation in a provider-only cleanup outbox, drained by the existing packet-order worker. Signed late payment events for erased requests also queue cancellation.",
+      "deletion_behavior": "Deleting either participant cascades the review and its payment records. Open checkouts and retained legacy subscription references enter a provider-only cleanup queue drained by the RIA sandbox scheduler.",
       "trust_boundary": "Recipient Finance ciphertext is withheld until verified RIA acceptance atomically activates the canonical connection. Every read rechecks participant, status, expiry, advisor role, current key and connection. Blocking/disconnection is terminal. Explicit two-party time agreement precedes the existing Calendar review/execute boundary. Test-mode Stripe price, plan revision, destination and provider payment state are authoritative; payment never broadens consent or permits trading.",
       "plaintext_posture": "introduction_relationship_meeting_and_billing_metadata_only_finance_contents_recipient_encrypted",
-      "expected_row_growth": "one_open_review_per_owner_advisor_pair_one_subscription_per_review_and_bounded_provider_cleanup_refs"
+      "expected_row_growth": "one_open_review_per_owner_advisor_pair_one_payment_per_offer_revision_and_bounded_provider_cleanup_refs"
     },
     {
       "id": "one_attempt_email",

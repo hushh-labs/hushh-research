@@ -654,6 +654,7 @@ tests/test_one_follow_up_suggestions.py
 # Shutdown drain: a stream cut by SIGTERM still ends with a terminal RUN_ERROR.
 tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
+tests/test_chat_memory_manager.py
 tests/test_conversation_titles.py
 tests/scripts/test_eval_one_first_tool.py
 tests/scripts/test_eval_one_first_tool_context.py
@@ -1616,7 +1617,6 @@ tests/test_phone_transfer_postgres.py
 tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
-tests/test_phone_binding_policy.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
@@ -1685,3 +1685,6 @@ tests/services/test_calendar_email_followup_reassess_postgres.py
 tests/services/test_calendar_email_followup_reminder_timing_postgres.py
 tests/services/test_calendar_email_followup_boundaries.py
 tests/test_uat_paused_drive_maintenance.py
+
+# Calendar Follow-ups v4 temporal and schema compatibility regressions.
+tests/services/test_calendar_email_followup_temporal_postgres.py

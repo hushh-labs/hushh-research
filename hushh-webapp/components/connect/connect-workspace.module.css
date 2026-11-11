@@ -1,26 +1,10 @@
+.workspace { composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css"; }
+.circleCreateDetails { composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css"; }
+
 .workspace,
 .circleCreateDetails {
   --page-inline-gutter-standard: 24px;
   --app-shell-reading: 728px;
-  --type-row-label-size: 14px;
-  --type-row-label-weight: 550;
-  --type-row-label-line: 21px;
-  --type-row-label-compact-size: 14px;
-  --type-row-label-compact-weight: 550;
-  --type-row-label-compact-line: 21px;
-  --type-row-description-size: 12px;
-  --type-row-description-weight: 400;
-  --type-row-description-line: 18px;
-  --type-row-description-compact-size: 12px;
-  --type-row-description-compact-line: 18px;
-  --type-section-label-size: 14px;
-  --type-section-label-weight: 600;
-  --type-section-label-line: 22px;
-  --type-form-label-size: 15px;
-  --type-form-label-weight: 550;
-  --type-form-label-line: 22px;
-  --type-input-value-size: 14px;
-  --type-input-value-line: 22px;
   --foundation-title1-size: 28px;
   --foundation-title1-weight: 600;
   --foundation-title1-line: 36px;
@@ -82,20 +66,7 @@
   min-height: 70px;
   padding-block: 10px;
 }
-.workspace
-  :global(
-    [data-row-layout="person-compact"]
-      > div:first-child
-      > button
-      > span:first-child
-  ),
-.workspace
-  :global(
-    [data-row-layout="person-compact"]
-      > div:first-child
-      > div:first-child
-      > span:first-child
-  ) {
+.workspace :global([data-row-layout="person-compact"] [data-slot="settings-row-leading"]) {
   width: 36px;
 }
 .workspace :global([data-testid="connect-directory-group"]),
@@ -421,20 +392,7 @@
     grid-template-columns: 32px minmax(0, 1fr);
     column-gap: 8px;
   }
-  .workspace
-    :global(
-      [data-row-layout="person-compact"]
-        > div:first-child
-        > button
-        > span:first-child
-    ),
-  .workspace
-    :global(
-      [data-row-layout="person-compact"]
-        > div:first-child
-        > div:first-child
-        > span:first-child
-    ) {
+  .workspace :global([data-row-layout="person-compact"] [data-slot="settings-row-leading"]) {
     width: 32px;
   }
   .workspace
@@ -662,6 +620,22 @@
 .viewTabs :global([data-slot="tabs-trigger"][data-state="inactive"]) {
   --app-label: var(--app-secondary-label);
 }
+.inviteCodeActions > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.inviteCodeActions > div > div {
+  width: auto;
+}
+
+.inviteCodeActions button {
+  width: auto;
+}
+
 .quietAction {
   --type-compact-button-label-size: 12px;
   --type-compact-button-label-weight: 550;

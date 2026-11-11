@@ -215,7 +215,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText("Hussh Shared")).toBeTruthy();
     expect(screen.getByText("Hussh Pods")).toBeTruthy();
     expect(
-      screen.getByText("Dedicated hosting is unavailable for new setups."),
+      screen.getByText("Closed to new setups."),
     ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Bring your own cloud/ }),

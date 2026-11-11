@@ -190,7 +190,13 @@ for (const destination of ["mutual-list", "discovery"] as const) {
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.singleMutualSettled)).toBe("1");
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(page.getByTestId("fixture-person-profile")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Explore your network", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Your network", exact: true })).toBeVisible();
+    if (destination === "discovery") {
+      const preview = page.locator("[data-person-profile-preview]");
+      await preview.getByRole("button", { name: "Back to previous screen", exact: true }).click();
+      await expect(preview).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Explore your network", exact: true })).toBeFocused();
+    }
   });
 }
 
@@ -305,19 +311,34 @@ for (const width of [393, 1440]) {
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+    test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
       await settle(page, width);
+      const directory = page.getByTestId("connect-directory-group");
+      const explore = directory.getByRole("button", { name: "Explore your network", exact: true });
+      await expect(explore).toBeVisible();
+      await expect(page.getByRole("tablist", { name: "Connection views" }).getByText("Explore your network")).toHaveCount(0);
+      const [searchBox, exploreBox, firstResult] = await Promise.all([
+        directory.getByRole("textbox", { name: "Search people" }).boundingBox(),
+        explore.boundingBox(),
+        directory.getByText("Avery Stone", { exact: true }).boundingBox(),
+      ]);
+      expect(exploreBox!.height).toBeGreaterThanOrEqual(44);
+      expect(exploreBox!.y).toBeGreaterThanOrEqual(searchBox!.y + searchBox!.height);
+      expect(exploreBox!.y + exploreBox!.height).toBeLessThanOrEqual(firstResult!.y);
+      expect(exploreBox!.x).toBeGreaterThanOrEqual(searchBox!.x - 1);
+      expect(exploreBox!.x + exploreBox!.width).toBeLessThanOrEqual(searchBox!.x + searchBox!.width + 1);
       const workspaceBox = await page.locator("[data-connect-page]").boundingBox();
       expect(workspaceBox).not.toBeNull();
       expect(workspaceBox!.width).toBeLessThanOrEqual(728);
       if (width >= 768) expect(workspaceBox!.width).toBe(728);
       await page.getByRole("tab", { name: /My connections/ }).click();
+      await expect(explore).toBeHidden();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
       await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(0);
-      const contactBadge = connectionGroup.getByLabel("Connected from your contacts");
+      const contactBadge = connectionGroup.getByRole("button", { name: "Via contacts" });
       await expect(contactBadge).toHaveCount(1);
       const contactIcon = await contactBadge.locator("svg").evaluate((icon) => {
         const box = icon.getBoundingClientRect();
@@ -339,8 +360,46 @@ for (const dark of [false, true]) {
       expect(contactIcon.fill).not.toBe(contactIcon.stroke);
       await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
       const connectionRows = connectionGroup.getByTestId("connect-person-row");
-      await expect(connectionRows.filter({ hasText: "Jordan Lee" }).locator('[data-avatar-size="compact"]').getByLabel("Connected from your contacts")).toHaveCount(1);
-      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByLabel("Connected from your contacts")).toHaveCount(0);
+      const jordan = connectionRows.filter({ hasText: "Jordan Lee" });
+      const avatar = jordan.locator('[data-avatar-size="compact"]');
+      const avatarContactBadge = avatar.getByRole("button", { name: "Via contacts" });
+      const riaBadge = avatar.getByRole("button", { name: "Verified Advisor" });
+      await expect(avatarContactBadge).toBeVisible();
+      await expect(riaBadge).toBeVisible();
+      const face = (await avatar.boundingBox())!;
+      const contact = (await avatarContactBadge.boundingBox())!;
+      const advisor = (await riaBadge.boundingBox())!;
+      expect(advisor.y + advisor.height / 2).toBeLessThan(face.y + face.height / 2);
+      expect(contact.y + contact.height / 2).toBeGreaterThan(face.y + face.height / 2);
+      expect(advisor.y + advisor.height).toBeLessThanOrEqual(contact.y);
+      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByRole("button", { name: "Via contacts" })).toHaveCount(0);
+      if (width === WIDTHS[0]) {
+        const glyph = contactBadge.locator("svg");
+        if (testInfo.project.use.hasTouch) await glyph.tap();
+        else await glyph.hover();
+        const contactDetails = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Via contacts" });
+        await expect(contactDetails).toBeVisible();
+        await expect(contactDetails).toContainText("You connected with this person through a match from your synced contacts.");
+        const bounds = (await contactDetails.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        await page.keyboard.press("Escape");
+        await expect(contactDetails).toBeHidden();
+
+        if (testInfo.project.use.hasTouch) await riaBadge.tap();
+        else await riaBadge.hover();
+        const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });
+        await expect(riaDetails).toContainText("Hussh verified this person's advisor profile.");
+        await page.keyboard.press("Escape");
+        await expect(riaDetails).toHaveCount(0);
+
+        if (!testInfo.project.use.hasTouch) {
+          await riaBadge.focus();
+          await expect(riaDetails).toBeAttached();
+          await page.keyboard.press("Escape");
+          await expect(riaDetails).toHaveCount(0);
+        }
+      }
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
@@ -354,16 +413,14 @@ for (const dark of [false, true]) {
       // Feed's ordinary-row anatomy: a 26px face centred in a 30px well, so the
       // face starts 2px in from the row edge, and the row is compact.
       expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left) < 1 && row.avatarWidth === (width <= 350 ? 32 : 36))).toBe(true);
-      expect(rowGeometry.every(row => row.height >= 70)).toBe(true);
+      expect(rowGeometry.every(row => row.height >= 44 && row.height <= 78)).toBe(true);
       expect(rowGeometry.every(row => row.titleRight <= row.trailingLeft && row.date === "Connected 28 Sep")).toBe(true);
       expect(rowGeometry.every(row => row.actions.every(action => action.width >= 44 && action.height >= 44))).toBe(true);
       // The face sits on the centre line of its name block (one line or two), in
       // both lists, never above it.
       const centred = await page.locator('[data-testid="connect-person-row"], [data-testid="directory-person-row"]').evaluateAll((rows) => rows.filter(row => row.getBoundingClientRect().height > 0).map((row) => {
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
-        const title = row.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
-        const description = row.querySelector('[data-slot="settings-row-description"]')?.closest("span:not([data-slot])")?.getBoundingClientRect();
-        const block = description ? { top: title.top, bottom: description.bottom } : { top: title.top, bottom: title.bottom };
+        const block = row.querySelector('[data-slot="settings-row-identity"]')!.getBoundingClientRect();
         return Math.abs((avatar.top + avatar.bottom) / 2 - (block.top + block.bottom) / 2);
       }));
       expect(centred.length).toBeGreaterThan(5);
@@ -666,10 +723,19 @@ for (const width of [320, 393, 768]) {
     const rows = page.getByTestId("connect-my-connections-group").getByTestId("connect-person-row");
 
     // The list is part of the page: not a scroller, not a scroll trap.
-    expect(await list.evaluate((node) => {
-      const s = getComputedStyle(node);
-      return { overflowY: s.overflowY, overscroll: s.overscrollBehaviorY, own: node.scrollHeight - node.clientHeight };
-    })).toEqual({ overflowY: "visible", overscroll: "auto", own: 0 });
+    const supportsOverscroll = await page.evaluate(() =>
+      CSS.supports("overscroll-behavior-y", "contain"),
+    );
+    const listStyle = await list.evaluate(node => {
+      const style = getComputedStyle(node);
+      return {
+        overflowY: style.overflowY,
+        overscroll: style.getPropertyValue("overscroll-behavior-y"),
+        own: node.scrollHeight - node.clientHeight,
+      };
+    });
+    expect(listStyle).toMatchObject({ overflowY: "visible", own: 0 });
+    if (supportsOverscroll) expect(listStyle.overscroll).toBe("auto");
 
     const wheelFromRow = async () => {
       const box = await rows.nth(3).boundingBox();
@@ -710,9 +776,11 @@ for (const width of [320, 393, 768]) {
 
     // Negative control: the old markup (a capped list that contains its
     // overscroll) swallows the same gesture, so the assertion above can fail.
-    await root.evaluate((node) => { node.scrollTop = 0; });
-    await list.evaluate((node) => node.classList.add("max-h-[min(60dvh,28rem)]", "overflow-y-auto", "overscroll-contain"));
-    expect(await wheelFromRow()).toBeLessThan(maxScroll / 2);
+    if (supportsOverscroll) {
+      await root.evaluate((node) => { node.scrollTop = 0; });
+      await list.evaluate((node) => node.classList.add("max-h-[min(60dvh,28rem)]", "overflow-y-auto", "overscroll-contain"));
+      expect(await wheelFromRow()).toBeLessThan(maxScroll / 2);
+    }
   });
 }
 

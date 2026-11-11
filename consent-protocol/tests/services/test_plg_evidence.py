@@ -1243,6 +1243,48 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
         generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text()
     )
     assert {a["action_id"] for a in gateway["actions"]} <= {a["id"] for a in catalog["actions"]}
+    location_ids = {"route.one_location", "location.open_settings"}
+    for environment in ("uat", "production"):
+        location_actions = {
+            row["id"]: (row["agentId"], row["proof"])
+            for row in activity_catalog(environment)["actions"]
+            if row["id"] in location_ids
+        }
+        assert location_actions == {
+            key: ("agent_location", "client_reported") for key in location_ids
+        }
+    document_actions = [a for a in catalog["actions"] if a["id"].startswith("document.")]
+    assert document_actions
+    assert all(a["agentId"] == "agent_documents" for a in document_actions)
+    mail_actions = [a for a in catalog["actions"] if a["id"].startswith("profile.gmail.")]
+    assert mail_actions
+    assert all(a["agentId"] == "agent_email" for a in mail_actions)
+    memory_ids = {
+        "pkm.export_memory",
+        "pkm.edit_memory",
+        "pkm.delete_memory",
+        "pkm.prepare_capture",
+        "pkm.retry_capture_section",
+        "pkm.save_capture",
+        "profile.world_model.confirm_fact",
+        "profile.world_model.reject_fact",
+        "profile.world_model.edit_fact",
+        "profile.world_model.remove_fact",
+    }
+    memory_actions = [a for a in catalog["actions"] if a["id"] in memory_ids]
+    assert {a["id"] for a in memory_actions} == memory_ids
+    assert all(a["agentId"] == "agent_personal_information" for a in memory_actions)
+    assert all(a["proof"] == "client_reported" for a in memory_actions)
+    kyc_import = next(a for a in catalog["actions"] if a["id"] == "kyc.save_profile")
+    assert kyc_import["agentId"] == "agent_kyc"
+    assert kyc_import["proof"] == "client_reported"
+    calendar_ids = {"calendar.connection.connect", "calendar.connection.disconnect"}
+    calendar_actions = [a for a in catalog["actions"] if a["id"] in calendar_ids]
+    assert {a["id"] for a in calendar_actions} == calendar_ids
+    assert all(
+        a["agentId"] == "agent_calendar" and a["proof"] == "client_reported"
+        for a in calendar_actions
+    )
     chat = [a for a in catalog["actions"] if a["id"].startswith("chat:")]
     assert {a["agentId"] for a in chat} == {
         "agent_one",

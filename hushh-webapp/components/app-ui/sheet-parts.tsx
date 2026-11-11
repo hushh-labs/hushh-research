@@ -36,7 +36,7 @@ export function SheetActions({ className, ...props }: React.ComponentProps<"div"
 }
 
 export function SheetPersonRow({ avatar, name, detail, checked, disabled, onCheckedChange, label } : {
-  avatar: React.ReactNode; name: string; detail?: string; checked: boolean; disabled?: boolean;
+  avatar: React.ReactNode; name: string; detail?: React.ReactNode; checked: boolean; disabled?: boolean;
   onCheckedChange: (checked: boolean) => void; label: string;
 }) {
   const detailId = React.useId();

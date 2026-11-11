@@ -94,7 +94,8 @@ RESTORATION_FIXTURE_OWNER_TESTS = (
     "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_phone_schema_origin.py",
     "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-    "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
+    "consent-protocol/tests/test_phone_schema_job_history.py",
+    "consent-protocol/tests/test_phone_schema_qualification.py",
 )
 
 
@@ -200,6 +201,8 @@ def _governance_plan(paths: tuple[str, ...]) -> dict:
         "CI_CHANGED_FILES": "\n".join(paths),
     }
     env.pop("CI_CHANGED_FILES_FILE", None)
+    # These fixtures check standalone Governance ownership without the hosted Protocol lane.
+    env.pop("CI_PROTOCOL_CONTROLLER_OWNER", None)
     result = subprocess.run(  # noqa: S603 - invokes the repository's fixed governance selector
         [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--plan"],
         cwd=ROOT,
@@ -443,13 +446,26 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
     assert schema["auth_health_only"] == "false"
 
     backend_output = jobs["preflight-gate"]["outputs"]["backend"]
-    assert "needs.paths.outputs.auth_health_only == 'true'" in backend_output
+    assert backend_output == "${{ needs.paths.outputs.backend_required }}"
+    required = jobs["paths"]["outputs"]["backend_required"]
+    assert (
+        required
+        == "${{ github.event_name == 'pull_request' && (github.event.pull_request.draft || steps.resolve.outputs.auth_health_only == 'true') && 'false' || steps.resolve.outputs.backend }}"
+    )
+    governance_step = next(
+        step
+        for step in jobs["repo-governance"]["steps"]
+        if step.get("name") == "Run repo governance checks"
+    )
+    assert (
+        governance_step["env"]["CI_PROTOCOL_CONTROLLER_OWNER"]
+        == "${{ inputs.production_recovery_sha == '' && needs.paths.outputs.backend_required || 'false' }}"
+    )
     assert jobs["preflight-gate"]["needs"] == [
         "ui-contracts",
         "secret-scan",
         "dco-check",
         "pr-base-policy",
-        "repo-governance",
         "paths",
     ]
 
@@ -473,12 +489,27 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     assert not backend.match_file(".github/workflows/ci.yml")
 
 
+def test_dev_cloud_removal_operator_stays_with_its_functional_backend_owner() -> None:
+    path = "scripts/ops/recover_dev_cloud_removal.py"
+    assert _filters()["backend"].match_file(path)
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == []
+    unknown = _governance_plan(("scripts/ops/new_unowned_removal.py",))
+    assert "unrecognized scripts owner path" in unknown["selection_error"]
+
+
 def test_engineering_judge_contract_keeps_full_coverage_without_backend_selection() -> None:
     path = "consent-protocol/tests/test_memory_judge.py"
     backend = _filters()["backend"]
     assert not backend.match_file(path)
     assert backend.match_file("consent-protocol/scripts/ops/memory_judge.py")
     assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
+    assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
+    assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
+    assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
+    assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
     plan = _governance_plan((path,))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["agent"]
@@ -496,8 +527,11 @@ def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
     focused = {
         "scripts/ops/sync_backend_runtime_secrets.py",
         "scripts/ops/runtime_config_retention.py",
+        "scripts/ops/upsert_gcp_secret.py",
+        "scripts/ops/prune_gcp_secret_versions.py",
     }
     for path in focused:
+        assert not filters["backend"].match_file(path), path
         plan = _governance_plan((path,))
         assert plan["selection_error"] is None
         commands = {row["id"]: row["argv"] for row in plan["commands"]}
@@ -588,10 +622,11 @@ def test_restoration_fixture_inputs_select_transitive_controller_owner_only() ->
     backend = _filters()["backend"]
     for path in RESTORATION_FIXTURE_INPUTS:
         assert not backend.match_file(path), path
+    drive_suite = "consent-protocol/tests/test_prod_drive_deploy_contract.py"
+    assert not backend.match_file(drive_suite)
     for path in (
         "consent-protocol/tests/test_phone_schema_origin.py",
         "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-        "consent-protocol/tests/test_prod_drive_deploy_contract.py",
         "consent-protocol/hushh_mcp/services/account_deletion_service.py",
         "consent-protocol/db/schema.sql",
         "consent-protocol/migrations/20261001_example.sql",
@@ -616,6 +651,14 @@ def test_restoration_fixture_inputs_select_transitive_controller_owner_only() ->
     ]
     assert "protocol-check" not in commands
     assert "cloudrun-retention" not in commands
+    assert drive_suite in commands["release-controller-contracts"]
+    drive_plan = _governance_plan((drive_suite,))
+    assert drive_plan["selection_error"] is None
+    assert drive_plan["selected_groups"] == ["controller"]
+    assert any(
+        row["id"] == "release-controller-contracts" and drive_suite in row["argv"]
+        for row in drive_plan["commands"]
+    )
 
 
 def test_route_metadata_keeps_web_ownership_without_unrelated_document_webkit() -> None:
@@ -836,8 +879,25 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
     assert "consent-protocol/tests/test_database_connection_ceiling.py" in controller["argv"]
 
 
-def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
+def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes(
+    monkeypatch,
+) -> None:
+    # A real backend job must not change these hypothetical path-plan inputs.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("CI_PROTOCOL_CONTROLLER_OWNER", "true")
     paths = (
+        "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
+        "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+        "consent-protocol/tests/test_pwm_runtime_probe.py",
+        "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
+        "consent-protocol/tests/scripts/test_probe_drive_activity_planner.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_runner.py",
+        "consent-protocol/tests/test_vertex_capability_probe.py",
+        "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
+        "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
+        "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
+        "consent-protocol/tests/test_location_workflow_compatibility.py",
         "consent-protocol/tests/test_runtime_config_retention.py",
         "consent-protocol/tests/test_plg_deploy_bindings.py",
         "consent-protocol/tests/test_azure_runtime_config_wiring.py",
@@ -866,6 +926,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_v1_worker_lane.py",
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
         "consent-protocol/tests/test_drive_worker_release_rollback.py",
+        "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+        "consent-protocol/tests/test_protected_document_release_contract.py",
         "consent-protocol/tests/test_database_connection_ceiling.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",
@@ -901,6 +963,13 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
     assert backend.match_file("consent-protocol/hushh_mcp/services/account_deletion_service.py")
     assert backend.match_file("consent-protocol/db/migrations/098_pkm_v7_recovery_foundation.sql")
     assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
+    assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
+    assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
+    assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
+    assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
+    assert not backend.match_file("consent-protocol/scripts/verify_azure_pwm_runtime.py")
+    assert not backend.match_file("consent-protocol/scripts/managed_vertex_readiness.py")
     plan = _governance_plan((*paths, dedicated))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["controller"]
@@ -922,6 +991,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "scripts/ops/sync_backend_runtime_secrets.py",
         "scripts/ops/runtime_config_retention.py",
         "deploy/plg/bind_secrets.sh",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
     ):
         assert not backend.match_file(source)
         source_plan = _governance_plan((source,))
@@ -937,6 +1008,16 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
 
     # Every consumer of this inert fixture belongs to the same focused owner;
     # adding a consumer cannot silently leave fixture-only changes uncovered.
+    calendar_fixture = "consent-protocol/tests/helpers/calendar_followup_scheduler.py"
+    assert not backend.match_file(calendar_fixture)
+    calendar_plan = _governance_plan((calendar_fixture,))
+    assert calendar_plan["selection_error"] is None
+    calendar_commands = {row["id"]: row["argv"] for row in calendar_plan["commands"]}
+    assert (
+        "consent-protocol/tests/test_calendar_followup_scheduler_contract.py"
+        in calendar_commands["release-controller-contracts"]
+    )
+
     fixture = "consent-protocol/tests/helpers/plg_qualification.py"
     assert not backend.match_file(fixture)
     fixture_plan = _governance_plan((fixture,))

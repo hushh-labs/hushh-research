@@ -28,8 +28,15 @@ from typing import Any, Callable
 from sqlalchemy import text
 
 from db.db_client import DatabaseClient, get_db
+from hushh_mcp.operons.location.policy import (
+    LOCATION_PEER_UNAVAILABLE,
+    LOCATION_PEER_UNAVAILABLE_MESSAGE,
+)
 from hushh_mcp.runtime_settings import get_core_security_settings
-from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.account_deletion_lifecycle_service import (
+    AccountDeletionLifecycleService,
+    is_account_deletion_write_guard,
+)
 from hushh_mcp.services.circle_photo import validate_circle_photo
 from hushh_mcp.services.connection_graph_service import (
     ensure_connection_origin,
@@ -537,6 +544,10 @@ class OneLocationCircleService:
         return format_circle_code(raw)
 
     def _safe_db_failure(self, operation: str, exc: Exception) -> OneLocationCircleError:
+        if is_account_deletion_write_guard(exc):
+            return OneLocationCircleError(
+                LOCATION_PEER_UNAVAILABLE, LOCATION_PEER_UNAVAILABLE_MESSAGE, status_code=409
+            )
         logger.warning(
             "one_location.circle_db_failed operation=%s error_type=%s",
             operation,
@@ -1668,6 +1679,9 @@ class OneLocationCircleService:
         """Keep the emergency roster, legacy mirror and command receipt atomic."""
         action = "location.add_emergency_contact" if added else "location.remove_emergency_contact"
         with self._db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                conn, user_ids=(owner_user_id, contact_user_id)
+            )
             receipt = None
             if operation_id:
                 from hushh_mcp.services.location_command_effect_receipts import CommandEffectReceipt
@@ -1834,6 +1848,11 @@ class OneLocationCircleService:
                       jsonb_build_object('migratedFrom', 'sms_contacts')
                     FROM one_location_sms_contacts sms
                     WHERE sms.owner_user_id = :owner_user_id
+                      AND NOT EXISTS (
+                        SELECT 1 FROM public.account_deletion_tombstones tombstone
+                        WHERE tombstone.user_id_hash =
+                          'sha256:' || encode(digest(BTRIM(sms.contact_user_id), 'sha256'), 'hex')
+                      )
                       AND NOT EXISTS (
                         SELECT 1
                         FROM one_location_circle_memberships m
@@ -3177,6 +3196,13 @@ class OneLocationCircleService:
                 WHERE circle.id = CAST(:circle_id AS UUID)
                   AND circle.status = 'active'
                   AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones tombstone
+                    WHERE tombstone.user_id_hash = 'sha256:' || encode(digest(
+                      BTRIM(CASE WHEN connection.user_a_id = :actor_user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END), 'sha256'
+                    ), 'hex')
+                  )
+                  AND NOT EXISTS (
                     SELECT 1
                     FROM one_location_circle_memberships membership
                     WHERE membership.circle_id = circle.id
@@ -3326,7 +3352,13 @@ class OneLocationCircleService:
                       ELSE 2
                     END AS match_rank
                   FROM candidates
-                  WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                  WHERE (:query = '' OR POSITION(:query IN normalized_name) > 0)
+                    AND NOT EXISTS (
+                      SELECT 1 FROM public.account_deletion_tombstones tombstone
+                      WHERE tombstone.user_id_hash = 'sha256:' || encode(digest(
+                        BTRIM(candidates.user_id), 'sha256'
+                      ), 'hex')
+                    )
                 ), filtered AS (
                   -- A single character is only meaningful as a BEGINNING:
                   -- mid-word it matches most names in any list, which is
@@ -3681,10 +3713,9 @@ class OneLocationCircleService:
             with (
                 nullcontext(_connection) if _connection is not None else self._db.engine.begin()
             ) as conn:
-                if signup_insert_only:
-                    # Existing Circle writers use shared deletion barriers.
-                    # An exclusive graph gate here would invert their profile
-                    # locks against membership INSERT's shared trigger guards.
+                if _connection is None or signup_insert_only:
+                    # Fence erasure before receipt, Circle and connection locks.
+                    # Bulk callers already fenced the whole reviewed audience.
                     AccountDeletionLifecycleService.lock_user_writes_in_transaction(
                         conn, user_ids={actor_user_id, *cleaned_invitee_user_ids}
                     )
@@ -3812,9 +3843,13 @@ class OneLocationCircleService:
                         WHERE circle_id = CAST(:circle_id AS UUID)
                           AND status = 'pending'
                           AND expires_at <= NOW()
+                          AND invitee_user_id = ANY(CAST(:invitee_user_ids AS TEXT[]))
                         """
                     ),
-                    {"circle_id": cleaned_circle_id},
+                    {
+                        "circle_id": cleaned_circle_id,
+                        "invitee_user_ids": cleaned_invitee_user_ids,
+                    },
                 )
                 target_membership_rows = _all(
                     conn.execute(
@@ -4559,6 +4594,11 @@ class OneLocationCircleService:
                       ON membership.circle_id = CAST(:circle_id AS UUID)
                      AND membership.user_id = direct.user_id
                     WHERE direct.user_id <> :actor_user_id
+                      AND NOT EXISTS (
+                        SELECT 1 FROM public.account_deletion_tombstones tombstone
+                        WHERE tombstone.user_id_hash =
+                          'sha256:' || encode(digest(BTRIM(direct.user_id), 'sha256'), 'hex')
+                      )
                     ORDER BY direct.user_id
                     """,
                     {
@@ -4652,6 +4692,9 @@ class OneLocationCircleService:
         membership_batch_id = str(uuid.uuid4())
         try:
             with self._db.engine.begin() as conn:
+                AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                    conn, user_ids=(actor_user_id, *ids)
+                )
                 for start in range(0, len(ids), CIRCLE_MEMBER_ADD_CHUNK):
                     chunk = ids[start : start + CIRCLE_MEMBER_ADD_CHUNK]
                     try:

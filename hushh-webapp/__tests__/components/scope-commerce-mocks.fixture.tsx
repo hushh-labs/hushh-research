@@ -23,7 +23,9 @@ vi.mock("@/components/consent/document-hashcoins", () => ({ DocumentHashcoinPayo
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search), useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/profile/use-native-payouts", () => ({ useNativePayouts: () => ({
-  pages: [{ id: "payouts", title: "Payments and earnings", sections: [] }], rows: new Map(), busy: false,
+  pages: [{ id: "payouts", title: "Payouts", sections: [
+    { id: "payout-your-money", title: "Your money", rows: [] }, { id: "payout-activity", title: "Activity", rows: [] },
+  ] }], rows: new Map(), busy: false,
   back: () => false, ancestor: () => false, reset: () => undefined, onPresented: () => undefined,
 }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "vault-owner-token" }) }));

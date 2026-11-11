@@ -5,8 +5,6 @@
   --foundation-title3-size: var(--app-side-pane-row-title-size, 14px);
   --foundation-title3-line: var(--app-side-pane-row-title-line, 22px);
   --foundation-title3-weight: var(--app-side-pane-row-title-weight, 600);
-  --type-input-value-size: var(--profile-type-label-size, 14px);
-  --type-input-value-line: var(--profile-type-label-line, 22px);
   font-family: var(--font-app-body);
 }
 
@@ -114,8 +112,6 @@
   --foundation-title3-size: var(--profile-type-dialog-title-size, 20px);
   --foundation-title3-line: var(--profile-type-dialog-title-line, 28px);
   --foundation-title3-weight: var(--profile-type-dialog-title-weight, 600);
-  --type-input-value-size: var(--profile-type-label-size, 14px);
-  --type-input-value-line: var(--profile-type-label-line, 22px);
   font-family: var(--font-app-body);
 }
 
@@ -127,9 +123,9 @@
 
 .portal :global(label > span),
 .portal :global(fieldset > legend) {
-  font-size: var(--app-side-pane-row-title-size, 15px);
-  line-height: var(--app-side-pane-row-title-line, 22px);
-  font-weight: var(--app-side-pane-row-title-weight, 550);
+  font-size: var(--type-form-label-size);
+  line-height: var(--type-form-label-line);
+  font-weight: var(--type-form-label-weight);
 }
 
 .chatCard,
@@ -173,11 +169,6 @@
 }
 
 @media (max-width: 620px) {
-  .workspace,
-  .portal {
-    --type-input-value-size: 16px;
-  }
-
   .utility {
   --type-compact-button-label-size: var(--profile-type-action-size, 12px);
   font-size: var(--profile-type-description-size, 12px);
@@ -191,14 +182,80 @@
   .joinLink { min-width: 72px; padding-inline: 9px; }
 }
 
-.permissions { display: grid; gap: .5rem; }
-.permissionsHeading { color: var(--ios-account-secondary-label, var(--app-secondary-label)); font-size: var(--app-side-pane-section-size, 12px); line-height: var(--app-side-pane-section-line, 18px); font-weight: var(--app-side-pane-section-weight, 600); letter-spacing: var(--app-side-pane-section-tracking, normal); }
-.permissions ul { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
-.permissions li { display: flex; align-items: flex-start; gap: .5rem; color: var(--app-label); font-size: var(--profile-type-label-size, 13px); line-height: var(--profile-type-label-line, 19px); font-weight: 400; }
-.permissions li svg { margin-top: .1rem; color: var(--app-success); }
-
 /* Profile roles for dialog chrome: primary buttons take the label role and the
    dialog description the description role. Outside the Calendar scope the
    fallbacks keep the app-wide values. */
 .portal { --type-button-label-size: var(--app-side-pane-row-title-size, 17px); --type-button-label-line: var(--app-side-pane-row-title-line, 22px); --type-button-label-weight: var(--app-side-pane-row-title-weight, 650); }
 .portal :global([data-slot="dialog-description"]) { font-size: var(--profile-type-description-size, 14px); line-height: var(--profile-type-description-line, 20px); }
+
+/* Calendar surfaces use Connect's roles while keeping their own layout. */
+.scope {
+  composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css";
+  --app-side-pane-row-title-size: var(--type-row-label-size);
+  --app-side-pane-row-title-line: var(--type-row-label-line);
+  --app-side-pane-row-title-weight: var(--type-row-label-weight);
+  --app-side-pane-section-size: var(--type-section-label-size);
+  --app-side-pane-section-line: var(--type-section-label-line);
+  --app-side-pane-section-weight: var(--type-section-label-weight);
+  --app-side-pane-section-tracking: normal;
+  --profile-type-label-size: var(--type-row-label-size);
+  --profile-type-label-line: var(--type-row-label-line);
+  --profile-type-label-weight: var(--type-row-label-weight);
+  --profile-type-description-size: var(--type-row-description-size);
+  --profile-type-description-line: var(--type-row-description-line);
+  --profile-type-action-size: var(--type-compact-button-label-size);
+  --profile-type-action-line: var(--type-compact-button-label-line);
+  --profile-type-action-weight: var(--type-compact-button-label-weight);
+  --profile-type-dialog-title-size: 20px;
+  --profile-type-dialog-title-line: 28px;
+  --profile-type-dialog-title-weight: 600;
+  --profile-type-dialog-description-size: var(--type-row-description-size);
+  --profile-type-dialog-description-line: var(--type-row-description-line);
+  --profile-type-dialog-action-size: var(--type-compact-button-label-size);
+  --profile-type-dialog-action-weight: var(--type-compact-button-label-weight);
+  --type-button-label-size: var(--type-compact-button-label-size);
+  --type-button-label-line: var(--type-compact-button-label-line);
+  --type-button-label-weight: var(--type-compact-button-label-weight);
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+}
+
+.scope :is(:global([data-slot="dialog-title"]), :global([data-slot="alert-dialog-title"])) {
+  --foundation-title2-size: var(--profile-type-dialog-title-size);
+  --foundation-title2-line: var(--profile-type-dialog-title-line);
+  --foundation-title2-weight: var(--profile-type-dialog-title-weight);
+  font-size: var(--profile-type-dialog-title-size);
+  line-height: var(--profile-type-dialog-title-line);
+  font-weight: var(--profile-type-dialog-title-weight);
+  overflow-wrap: anywhere;
+}
+
+.scope :is(:global([data-slot="dialog-description"]), :global([data-slot="alert-dialog-description"])) {
+  font-size: var(--type-row-description-size);
+  line-height: var(--type-row-description-line);
+  font-weight: var(--type-row-description-weight);
+}
+
+.scope :is(input:not([type="checkbox"], [type="radio"]), textarea, select) {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--type-input-value-size);
+  line-height: var(--type-input-value-line);
+}
+
+.scope :is(:global([data-slot="dropdown-menu-item"]), :global([data-slot="dropdown-menu-radio-item"]), :global([data-slot="select-item"])) {
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: var(--type-row-label-weight);
+}
+
+.scope :global([data-slot="button"]) {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.portal { composes: scope; }
+.calendarDirective { composes: scope; }
+.calendarPrompt { composes: scope; }
+.chatCard { composes: scope; }

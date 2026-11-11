@@ -53,6 +53,11 @@ describe("Calendar HUSSH identity resolution", () => {
   it("keeps ambiguous owner and peer email claims as initials", () => {
     const people = resolve([connection("peer", "owner@example.test", husshPhoto)]);
     expect(calendarHusshPerson(people, "owner@example.test")).toBeNull();
+    const known = resolve([], { ownerAliases: [alias("linked@example.test")] });
+    const eventPeople = calendarEventPeople(known, {
+      "linked@example.test": { userId: "peer", displayName: "Peer", photoUrl: googlePhoto },
+    }, "owner");
+    expect(calendarHusshPerson(eventPeople, "linked@example.test")).toBeNull();
   });
 
   it("reflects updated and removed profile photos on the next bounded read", () => {

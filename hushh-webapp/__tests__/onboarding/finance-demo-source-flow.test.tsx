@@ -4,7 +4,10 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import { useState } from "react";
+import type { KaiPreferences } from "@/lib/services/kai-profile-service";
 import { beforeEach, expect, it, vi } from "vitest";
 import { FinanceImportOnboardingSetupClient } from "@/app/one/setup/finance/import/finance-import-onboarding-setup-client";
 import { PortfolioPersona } from "@/components/kai/advisor/portfolio-persona";
@@ -16,6 +19,7 @@ const state = vi.hoisted(() => ({
   sync: vi.fn(),
   savePreferences: vi.fn(),
   getProfile: vi.fn(),
+  vaultLocked: false,
   current: true,
   ready: false,
   resumed: false,
@@ -47,12 +51,15 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
   useFinanceShareContext: () => ({
-    capture: () => ({
-      userId: "owner",
-      vaultKey: "synthetic",
-      vaultOwnerToken: "synthetic",
-      isCurrent: () => state.current,
-    }),
+    capture: () =>
+      state.vaultLocked
+        ? null
+        : {
+            userId: "owner",
+            vaultKey: "synthetic",
+            vaultOwnerToken: "synthetic",
+            isCurrent: () => state.current,
+          },
   }),
 }));
 vi.mock("@/lib/services/kai-profile-service", () => ({
@@ -101,6 +108,7 @@ vi.mock("@/components/kai/kai-flow", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   state.current = true;
+  state.vaultLocked = false;
   state.source = null;
   state.resumed = false;
   state.bootstrap.mockResolvedValue(state.journey);
@@ -188,6 +196,19 @@ it("saves the persona before import and keeps risk comfort separate from near-te
   expect(screen.getByText("Real source workflow")).toBeVisible();
 });
 
+it("skips unanswered persona questions and continues to import with a locked vault", () => {
+  state.vaultLocked = true;
+  state.bootstrap.mockResolvedValue({ ...state.journey, hasVault: true });
+  render(<FinanceImportOnboardingSetupClient showIntroduction />);
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  fireEvent.click(screen.getByRole("radio", { name: "Less than 3 years" }));
+  fireEvent.click(screen.getByRole("button", { name: "Skip all" }));
+  expect(screen.getByText("Real source workflow")).toBeVisible();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(state.bootstrap).not.toHaveBeenCalled();
+  expect(state.savePreferences).not.toHaveBeenCalled();
+});
+
 it("recovers the explicit completion screen from a verified persisted source callback", () => {
   state.resumed = true;
   render(<FinanceImportOnboardingSetupClient showIntroduction />);
@@ -220,74 +241,38 @@ it("does not show completion or mutate the journey when the owner retires during
   expect(screen.queryByRole("heading", { name: "You're all set" })).toBeNull();
 });
 
-it("retakes a saved persona in Portfolio Analysis and updates its badge", async () => {
-  state.getProfile.mockResolvedValue({
-    preferences: {
-      investment_horizon: "long_term",
-      drawdown_response: "reduce",
-      volatility_preference: "small",
-      loss_capacity: "flexible",
-    },
+it("opens a single 13-question assessment directly and updates the saved badge", async () => {
+  const starter = {
+    investment_horizon: "long_term",
+    drawdown_response: "reduce",
+    volatility_preference: "small",
+    loss_capacity: "flexible",
+  } as KaiPreferences;
+  state.savePreferences.mockImplementation(async ({ updates, beforeEffect }) => {
+    await beforeEffect();
+    return { preferences: { ...starter, ...updates } };
   });
-  render(
-    <PortfolioPersona
-      context={{
-        userId: "owner",
-        vaultKey: "synthetic",
-        vaultOwnerToken: "synthetic",
-        getIdToken: async () => "synthetic",
-        isCurrent: () => state.current,
-      }}
-    />,
-  );
-  expect(await screen.findByText("Careful")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Edit persona" }));
-  expect(
-    screen.getByRole("radio", { name: "More than 7 years" }),
-  ).toBeChecked();
-  fireEvent.click(
-    screen.getByRole("radio", {
-      name: "Keep my investments while I review my plan",
-    }),
-  );
-  fireEvent.click(screen.getByRole("radio", { name: "Lose 15% or gain 18%" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
-  expect(
-    await screen.findByRole("heading", { name: "Your investing persona" }),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
-  expect(screen.getByText("Balanced")).toBeVisible();
-  expect(state.savePreferences).toHaveBeenCalledWith(
-    expect.objectContaining({ mode: "edit" }),
-  );
-});
-
-it("saves the 13-question assessment and lets the owner retake it", async () => {
-  state.getProfile.mockResolvedValue({
-    preferences: {
-      investment_horizon: "long_term",
-      drawdown_response: "reduce",
-      volatility_preference: "small",
-      loss_capacity: "flexible",
-    },
-  });
+  const context = {
+    userId: "owner",
+    vaultKey: "synthetic",
+    vaultOwnerToken: "synthetic",
+    getIdToken: async () => "synthetic",
+    isCurrent: () => state.current,
+  };
   const onSaved = vi.fn();
-  render(
-    <PortfolioPersona
-      context={{
-        userId: "owner",
-        vaultKey: "synthetic",
-        vaultOwnerToken: "synthetic",
-        getIdToken: async () => "synthetic",
-        isCurrent: () => state.current,
-      }}
-      onSaved={onSaved}
-    />,
-  );
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Edit persona" }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Open detailed assessment" }));
+  function Fixture() {
+    const [preferences, setPreferences] = useState(starter);
+    return <PortfolioPersona context={context} preferences={preferences} onSaved={(value) => {
+      setPreferences(value);
+      onSaved(value);
+    }} />;
+  }
+  render(<Fixture />);
+  expect(screen.getByText("Careful")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Refine persona" }));
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByRole("progressbar", { name: "Assessment answers" })).toHaveAttribute("aria-valuenow", "0");
+  expect(screen.queryByRole("button", { name: "Open detailed assessment" })).toBeNull();
   for (let index = 0; index < 13; index++) {
     expect(screen.getByText(`Question ${index + 1} of 13`)).toBeVisible();
     fireEvent.click(screen.getAllByRole("radio")[index < 8 ? 2 : 0]);
@@ -312,7 +297,7 @@ it("saves the 13-question assessment and lets the owner retake it", async () => 
   );
   expect(onSaved).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
-  expect(screen.getByText("Growth-oriented")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Edit persona" }));
+  expect(within(screen.getByRole("button", { name: "Refine persona" }).parentElement!).getByText("Growth-oriented")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Refine persona" }));
   expect(screen.getAllByRole("radio")[2]).toBeChecked();
 });

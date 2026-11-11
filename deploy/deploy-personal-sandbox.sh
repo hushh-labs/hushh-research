@@ -11,14 +11,15 @@ region=us-central1
 owner="${SANDBOX:-ankit}"
 approved_sha=
 approved_tar=
-case "$owner/${GITHUB_ACTOR:-}/${GITHUB_TRIGGERING_ACTOR:-}" in
-  ankit/ankitkumarsingh1702/ankitkumarsingh1702)
+python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR:?}"
+case "$owner" in
+  ankit)
     invoker=ankit@hushh.ai
     auth_project=hushh-team-sandbox-auth
     adc_project=$project
     baseline=e8c9b607229f87ba33cc3af838d880abdff8ec28
     ;;
-  akshat/ankitkumarsingh1702/ankitkumarsingh1702|akshat/RGlodAkshat/RGlodAkshat)
+  akshat)
     invoker=i-akshat@hush1one.com
     auth_project=hushh-akshat-sandbox-auth
     adc_project=$auth_project
@@ -27,7 +28,7 @@ case "$owner/${GITHUB_ACTOR:-}/${GITHUB_TRIGGERING_ACTOR:-}" in
     # Hash the Git tar before compression so gzip implementation is immaterial.
     approved_tar=8ca26e5c906f28acce2ce6e3c5caeacb60853d9c059da15c190939225d5184c5
     ;;
-  *) die "The actor and rerun actor are not authorized for this sandbox." ;;
+  *) die "Unknown sandbox; no resources selected." ;;
 esac
 service="backend-dev-$owner"
 bucket="$project-$service-builds"

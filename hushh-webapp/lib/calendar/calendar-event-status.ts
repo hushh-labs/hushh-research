@@ -1,5 +1,9 @@
 import type { CalendarEventSummary } from "@/lib/services/google-calendar-service";
 
+export function isFinalInvitationResponse(status?: string | null): status is "accepted" | "declined" {
+  return status === "accepted" || status === "declined";
+}
+
 function civilDateAt(instant: number, zone: string): string {
   const parts = new Intl.DateTimeFormat("en", {
     timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit",

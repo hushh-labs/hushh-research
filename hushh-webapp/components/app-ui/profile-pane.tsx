@@ -84,26 +84,48 @@ function markProfilePane(name: string): void {
  * waits for that frame (two animation frames: the first runs just before it
  * paints, the second just after), then builds the page in a transition React
  * may interrupt. The slide itself is transform and opacity only, so it keeps
- * moving on the compositor while the page renders underneath it.
+ * moving on the compositor while the page renders underneath it. If the
+ * document becomes hidden before those frames run, there is no visible slide
+ * to protect, so the admitted page can mount without waiting on rAF.
  *
  * Reduced motion has no slide to protect, so the page mounts at once.
  */
-function useProfilePaneFirstFramePainted(): boolean {
+function useProfilePaneFirstFramePainted(active: boolean): boolean {
   const [painted, setPainted] = useState(prefersReducedMotion);
   useEffect(() => {
-    if (painted) return;
+    if (painted || !active) return;
+    let first = 0;
     let second = 0;
-    const first = window.requestAnimationFrame(() => {
-      markProfilePane("hushh:profile-pane-first-frame");
-      second = window.requestAnimationFrame(() => {
-        startTransition(() => setPainted(true));
-      });
-    });
+    let completed = false;
+    const complete = (withoutTransition = false) => {
+      if (completed) return;
+      completed = true;
+      if (withoutTransition) setPainted(true);
+      else startTransition(() => setPainted(true));
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") complete(true);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (document.visibilityState === "hidden") {
+      complete(true);
+    } else {
+      const paintFirstFrame = () => {
+        if (completed) return;
+        markProfilePane("hushh:profile-pane-first-frame");
+        second = window.requestAnimationFrame(() => {
+          complete();
+        });
+      };
+      first = window.requestAnimationFrame(paintFirstFrame);
+    }
     return () => {
+      completed = true;
       window.cancelAnimationFrame(first);
       window.cancelAnimationFrame(second);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [painted]);
+  }, [active, painted]);
   return painted;
 }
 
@@ -139,10 +161,10 @@ function ProfilePaneShell() {
  * after each close: every open starts from the shell, and a close (or a move
  * between panels while open) never shows it again.
  */
-function ProfilePaneBody({ location, nativeControlsEligible }: {
-  location: ProfilePaneLocation; nativeControlsEligible: boolean;
+function ProfilePaneBody({ active, location, nativeControlsEligible }: {
+  active: boolean; location: ProfilePaneLocation; nativeControlsEligible: boolean;
 }) {
-  const firstFramePainted = useProfilePaneFirstFramePainted();
+  const firstFramePainted = useProfilePaneFirstFramePainted(active);
   // Mounted once per open, inside the committed sheet content: the evidence a
   // requested open is actually showing (voice settles on this, not the ask).
   useEffect(() => {
@@ -176,7 +198,7 @@ export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
     void (async () => {
       try {
         const capabilities = await nativeDrawerAcknowledged(nativeDrawers().getCapabilities());
-        if (current) setNativeScore(capabilities.profileNetWorthScore === true);
+        if (current) setNativeScore(capabilities.profileNetWorthAmount === true);
       } catch {
         if (current) setNativeScore(false);
       }
@@ -473,7 +495,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
           className="profile-pane-scroll-root min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePaneBody location={location} nativeControlsEligible={false} />
+          <ProfilePaneBody active={open} location={location} nativeControlsEligible={false} />
         </div>
       </SheetContent>
     </Sheet>

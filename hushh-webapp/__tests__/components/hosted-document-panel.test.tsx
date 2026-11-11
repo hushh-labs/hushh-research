@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
+const reported = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("@/lib/observability/product-activity-client", () => ({ captureProductAttempt: reported.capture }));
 const polls = vi.hoisted(() => new Map<string, () => void | Promise<void>>());
 vi.mock("@/lib/perf/use-periodic-task", () => ({
   usePeriodicTask: (id: string, _interval: number, run: () => void | Promise<void>, options: { enabled?: boolean }) => {
@@ -32,9 +34,22 @@ import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
 const requestId = "11111111-1111-4111-8111-111111111111";
 const terms = (extra: Partial<HostedTermsProjection> = {}) => ({ requestId, revision: 1, receiveThrough: "one", status: "ready_for_buyer", ownerUserId: "a", recipientUserId: "b", accessExpiresAt: "2027-01-01T00:00:00Z", amountCents: 100, currency: "usd", terms: { recipientKeyId: "key", revision: 1 }, termsDigest: "t", packageDigest: "d", files: [], hostedUrl: `/one/documents/open?ref=${requestId}`, ...extra });
 const mount = (userId: string) => render(<HostedDocumentPanelBody session={{ userId, vaultKey: "vault", vaultOwnerToken: "owner", isCurrent: () => true }} requestId={requestId} getIdToken={async () => "one-id-token"} onChanged={() => undefined} />);
-beforeEach(() => { vi.clearAllMocks(); state.sourceSelection.mockReset().mockResolvedValue({ requestId, revision: 1, files: [] }); state.timeline.mockResolvedValue({ items: [], nextCursor: null }); state.payment.mockResolvedValue({ status: "awaiting_payment", paymentsReady: false, ownerPayoutAccountReady: false }); });
+beforeEach(() => { vi.clearAllMocks(); reported.capture.mockImplementation(() => ({ started: vi.fn(), settled: vi.fn() })); state.sourceSelection.mockReset().mockResolvedValue({ requestId, revision: 1, files: [] }); state.timeline.mockResolvedValue({ items: [], nextCursor: null }); state.payment.mockResolvedValue({ status: "awaiting_payment", paymentsReady: false, ownerPayoutAccountReady: false }); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("hosted document payout and link boundaries", () => {
+  it.each(["TimeoutError", "AbortError", "Error"])("keeps a document mutation %s distinct from a confirmed failure", async name => {
+    state.terms.mockResolvedValue(terms({ status: "requested", terms: null, termsDigest: null, packageDigest: null, hostedUrl: null }));
+    state.revoke.mockRejectedValueOnce(Object.assign(new Error("controlled mutation result"), { name }));
+    mount("a");
+    fireEvent.click(await screen.findByRole("button", { name: "Decline request" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Decline request" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unavailable");
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.revoke", "a");
+    const attempt = reported.capture.mock.results[0]!.value;
+    expect(attempt.started).toHaveBeenCalledOnce();
+    if (name === "Error") expect(attempt.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    else expect(attempt.settled).not.toHaveBeenCalled();
+  });
   it.each([
     ["requested", "one"], ["awaiting_owner", "both"], ["preparing_on_owner_device", "one"], ["staged", "both"],
   ] as const)("lets the owner decline an unapproved %s request through %s only after confirmation", async (status, receiveThrough) => {
@@ -51,6 +66,7 @@ describe("hosted document payout and link boundaries", () => {
     act(() => { expect(dismissTopmostOverlay()).toBe(true); });
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(state.revoke).not.toHaveBeenCalled();
+    expect(reported.capture).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Decline request" }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Decline request" }));
     await waitFor(() => expect(state.revoke).toHaveBeenCalledOnce());
@@ -61,6 +77,9 @@ describe("hosted document payout and link boundaries", () => {
     expect(state.approve).not.toHaveBeenCalled();
     expect(state.payment).not.toHaveBeenCalled();
     expect(state.checkout).not.toHaveBeenCalled();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.revoke", "a");
+    expect(reported.capture.mock.results[0]!.value.started).toHaveBeenCalledOnce();
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
   it("restores the existing owner payout setup and explains that unavailable payments do not open checkout", async () => {
     state.terms.mockResolvedValue(terms({ ownerSetup: { ownerPriceRequired: false, ownerPayoutAccountReady: false, paymentsReady: false } }));
@@ -147,6 +166,9 @@ describe("hosted document payout and link boundaries", () => {
     expect(screen.queryByRole("button", { name: "Approve prepared copies" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Prepare encrypted copies" })).toBeEnabled();
     expect(state.prepare).toHaveBeenCalledOnce(); expect(state.approve).toHaveBeenCalledOnce(); expect(onChanged).not.toHaveBeenCalled();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.prepare", "a");
+    expect(reported.capture.mock.results[0]!.value.started).toHaveBeenCalledOnce();
+    expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
   });
   it("keeps recovery available without offering premature access revocation when source catalog is unavailable", async () => {
     state.terms.mockResolvedValue(terms({ status: "requested", files: [], hostedUrl: null }));
@@ -246,12 +268,15 @@ describe("hosted document payout and link boundaries", () => {
     expect(new Date((deadline as HTMLInputElement).value).toISOString()).toBe(new Date(localDeadline).toISOString());
     expect(prepare).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Stop .*access|Stop both/ })).not.toBeInTheDocument();
+    expect(reported.capture).not.toHaveBeenCalled(); // Background polling is not an attempt.
     fireEvent.click(screen.getByRole("button", { name: "Choose files" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Choose files" })).toBeEnabled());
     expect(prepare).toBeEnabled();
     expect(screen.getByRole("checkbox", { name: /Original.pdf/ })).toBeChecked();
     expect(state.selectDocuments).not.toHaveBeenCalled();
     expect(state.sourceSelection).toHaveBeenCalledOnce();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.choose", "a");
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("cancelled");
     fireEvent.click(screen.getByRole("button", { name: "Choose files" }));
     expect(await screen.findByRole("checkbox", { name: /Chosen.pdf/ })).not.toBeChecked();
     expect(screen.queryByRole("button", { name: "Prepare encrypted copies" })).not.toBeInTheDocument();
@@ -265,6 +290,8 @@ describe("hosted document payout and link boundaries", () => {
     expect(state.terms).toHaveBeenCalledTimes(2); // Initial load and the explicit background tick.
     expect(onChanged).not.toHaveBeenCalled();
     expect(picker.accessToken).toBe("");
+    expect(reported.capture).toHaveBeenCalledTimes(2);
+    expect(reported.capture.mock.results[1]!.value.settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
   it("retains the approval acknowledgement after preparation fails and retries with its current revision", async () => {
     const file = { fileRef: requestId, name: "Original.pdf", documentId: requestId, mimeType: "application/pdf", size: 10, providerFileId: "provider", sourceRevision: "1", sourceSha256: null };
@@ -292,6 +319,9 @@ describe("hosted document payout and link boundaries", () => {
     expect(state.approve.mock.calls[1]![2].copyAccepted).toBe(true);
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
     expect(await screen.findByRole("button", { name: "Approve prepared copies" })).toBeEnabled();
+    expect(reported.capture.mock.calls).toEqual([["document.hosted.prepare", "a"], ["document.hosted.prepare", "a"]]);
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    expect(reported.capture.mock.results[1]!.value.settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
   it("keeps private owner recovery and revoke and recipient paid reading independent of source catalog and a missing hosted URL", async () => {
     const approved = terms({ status: "delivered", recoveryRequested: true, hostedUrl: null });

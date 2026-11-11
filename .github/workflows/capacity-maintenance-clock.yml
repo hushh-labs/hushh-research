@@ -36,6 +36,9 @@ permissions:
 jobs:
   check:
     name: Check for due maintenance without cloud credentials
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -206,6 +209,36 @@ jobs:
           if (( elapsed < CLOCK_MIN_ELAPSED_SECONDS )); then
             echo "::error title=Capacity clock::This check started ${elapsed}s ago; the capacity-maintenance-clock environment must hold a 60-minute wait timer. Not queuing the next check."
             exit 1
+          fi
+          successor="$(python3 - <<'PY_CLOCK'
+          import json, os, subprocess
+          repository = os.environ["GITHUB_REPOSITORY"]
+          current = int(os.environ["GITHUB_RUN_ID"])
+          path = ".github/workflows/capacity-maintenance-clock.yml"
+          prefix = f"repos/{repository}/actions"
+          workflow = json.loads(subprocess.check_output(["gh", "api", prefix + "/workflows/capacity-maintenance-clock.yml"]))
+          found = False
+          for state in ("pending", "queued", "waiting"):
+              data = json.loads(subprocess.check_output(["gh", "api", prefix + f"/workflows/capacity-maintenance-clock.yml/runs?branch=main&status={state}&per_page=100"]))
+              rows = data.get("workflow_runs")
+              if not isinstance(rows, list) or data.get("total_count") != len(rows) or len(rows) >= 100:
+                  raise SystemExit("Clock successor inventory is incomplete; no rearm admitted")
+              for run in rows:
+                  if run.get("id") == current:
+                      continue
+                  if (run.get("workflow_id") != workflow.get("id") or run.get("path", "").split("@", 1)[0] != path
+                          or run.get("head_branch") != "main" or run.get("status") != state
+                          or any(run.get(k, {}).get("full_name") != repository for k in ("repository", "head_repository"))):
+                      raise SystemExit("Clock successor identity is unproved")
+                  if run.get("event") == "schedule" or (run.get("event") == "repository_dispatch"
+                          and run.get("actor", {}).get("type") == "Bot" and run.get("actor", {}).get("login") == "github-actions[bot]"):
+                      found = True
+          print("true" if found else "false")
+          PY_CLOCK
+          )"
+          if [[ "$successor" == true ]]; then
+            echo "An existing queued or waiting clock will perform the next check; no duplicate rearm." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           for attempt in 1 2 3; do
             if gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=capacity-maintenance-clock; then

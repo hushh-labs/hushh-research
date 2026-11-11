@@ -12,13 +12,6 @@ import type {
 
 const ACTIVE = new Set(["needs_review", "pending", "snoozed"]);
 
-export function senderName(value: string): string {
-  const name = (value.split("<")[0] ?? "").trim().replace(/^"|"$/g, "");
-  if (name && !name.includes("@")) return name;
-  const address = value.match(/<([^>]+)>/)?.[1] ?? value;
-  return address.split("@")[0] || value;
-}
-
 export function shortDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(`${value.slice(0, 10)}T12:00:00Z`);
@@ -46,6 +39,9 @@ export function dueText(request: FollowupPreviewRequest, zone = "UTC"): string {
     return time ? `${day}, ${time} · Proposed` : `${day} · Time to confirm`;
   }
   const day = shortDate(request.due_date);
+  if (day && request.bucket === "overdue") return `Overdue · was due ${day}`;
+  if (day && request.bucket === "history" && request.after_date === "lapses" && isActive(request)) return `Ended ${day}`;
+  if (day && request.category === "scheduled_event") return `On ${day}`;
   if (day) return request.due_relation === "before" ? `Due before ${day}` : `Due ${day}`;
   if (request.urgency === "asap") return "Urgent · No date given";
   return "No date given";
@@ -55,26 +51,40 @@ export function isActive(request: Pick<FollowupPreviewRequest, "state">): boolea
   return ACTIVE.has(request.state);
 }
 
+function categoryRank(category: FollowupPreviewRequest["category"]): number {
+  if (category === "document_or_information" || category === "deliverable_deadline") return 0;
+  if (category === "meeting_request" || category === "schedule_change") return 1;
+  return 2;
+}
+
 /**
- * The one request a conversation row is about: the earliest verified date,
- * then explicit urgency, then the first active item. The server orders
+ * The one request a conversation row is about: verified date, explicit
+ * urgency, then document/deadline or meeting value. The server orders
  * conversations the same way, so the row and the order agree.
  */
 export function primaryRequest(entry: Pick<FollowupConversation, "preview_requests">): FollowupPreviewRequest | undefined {
+  const first = entry.preview_requests[0];
+  if (first?.bucket) return first;
   const active = entry.preview_requests.filter(isActive);
   const pool = active.length ? active : entry.preview_requests;
-  const dated = pool
-    .map(item => ({ item, at: item.due_date || item.proposed_date }))
-    .filter((entry): entry is { item: FollowupPreviewRequest; at: string } => Boolean(entry.at))
-    .sort((a, b) => a.at.localeCompare(b.at));
-  return dated[0]?.item ?? pool.find(item => item.urgency === "asap") ?? pool[0];
+  return [...pool].sort((left, right) => {
+    const leftDate = left.due_date || left.proposed_date;
+    const rightDate = right.due_date || right.proposed_date;
+    const leftRank = leftDate ? 0 : left.urgency === "asap" ? 1 : 2;
+    const rightRank = rightDate ? 0 : right.urgency === "asap" ? 1 : 2;
+    return leftRank - rightRank || categoryRank(left.category) - categoryRank(right.category)
+      || (leftDate || "9999").localeCompare(rightDate || "9999");
+  })[0];
 }
 
-export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string; more: number } {
-  const next = primaryRequest(entry);
-  const active = entry.preview_requests.filter(isActive).length || entry.active_count;
-  const detail = [next ? dueText(next, zone) : "Needs review", `From ${senderName(entry.sender)}`].join(" · ");
-  return { title: next?.title || entry.subject, detail, more: Math.max(0, active - 1) };
+export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string } {
+  const request = primaryRequest(entry);
+  if (!request) return { title: "Follow-up", detail: "" };
+  const more = Math.max(0, entry.active_count - 1);
+  return {
+    title: request.title,
+    detail: [dueText(request, zone), more ? `+${more} more` : null].filter(Boolean).join(" · "),
+  };
 }
 
 export function reminderText(request: FollowupRequest, zone: string): string {
@@ -94,7 +104,7 @@ export function gmailMessageUrl(accountEmail: string, gmailMessageId: string): s
   return `https://mail.google.com/mail/u/${encodeURIComponent(accountEmail)}/#all/${encodeURIComponent(gmailMessageId)}`;
 }
 
-export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "reconnect" | "retry" | null };
+export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "reconnect" | null };
 
 /**
  * A recoverable background retry is quiet. Only a state the owner can fix gets
@@ -104,12 +114,9 @@ export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "
 export function coverageNotice(coverage: FollowupCoverage | null | undefined, vaultUnlocked = true): CoverageNotice | null {
   if (!coverage || coverage.coverage === "complete") return null;
   if (coverage.coverage === "catching_up") return { tone: "quiet", text: "Catching up on your email…", action: null };
-  // Reconnecting or retrying needs the unlocked vault. Offering either while it is
-  // locked sends the owner through Google again without fixing anything.
+  if (coverage.attention !== "reconnect_mail") return null;
   if (!vaultUnlocked) return { tone: "quiet", text: "Unlock One to check your email.", action: null };
-  if (coverage.attention === "reconnect_mail") return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
-  if (coverage.attention === "provider_unavailable") return { tone: "action", text: "Google is not responding right now. We’ll keep trying.", action: "retry" };
-  return { tone: "action", text: "A few emails could not be read yet.", action: "retry" };
+  return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
 }
 
 /**

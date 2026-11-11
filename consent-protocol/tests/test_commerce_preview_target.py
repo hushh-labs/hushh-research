@@ -236,7 +236,7 @@ def test_preview_keeps_authority_gates_and_checks_bindings_before_promotion():
     )
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
-    assert names.index("Assert manual dispatch originates from dev") < names.index(
+    assert names.index("Assert manual dispatch originates from Main") < names.index(
         "Resolve fixed deployment target"
     )
     assert names.index("Assert manual dev dispatch actor policy") < names.index(

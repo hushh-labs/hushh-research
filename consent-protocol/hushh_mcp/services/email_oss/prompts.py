@@ -8,6 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.services.email_oss.memory import MAX_MEMORY_CHARS
 
 
 def get_agent_manifest(agent: str = "email"):
@@ -31,7 +32,7 @@ def build_email_instruction(
     ZoneInfo(timezone)
     if (
         now_utc.tzinfo is None
-        or len(current_memory_md) > 18_000
+        or len(current_memory_md.encode("utf-16-le")) // 2 > MAX_MEMORY_CHARS
         or len(pending_email_draft) > 18_000
     ):
         raise ValueError("Invalid Email turn context")

@@ -408,6 +408,9 @@ async def _probe_managed_text() -> None:
 
 
 async def probe() -> None:
+    mode = os.environ.get("MANAGED_READINESS_MODE", "full")
+    if mode not in {"core", "full"}:
+        raise RuntimeError("Managed readiness mode is invalid")
     if os.environ.get("ENVIRONMENT") != "uat":
         raise RuntimeError("Azure PWM runtime probe is UAT-only")
     _initialize_synthetic_runtime()
@@ -425,17 +428,6 @@ async def probe() -> None:
     print(json.dumps(event), flush=True)
     if event["result"] != "ok":
         raise ReadinessProbeError(event)
-    if policy["provider"] == "azure_openai_tavily":
-        from hushh_mcp.one_adk.tavily_search import extract_tavily_receipts, search_tavily
-
-        search_started = time.monotonic()
-        search = await repeat_stage_once(
-            "tavily_search", lambda: search_tavily("Tavily Search documentation")
-        )
-        receipt = extract_tavily_receipts(search)
-        if not receipt.observed or not receipt.sources:
-            raise RuntimeError("Tavily search readiness requires received sources")
-        _stage("tavily_search", "ok", started_at=search_started)
     await repeat_stage_once("managed_text", _probe_managed_text)
     started_at = time.monotonic()
     _stage("federation", "start", started_at=started_at)
@@ -449,6 +441,19 @@ async def probe() -> None:
     _stage("primary", "start", started_at=started_at)
     await repeat_stage_once("primary", lambda: _probe_primary(config, lambda: token))
     _stage("primary", "ok", started_at=started_at)
+    if mode == "core":
+        return
+    if policy["provider"] == "azure_openai_tavily":
+        from hushh_mcp.one_adk.tavily_search import extract_tavily_receipts, search_tavily
+
+        search_started = time.monotonic()
+        search = await repeat_stage_once(
+            "tavily_search", lambda: search_tavily("Tavily Search documentation")
+        )
+        receipt = extract_tavily_receipts(search)
+        if not receipt.observed or not receipt.sources:
+            raise RuntimeError("Tavily search readiness requires received sources")
+        _stage("tavily_search", "ok", started_at=search_started)
     from scripts.probe_managed_capabilities import probe_managed_capabilities
 
     capabilities = await probe_managed_capabilities("azure_openai")
@@ -474,7 +479,10 @@ def main() -> int:
             flush=True,
         )
         return 1
-    print(json.dumps({"azure_pwm_runtime_probe_result": "ok"}))
+    result = {"azure_pwm_runtime_probe_result": "ok"}
+    if os.environ.get("MANAGED_READINESS_MODE", "full") == "core":
+        result["qualification_mode"] = "core"
+    print(json.dumps(result))
     return 0
 
 

@@ -10,6 +10,31 @@ import AVFoundation
 import AppIntents
 #endif
 
+enum HushhFirebaseIdentity {
+    static let sharedName = "hushh-shared-identity"
+    static let uatAnalyticsAppID = "1:745506018753:ios:efea0fede200b1d1778b40"
+
+    static var shared: FirebaseApp? { FirebaseApp.app(name: sharedName) }
+    static var app: FirebaseApp? { shared ?? FirebaseApp.app() }
+    static var auth: Auth { shared.map { Auth.auth(app: $0) } ?? Auth.auth() }
+
+    static func configureSharedIdentity() {
+        guard FirebaseApp.app()?.options.googleAppID == uatAnalyticsAppID else { return }
+        guard let file = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist",
+                                          inDirectory: "FirebaseIdentity"),
+              let options = FirebaseOptions(contentsOfFile: file),
+              options.projectID == "hushh-pda", options.gcmSenderID == "1006304528804",
+              options.googleAppID == "1:1006304528804:ios:eb2720b5eda7da4bcfd931",
+              let clientID = options.clientID, !clientID.isEmpty else {
+            preconditionFailure("UAT iOS shared Firebase identity is missing or invalid")
+        }
+        if shared == nil { FirebaseApp.configure(name: sharedName, options: options) }
+        // The default sender owns UAT Analytics only. The notification bridge
+        // explicitly requests and unregisters tokens for the shared sender.
+        Messaging.messaging().isAutoInitEnabled = false
+    }
+}
+
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
     private static let consentNotificationCategory = "CONSENT_REQUEST"
@@ -44,6 +69,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("ℹ️ [AppDelegate] Firebase already initialized")
         }
 
+        HushhFirebaseIdentity.configureSharedIdentity()
         AppLifecycleHandlers.install()
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
         requestVoiceDeviceTestMicrophonePermissionIfNeeded()
@@ -67,6 +93,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
         // Pass APNs token to Firebase Messaging
         Messaging.messaging().apnsToken = deviceToken
+        if let shared = HushhFirebaseIdentity.shared {
+            Auth.auth(app: shared).setAPNSToken(deviceToken, type: .unknown)
+        }
         print("✅ [AppDelegate] APNs token registered with Firebase Messaging")
         logNotificationSettings(context: "didRegisterForRemoteNotifications")
     }
@@ -81,6 +110,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        if let shared = HushhFirebaseIdentity.shared, Auth.auth(app: shared).canHandleNotification(userInfo) {
+            completionHandler(.noData)
+            return
+        }
         if ["location_share_revoked", "location_share_expired"].contains(userInfo["type"] as? String ?? ""),
            let user = userInfo["user_id"] as? String, let grant = userInfo["grant_id"] as? String,
            ChatPreviewKeys.recipientKey(userInfo) != nil {

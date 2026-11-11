@@ -288,7 +288,7 @@ def test_matching_branch_authority_preserves_main_and_refuses_provider_drift() -
             "state": "ACTIVE",
             "attributeMapping": module.MAPPING,
             "oidc": {"issuerUri": module.ISSUER},
-            "attributeCondition": expected["legacy"],
+            "attributeCondition": expected["previous_condition"],
         }
         calls = []
 
@@ -301,20 +301,14 @@ def test_matching_branch_authority_preserves_main_and_refuses_provider_drift() -
                 return {"name": expected["name"] + "/operations/fixture", "done": True}
             return dict(provider)
 
-        assert module.reconcile(api, environment)["state"] == "main-only"
+        assert module.reconcile(api, environment)["state"] == "branch-enabled"
         assert all(method == "GET" for method, _, _ in calls)
         assert module.reconcile(api, environment, apply=True)["state"] == "ready"
         assert sum(method == "PATCH" for method, _, _ in calls) == 1
         assert module.reconcile(api, environment, apply=True)["changed"] is False
-        assert expected["condition"].startswith("(" + expected["legacy"] + ") || ")
-        assert (
-            f"deploy-{environment}-implementation.yml@refs/heads/main"
-            in expected["condition"]
-        )
-        assert (
-            f"deploy-{environment}.yml@refs/heads/{environment}"
-            in expected["condition"]
-        )
+        assert expected["condition"] == expected["legacy"]
+        assert f"refs/heads/{environment}" not in expected["condition"]
+        assert "refs/heads/main" in expected["condition"]
         provider["attributeCondition"] = "true"
         before = len(calls)
         try:

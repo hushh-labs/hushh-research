@@ -2460,7 +2460,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.calendar",
-          "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking dialog with exact review and confirmation; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
+          "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking form whose Schedule meeting action confirms the displayed details; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
           "screen": "calendar",
           "entry_cue": "Connect Calendar when you want schedule help from One.",
           "proactivity": "ambient",
@@ -2506,6 +2506,8 @@
       },
       "voice_action_contract_file": "app/one/calendar/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "calendar.connection.connect",
+        "calendar.connection.disconnect",
         "calendar.invitation.review",
         "calendar.read"
       ],
@@ -3280,6 +3282,7 @@
       },
       "voice_action_contract_file": "app/one/gmail/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "kyc.save_profile",
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.receipt_sync_details",
@@ -5006,6 +5009,7 @@
       },
       "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "messages.copy_text",
         "route.messages_connections"
       ],
       "api_dependencies": [],
@@ -5084,7 +5088,13 @@
       "voice_action_contract_ids": [
         "pkm.close_sharing_bundle_review",
         "pkm.close_sharing_price_review",
-        "pkm.review_sharing_price"
+        "pkm.delete_memory",
+        "pkm.edit_memory",
+        "pkm.export_memory",
+        "pkm.prepare_capture",
+        "pkm.retry_capture_section",
+        "pkm.review_sharing_price",
+        "pkm.save_capture"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -6516,7 +6526,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.payouts",
-          "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
+          "purpose": "Help the person manage payout setup, earnings and transaction history without changing consent or financial authority.",
           "screen": "profile_payouts",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -9901,7 +9911,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
+          "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
           "next_route": "/one/setup",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -9930,10 +9940,19 @@
       "voice_action_contract_ids": [
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
-        "phone_mandate.review_previous_deletion",
+        "phone_mandate.delete_previous",
+        "phone_mandate.delete_previous_cancel",
+        "phone_mandate.delete_previous_confirm",
+        "phone_mandate.delete_previous_verify_again",
+        "phone_mandate.recover",
+        "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
+        "phone_mandate.send_real_sms",
         "phone_mandate.submit_code",
-        "phone_mandate.submit_number"
+        "phone_mandate.submit_number",
+        "phone_mandate.transfer_cancel",
+        "phone_mandate.transfer_confirm",
+        "phone_mandate.transfer_review"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -11055,5 +11074,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "fd7c9e4b3e64ff635adac57cd99d04ae6841812c1508488bd324041661a554f1"
+  "content_sha256": "7b234ede0f3b9bf08b4b5d0ef636e57219f042825e3218f8316901337e83a661"
 }

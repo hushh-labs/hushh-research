@@ -1,14 +1,22 @@
 """Real transactional connection activation, sealed-snapshot release and erasure."""
 
+import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import text
 from test_finance_sharing_postgres import envelope, finance_db, projection_db  # noqa: F401
 
-from hushh_mcp.services.advisor_review_contract import CreateAdvisorReview
+from hushh_mcp.services.advisor_review_billing import AdvisorBillingService
+from hushh_mcp.services.advisor_review_contract import (
+    AdvisorPlan,
+    CreateAdvisorReview,
+    PlanCheckout,
+)
 from hushh_mcp.services.advisor_review_service import AdvisorReviewService
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError
 
@@ -45,6 +53,8 @@ def advisor_db(finance_db, monkeypatch):  # noqa: F811
         )
     db.apply_migrations(["447_finance_advisor_handshake.sql"])
     db.apply_migrations(["447_finance_advisor_handshake.sql"])
+    db.apply_migrations(["456_finance_advisor_one_time_payment.sql"])
+    db.apply_migrations(["456_finance_advisor_one_time_payment.sql"])
     with db.engine.connect() as conn:
         ref = conn.execute(
             text("SELECT public_person_ref FROM actor_profiles WHERE user_id='bob'")
@@ -125,6 +135,34 @@ def test_connection_and_snapshot_acceptance_roll_back_together(advisor_db, monke
         )
 
 
+def test_connected_acceptance_reuses_edge_and_requires_the_displayed_connection(advisor_db):
+    db, service, approved = advisor_db
+    created = service.create("alice", approved)
+    key = created["id"]
+    assert "alreadyConnected" not in service.view("bob", key)
+    assert service.view("bob", key, current_ui=True)["alreadyConnected"] is False
+    with pytest.raises(AdvisorReviewError, match="REQUEST_CHANGED"):
+        service.decide("bob", key, "accept", require_existing_connection=True)
+    assert "envelope" not in service.view("bob", key)
+    with db.engine.begin() as conn:
+        edge = conn.execute(
+            text(
+                "UPDATE connections SET status='active' WHERE user_a_id='alice' AND user_b_id='bob' RETURNING id"
+            )
+        ).scalar_one()
+    pending = service.view("bob", key, current_ui=True)
+    assert pending["alreadyConnected"] is True
+    assert "envelope" not in pending
+    service.decide("bob", key, "accept", require_existing_connection=True)
+    assert service.view("bob", key)["envelope"]["recipientKeyId"] == "bob-key"
+    with db.engine.connect() as conn:
+        assert (
+            conn.execute(text("SELECT connection_id FROM advisor_review_requests")).scalar_one()
+            == edge
+        )
+        assert conn.execute(text("SELECT count(*) FROM connection_origins")).scalar_one() == 0
+
+
 def test_accept_withdraw_race_has_one_terminal_outcome(advisor_db):
     db, service, approved = advisor_db
     created = service.create("alice", approved)
@@ -157,6 +195,12 @@ def test_erasure_queues_provider_cleanup_without_retaining_identity(advisor_db):
             {"id": created["id"], "hash": "a" * 64},
         )
         conn.execute(
+            text("""INSERT INTO advisor_review_payments
+            (request_id,plan_revision,plan_hash,amount_cents,payee_account,checkout_session_id,status)
+            VALUES(CAST(:id AS uuid),2,:hash,2500,'acct_synthetic','cs_test_one_time','checkout_pending')"""),
+            {"id": created["id"], "hash": "a" * 64},
+        )
+        conn.execute(
             text("DELETE FROM advisor_review_requests WHERE id=CAST(:id AS uuid)"),
             {"id": created["id"]},
         )
@@ -166,7 +210,128 @@ def test_erasure_queues_provider_cleanup_without_retaining_identity(advisor_db):
                 "SELECT resource_id,resource_kind FROM advisor_billing_cleanup ORDER BY resource_id"
             )
         ).all()
-        assert rows == [("cs_test_synthetic", "checkout"), ("sub_synthetic", "subscription")]
+        assert rows == [
+            ("cs_test_one_time", "checkout"),
+            ("cs_test_synthetic", "checkout"),
+            ("sub_synthetic", "subscription"),
+        ]
+        assert conn.execute(text("SELECT count(*) FROM advisor_review_payments")).scalar_one() == 0
+
+
+def test_one_time_checkout_reuses_open_session_and_preserves_prior_payment(advisor_db, monkeypatch):
+    db, service, approved = advisor_db
+    request_id = service.create("alice", approved)["id"]
+    service.decide("bob", request_id, "accept")
+    monkeypatch.setenv("RIA_STRIPE_TEST_SECRET_KEY", "sk_test_" + "a" * 30)
+    monkeypatch.setenv("RIA_STRIPE_TEST_WEBHOOK_SECRET", "whsec_" + "b" * 30)
+    monkeypatch.setattr(
+        "hushh_mcp.services.advisor_payment_checkout._app_origin",
+        lambda: "https://uat.example.test",
+    )
+    with db.engine.begin() as conn:
+        conn.execute(
+            text("""CREATE TABLE stripe_owner_payout_accounts (
+            user_id text, stripe_mode text, stripe_account_id text,
+            details_submitted boolean, payouts_enabled boolean
+        );
+        INSERT INTO stripe_owner_payout_accounts VALUES ('bob','test','acct_advisor',true,true);
+        """)
+        )
+        conn.execute(
+            text("""UPDATE advisor_review_requests SET meeting=CAST(:meeting AS jsonb)
+            WHERE id=CAST(:id AS uuid)"""),
+            {"id": request_id, "meeting": json.dumps({"status": "completed"})},
+        )
+    session = {
+        "id": "cs_test_advisor",
+        "livemode": False,
+        "client_reference_id": request_id,
+        "mode": "payment",
+        "currency": "usd",
+        "amount_total": 2500,
+        "status": "open",
+        "url": "https://checkout.stripe.com/test",
+    }
+
+    def create_session(**kwargs):
+        session["metadata"] = kwargs["metadata"]
+        return dict(session)
+
+    create = Mock(side_effect=create_session)
+    provider = SimpleNamespace(
+        Account=SimpleNamespace(
+            retrieve=Mock(
+                return_value={
+                    "id": "acct_advisor",
+                    "details_submitted": True,
+                    "payouts_enabled": True,
+                    "capabilities": {"transfers": "active"},
+                }
+            )
+        ),
+        checkout=SimpleNamespace(
+            Session=SimpleNamespace(
+                create=create,
+                retrieve=lambda *_args, **_kwargs: dict(session),
+            )
+        ),
+    )
+    billing = AdvisorBillingService(db, provider)
+    plan = AdvisorPlan(
+        amountCents=2500,
+        interval="one_time",
+        services="One portfolio review and a follow-up call.",
+        cancellationTerms="Cancel before the advisor starts work.",
+    )
+    billing.offer("bob", request_id, plan)
+    consent = PlanCheckout(planRevision=1, acceptPayment=True)
+    first = billing.checkout("alice", request_id, consent)
+    assert billing.checkout("alice", request_id, consent) == first
+    create.assert_called_once()
+    with pytest.raises(AdvisorReviewError, match="BILLING_IN_PROGRESS"):
+        billing.offer("bob", request_id, plan)
+    session.update(
+        status="complete",
+        payment_status="paid",
+        payment_intent={
+            "id": "pi_advisor",
+            "livemode": False,
+            "status": "succeeded",
+            "currency": "usd",
+            "amount_received": 2500,
+            "transfer_data": {"destination": "acct_advisor"},
+            "metadata": session["metadata"],
+            "latest_charge": {
+                "payment_intent": "pi_advisor",
+                "livemode": False,
+                "paid": True,
+                "captured": True,
+                "currency": "usd",
+                "amount_captured": 2500,
+                "amount_refunded": 0,
+                "created": 1760000000,
+            },
+        },
+    )
+    assert billing.reconcile("alice", request_id)["status"] == "paid"
+    with pytest.raises(AdvisorReviewError, match="ALREADY_PAID"):
+        billing.checkout("alice", request_id, consent)
+    billing.offer("bob", request_id, plan.model_copy(update={"amountCents": 3500}))
+    assert billing.reconcile("alice", request_id) == {
+        "mode": "test",
+        "status": "not_started",
+        "planRevision": 2,
+        "lastPayment": {
+            "amountCents": 2500,
+            "paidAt": "2025-10-09T08:53:20+00:00",
+            "status": "paid",
+        },
+    }
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT plan_revision,amount_cents,status FROM advisor_review_payments")
+        ).all()
+        assert rows == [(1, 2500, "paid")]
 
 
 def test_disconnect_reconnect_cannot_restore_snapshot_and_owner_erasure_removes_request(advisor_db):

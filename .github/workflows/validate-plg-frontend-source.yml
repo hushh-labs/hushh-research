@@ -18,6 +18,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
 
@@ -31,12 +32,17 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha }}
       environment_name: validation
       scope: ${{ 'validation' }}
 
   admit:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
     needs: deployment-security
     name: Admit PLG frontend source
     runs-on: ubuntu-24.04
@@ -71,6 +77,10 @@ jobs:
 
       - name: Require governed production actors
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           [[ "$(git -C authority rev-parse HEAD)" == "$GITHUB_SHA" ]]
@@ -284,6 +294,10 @@ jobs:
   gate:
     name: PLG Frontend Source Validation Gate
     needs: [admit, frontend, deployment-security]
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

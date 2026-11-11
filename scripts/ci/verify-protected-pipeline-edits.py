@@ -40,8 +40,29 @@ def _load_policy() -> dict:
         raw = subprocess.check_output(
             ["git", "show", f"{base}:config/ci-governance.json"], cwd=REPO_ROOT, text=True
         )
-        return json.loads(raw)
-    return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+        policy = json.loads(raw)
+        branch = event["pull_request"]["base"].get("ref")
+        if branch in {"dev", "uat"} and policy.get("authorization", {}).get("native_teams") is True:
+            repository = "hushh-labs/hushh-research"
+            pr = event["pull_request"]
+            if (os.environ.get("GITHUB_REPOSITORY") != repository
+                    or event.get("repository", {}).get("full_name") != repository
+                    or pr["base"].get("repo", {}).get("full_name") != repository):
+                raise GuardResolutionError("Main policy requires a canonical Dev/UAT destination")
+            from queue_combined_result import authority_policy
+            try:
+                _, policy = authority_policy(repository, branch, base)
+            except (ValueError, OSError, subprocess.SubprocessError):
+                raise GuardResolutionError("Protected Main editing policy is unavailable") from None
+        if policy.get("authorization", {}).get("native_teams") and os.environ.get("GITHUB_ACTIONS") != "true":
+            from github_team_authority import local_policy
+            policy = local_policy(policy)
+        return policy
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("authorization", {}).get("native_teams") and os.environ.get("GITHUB_ACTIONS") != "true":
+        from github_team_authority import local_policy
+        policy = local_policy(policy)
+    return policy
 
 
 def _normalize_csv(value: str | None) -> list[str]:
@@ -178,7 +199,7 @@ def resolve_allowed_users(main_policy: dict) -> list[str]:
     return users
 
 
-SEMANTIC_PIPELINE_PATHS = ("hushh-webapp/package.json", "consent-protocol/scripts/test-ci.manifest.txt")
+SEMANTIC_PIPELINE_PATHS = ("hushh-webapp/package.json", "packages/hushh-mcp/package.json", "consent-protocol/scripts/test-ci.manifest.txt")
 
 
 def authored_change_base(target: str, head: str, *, repository_root: Path) -> str:
@@ -227,7 +248,8 @@ def _ci_npm_roots(revision: str, *, repository_root=None) -> set[str]:
                or path.startswith("scripts/ci/") and path.endswith(".sh") and not Path(path).name.startswith("test_")]
     if not callers or len(callers) > 200:
         raise GuardResolutionError("Pinned CI callers are unavailable or incomplete")
-    roots = {"preinstall", "install", "postinstall", "prepublish", "prepare"}
+    roots = {"preinstall", "install", "postinstall", "prepublish", "prepare",
+             "prepack", "postpack", "prepublishOnly", "publish", "postpublish"}
     for path in callers:
         raw = subprocess.check_output(["git", "show", f"{revision}:{path}"], cwd=repository_root, text=True, timeout=30)
         code = "\n".join(line for line in raw.splitlines() if not line.lstrip().startswith(("#", "//")))
@@ -482,7 +504,8 @@ def main() -> int:
     policy = _load_policy()
     main_policy = policy["main"]
     try:
-        allowed_users = resolve_allowed_users(main_policy)
+        hosted_team_review = policy.get("authorization", {}).get("native_teams") and os.environ.get("GITHUB_ACTIONS") == "true"
+        allowed_users = [] if hosted_team_review else resolve_allowed_users(main_policy)
     except PolicyError as exc:
         print(f"ERROR: {exc}")
         return 1
@@ -514,6 +537,12 @@ def main() -> int:
         semantic = semantic_pipeline_changes(changed_files, base=base, head=head, authority=authority,
                                              repository_root=Path.cwd())
         protected_paths = [*protected_paths, *semantic]
+    if hosted_team_review:
+        # Classification and malformed-manifest checks above still run. Native
+        # protected review and Main's queue authorization own current membership;
+        # PR-controlled jobs never receive the membership App credential.
+        print("Protected changes classified; current team approval is required by native review and trusted merge admission.")
+        return 0
     approvals: list[str] = []
     if event_name in {"pull_request", "pull_request_target"} and not args.files:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())

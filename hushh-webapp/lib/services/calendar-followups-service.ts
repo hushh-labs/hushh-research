@@ -31,9 +31,11 @@ export type FollowupStatus = {
   time_zone: string | null;
 };
 
+export type FollowupView = "upcoming" | "overdue" | "snoozed" | "history";
+
 export type FollowupCategory =
   | "meeting_request" | "schedule_change" | "document_or_information"
-  | "deliverable_deadline" | "response_needed" | "assigned_task";
+  | "deliverable_deadline" | "response_needed" | "assigned_task" | "scheduled_event";
 
 export type FollowupPreviewRequest = {
   id: string; kind: "action" | "deadline" | "meeting"; state: string;
@@ -46,6 +48,8 @@ export type FollowupPreviewRequest = {
   /** `proposed` means the email suggests a meeting that is not on the Calendar. */
   meeting_state?: "proposed" | "confirmed" | "none";
   responsibility?: string;
+  bucket?: FollowupView;
+  after_date?: "owed" | "lapses" | "unspecified";
 };
 export type FollowupConversation = {
   id: string; subject: string; sender: string; latest_internal_date_ms: number;
@@ -57,6 +61,8 @@ export type FollowupList = {
   incomplete_source_count: number; total_conversations: number;
   coverage?: FollowupCoverage | null;
   next_offset: number | null;
+  view?: FollowupView;
+  view_counts?: Record<FollowupView, number>;
   conversations: FollowupConversation[];
 };
 export type FollowupReminderStatus = "none" | "scheduled" | "sent" | "closed";
@@ -69,13 +75,10 @@ export type FollowupRequest = FollowupPreviewRequest & {
   booking_state: "not_booked" | "booked" | null;
   reminder_status?: FollowupReminderStatus;
   linked_event?: FollowupLinkedEvent | null;
+  repeat_count?: number;
 };
 export type FollowupDetail = Omit<FollowupConversation, "request_count" | "active_count" | "preview_requests"> & {
   account_id: string; requests: FollowupRequest[];
-};
-export type FollowupSource = {
-  request_id: string; account_id: string; subject: string; sender: string;
-  body: string; internal_date_ms: number; gmail_message_id?: string;
 };
 /** `pending` means one bounded step finished and the scan has more to do now. */
 export type FollowupScanResult = { state?: "pending" | "partial" | "complete" | "not_due" } | undefined;
@@ -122,8 +125,12 @@ export class CalendarFollowupsService {
     return value;
   }
 
-  static async list(userId: string, accountId: string, idToken: string, ownerToken: string, signal?: AbortSignal, offset = 0): Promise<FollowupList> {
-    const value = await this.post<FollowupList>("list", { user_id: userId, account_id: accountId, offset }, idToken, ownerToken, signal);
+  static async list(userId: string, accountId: string, idToken: string, ownerToken: string, signal?: AbortSignal, offset = 0, view: FollowupView = "upcoming"): Promise<FollowupList> {
+    const value = await this.post<FollowupList>("list", {
+      user_id: userId, account_id: accountId, offset,
+      // Older backends accept the default list but reject unknown body fields.
+      ...(view === "upcoming" ? {} : { view }),
+    }, idToken, ownerToken, signal);
     validateAccount(value, accountId);
     if (!Array.isArray(value.conversations) || !Number.isInteger(value.total_conversations) ||
       (value.next_offset !== null && (!Number.isInteger(value.next_offset) || value.next_offset <= offset)) ||
@@ -139,14 +146,6 @@ export class CalendarFollowupsService {
     validateAccount(value, accountId);
     if (value.id !== conversationId || !Array.isArray(value.requests) || value.requests.some(item => !isRecord(item) || !validUuid(item.id) || !Number.isInteger(item.revision)))
       throw new Error("Follow-up details were incomplete.");
-    return value;
-  }
-
-  static async source(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<FollowupSource> {
-    if (!validUuid(requestId)) throw new Error("Choose a valid request.");
-    const value = await this.post<FollowupSource>("source", { user_id: userId, account_id: accountId, request_id: requestId }, idToken, ownerToken, signal);
-    validateAccount(value, accountId);
-    if (value.request_id !== requestId || typeof value.body !== "string" || typeof value.subject !== "string") throw new Error("Source email was incomplete.");
     return value;
   }
 
@@ -169,14 +168,15 @@ export class CalendarFollowupsService {
     return await this.post<FollowupScanResult>("scan", { user_id: userId, account_id: accountId, ...(options.retry ? { retry: true } : {}) }, idToken, ownerToken, signal);
   }
 
-  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<string> {
+  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<{ conversationId: string; requestId: string }> {
     if (!validUuid(requestId)) throw new Error("Choose a valid request.");
-    const value = await this.post<{ account_id: string; conversation_id: string }>("resolve", {
+    const value = await this.post<{ account_id: string; conversation_id: string; request_id?: string }>("resolve", {
       user_id: userId, account_id: accountId, request_id: requestId,
     }, idToken, ownerToken, signal);
     validateAccount(value, accountId);
-    if (!validUuid(value.conversation_id)) throw new Error("Follow-up source was unavailable.");
-    return value.conversation_id;
+    const resolvedRequestId = value.request_id === undefined ? requestId : value.request_id;
+    if (!validUuid(value.conversation_id) || !validUuid(resolvedRequestId)) throw new Error("Follow-up source was unavailable.");
+    return { conversationId: value.conversation_id, requestId: resolvedRequestId };
   }
 
   static async change(userId: string, accountId: string, request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null, idToken: string, ownerToken: string): Promise<{ id: string; revision: number; state: string; reminder_at: string | null }> {

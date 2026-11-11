@@ -624,8 +624,10 @@ async def test_reverse_geocode_parses_name_and_address(monkeypatch):
 @pytest.mark.asyncio
 async def test_reverse_geocode_empty_results_returns_nulls(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/geocode/json")
-        return httpx.Response(200, json={"status": "ZERO_RESULTS", "results": []})
+        if request.url.path.endswith("/geocode/json"):
+            return httpx.Response(200, json={"status": "ZERO_RESULTS", "results": []})
+        assert request.url.path.endswith("/v1/places:searchNearby")
+        return httpx.Response(200, json={})
 
     monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
     monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
@@ -639,12 +641,18 @@ async def test_reverse_geocode_empty_results_returns_nulls(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reverse_geocode_falls_back_to_nearest_place_address(monkeypatch):
+@pytest.mark.parametrize(
+    ("http_status", "provider_status"),
+    [(200, "REQUEST_DENIED"), (200, "ZERO_RESULTS"), (403, "REQUEST_DENIED")],
+)
+async def test_reverse_geocode_falls_back_to_nearest_place_address(
+    monkeypatch, http_status, provider_status
+):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/geocode/json"):
             return httpx.Response(
-                200,
-                json={"status": "REQUEST_DENIED", "results": []},
+                http_status,
+                json={"status": provider_status, "results": []},
             )
         assert request.method == "POST"
         assert request.url.path.endswith("/v1/places:searchNearby")

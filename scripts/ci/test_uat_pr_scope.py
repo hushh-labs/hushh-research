@@ -5,6 +5,7 @@
 from pathlib import Path
 import copy
 import json
+import os
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -17,6 +18,36 @@ from uat_exact_ci_fixture import AttemptAPI, attempt_check, attempt_jobs, attemp
 
 
 class ApprovedUatScopeTest(unittest.TestCase):
+    def test_email_risk_freshness_is_bound_to_candidate_and_strict_expiry(self):
+        candidate = "a" * 40
+        with patch.dict(os.environ, {"UAT_EMAIL_AUTH_ENABLED": "true"}), patch.object(
+            prerequisites.time, "time", return_value=1000
+        ), patch.object(subject, "git") as git:
+            for expiry in (1001, 1000.5):
+                with self.subTest(valid_expiry=expiry):
+                    git.return_value = json.dumps({"expires_at": expiry}).encode()
+                    prerequisites.require_fresh_email_risk(candidate)
+                    git.assert_called_with("show", f"{candidate}:consent-protocol/config/email-auth/risk-manifest.json")
+            for expiry in (1000, 999, True, "1001", None, float("inf"), float("nan")):
+                with self.subTest(invalid_expiry=expiry):
+                    git.return_value = json.dumps({"expires_at": expiry}).encode()
+                    with self.assertRaisesRegex(subject.Refused, "expired or invalid"):
+                        prerequisites.require_fresh_email_risk(candidate)
+            for raw in (b"{", b"[]", b"x" * 65537):
+                with self.subTest(invalid_manifest=raw[:8]):
+                    git.return_value = raw
+                    with self.assertRaisesRegex(subject.Refused, "expired or invalid"):
+                        prerequisites.require_fresh_email_risk(candidate)
+
+    def test_disabled_email_risk_does_not_read_git_and_invalid_flag_refuses(self):
+        with patch.object(subject, "git") as git:
+            with patch.dict(os.environ, {"UAT_EMAIL_AUTH_ENABLED": "false"}):
+                prerequisites.require_fresh_email_risk("")
+            with patch.dict(os.environ, {"UAT_EMAIL_AUTH_ENABLED": "yes"}):
+                with self.assertRaisesRegex(subject.Refused, "enable flag is invalid"):
+                    prerequisites.require_fresh_email_risk("a" * 40)
+            git.assert_not_called()
+
     def test_ci_ready_inspection_selects_exact_sha_without_a_manual_pr_chain(self):
         report = prerequisites.render({"ready": True, "candidate_sha": "a" * 40,
             "base_sha": "b" * 40, "authority_sha": "c" * 40,

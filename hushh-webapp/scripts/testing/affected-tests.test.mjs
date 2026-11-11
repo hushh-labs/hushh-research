@@ -93,6 +93,49 @@ test("missing or unknown selection metadata keeps the diagnostic suite", () => {
   assert.equal(plan.fallbackReason, "unknown_validation_level");
 });
 
+test("committed test removal avoids full units but missing files and runtime deletions stay conservative", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "hushh-deleted-test-"));
+  const removed = "hushh-webapp/__tests__/removed.test.ts";
+  const kept = "hushh-webapp/__tests__/kept.test.ts";
+  const runtime = "hushh-webapp/lib/runtime.ts";
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  const git = (...args) => {
+    const result = spawnSync("git", args, { cwd: repo, env: environment, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  try {
+    for (const file of [removed, kept, runtime, "scripts/ci/account-deletion-check.sh"]) {
+      mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+      writeFileSync(path.join(repo, file), file.endsWith(".sh")
+        ? "vitest run \\\n  __tests__/kept.test.ts \\\n  --maxWorkers=2\n" : "export {};\n");
+    }
+    git("init", "-b", "main");
+    git("config", "user.name", "Synthetic CI");
+    git("config", "user.email", "ci@example.invalid");
+    git("add", ".");
+    git("commit", "-m", "fixture base");
+    const base = git("rev-parse", "HEAD");
+    const plan = (files, baseline = base) => buildPlan({ repoRoot: repo, env: {
+      CI_VALIDATION_LEVEL: "focused", CI_CHANGED_FILES: files.join("\n"), CI_IMPACT_BASE_SHA: baseline,
+    } });
+    rmSync(path.join(repo, removed));
+    assert.equal(plan([removed, kept]).fallbackReason, "missing_changed_test");
+    git("add", "-u");
+    git("commit", "-m", "remove presentation-only fixture");
+    const selected = plan([removed, kept]);
+    assert.equal(selected.effectiveLevel, "focused");
+    assert.deepEqual(selected.directFiles, ["__tests__/kept.test.ts"]);
+    assert.equal(plan([removed], "invalid").fallbackReason, "missing_changed_test");
+    assert.equal(plan(["hushh-webapp/__tests__/never-existed.test.ts"]).fallbackReason, "missing_changed_test");
+    git("rm", runtime);
+    git("commit", "-m", "remove runtime fixture");
+    assert.equal(plan([removed, kept, runtime]).fallbackReason, "missing_changed_source");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("release keeps the named account-deletion owner unless this attempt owns it separately", () => {
   const pathInRepo = `hushh-webapp/${DELETE_TEST}`;
   const baseEnv = { CI_VALIDATION_LEVEL: "release", CI_CHANGED_FILES: pathInRepo };
@@ -325,6 +368,8 @@ test("known native and browser harness inputs stay with their other owner", () =
     CI_CHANGED_FILES: [
       "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
       "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
+      "hushh-webapp/android/app/src/main/java/com/hussh/app/plugins/HushhAuth/DeletionPhoneProof.kt",
+      "hushh-webapp/android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.java",
       "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
       "hushh-webapp/scripts/testing/affected-tests.mjs",
       "hushh-webapp/scripts/testing/affected-tests.test.mjs",
@@ -578,6 +623,8 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
   }, [
     "ios/App/AppTests/NativeSupportTests.swift",
     "ios/App/AppTests/AccountFlowTests.swift",
+    "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/DeletionPhoneProof.kt",
+    "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.java",
     "scripts/testing/phone-conflict-flow.mjs",
     "scripts/testing/affected-tests.mjs",
     "scripts/testing/affected-tests.test.mjs",
@@ -599,6 +646,7 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
   for (const path of [
     "hushh-webapp/lib/vault/passkey-domain-aliases.json",
     "hushh-webapp/lib/unregistered-runtime.json",
+    "hushh-webapp/lib/unregistered-runtime.kt",
   ]) {
     const unknown = buildPlan({ env: {
       CI_VALIDATION_LEVEL: "focused",

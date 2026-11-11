@@ -1,7 +1,3 @@
-.calendarTypography, .invitations { font-family: var(--font-app-body); }
-.calendarTypography { --foundation-title2-size: var(--profile-type-dialog-title-size, 20px); --foundation-title2-line: var(--profile-type-dialog-title-line, 28px); --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600); --foundation-title3-size: var(--profile-type-dialog-title-size, 20px); --foundation-title3-line: var(--profile-type-dialog-title-line, 28px); --foundation-title3-weight: var(--profile-type-dialog-title-weight, 600); --type-input-value-size: var(--profile-type-label-size, 14px); --type-input-value-line: var(--profile-type-label-line, 22px); }
-.calendarTypography :global(label > span) { font-size: var(--app-side-pane-row-title-size, 15px); line-height: var(--app-side-pane-row-title-line, 22px); font-weight: var(--app-side-pane-row-title-weight, 550); }
-@media (max-width: 620px) { .calendarTypography { --type-input-value-size: 16px; } }
 .invitations { min-width: 0; font-family: var(--font-app-body); color: var(--app-label); }
 .filters { margin: 4px 0 24px; }
 .workspace { display: grid; gap: 24px; min-width: 0; }
@@ -24,12 +20,7 @@
 .organizer, .person { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); }
 .organizer { gap: 8px; margin-top: 6px; }
 .organizer .muted { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); }
-.avatar { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; color: var(--app-accent); background: var(--app-accent-surface); font-size: 15px; font-weight: 500; }
-.avatar[data-tone="0"] { color: #fff; background: #7564ed; }
-.avatar[data-tone="1"] { color: var(--app-accent); background: var(--app-accent-surface); }
-.avatar[data-tone="2"] { color: var(--app-success-deep); background: color-mix(in oklab, var(--app-success) 12%, var(--app-card-surface-default-solid)); }
-.avatar[data-tone="3"] { color: var(--app-secondary-label); background: var(--app-neutral-fill); }
-.avatarFallback { background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
+.avatar { flex-shrink: 0; }
 .preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); margin-top: 6px; }
 .chevron { align-self: center; width: 16px; color: var(--app-secondary-label); }
 .response { align-self: flex-start; margin-top: 4px; font-size: var(--app-side-pane-row-title-size, 13px); line-height: var(--app-side-pane-row-title-line, 18px); font-weight: var(--app-side-pane-row-title-weight, 600); color: var(--app-secondary-label); }
@@ -56,7 +47,6 @@
 .detailSection p { margin: 0; font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, 21px); }
 .detailSection p.muted { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); font-weight: 400; }
 .person { margin: 0; }
-.person .avatar { width: 38px; height: 38px; }
 .descriptionLabel { margin-top: 22px; }
 .description, .message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .description { color: var(--app-secondary-label); }
@@ -64,6 +54,8 @@
 .attendees { display: flex; flex-wrap: wrap; align-items: start; gap: 16px; margin: 0; padding: 0; list-style: none; }
 .attendees > li { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 48px; max-width: 100px; text-align: center; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); overflow-wrap: anywhere; }
 .attendees small { color: var(--app-secondary-label); font-size: var(--app-side-pane-row-title-size, 13px); line-height: var(--app-side-pane-row-title-line, 18px); font-weight: var(--app-side-pane-row-title-weight, 600); }
+.attendees > li[data-declined="true"] { min-width: 9rem; max-width: 12rem; }
+.attendees .declineReason, .guestList .declineReason { display: block; max-width: 100%; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere; }
 .guestList { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .detailSection .attendeeSummary { margin: -6px 0 16px; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); }
 .guestList > li { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); }
@@ -89,7 +81,7 @@
 .review h3 { --foundation-headline-size: var(--app-side-pane-row-title-size, 14px); --foundation-headline-line: var(--app-side-pane-row-title-line, 22px); --foundation-headline-weight: var(--app-side-pane-row-title-weight, 600); }
 .review .message { font-size: var(--profile-type-description-size, 13px); max-height: 260px; overflow-y: auto; line-height: var(--profile-type-description-line, normal); }
 .openings { margin: 0; padding-left: 18px; font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
-.empty { padding: 32px 16px; color: var(--app-secondary-label); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
+.empty { margin: 0; padding-block: 8px; color: var(--app-secondary-label); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
 @media (min-width:768px) { .detailPane { padding-top: 0; } .inviteCard { grid-template-columns: 50px minmax(0,1fr) 12px; gap: 10px; } .inviteCard .dateBlock { width: 50px; } }
 
 .invitations[data-workspace=true] { display: grid; gap: 12px; }

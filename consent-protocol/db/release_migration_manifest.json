@@ -385,13 +385,16 @@
     "447_finance_advisor_handshake.sql",
     "448_connection_network_visibility.sql",
     "450_one_attempt_email_outbox.sql",
-    "451_one_attempt_email_feedback.sql"
+    "451_one_attempt_email_feedback.sql",
+    "454_calendar_email_followup_temporal.sql",
+    "456_finance_advisor_one_time_payment.sql"
   ],
   "environment_overlays": {
     "uat": [
       "174_hushh_tech_uat_client_foundation.sql",
       "360_uat_drive_collection_retirement.sql",
-      "438_uat_legacy_generation_settlement.sql"
+      "438_uat_legacy_generation_settlement.sql",
+      "455_uat_account_cleanup_prior_drive_revocation.sql"
     ]
   },
   "groups": {
@@ -817,6 +820,9 @@
     "447_finance_advisor_handshake.sql": "rollback/447_finance_advisor_handshake.rollback.sql",
     "448_connection_network_visibility.sql": "rollback/448_connection_network_visibility.rollback.sql",
     "450_one_attempt_email_outbox.sql": "rollback/450_one_attempt_email_outbox.rollback.sql",
-    "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql"
+    "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql",
+    "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql",
+    "455_uat_account_cleanup_prior_drive_revocation.sql": "rollback/455_uat_account_cleanup_prior_drive_revocation.rollback.sql",
+    "456_finance_advisor_one_time_payment.sql": "rollback/456_finance_advisor_one_time_payment.rollback.sql"
   }
 }

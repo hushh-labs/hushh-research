@@ -99,6 +99,7 @@ const connections = () =>
       photoUrl: null,
       createdAt: "2026-09-28T12:00:00Z",
       connectedFromContacts: index === 1,
+      isRia: index === 1,
     }),
   );
 const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
@@ -279,9 +280,9 @@ export const useOptionalOneLocationInteractionSurface = () => null;
 export const app = null;
 export const auth = { currentUser: user };
 export const DirectMessagesService = {
-  routeHref: async (input: { personRef: string }) => {
+  routeSelection: async (input: { personRef: string }) => {
     document.body.dataset.messageRecipient = input.personRef;
-    return "/one/messages?token=dm1.fixture";
+    return { token: "dm1.fixture", kind: "person", ref: input.personRef };
   },
 };
 export const getRecaptchaVerifier = noop;

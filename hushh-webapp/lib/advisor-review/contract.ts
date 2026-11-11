@@ -55,38 +55,42 @@ export type AdvisorCandidate = {
   publicKeyJwk: JsonWebKey | null;
   ready: boolean;
 };
-export type AdvisorMeeting = {
-  id?: string;
-  status:
-    | "proposed"
-    | "agreed"
-    | "review_ready"
-    | "booking"
-    | "retryable"
-    | "confirmed"
-    | "completed"
-    | "cancelled"
-    | "unknown";
-  startAt?: string;
-  endAt?: string;
-  timeZone?: string;
-  proposedBy?: string;
-  agreedBy?: string[];
-  proposalId?: string;
-  invitationEmail?: string;
-  joinUrl?: string | null;
-  eventId?: string;
-  reviewExpiresAt?: string;
-};
 export type AdvisorPlan = {
   amountCents: number;
   currency: "usd";
-  interval: "month";
+  interval: "one_time" | "month";
   services: string;
   cancellationTerms: string;
 };
+export const advisorSandboxPayoutSchema = z.object({
+  mode: z.literal("test"),
+  setup: z.enum(["setup_required", "ready", "restricted"]),
+  latest: z.object({
+    status: z.enum(["pending", "in_transit", "paid", "failed", "canceled"]),
+    amountCents: z.number().int().nonnegative(),
+    currency: z.literal("usd"),
+  }).nullable(),
+});
+export type AdvisorSandboxPayout = z.infer<typeof advisorSandboxPayoutSchema>;
 const instant = z.string().datetime({ offset: true });
-const meetingSchema = z
+export const advisorBillingSchema = z.object({
+  mode: z.literal("test"),
+  status: z.enum([
+    "not_started", "preparing", "checkout_pending", "processing", "expired",
+    "paid", "refunded", "partially_refunded",
+    "active", "past_due", "cancelled", "unpaid", "incomplete", "unknown",
+  ]),
+  planRevision: z.number().int().nonnegative().optional(),
+  amountCents: z.number().int().positive().optional(),
+  paidAt: instant.optional(),
+  lastPayment: z.object({
+    status: z.enum(["paid", "refunded", "partially_refunded"]),
+    amountCents: z.number().int().positive(),
+    paidAt: instant,
+  }).optional(),
+});
+export type AdvisorBilling = z.infer<typeof advisorBillingSchema>;
+export const advisorMeetingSchema = z
   .object({
     id: z.string().uuid().optional(),
     status: z.enum([
@@ -98,6 +102,7 @@ const meetingSchema = z
       "confirmed",
       "completed",
       "cancelled",
+      "missing",
       "unknown",
     ]),
     startAt: instant.optional(),
@@ -115,15 +120,17 @@ const meetingSchema = z
     joinUrl: z.string().max(2000).nullable().optional(),
     eventId: z.string().max(2048).optional(),
     reviewExpiresAt: instant.optional(),
+    automaticApprovalExpiresAt: instant.optional(),
   })
   .strict();
+export type AdvisorMeeting = z.infer<typeof advisorMeetingSchema>;
 const planSchema = z
   .object({
     amountCents: z.number().int().min(100).max(100000),
     currency: z.literal("usd"),
-    interval: z.literal("month"),
-    services: z.string().min(20).max(1500),
-    cancellationTerms: z.string().min(20).max(1500),
+    interval: z.enum(["one_time", "month"]),
+    services: z.string().max(1500),
+    cancellationTerms: z.string().max(1500),
   })
   .strict();
 export const advisorReviewSchema = z
@@ -150,7 +157,9 @@ export const advisorReviewSchema = z
     serverNow: instant,
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
     snapshotAvailable: z.boolean(),
-    meeting: meetingSchema.nullable(),
+    alreadyConnected: z.boolean().optional(),
+    meeting: advisorMeetingSchema.nullable(),
+    pastMeetings: z.array(advisorMeetingSchema).optional(),
     plan: planSchema.nullable(),
     planRevision: z.number().int().nonnegative(),
     envelope: recipientEnvelopeSchema.optional(),

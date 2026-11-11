@@ -79,7 +79,7 @@ export function SegmentedModeControl({
           type="button"
           onClick={() => onChange(mode)}
           className={cn(
-            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-[background-color,color,box-shadow] duration-150",
+            "ui-text-agent-tab-label h-full flex-1 rounded-[7px] capitalize transition-[background-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             value === mode
               ? "bg-white font-semibold text-[#1c1c1e] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.04)] dark:bg-[#2c2c2e] dark:text-white"
               : "font-medium text-[#8e8e93] hover:text-[#1c1c1e] dark:text-white/50 dark:hover:text-white",

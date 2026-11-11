@@ -201,7 +201,7 @@ export function CommunicationPreferencesSection(props: CommunicationPreferencesP
           icon={LockedRowIcon}
           iconTone="capability"
           title="Unlock to edit"
-          description="Your writing style is stored in your vault."
+          description="Stored in your vault."
           onClick={props.onRequestUnlock}
           chevron
         />

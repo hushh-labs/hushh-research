@@ -1684,20 +1684,41 @@ async def _verify_phone_claim_id_token(
 async def prepare_phone_transfer(
     payload: PhoneTransferPrepareRequest, firebase_uid: str = Depends(require_firebase_auth)
 ):
-    from hushh_mcp.services.phone_transfer_authority import refuse
+    from hushh_mcp.services.phone_transfer_service import prepare
 
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
-    raise refuse("PHONE_ALREADY_VERIFIED")
+    proof: dict = {}
+    phone, uid = await _verify_phone_claim_id_token(
+        payload.phone_id_token, transfer=True, proof_metadata=proof
+    )
+    if not uid:
+        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
+    return await prepare(
+        firebase_uid,
+        phone,
+        proof["event"],
+        uid,
+        get_firebase_auth_app(),
+        proof_valid_until=proof["valid_until"],
+    )
 
 
 @router.post("/phone/transfer/confirm")
 async def confirm_phone_transfer(
     payload: PhoneTransferConfirmRequest, firebase_uid: str = Depends(require_firebase_auth)
 ):
-    from hushh_mcp.services.phone_transfer_authority import refuse
+    from hushh_mcp.services.phone_transfer_service import confirm
 
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
-    raise refuse("PHONE_ALREADY_VERIFIED")
+    proof: dict = {}
+    phone, uid = await _verify_phone_claim_id_token(
+        payload.phone_id_token, transfer=True, proof_metadata=proof
+    )
+    if not uid:
+        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
+    return await confirm(
+        firebase_uid, phone, proof["event"], uid, str(payload.transfer_id), get_firebase_auth_app()
+    )
 
 
 @router.get("/phone/transfer/{transfer_id}")
@@ -1925,7 +1946,7 @@ async def claim_account_phone(
             firebase_uid, phone_number
         )
     except ActorIdentityPhoneClaimConflictError:
-        raise refuse("PHONE_ALREADY_VERIFIED") from None
+        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED") from None
     except ValueError:
         raise HTTPException(
             status_code=409,

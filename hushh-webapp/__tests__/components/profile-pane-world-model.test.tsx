@@ -116,6 +116,9 @@ beforeEach(() => {
   auth.phoneNumber = null;
   auth.phoneNumberStatus = "missing";
   publishValidatedAuthSessionPrincipal({ firebaseUid: auth.user.uid, ownerId: auth.userId, accountGeneration: 0 });
+  vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockImplementation(async () => ({
+    ...auth.user, phoneNumber: auth.phoneNumber,
+  }) as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
   nav.query = "profile_pane=1&profile_panel=world-model";
   // Profile's own background reads (identity, vault, discoverability) answer
   // "not found"; this test is about what the pane shows, not those reads.
@@ -142,7 +145,35 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
-  it("reverifies an app-only phone in native Profile without taking it from its Firebase owner", async () => {
+  it("keeps both native Close paths locked until uncertain phone transfer settles", async () => {
+    const { ApiError } = await import("@/lib/services/api-client");
+    nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    const close = vi.fn();
+    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(Object.assign(new ApiError("Review transfer", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }), { phoneProofAvailable: true }));
+    vi.spyOn(auth, "confirmPhoneTransfer").mockRejectedValueOnce(new ApiError("Check progress", 409, { code: "PHONE_TRANSFER_IN_PROGRESS" })).mockResolvedValueOnce(auth.user);
+    render(<StepProgressProvider><ProfilePage presentation="native-page" nativeMenuOpen
+      onNativeMenuClose={close} paneLocation={{ panel: "account", detail: "phone" }} /></StepProgressProvider>);
+    const input = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    fireEvent.submit(input.closest("form")!);
+    const code = await screen.findByRole("textbox", { name: "One-time code" });
+    fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm phone transfer" }));
+    const progress = await screen.findByRole("button", { name: "Check transfer progress" });
+    fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Menu Close Profile" }));
+    expect(close).not.toHaveBeenCalled();
+    expect(auth.startPhoneVerification).toHaveBeenCalledOnce();
+    fireEvent.click(progress);
+    await waitFor(() => expect(auth.confirmPhoneTransfer).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Check transfer progress" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("reverifies an app-only phone without automatically transferring it from its Firebase owner", async () => {
     const { ApiError } = await import("@/lib/services/api-client");
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
     window.history.replaceState(null, "", `/one?${nav.query}`);
@@ -163,21 +194,21 @@ describe("Profile pane: Personal World Model", () => {
     expect(start).toHaveBeenCalledWith("+16505550101", expect.objectContaining({ transport: "sms" }));
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     await screen.findByRole("button", { name: "Delete my previous account" });
-    expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Recover my previous account" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Use this number on this account" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Recover my previous account" })).toBeEnabled();
     expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("keeps the complete information-access payment owner in the native Profile handoff", async () => {
+  it("keeps existing payouts without information-access sections in the native Profile handoff", async () => {
     nav.query = "profile_pane=1&profile_panel=payouts";
     window.history.replaceState(null, "", `/one?${nav.query}`);
     render(<StepProgressProvider><ProfilePage presentation="native-page"
       nativeMenuOpen paneLocation={{ panel: "payouts", detail: null }} /></StepProgressProvider>);
     await waitFor(() => expect(nativePresentation.workspace).toHaveBeenLastCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: "payouts", sections:
-        expect.arrayContaining([expect.objectContaining({ title: "Information access" })]),
+        expect.not.arrayContaining([expect.objectContaining({ title: "Information access" })]),
       })]),
     ));
   });

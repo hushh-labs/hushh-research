@@ -1275,6 +1275,292 @@
     },
     {
       "aliases": [
+        "Connect Calendar account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "calendar.connection.connect",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reports the person's manual attempt to connect a Calendar account or extend its access. The original connection flow retains consent and confirms the result.",
+      "execution": {
+        "binding_ref": "render:calendar.connection.connect",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.calendar.connection.connect",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Connect Calendar account",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Disconnect Calendar account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "calendar.connection.disconnect",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reports the person's confirmed attempt to disconnect the selected Calendar account. The original Calendar flow checks the resulting connection status.",
+      "execution": {
+        "binding_ref": "render:calendar.connection.disconnect",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.calendar.connection.disconnect",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Disconnect Calendar account",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Read Calendar",
         "what is on my calendar",
         "show my calendar events",
@@ -4074,6 +4360,149 @@
       "settlement_proof": "validated_route_settlement",
       "side_effect": {
         "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Save KYC profile"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "kyc.save_profile",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Imports the person's explicitly submitted identity details into private Memory. A completed outcome requires the encrypted write's acknowledgement; local staging alone does not confirm saving.",
+      "execution": {
+        "binding_ref": "render:kyc.save_profile",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.kyc.save_profile",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Save KYC profile",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail?workspace=kyc",
+          "/one/setup/email"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_email"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -16116,6 +16545,157 @@
     },
     {
       "aliases": [
+        "Copy message text"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "messages.copy_text",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicitly copies readable plain text from the current message menu to the local clipboard; opaque shares are excluded.",
+      "execution": {
+        "binding_ref": "render:messages.copy_text",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.messages.copy_text",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Copy message text",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/messages"
+        ],
+        "screens": [
+          "one_messages"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "message",
+        "copy text"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Agents",
         "open agents",
         "open one agents",
@@ -17088,6 +17668,954 @@
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
         "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Download Memory"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.export_memory",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The signed-in owner exports their unlocked Memory through the existing guarded file download or native share sheet. A cancelled handoff is not a saved file.",
+      "execution": {
+        "binding_ref": "render:pkm.export_memory",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.export_memory",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Download Memory",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "export"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Update a saved memory"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.edit_memory",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner confirms an edit to an exact saved Memory field through the existing encrypted write coordinator and current sharing review. Observation contains no field name or value.",
+      "execution": {
+        "binding_ref": "render:pkm.edit_memory",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.edit_memory",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Update a saved memory",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "edit"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Forget a saved memory"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.delete_memory",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner confirms removal of an exact saved Memory field through the existing encrypted write coordinator. Opening or cancelling the confirmation does not delete a memory.",
+      "execution": {
+        "binding_ref": "render:pkm.delete_memory",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.delete_memory",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Forget a saved memory",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "forget"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Prepare a Memory review"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.prepare_capture",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner asks Memory to prepare a note for review through the current guarded preparation path. Preparation does not save the note; duplicates or unresolved sections remain for review.",
+      "execution": {
+        "binding_ref": "render:pkm.prepare_capture",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.prepare_capture",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Prepare a Memory review",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "review"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Retry a Memory review section"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.retry_capture_section",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner retries one unresolved section of the unchanged note using its original source range. No section contents enter activity evidence, and preparation does not save memory.",
+      "execution": {
+        "binding_ref": "render:pkm.retry_capture_section",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.retry_capture_section",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry a Memory review section",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "retry"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Save reviewed memories"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.save_capture",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner confirms selected prepared Memory details through the existing encrypted write path and sharing acknowledgement. A partial or retired result does not prove the whole save completed.",
+      "execution": {
+        "binding_ref": "render:pkm.save_capture",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.save_capture",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Save reviewed memories",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "save"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -18569,9 +20097,6 @@
         "set up payouts",
         "document earnings",
         "payments",
-        "add funds",
-        "purchase balance",
-        "information-access earnings",
         "wallet",
         "open payouts",
         "payments and earnings"
@@ -29184,9 +30709,8 @@
     },
     {
       "aliases": [
-        "Delete my previous account",
-        "delete my previous account",
-        "review previous account deletion"
+        "Send a real SMS code",
+        "send a real SMS code"
       ],
       "authorization": {
         "guard_ids": [
@@ -29212,16 +30736,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "phone_mandate.review_previous_deletion",
+      "capability_id": "phone_mandate.send_real_sms",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Starts a server-bound deletion review requiring independent sign-in to the previous account and a separate confirmation. This action never deletes an account.",
+      "description": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
       "execution": {
-        "binding_ref": "render:phone_mandate.review_previous_deletion",
+        "binding_ref": "render:phone_mandate.send_real_sms",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -29234,7 +30758,631 @@
           "target": ""
         }
       },
-      "goal_id": "goal.phone_mandate.review_previous_deletion",
+      "goal_id": "goal.phone_mandate.send_real_sms",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Send a real SMS code",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Use this number on this account",
+        "use this number on this account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.transfer_review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Review a transfer after fresh real SMS verification; no account information moves or is erased.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.transfer_review",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.transfer_review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Use this number on this account",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Confirm phone transfer",
+        "confirm phone transfer"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.transfer_confirm",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicit human confirmation moves only the phone link; pending work must settle before completion.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.transfer_confirm",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.transfer_confirm",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Confirm phone transfer",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Recover my previous account",
+        "recover my previous account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.recover",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Open the existing Google or Apple sign-in to recover the previous account without exposing its identity.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.recover",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.recover",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Recover my previous account",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Delete my previous account",
+        "delete my previous account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.delete_previous",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Open an in-place review to delete the account currently linked to this verified number. Deletion needs the number's fresh code and an explicit acknowledgement; while in-place deletion is unavailable it opens previous-account sign-in instead.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.delete_previous",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.delete_previous",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -29315,8 +31463,632 @@
       "required_entities": [],
       "search_keywords": [
         "phone",
-        "previous account",
-        "deletion review"
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Delete and continue",
+        "delete and continue"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.delete_previous_confirm",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicit human confirmation deletes the account linked to this number with its fresh code, then verifies the number on this account. It cannot be undone.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.delete_previous_confirm",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.delete_previous_confirm",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Delete and continue",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Cancel deletion review",
+        "cancel deletion review"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.delete_previous_cancel",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Return to recovery choices before confirmation; an unconfirmed deletion keeps the review open until its status settles.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.delete_previous_cancel",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.delete_previous_cancel",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Cancel deletion review",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Verify this number again",
+        "verify this number again"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.delete_previous_verify_again",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Return to number entry after the code used for deletion expired; nothing is deleted.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.delete_previous_verify_again",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.delete_previous_verify_again",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Verify this number again",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Review previous device access",
+        "review previous device access"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.review_previous_devices",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.review_previous_devices",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.review_previous_devices",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review previous device access",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery",
+        "devices"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -29376,7 +32148,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Returns to phone entry without changing the existing email account that owns an occupied number.",
+      "description": "Retire this phone attempt and return to number entry before a transfer has been dispatched.",
       "execution": {
         "binding_ref": "render:phone_mandate.change_number",
         "executor": {
@@ -29410,6 +32182,162 @@
       },
       "kind": "action",
       "label": "Use a different number",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Cancel phone transfer review",
+        "cancel phone transfer review"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.transfer_cancel",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Return to recovery choices before confirmation; pending transfers cannot be cancelled.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.transfer_cancel",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.transfer_cancel",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Cancel phone transfer review",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -47643,7 +50571,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "9fbfa6367de772a4b1ff4585",
+      "brain_revision": "3a04bd40a1e2408c052baba8",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -50513,7 +53441,7 @@
           "label": "Location backend inventory"
         }
       ],
-      "known_unbound_implementation_count": 77,
+      "known_unbound_implementation_count": 78,
       "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
       "package_id": "location.brain",
       "package_version": 2,
@@ -50579,7 +53507,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "4413f70f040e16a9e42a89a1c9673ec1feebdbc0e61776fa93a670e019d86596",
+      "projection_digest": "96d1970820d6d2b91db54c3889e7797903ea68e8b38336f5d51ea24407f8dde8",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50589,7 +53517,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "f4c40337fc244d54072b4a3ff372a3aea48e9dbd14165bfd9fa4caa71fc37cc1",
+        "capability_graph_evolution": "b41d9d0c48b5062e4357d3411e50b7607292106ea8c6fd5b3b9169f30a793402",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -50598,7 +53526,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "329aa425edaeda92",
+      "source_revision": "d61eef3d4c556d6a",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52116,7 +55044,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "329aa425edaeda92",
+    "source_revision": "d61eef3d4c556d6a",
     "web": {
       "actions": [
         {
@@ -52159,7 +55087,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "3ca30c3a51c2fb4bb6581f2cf8094c11d24bcc86a89e6d87c0f4e4c992e091f8",
+      "projection_digest": "0d07469a8c495ed4c02d35508e6d58dea41dd0583d64eb5091218cfc2b7705b4",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52169,7 +55097,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "f4c40337fc244d54072b4a3ff372a3aea48e9dbd14165bfd9fa4caa71fc37cc1",
+        "capability_graph_evolution": "b41d9d0c48b5062e4357d3411e50b7607292106ea8c6fd5b3b9169f30a793402",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -52178,7 +55106,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "329aa425edaeda92",
+      "source_revision": "d61eef3d4c556d6a",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -53735,7 +56663,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "329aa425edaeda92",
+  "revision": "d61eef3d4c556d6a",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -55741,6 +58669,8 @@
   "services": [
     {
       "action_ids": [
+        "calendar.connection.connect",
+        "calendar.connection.disconnect",
         "calendar.invitation.review",
         "calendar.read",
         "setup.finish_calendar",
@@ -56517,7 +59447,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "kyc.save_profile"
+      ],
       "api_endpoints": [],
       "capability_id": "service.kyc",
       "completion": {},
@@ -57325,6 +60257,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_recent_received_sms_alerts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_recent_received_sms_alerts",
+          "path": "/api/one/location/sms-alerts/recent",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.get_location_sms_contacts",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -57690,7 +60632,7 @@
       "capability_id": "service.location",
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
-        "blocked_endpoint_count": 77,
+        "blocked_endpoint_count": 78,
         "declared_capability_count": 73
       },
       "completion": {
@@ -57702,7 +60644,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 77,
+          "discovered_endpoint_count": 78,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -57801,7 +60743,7 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "9fbfa6367de772a4b1ff4585",
+        "brain_revision": "3a04bd40a1e2408c052baba8",
         "catalog_status": "complete_and_compiled",
         "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "package_id": "location.brain",
@@ -58090,21 +61032,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "f4c40337fc244d54072b4a3ff372a3aea48e9dbd14165bfd9fa4caa71fc37cc1",
+    "capability_graph_evolution": "b41d9d0c48b5062e4357d3411e50b7607292106ea8c6fd5b3b9169f30a793402",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "072eb5a8b08650681fe314c97697c7e5589d6ae76ce849bafc122b1052aa849b",
+    "kai_action_gateway": "72e3e740b34d9fd368a11f159ef35b57e6a624b07905af665ba16ae71dcccca8",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "3bab823bfb5c461b4ef334135d4df010412a887cf33a02cd44f9f3a6d61aa8f0",
-    "route_orchestration_index": "b9b55fb607d8160c2e5a0f04d0c115db3f1c1ebd2303c7b2bae1ecc820573cb7",
+    "product_agent_registry": "48a814d69e027e636279c8705373d33293c964cf0b8e4650e0087fd078a50053",
+    "route_orchestration_index": "4a166709da46f9fb0e4d955b5365f96b938fa07e9894a2b17590f0eb196fe174",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "329aa425edaeda92",
+  "source_revision": "d61eef3d4c556d6a",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "329aa425edaeda92",
+    "current_graph_revision": "d61eef3d4c556d6a",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -58141,6 +61083,7 @@
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
+          "19ebeade48749115",
           "1bef198a1317b1f5",
           "1c5aee4245d774b4",
           "1cd7d528295ec9d1",
@@ -58167,18 +61110,23 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
+          "354b635d33714f9a",
           "35982be19f859840",
           "3618b09083db26c6",
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -58228,6 +61176,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -58244,6 +61193,7 @@
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "63d103b4ab44f723",
           "6448b901792d40a4",
           "657c474596de4d84",
           "65ab266e1b246630",
@@ -58272,6 +61222,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -58279,23 +61230,28 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7370cb9024ee156e",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
+          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -58323,6 +61279,7 @@
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
+          "8ec20520da73103b",
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
@@ -58339,6 +61296,7 @@
           "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
+          "975965c04f634896",
           "982f6c71300d5430",
           "985f269cad82aa7c",
           "9901faaed410026a",
@@ -58381,6 +61339,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -58389,8 +61348,10 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -58401,6 +61362,7 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
+          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -58415,11 +61377,13 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
+          "c62a214698da6c8d",
           "c846a385fad8df04",
           "c9235cd9b5598475",
           "ca45fcf41af6e723",
@@ -58446,6 +61410,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -58499,6 +61464,7 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -58539,6 +61505,7 @@
           "141da451575ab2fc",
           "14b86b8e434fc15c",
           "14eb52dced97297e",
+          "19ebeade48749115",
           "2168af5df998b238",
           "22194555a3198d88",
           "22cf4ef00a31d756",
@@ -58548,10 +61515,15 @@
           "283f224907a43920",
           "2873f483995a8fbe",
           "2c04c08ee031a8ba",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
+          "354b635d33714f9a",
           "35982be19f859840",
           "366da54ed07dd315",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
           "3c485e1154148116",
@@ -58577,6 +61549,7 @@
           "51c19a1b7121c147",
           "53c411e01494034b",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5996287e8a4d4b35",
           "5c956819a0408b8a",
@@ -58585,6 +61558,7 @@
           "6211b0f6552f51b8",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "63d103b4ab44f723",
           "657c474596de4d84",
           "685be55b649cd9fc",
           "6889f5062bd36428",
@@ -58594,16 +61568,22 @@
           "6e3d660eb6ab0f37",
           "6e5f5a12b0a2f4ec",
           "6f64b2b5731c4d8d",
+          "70d968726856f988",
           "71994ca61dcf303b",
+          "7370cb9024ee156e",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7e725415993cda04",
           "7fe68d8f752aa842",
+          "7ff1992abef8e4a7",
           "8052e8fc866f98cd",
+          "81c8e85c85e36f6f",
           "83fa96225592a2c4",
           "86a81ce5c2ff6a00",
           "86c6f54fcf77ae8c",
@@ -58614,6 +61594,7 @@
           "8b2c2ce0335c1211",
           "8c9ff82fc2da6cbf",
           "8d6d782606fc5ce1",
+          "8ec20520da73103b",
           "8ed4b64eb88ea5b3",
           "9031503093c4ce05",
           "92b77194586ee568",
@@ -58621,6 +61602,7 @@
           "957832fcdae13952",
           "960bad66c0a7f295",
           "9683f26dff3798f0",
+          "975965c04f634896",
           "9b520324ac39c69f",
           "9b5521cadef9905c",
           "9e28477ae61ba4ef",
@@ -58633,18 +61615,24 @@
           "a6f024675114ad63",
           "a70ab77c9974866f",
           "aaec4987307cbdee",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
           "aee5093562958f50",
+          "af9719263ee60a11",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b78352783d3460bc",
           "bab8cfa1aa259f7c",
+          "bd1c53cb4aea9d77",
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
+          "c62a214698da6c8d",
           "c9235cd9b5598475",
           "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
@@ -58654,6 +61642,7 @@
           "d09d158e6855de4f",
           "d3007ff6184e4f81",
           "d4bb763b08bb6ad3",
+          "d5e9a310061c3485",
           "da2d10114db8c364",
           "da71e0a6ad9e3e1d",
           "db2187647b28df19",
@@ -58675,6 +61664,7 @@
           "ed663d3d6a6d82c5",
           "f0c409450ab444ad",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f6d226a2c5ca0b34",
           "fa8ce03e294e7564",
           "fb9264b42c8db59f",
@@ -58690,12 +61680,36 @@
       },
       {
         "compatible_graph_revisions": [
+          "19ebeade48749115",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
+          "329aa425edaeda92",
+          "354b635d33714f9a",
+          "397e42888f424c55",
           "3e761f3cb5bebeaf",
+          "55fdc71527d92200",
+          "63d103b4ab44f723",
           "6c49b50b94a5d1d7",
+          "70d968726856f988",
+          "7370cb9024ee156e",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
+          "7ba2d5afaf467baa",
+          "7ff1992abef8e4a7",
+          "81c8e85c85e36f6f",
           "83fa96225592a2c4",
-          "c3c7eced230a2281"
+          "8ec20520da73103b",
+          "975965c04f634896",
+          "aba723a8b59080fc",
+          "af9719263ee60a11",
+          "b255ff5e653c1324",
+          "bd1c53cb4aea9d77",
+          "c32cf5e00a63cfc1",
+          "c3c7eced230a2281",
+          "c62a214698da6c8d",
+          "d5e9a310061c3485",
+          "f3633843012f1860"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
@@ -59091,6 +62105,7 @@
           "14eb52dced97297e",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
+          "19ebeade48749115",
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
@@ -59114,16 +62129,21 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
+          "354b635d33714f9a",
           "35982be19f859840",
           "3618b09083db26c6",
           "366da54ed07dd315",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -59166,6 +62186,7 @@
           "51c19a1b7121c147",
           "53c411e01494034b",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -59179,6 +62200,7 @@
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "63d103b4ab44f723",
           "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
@@ -59204,25 +62226,31 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "71994ca61dcf303b",
           "71ed8af339174fae",
           "71f054528fd84ee6",
+          "7370cb9024ee156e",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
+          "7ff1992abef8e4a7",
           "8052e8fc866f98cd",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "83fa96225592a2c4",
           "847b5d41cc16757e",
@@ -59246,6 +62274,7 @@
           "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e7504c56c6fdfc8",
+          "8ec20520da73103b",
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
@@ -59260,6 +62289,7 @@
           "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
+          "975965c04f634896",
           "985f269cad82aa7c",
           "9901faaed410026a",
           "9ae223df4c27d20f",
@@ -59291,14 +62321,17 @@
           "a7faf3fd04605e90",
           "aaec4987307cbdee",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
           "aee5093562958f50",
           "af06ae26b8943fb1",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -59309,16 +62342,19 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
+          "bd1c53cb4aea9d77",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
+          "c62a214698da6c8d",
           "c846a385fad8df04",
           "c9235cd9b5598475",
           "ca45fcf41af6e723",
@@ -59337,6 +62373,7 @@
           "d49a8c46e5581c02",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -59384,6 +62421,7 @@
           "f0c409450ab444ad",
           "f0dd083b1d2493ac",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
@@ -59480,24 +62518,48 @@
           "04e654e3e0881a7f",
           "076c05cd70ea69d7",
           "0e067db9029f2723",
+          "19ebeade48749115",
           "22cf4ef00a31d756",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
+          "329aa425edaeda92",
+          "354b635d33714f9a",
           "366da54ed07dd315",
+          "397e42888f424c55",
           "3adc9c7720dda6e7",
           "3c485e1154148116",
           "3e761f3cb5bebeaf",
           "41ce76d431046107",
           "4537aaec23a4d8c6",
           "458153bdfb331613",
+          "55fdc71527d92200",
           "5f7f01f13bf61e53",
+          "63d103b4ab44f723",
           "6c49b50b94a5d1d7",
+          "70d968726856f988",
+          "7370cb9024ee156e",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
+          "7ba2d5afaf467baa",
+          "7ff1992abef8e4a7",
+          "81c8e85c85e36f6f",
           "83fa96225592a2c4",
           "8b2c2ce0335c1211",
+          "8ec20520da73103b",
+          "975965c04f634896",
+          "aba723a8b59080fc",
+          "af9719263ee60a11",
+          "b255ff5e653c1324",
           "bab8cfa1aa259f7c",
+          "bd1c53cb4aea9d77",
+          "c32cf5e00a63cfc1",
           "c3c7eced230a2281",
+          "c62a214698da6c8d",
+          "d5e9a310061c3485",
           "e2628b6fcc6cea6f",
           "eb1373a534d44b22",
+          "f3633843012f1860",
           "f6d226a2c5ca0b34"
         ],
         "migration_required_graph_revisions": [],
@@ -59927,6 +62989,7 @@
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
+          "19ebeade48749115",
           "1bef198a1317b1f5",
           "1c5aee4245d774b4",
           "1cd7d528295ec9d1",
@@ -59953,18 +63016,23 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
+          "354b635d33714f9a",
           "35982be19f859840",
           "3618b09083db26c6",
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -60014,6 +63082,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -60030,6 +63099,7 @@
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "63d103b4ab44f723",
           "6448b901792d40a4",
           "657c474596de4d84",
           "65ab266e1b246630",
@@ -60058,6 +63128,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -60065,23 +63136,28 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7370cb9024ee156e",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
+          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -60109,6 +63185,7 @@
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
+          "8ec20520da73103b",
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
@@ -60125,6 +63202,7 @@
           "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
+          "975965c04f634896",
           "982f6c71300d5430",
           "985f269cad82aa7c",
           "9901faaed410026a",
@@ -60167,6 +63245,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -60175,8 +63254,10 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -60187,6 +63268,7 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
+          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -60201,11 +63283,13 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
+          "c62a214698da6c8d",
           "c846a385fad8df04",
           "c9235cd9b5598475",
           "ca45fcf41af6e723",
@@ -60232,6 +63316,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -60285,6 +63370,7 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -60344,6 +63430,7 @@
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
+          "19ebeade48749115",
           "1bef198a1317b1f5",
           "1c5aee4245d774b4",
           "1cd7d528295ec9d1",
@@ -60370,18 +63457,23 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
+          "354b635d33714f9a",
           "35982be19f859840",
           "3618b09083db26c6",
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -60431,6 +63523,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -60447,6 +63540,7 @@
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "63d103b4ab44f723",
           "6448b901792d40a4",
           "657c474596de4d84",
           "65ab266e1b246630",
@@ -60475,6 +63569,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -60482,23 +63577,28 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7370cb9024ee156e",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
+          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -60526,6 +63626,7 @@
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
+          "8ec20520da73103b",
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
@@ -60542,6 +63643,7 @@
           "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
+          "975965c04f634896",
           "982f6c71300d5430",
           "985f269cad82aa7c",
           "9901faaed410026a",
@@ -60584,6 +63686,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -60592,8 +63695,10 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -60603,6 +63708,7 @@
           "b9a924f682184910",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
+          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -60617,11 +63723,13 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
+          "c62a214698da6c8d",
           "c846a385fad8df04",
           "c9235cd9b5598475",
           "ca45fcf41af6e723",
@@ -60647,6 +63755,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -60700,6 +63809,7 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -60721,7 +63831,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "0771acb921eb2e35924fdb845b87c93ff4919bd3dd6092ae95d9c760aeab61c9",
+        "workflow_digest": "2039f4f18867cdd3152a48a9494eb1e0d8fd11cc91d4b57ae548141ad1978f4e",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -60759,6 +63869,7 @@
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
+          "19ebeade48749115",
           "1bef198a1317b1f5",
           "1c5aee4245d774b4",
           "1cd7d528295ec9d1",
@@ -60785,18 +63896,23 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2eac94ce000d7868",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
+          "354b635d33714f9a",
           "35982be19f859840",
           "3618b09083db26c6",
           "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
+          "397e42888f424c55",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -60846,6 +63962,7 @@
           "53c411e01494034b",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
+          "55fdc71527d92200",
           "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
@@ -60862,6 +63979,7 @@
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "63d103b4ab44f723",
           "6448b901792d40a4",
           "657c474596de4d84",
           "65ab266e1b246630",
@@ -60890,6 +64008,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -60897,23 +64016,28 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7370cb9024ee156e",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
           "7fe68d8f752aa842",
+          "7ff1992abef8e4a7",
           "804a8fd643783c90",
           "8052e8fc866f98cd",
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -60941,6 +64065,7 @@
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
+          "8ec20520da73103b",
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
@@ -60957,6 +64082,7 @@
           "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
+          "975965c04f634896",
           "982f6c71300d5430",
           "985f269cad82aa7c",
           "9901faaed410026a",
@@ -60999,6 +64125,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -61007,8 +64134,10 @@
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
+          "af9719263ee60a11",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -61019,6 +64148,7 @@
           "ba18c0e75894966d",
           "bab8cfa1aa259f7c",
           "bae648fb1e85fb89",
+          "bd1c53cb4aea9d77",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
           "be499da2762f573e",
@@ -61033,11 +64163,13 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c32cf5e00a63cfc1",
           "c39f0674bed1fca1",
           "c3c7eced230a2281",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
+          "c62a214698da6c8d",
           "c846a385fad8df04",
           "c9235cd9b5598475",
           "ca45fcf41af6e723",
@@ -61064,6 +64196,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -61117,6 +64250,7 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -63088,6 +66222,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_recent_received_sms_alerts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_recent_received_sms_alerts",
+          "path": "/api/one/location/sms-alerts/recent",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.get_location_sms_contacts",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -64861,7 +68005,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 77,
+            "discovered_endpoint_count": 78,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"

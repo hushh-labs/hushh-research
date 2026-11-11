@@ -275,8 +275,8 @@ def hosted_validation():
         "conclusion": "success",
         "updated_at": "fixed",
         "repository": {"full_name": module.transport.REPOSITORY},
-        "actor": {"login": "operator"},
-        "triggering_actor": {"login": "operator"},
+        "actor": {"login": "operator", "id": 1, "type": "User"},
+        "triggering_actor": {"login": "operator", "id": 1, "type": "User"},
     }
     record = {"sourceSha": "b" * 40, "baselineSha": "c" * 40}
     receipt = {

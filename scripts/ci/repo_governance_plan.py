@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Sequence
 
@@ -20,6 +20,17 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
+    "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/test_pwm_runtime_probe.py",
+    "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
+    "consent-protocol/tests/scripts/test_probe_drive_activity_planner.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_runner.py",
+    "consent-protocol/tests/test_vertex_capability_probe.py",
+    "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
+    "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
+    "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
+    "consent-protocol/tests/test_location_workflow_compatibility.py",
     "consent-protocol/tests/test_runtime_config_retention.py",
     "consent-protocol/tests/test_plg_deploy_bindings.py",
     "consent-protocol/tests/test_azure_runtime_config_wiring.py",
@@ -48,6 +59,8 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_drive_v1_worker_lane.py",
     "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
     "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+    "consent-protocol/tests/test_protected_document_release_contract.py",
     "consent-protocol/tests/test_database_connection_ceiling.py",
     "consent-protocol/tests/test_feed_stream_capacity_contract.py",
     "consent-protocol/tests/test_gmail_information_request_release_contract.py",
@@ -77,6 +90,9 @@ RELEASE_CONTROLLER_TESTS = (
 )
 RESTORATION_FIXTURE_INPUTS = frozenset(
     {
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
         "consent-protocol/tests/helpers/production_release_tools.py",
         "consent-protocol/tests/test_production_restoration_operation.py",
     }
@@ -85,7 +101,8 @@ RESTORATION_FIXTURE_TESTS = (
     "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_phone_schema_origin.py",
     "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-    "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
+    "consent-protocol/tests/test_phone_schema_job_history.py",
+    "consent-protocol/tests/test_phone_schema_qualification.py",
 )
 
 
@@ -123,6 +140,8 @@ RiskSnapshot.load(str(manifest))
            "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
            "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
            groups=("controller",)),
+    _check("capability-graph-integrity", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "consent-protocol/scripts/generate_capability_graph.py", "--check", groups=("controller",)),
     _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
@@ -151,6 +170,7 @@ RiskSnapshot.load(str(manifest))
     _check("deployment-environment-governance", "python3", "scripts/ci/test_verify_deployment_environment_governance.py", groups=("controller", "release", "operations")),
     _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
     _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
+    _check("production-recovery-ci", "python3", "scripts/ci/test_production_recovery_ci.py", groups=("controller", "release")),
     _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),
     _check("uat-pr-scope", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "scripts/ci/test_uat_pr_scope.py", groups=("controller", "release")),
     _check("release-cadence-maintenance", "python3", "scripts/ci/test_release_cadence_maintenance.py", groups=("controller",)),
@@ -158,7 +178,7 @@ RiskSnapshot.load(str(manifest))
     _check("release-cadence-checkpoint", "python3", "scripts/ci/test_release_cadence_checkpoint.py", groups=("controller",)),
     _check("protocol-ci-parity", "bash", "scripts/ci/verify-protocol-ci-parity.sh", "--self-test", groups=("operations",)),
     _check("protocol-manifest-transport", "python3", "scripts/ci/test_protocol_manifest_transport.py", groups=("operations",)),
-    _check("governance-teams", "python3", "scripts/ci/test_apply_governance_teams.py", groups=("operations",)),
+    _check("governance-teams", "python3", "scripts/ci/test_apply_governance_teams.py", groups=("controller",)),
     _check("resolve-deploy-scope", "python3", "scripts/ci/test_resolve_deploy_scope.py", groups=("controller", "release", "operations")),
     _check("cloudrun-retention", "python3", "scripts/ci/test_cloudrun_retention.py", groups=("retention",)),
     _check("uat-per-revision-drain", "python3", "scripts/ci/test_uat_per_revision_drain.py", groups=("retention",)),
@@ -341,7 +361,15 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_account_deletion_release_workflow.py",
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
+        "scripts/ci/capture_managed_provider_receipt.py",
+        "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
+        "consent-protocol/scripts/managed_vertex_readiness.py",
+        "consent-protocol/scripts/generate_capability_graph.py",
+        "consent-protocol/tests/helpers/capability_graph_fixture.py",
         "consent-protocol/tests/helpers/plg_qualification.py",
+        "consent-protocol/tests/helpers/calendar_followup_scheduler.py",
     }:
         return frozenset({"controller"}), None
     if path == "consent-protocol/tests/test_memory_judge.py":
@@ -353,7 +381,12 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
     if root == "scripts":
         if len(parts) < 2:
             return frozenset(), f"unrecognized scripts path: {path}"
-        lower = path.lower()
+        # The Dev recovery CLI is tested by the backend owner, never executed here.
+        if path == "scripts/ops/recover_dev_cloud_removal.py":
+            return frozenset(), None
+        # Authored CI filenames use both hyphens and underscores. Treat the
+        # same owner token consistently instead of rejecting registered tools.
+        lower = path.lower().replace("-", "_")
         if parts[1] == "release":
             return frozenset({"controller"}), None
         if parts[1] == "ops" and "runtime_topology" in lower:
@@ -361,7 +394,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         if path in {"scripts/ci/resolve-ci-changed-files.sh", "scripts/ci/document-delivery-check.sh"}:
             return frozenset({"controller"}), None
         if path in {
+            "scripts/ci/assert-governed-actor.py",
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/github_team_authority.py",
             "scripts/ci/verify-predecessor-acceptance.py",
             "scripts/ci/resolve-ui-contract-base.py",
             "scripts/ci/main-post-merge-smoke.sh",
@@ -397,7 +432,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "deploy", "release", "uat", "production", "environment", "identity",
             "security", "governance", "scope", "artifact", "passkey", "places",
             "readiness", "protocol", "queue", "protected", "branch", "main_sync",
-            "live_memory", "verification", "rollback",
+            "live_memory", "verification", "rollback", "secret",
         )
         if any(token in lower for token in controller_tokens):
             return frozenset({"controller"}), None
@@ -462,6 +497,9 @@ def build_selection(env: dict[str, str]) -> Selection:
     requested_groups = set(groups)
     if level == "release":
         requested_groups.add("release")
+        if env.get("PRODUCTION_RECOVERY_SHA"):
+            # Main owns these controller checks; historical Protocol cannot cover them.
+            requested_groups.add("controller")
     ids = tuple(
         check.check_id
         for check in CHECKS
@@ -495,12 +533,55 @@ def _checks_for_ids(check_ids: Sequence[str]) -> tuple[Check, ...]:
     return tuple(check for check in CHECKS if check.check_id in selected)
 
 
+def _checks_for_selection(selection: Selection, env: dict[str, str]) -> tuple[Check, ...]:
+    checks = _checks_for_ids(selection.check_ids)
+    # Protocol retains its full manifest, import collection and runtime envelope.
+    # Transfer only whole-module duplicates when that required hosted owner runs.
+    if (
+        selection.error
+        or selection.level == "diagnostic"
+        or env.get("GITHUB_ACTIONS") != "true"
+        or env.get("GITHUB_EVENT_NAME") not in {"pull_request", "merge_group", "workflow_dispatch"}
+        or env.get("CI_PROTOCOL_CONTROLLER_OWNER") != "true"
+        or env.get("PRODUCTION_RECOVERY_SHA")
+    ):
+        return checks
+    manifest = ROOT / "consent-protocol/scripts/test-ci.manifest.txt"
+    try:
+        if manifest.is_symlink():
+            return checks
+        paths = [line for line in manifest.read_text().splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")]
+        if not paths or len(paths) != len(set(paths)) or any(
+            not path.startswith("tests/") or not path.endswith(".py")
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or not (ROOT / "consent-protocol" / path).is_file()
+            for path in paths
+        ):
+            return checks
+    except (OSError, UnicodeError):
+        return checks
+    protocol_owned = {f"consent-protocol/{path}" for path in paths}
+    result = []
+    for check in checks:
+        if check.check_id == "release-controller-contracts":
+            remaining = tuple(path for path in RELEASE_CONTROLLER_TESTS if path not in protocol_owned)
+            if not remaining:
+                continue  # Never invoke pytest without paths and discover the repository.
+            check = replace(check, argv=check.argv[:-len(RELEASE_CONTROLLER_TESTS)] + remaining)
+        result.append(check)
+    return tuple(result)
+
+
 def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> int:
     failures: list[tuple[str, str]] = []
+    # This selects Main's regression checks; it is not input to their child processes.
+    child_env = dict(os.environ)
+    child_env.pop("PRODUCTION_RECOVERY_SHA", None)
     for check in checks:
         print(f"\n[governance:{check.check_id}] {' '.join(check.argv)}", flush=True)
         try:
-            result = subprocess.run(check.argv, cwd=ROOT, check=False)
+            result = subprocess.run(check.argv, cwd=ROOT, env=child_env, check=False)
             status = result.returncode
         except OSError as exc:
             status = 127
@@ -523,7 +604,7 @@ def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> 
 
 
 def _emit_plan(selection: Selection) -> None:
-    checks = _checks_for_ids(selection.check_ids)
+    checks = _checks_for_selection(selection, dict(os.environ))
     payload = {
         "level": selection.level,
         "changed_files": list(selection.files),
@@ -572,7 +653,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.plan:
         _emit_plan(selection)
         return 2 if selection.error else 0
-    return _run_checks(_checks_for_ids(selection.check_ids), selection.error)
+    return _run_checks(_checks_for_selection(selection, dict(os.environ)), selection.error)
 
 
 if __name__ == "__main__":

@@ -920,15 +920,17 @@ describe("Connect — People", () => {
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
-  it("shows contact badges in one connection list without changing server order", async () => {
+  it("explains both connection badges independently without opening the profile or changing server order", async () => {
     mocks.listConnections.mockResolvedValue([
       {
         connectionId: "c-contact",
         userId: "u-contact",
+        publicPersonRef: "person-ref-contact",
         displayName: "Asha Contact",
         photoUrl: null,
         createdAt: "2026-08-25T00:00:00Z",
         connectedFromContacts: true,
+        isRia: true,
       },
       { connectionId: "c-other", userId: "u-other", displayName: "Manual Friend", photoUrl: null, createdAt: "invalid", connectedFromContacts: false },
       { connectionId: "c-legacy", userId: "u-legacy", displayName: "Legacy Friend", photoUrl: null, createdAt: null },
@@ -945,11 +947,31 @@ describe("Connect — People", () => {
     expect(rows.map(row => row.getAttribute("data-voice-label"))).toEqual([
       "Asha Contact", "Manual Friend", "Legacy Friend", "Second Contact",
     ]);
-    expect(within(rows[0]).getByLabelText("Connected from your contacts")).toBeTruthy();
-    expect(within(rows[3]).getByLabelText("Connected from your contacts")).toBeTruthy();
-    expect(within(rows[1]).queryByLabelText("Connected from your contacts")).toBeNull();
-    expect(within(rows[2]).queryByLabelText("Connected from your contacts")).toBeNull();
+    const avatar = rows[0].querySelector('[data-avatar-size="compact"]') as HTMLElement;
+    const contactBadge = within(avatar).getByRole("button", { name: "Via contacts" });
+    const riaBadge = within(avatar).getByRole("button", { name: "Verified Advisor" });
+    const profileButton = within(rows[0]).getByRole("button", { name: "Open Asha Contact's profile" });
+    expect(profileButton).not.toContainElement(contactBadge);
+    expect(profileButton).not.toContainElement(riaBadge);
+    expect(within(rows[3]).getByRole("button", { name: "Via contacts" })).toBeVisible();
+    expect(within(rows[3]).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
+    for (const row of rows.slice(1, 3)) {
+      expect(within(row).queryByRole("button", { name: "Via contacts" })).toBeNull();
+      expect(within(row).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
+    }
     expect(within(list).getAllByText("Connected")).toHaveLength(2);
+
+    expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
+    fireEvent.click(contactBadge);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("You connected with this person through a match from your synced contacts.");
+    fireEvent.blur(contactBadge);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.click(riaBadge);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Hussh verified this person's advisor profile.");
+    fireEvent.keyDown(riaBadge, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
   it("opens a connection's person profile from My connections", async () => {
@@ -1045,8 +1067,8 @@ describe("Connect — People", () => {
     expect(screen.getByRole("tab", { name: /My connections 5000/ })).toBeTruthy();
     const rows = within(screen.getByTestId("connect-my-connections-group")).getAllByTestId("connect-person-row");
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]).queryByLabelText("Connected from your contacts")).toBeNull();
-    expect(within(rows[1]).getByLabelText("Connected from your contacts")).toBeTruthy();
+    expect(within(rows[0]).queryByRole("button", { name: "Via contacts" })).toBeNull();
+    expect(within(rows[1]).getByRole("button", { name: "Via contacts" })).toBeVisible();
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith(
       expect.objectContaining({ page: 2, limit: 50, audience: "all" }),
     );
@@ -1682,6 +1704,22 @@ describe("Connect — People", () => {
     view.unmount();
     render(<ConnectPageClient />);
     expect(screen.queryByText("Other account peer")).toBeNull();
+  });
+
+  it("removes a deleted person from an open Connections list after a viewer-scoped graph hint", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections");
+    const live = { connectionId: "live-edge", userId: "live", displayName: "Current Friend", photoUrl: null };
+    const retired = { connectionId: "retired-edge", userId: "retired", displayName: "Deleted Friend", photoUrl: null };
+    mocks.listConnections.mockResolvedValue([live, retired]);
+    render(<ConnectPageClient />);
+    await screen.findByText("Deleted Friend");
+
+    mocks.listConnections.mockResolvedValue([live]);
+    await act(async () => dispatchConnectionGraphChanged("other-owner", { broadcast: false }));
+    expect(screen.getByText("Deleted Friend")).toBeVisible();
+    await act(async () => dispatchConnectionGraphChanged("me", { broadcast: false }));
+    await waitFor(() => expect(screen.queryByText("Deleted Friend")).toBeNull());
+    expect(screen.getByText("Current Friend")).toBeVisible();
   });
 
   it("restores a typed search query after the page remounts", async () => {

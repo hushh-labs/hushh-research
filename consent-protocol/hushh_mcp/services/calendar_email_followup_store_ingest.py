@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections import Counter
 from datetime import datetime
 
 from sqlalchemy import text
@@ -27,6 +28,7 @@ class _MessageIngest:
                     FROM calendar_email_followup_requests r
                     JOIN calendar_email_followup_conversations c ON c.id=r.conversation_id
                     WHERE c.user_id=:user_id AND c.account_id=:account_id AND c.thread_hmac=:thread_hmac
+                      AND r.suppressed_at IS NULL AND r.merged_into IS NULL
                     ORDER BY r.source_internal_date_ms, r.id LIMIT 21"""),
                         {
                             "user_id": monitor.user_id,
@@ -135,9 +137,20 @@ class _MessageIngest:
                             ciphertext, monitor, row_id, purpose
                         ),
                     )
+
+                def open_row(ciphertext: str, row_id: str, purpose: str) -> str:
+                    return self._open(ciphertext, monitor, row_id, purpose)
+
+                # Two candidates claiming one earlier request is ambiguous: neither replaces it.
+                claims = Counter(
+                    item.supersedes_request_id
+                    for item in assessment.candidates
+                    if item.supersedes_request_id
+                )
                 for candidate in assessment.candidates:
                     prior = known.get(candidate.evidence_key)
                     if prior is None:
+                        new_id = str(uuid.uuid4())
                         commit.insert_request(
                             conn,
                             monitor,
@@ -147,13 +160,30 @@ class _MessageIngest:
                             message=message,
                             message_hmac=message_hmac,
                             conversation_id=actual_id,
-                            request_id=str(uuid.uuid4()),
+                            request_id=new_id,
                             now=now,
                         )
-                    elif int(prior["assessment_version"]) < ASSESSMENT_VERSION:
+                        if (
+                            candidate.supersedes_request_id
+                            and claims[candidate.supersedes_request_id] == 1
+                        ):
+                            commit.apply_replacement(
+                                conn,
+                                monitor,
+                                new_id=new_id,
+                                target_id=candidate.supersedes_request_id,
+                                open_value=open_row,
+                            )
+                        commit.merge_duplicates(conn, monitor, new_id, open_value=open_row)
+                    elif (
+                        not prior["hidden"]
+                        and int(prior["assessment_version"]) < ASSESSMENT_VERSION
+                    ):
                         row_id = str(prior["id"])
                         event = commit.sealed_event(self._seal, monitor, candidate, row_id)
-                        commit.upgrade_request(conn, row_id, candidate, event)
+                        title = self._seal(candidate.title, monitor, row_id, "title")
+                        commit.upgrade_request(conn, row_id, candidate, event, title)
+                        commit.merge_duplicates(conn, monitor, row_id, open_value=open_row)
                 if reassess:
                     commit.suppress_unsupported(conn, monitor, message_hmac)
                 commit.apply_updates(conn, assessment.updates, actual_id)

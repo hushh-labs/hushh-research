@@ -42,6 +42,9 @@ export interface ConsentCenterEntry {
   counterpart_email?: string | null;
   counterpart_secondary_label?: string | null;
   counterpart_image_url?: string | null;
+  /** Presentation metadata for connected people, sourced from Connections. */
+  counterpart_is_ria?: boolean;
+  counterpart_connected_from_contacts?: boolean;
   counterpart_website_url?: string | null;
   request_id?: string | null;
   /** Owner-scoped presentation group; decisions still use each item's entry. */

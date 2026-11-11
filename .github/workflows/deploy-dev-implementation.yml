@@ -39,10 +39,13 @@ on:
         required: false
         type: string
     secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: true
       GH_SECURITY_ALERTS_TOKEN:
-        required: false
+        required: true
 
 permissions:
+  pull-requests: read
   contents: read
   checks: read
   actions: read
@@ -77,59 +80,32 @@ concurrency:
 
 jobs:
   deployment-security:
-    name: Request Main security clearance
+    name: Deployment security
     if: inputs.target != 'pod-publication' || inputs.operation != 'deploy'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 7
     permissions:
+      pull-requests: read
       contents: read
-      actions: write
-    outputs:
-      application_sha: ${{ steps.clearance.outputs.sha }}
-      attempt: ${{ steps.clearance.outputs.attempt }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          persist-credentials: false
-      - name: Validate explicit operation
-        env:
-          OPERATION: ${{ inputs.operation }}
-          TARGET: ${{ inputs.target }}
-        run: |
-          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
-          if [[ "$OPERATION" == inspect-routing ]]; then
-            test "$TARGET" = shared-dev
-          fi
-      - name: Request and verify Main clearance
-        id: clearance
-        run: python3 scripts/ci/deployment_security.py --request-broker
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
-          DEPLOY_SECURITY_REF: ${{ inputs.sha || inputs.ref || 'dev' }}
-          DEPLOY_SECURITY_ENVIRONMENT: dev
-          DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: deployment-security-request-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/deployment-security-request.json
-            ${{ runner.temp }}/deployment-security.json
-          if-no-files-found: warn
-          retention-days: 7
+      actions: read
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
+      environment_name: dev
+      scope: ${{ inputs.scope || 'auto' }}
 
   pod-security:
     name: Pod publication security
     if: inputs.target == 'pod-publication' && inputs.operation == 'deploy'
     permissions:
+      pull-requests: read
       contents: read
       actions: read
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
       environment_name: dev
@@ -139,6 +115,12 @@ jobs:
     needs: deployment-security
     name: Deploy Dev Scope
     if: inputs.target != 'pod-publication' && inputs.operation == 'deploy'
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     environment: dev
 
@@ -153,14 +135,14 @@ jobs:
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
-      # The caller is Dev; this implementation is resolved from Main.
+      # Both caller and release implementation are Main-owned.
       # Application content remains independently selected and qualified.
-      - name: Assert manual dispatch originates from dev
+      - name: Assert manual dispatch originates from Main
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "dev" ]; then
-            echo "Refusing dev deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'dev' only."
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing dev deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
             exit 1
           fi
 
@@ -177,6 +159,10 @@ jobs:
 
       - name: Assert manual dev dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface dev --actor "${GITHUB_ACTOR}"
@@ -232,13 +218,29 @@ jobs:
           REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
+      - name: Verify Main-owned build and migration authority
+        env:
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts/ci")
+          from uat_exact_ci import verify_privileged_release_inputs
+          verify_privileged_release_inputs(os.environ["APPLICATION_SHA"], os.environ["RELEASE_TOOLING_SHA"])
+          PY
+
       - name: Checkout deployment SHA
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/await-prebuilt-image.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          for tool in managed_provider_readiness.py managed_capability_proof.py capture_managed_provider_receipt.py; do
+            cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/"
+          done
+          cp scripts/deploy/verify-managed-vertex-runtime.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-uat-verification-plan.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
@@ -254,6 +256,10 @@ jobs:
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          for tool in managed_provider_readiness.py managed_capability_proof.py capture_managed_provider_receipt.py; do
+            cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
+          done
+          cp "${RUNNER_TEMP}/release-tools/verify-managed-vertex-runtime.sh" scripts/deploy/
           mkdir -p deploy/account-deletion
           cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/
           cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
@@ -870,6 +876,12 @@ jobs:
           started_at="$(date +%s)"
           SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.DEV_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${{ env.DEV_ONE_EMAIL_PUBSUB_TOPIC }}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${{ env.DEV_ONE_EMAIL_WEBHOOK_AUDIENCE }}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_ONE_VOICE_LIVE_ENABLED=true##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=dev##_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}##_BUILD_POD_IMAGE=${{ inputs.build_pod_image && 'true' || 'false' }}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=deploy-dev##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##$(python3 scripts/ops/managed_ai_config.py --environment dev --format substitutions)"
+          qualification_mode=full
+          if [[ "${DEV_TARGET:-shared-dev}" == shared-dev ]] && grep -Fq '_MANAGED_READINESS_MODE:' deploy/backend.cloudbuild.yaml; then
+            qualification_mode="$(python3 scripts/ci/managed_provider_readiness.py qualification-mode)"
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_MANAGED_READINESS_MODE=${qualification_mode}"
+          fi
+          echo "qualification_mode=${qualification_mode}" >> "$GITHUB_OUTPUT"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VERIFY_MANAGED_VERTEX_RUNTIME=true"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
@@ -914,14 +926,35 @@ jobs:
           if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
             SUBSTITUTIONS="$(printf '%s' "$SUBSTITUTIONS" | "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-substitutions.py --kind backend)"
           fi
-          gcloud builds submit \
+          build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=^##^${SUBSTITUTIONS}"
+            --async --suppress-logs --format='value(id)' \
+            "--substitutions=^##^${SUBSTITUTIONS}")"
+          [[ "$build_id" =~ ^[0-9a-f-]{36}$ ]] || { echo "Cloud Build id is invalid" >&2; exit 1; }
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+          bash "${RUNNER_TEMP}/release-tools/await-prebuilt-image.sh" --project "${{ env.GCP_PROJECT_ID }}" --build-id "$build_id" --wait-only
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
+
+      - name: Capture managed provider readiness receipt
+        if: always() && steps.deploy-backend.outputs.qualification_mode == 'core'
+        shell: bash
+        env:
+          READINESS_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
+          READINESS_SOURCE_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          READINESS_IMAGE: ${{ steps.build-backend-image.outputs.image_reference }}
+          READINESS_RUNTIME_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
+          READINESS_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          READINESS_REGION: ${{ env.GCP_REGION }}
+          READINESS_GITHUB_RUN: ${{ github.run_id }}
+          READINESS_ENVIRONMENT: dev
+          READINESS_QUALIFICATION_MODE: core
+          READINESS_LEGACY_EXCEPTION: 'false'
+        run: |
+          python3 scripts/ci/capture_managed_provider_receipt.py --output /tmp/dev-managed-provider-readiness.json
 
       - name: Wait for frontend image and pin its digest
         id: build-frontend-image
@@ -1429,6 +1462,24 @@ jobs:
           import os
           from pathlib import Path
 
+          verification_outcomes = [os.environ.get(name, "") for name in (
+              "PARITY_ATTEMPT_1", "PARITY_ATTEMPT_2", "SEMANTIC_ATTEMPT_1", "SEMANTIC_ATTEMPT_2",
+              "BACKEND_PROVENANCE_OUTCOME", "FRONTEND_PROVENANCE_OUTCOME", "DB_OUTCOME")]
+          if all(value in {"", "skipped"} for value in verification_outcomes):
+              reason = ("frontend_image_build_failed" if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure"
+                        else "prerequisite_failed")
+              payload = {"status": "blocked", "phase": "verification_not_reached", "release_failed": True,
+                         "blocking_classifications": [reason], "backend_failure": False, "frontend_failure": False,
+                         "parity": {"status": "not_reached", "success": False},
+                         "provenance": {"status": "not_reached"},
+                         "semantic": {"status": "not_reached", "success": False},
+                         "db_contract": {"status": "not_reached"}}
+              Path("/tmp/dev-release-classification.json").write_text(json.dumps(payload, indent=2))
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                  output.write("release_failed=true\nbackend_failure=false\nfrontend_failure=false\n")
+              print("Release verification was not reached; inspect the preceding prerequisite failure.")
+              raise SystemExit(0)
+
           def load_json(path: str) -> dict:
               candidate = Path(path)
               if not candidate.exists():
@@ -1765,7 +1816,7 @@ jobs:
           test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Resolve final Cloud Run state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         id: final-state
         shell: bash
         run: |
@@ -2022,6 +2073,7 @@ jobs:
             /tmp/dev-account-deletion-*.json
             /tmp/dev-account-deletion-*.log
             /tmp/dev-verification-plan.json
+            /tmp/dev-managed-provider-readiness.json
 
       - name: Deployment summary
         if: always()
@@ -2099,7 +2151,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove this run's candidate tags
-        if: always() && steps.verify-candidates.outcome != 'skipped'
+        if: always() && steps.gcp-auth.outcome == 'success' && steps.verify-candidates.outcome != 'skipped'
         continue-on-error: true
         shell: bash
         run: |
@@ -2135,6 +2187,9 @@ jobs:
     needs: pod-security
     name: Pod Release Publication
     if: inputs.target == 'pod-publication' && inputs.operation == 'deploy'
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: dev
@@ -2162,6 +2217,8 @@ jobs:
       - name: Admit Main-owned pod publication
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.pod-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.pod-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           LEGACY_BUILD_FLAG: ${{ inputs.build_pod_image && 'true' || 'false' }}
         run: |
@@ -2278,7 +2335,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF_NAME" = dev
+          test "$GITHUB_REF_NAME" = main
           test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
           [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
       - name: Authenticate to the matching environment

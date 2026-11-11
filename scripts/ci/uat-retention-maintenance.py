@@ -426,9 +426,7 @@ def download(repository: str, run_id: int, name: str, directory: Path) -> None:
 def governed_dispatch(
     run: dict, repository: str, environment: str, *, workflow: str | None = None
 ) -> bool:
-    policy = json.loads(
-        (Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text()
-    )
+    """Recognize historical origin; downstream outcome/serving proofs still apply."""
     if (
         environment == "production"
         and trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
@@ -445,8 +443,7 @@ def governed_dispatch(
     return (
         trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
         and run.get("event") == "workflow_dispatch"
-        and (run.get("actor") or {}).get("login")
-        in policy[environment]["manual_dispatch_users"]
+        and release_provenance.historical_human_dispatch(run)
     )
 
 
@@ -1274,6 +1271,12 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
             if not (created and started and finished and started - timedelta(seconds=5) <= created <= finished + timedelta(seconds=30)):
                 continue
         return True
+    # A completed immutable upload can independently prove missing step metadata.
+    publication = importlib.import_module("retention_publication")
+    for job in matched:
+        if publication.uploaded_checkpoint_proof(sys.modules[__name__], repository, run, attempt,
+                                                job, environment, artifact) is not None:
+            return True
     return False
 
 

@@ -445,19 +445,29 @@ def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
     )
     cache = next(step for step in steps if step.get("uses", "").startswith("actions/cache@"))
     assert "uat-chromium" in cache["with"]["key"]
-    assert cache["if"] == "inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
     assert (
-        install["env"]["RUN_BROWSER_DIAGNOSTICS"]
-        == "${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}"
+        cache["if"]
+        == "steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
+    )
+    assert (
+        install["env"]["RUN_CHROMIUM_VERIFICATION"]
+        == "${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}"
     )
 
 
 @pytest.mark.parametrize(
-    "npm_status,failures,expected,diagnostic",
-    [(0, 0, 0, True), (0, 1, 0, True), (0, 2, 1, True), (9, 0, 9, True), (0, 0, 0, False)],
+    "npm_status,failures,expected,diagnostic,frontend",
+    [
+        (0, 0, 0, True, False),
+        (0, 1, 0, True, False),
+        (0, 2, 1, True, False),
+        (9, 0, 9, True, False),
+        (0, 0, 0, False, False),
+        (0, 0, 0, False, True),
+    ],
 )
 def test_uat_browser_install_retries_and_blocks_on_failure(
-    tmp_path, npm_status, failures, expected, diagnostic
+    tmp_path, npm_status, failures, expected, diagnostic, frontend
 ):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
@@ -479,6 +489,18 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
         'n=$((n+1)); echo "$n" > "$ATTEMPTS"; echo "$*" >> "$CALLS"; [ "$n" -gt "$FAILURES" ]; };\n'
     )
     calls, attempts = tmp_path / "calls", tmp_path / "attempts"
+    # Resolve the authored dependency condition, including mandatory analytics
+    # when optional app-browser diagnostics are off.
+    browser_required = install["env"]["RUN_CHROMIUM_VERIFICATION"]
+    browser_required = browser_required.replace("${{", "").replace("}}", "")
+    browser_required = browser_required.replace(
+        "steps.scope.outputs.deploy_frontend == 'true'", str(frontend)
+    )
+    browser_required = browser_required.replace(
+        "inputs.repeat_reviewer_byok", str(diagnostic)
+    ).replace("inputs.run_pwm_acceptance", "False")
+    assert all(term.strip() in {"True", "False"} for term in browser_required.split("||"))
+    browser_required = any(term.strip() == "True" for term in browser_required.split("||"))
     result = subprocess.run(  # noqa: S603 - actual installer with synthetic package commands only.
         [shutil.which("bash") or "bash", "-c", stubs + script],
         cwd=tmp_path,
@@ -488,14 +510,14 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
             "ATTEMPTS": str(attempts),
             "NPM_STATUS": str(npm_status),
             "FAILURES": str(failures),
-            "RUN_BROWSER_DIAGNOSTICS": str(diagnostic).lower(),
+            "RUN_CHROMIUM_VERIFICATION": str(browser_required).lower(),
         },
         capture_output=True,
         text=True,
     )
     assert result.returncode == expected, result.stderr
     assert calls.read_text().splitlines().count("npm") == 1
-    if npm_status or not diagnostic:
+    if npm_status or not (frontend or diagnostic):
         assert not attempts.exists()
     else:
         assert int(attempts.read_text()) == min(failures + 1, 2)
@@ -538,3 +560,205 @@ def test_integration_document_selection_keeps_default_and_refuses_malformed(
     document_delivery_ci.assert_integration_mode(
         tmp_path, ("--ci-linux-document",), "Linux", expected, selection
     )
+
+
+@pytest.mark.parametrize("build_status", [0, 1])
+def test_backend_build_failure_keeps_exact_id_and_elapsed_time(tmp_path, build_status):
+    """A failed remote build must remain diagnosable without resubmission."""
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    step = next(s for s in workflow["jobs"]["deploy"]["steps"] if s.get("id") == "deploy-backend")
+    source = step["run"]
+    timer = source[source.index('started_at="') : source.index("source deploy/drive/")]
+    submit = source[source.index('build_id="$(gcloud builds submit') :]
+    submit = re.sub(r"\$\{\{.*?\}\}", "synthetic-project", submit)
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    gcloud = binary / "gcloud"
+    build_id = "12345678-1234-1234-1234-123456789abc"
+    gcloud.write_text(f"#!/bin/sh\nprintf '%s\\n' '{build_id}'\n")
+    gcloud.chmod(0o700)
+    waiter = tmp_path / "scripts/ci/await-prebuilt-image.sh"
+    waiter.parent.mkdir(parents=True)
+    waiter.write_text(f"#!/bin/sh\nexit {build_status}\n")
+    output = tmp_path / "outputs"
+    result = subprocess.run(  # noqa: S603 - authored release step, synthetic CLI and paths only.
+        ["bash", "-euc", timer + "SUBSTITUTIONS=synthetic\n" + submit],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(binary) + os.pathsep + os.defpath,
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert result.returncode == build_status, result.stderr
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values["build_id"] == build_id
+    assert int(values["finished_at_epoch"]) >= int(values["started_at_epoch"])
+    assert int(values["duration_seconds"]) >= 0
+
+
+@pytest.mark.parametrize(
+    "source,accepted_dev,status,allowed",
+    [
+        ("auto", False, "SUCCESS", True),
+        ("auto", True, "SUCCESS", True),
+        ("build-from-source", True, "FAILURE", False),
+        ("promote-from-dev", False, "SUCCESS", False),
+    ],
+)
+def test_backend_preparation_overlaps_but_join_refuses_failed_build(
+    tmp_path, source, accepted_dev, status, allowed
+):
+    import json
+
+    from tests.helpers.deployment_cli import manifest_index
+
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    start = next(step for step in steps if step.get("id") == "start-backend-image-build")
+    join = next(step for step in steps if step.get("id") == "build-backend-image")
+    fence = next(step for step in steps if step.get("id") == "install-account-deletion-fence")
+    prepare = next(step for step in steps if step.get("id") == "document-mode")
+    assert steps.index(start) < steps.index(prepare) < steps.index(join) < steps.index(fence)
+    tools = tmp_path / "runner/release-tools"
+    tools.mkdir(parents=True)
+    shutil.copyfile(
+        REPO_ROOT / "scripts/ci/await-prebuilt-image.sh", tools / "await-prebuilt-image.sh"
+    )
+    helpers = tmp_path / "scripts/ci"
+    helpers.mkdir(parents=True)
+    shutil.copyfile(
+        REPO_ROOT / "scripts/ci/resolve-cloud-run-image.py", helpers / "resolve-cloud-run-image.py"
+    )
+    manifest, parent, child = manifest_index()
+    dev = "gcr.io/hushh-pda-dev/consent-protocol@" + child
+    pin = tmp_path / "pin.json"
+    pin.write_text(json.dumps({"image_reference": dev} if accepted_dev else {}))
+    calls, output = tmp_path / "calls", tmp_path / "output"
+    values = {
+        "env.GCP_PROJECT_ID": "hushh-pda-uat",
+        "steps.resolve-sha.outputs.sha": "c" * 40,
+        "github.run_id": "42",
+        "github.run_attempt": "2",
+    }
+
+    original_pin = "/tmp/uat-dev-backend-image.json"  # noqa: S108 - rewrite authored constant into isolated fixture.
+    original_image = "/tmp/uat-backend-image"  # noqa: S108 - no file is created here.
+
+    def render(body):
+        return (
+            re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: values[m[1]], body)
+            .replace(original_pin, str(pin))
+            .replace(original_image, str(tmp_path / "backend-image"))
+        )
+
+    guard = r"""
+    gcloud() {
+      printf '%s\n' "$*" >> "$CALLS"
+      case "$1 $2 ${3:-}" in
+        "builds submit --async") echo 11111111-1111-4111-8111-111111111111 ;;
+        "builds describe "*) echo "$BUILD_STATUS" ;;
+        "container images describe") echo "$PARENT_DIGEST" ;;
+        "container images add-tag"|"auth configure-docker gcr.io") ;;
+        *) echo "Unexpected cloud command" >&2; return 71 ;;
+      esac
+    }
+    docker() { printf '%s\n' "$MANIFEST"; }
+    export -f gcloud docker
+    """
+    env = {
+        **os.environ,
+        "CALLS": str(calls),
+        "GITHUB_OUTPUT": str(output),
+        "RUNNER_TEMP": str(tools.parent),
+        "BACKEND_IMAGE_SOURCE": source,
+        "BUILD_STATUS": status,
+        "MANIFEST": manifest,
+        "PARENT_DIGEST": parent,
+    }
+    started = subprocess.run(  # noqa: S603 - authored release step; synthetic cloud commands only.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + render(start["run"])],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    if source == "promote-from-dev" and not accepted_dev:
+        assert started.returncode != 0 and not calls.exists()
+        return
+    assert started.returncode == 0, started.stderr
+    pins = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert pins["image_tag"] == "uat-" + "c" * 40 + "-42-2"
+    env.update(
+        IMAGE_SOURCE=pins["image_source"],
+        IMAGE_TAG=pins["image_tag"],
+        IMAGE_REPOSITORY=pins["image_repository"],
+        DEV_IMAGE=pins.get("dev_image", ""),
+        BACKEND_IMAGE_BUILD_ID=pins.get("build_id", ""),
+    )
+    joined = subprocess.run(  # noqa: S603 - authored join; real bounded waiter with synthetic providers.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + render(join["run"])],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert (joined.returncode == 0) is allowed, joined.stdout + joined.stderr
+    observed = calls.read_text().splitlines()
+    assert sum(line.startswith("builds submit") for line in observed) == (
+        pins["image_source"] == "build-from-source"
+    )
+    if allowed:
+        assert (
+            "image_reference=gcr.io/hushh-pda-uat/consent-protocol@" + child in output.read_text()
+        )
+    else:
+        assert not any(line.startswith("container images describe") for line in observed)
+
+
+@pytest.mark.parametrize("first_cancel_fails", [False, True])
+def test_cleanup_stops_both_owned_builds_even_before_mutation(tmp_path, first_cancel_fails):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    cleanup = next(
+        step for step in steps if step.get("name") == "Cancel unused parallel image builds"
+    )
+    assert "begin-uat-mutation" not in cleanup["if"]
+    body = cleanup["run"].replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-uat")
+    first, second = (f"{d * 8}-{d * 4}-4{d * 3}-8{d * 3}-{d * 12}" for d in "12")
+    calls = tmp_path / "calls"
+    guard = r"""
+    gcloud() {
+      printf '%s\n' "$*" >> "$CALLS"
+      if [ "$2" = describe ]; then echo WORKING; return 0; fi
+      if [ "$2" = cancel ]; then
+        [ "$3" != "$BACKEND_IMAGE_BUILD_ID" ] || [ "$FIRST_CANCEL_FAILS" != true ]
+      else return 72; fi
+    }
+    """
+    result = subprocess.run(  # noqa: S603 - authored cleanup against fixed synthetic build identities.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + body],
+        env={
+            **os.environ,
+            "CALLS": str(calls),
+            "BACKEND_IMAGE_BUILD_ID": first,
+            "FRONTEND_IMAGE_BUILD_ID": second,
+            "FIRST_CANCEL_FAILS": str(first_cancel_fails).lower(),
+        },
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert (result.returncode != 0) is first_cancel_fails
+    cancelled = [
+        line for line in calls.read_text().splitlines() if line.startswith("builds cancel")
+    ]
+    assert len(cancelled) == 2 and first in cancelled[0] and second in cancelled[1]

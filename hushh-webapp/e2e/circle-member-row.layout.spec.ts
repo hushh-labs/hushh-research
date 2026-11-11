@@ -226,7 +226,7 @@ export default function Link({ href, children, ...props }: AnchorHTMLAttributes<
   );
   fs.writeFileSync(
     path.join(dir, "src/direct-messages-service.ts"),
-    `export const DirectMessagesService = { routeHref: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
+    `export const DirectMessagesService = { routeSelection: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
   );
   fs.writeFileSync(
     path.join(dir, "src/next-navigation.ts"),
@@ -1013,7 +1013,7 @@ test.describe("Circle roster row", () => {
             await expect(remove).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
             await expect(remove).toHaveCSS("border-width", "0px");
           }
-          await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
+          await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
           await expect(cancel).toHaveCSS("color", defaultAccent);
           await page.evaluate(() => document.documentElement.dataset.accent = "gold");
           const goldAccent = await readAccent();

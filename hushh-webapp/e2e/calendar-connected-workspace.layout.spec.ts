@@ -34,7 +34,7 @@ test("Calendar product font and real action targets survive responsive boundarie
   const dialog = page.getByRole("dialog");
   await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
   const title = dialog.getByRole("heading", { name: "QA Product Sync" });
-  expect(await title.evaluate(element => ({ family: getComputedStyle(element).fontFamily, size: getComputedStyle(element).fontSize, line: getComputedStyle(element).lineHeight }))).toMatchObject({ size: "15px", line: "18px" });
+  expect(await title.evaluate(element => ({ family: getComputedStyle(element).fontFamily, size: getComputedStyle(element).fontSize, line: getComputedStyle(element).lineHeight }))).toMatchObject({ size: "20px", line: "28px" });
   await expect(title).toHaveCSS("font-family", /Plus Jakarta Sans/);
   const invitationBack = dialog.getByRole("button", { name: "Invitations", exact: true });
   await expect(invitationBack).toHaveCSS("font-size", "12px");
@@ -113,8 +113,8 @@ test("three-account Board keeps its measure, heading roles and account actions a
   const dialog = page.getByRole("dialog");
   await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
   const title = dialog.getByRole("heading", { name: "QA Design Review" });
-  await expect(title).toHaveCSS("font-size", "15px");
-  await expect(title).toHaveCSS("line-height", "18px");
+  await expect(title).toHaveCSS("font-size", "20px");
+  await expect(title).toHaveCSS("line-height", "28px");
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -138,7 +138,9 @@ test("@presentation Calendar account pickers show verified portraits and readabl
     await page.getByRole("tab", { name: section, exact: true }).click();
     const owner = page.getByRole("button", { name: "Calendar account: qa-owner@example.com" });
     await expect.poll(() => owner.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
-    await owner.click();
+    if (section === "Invitations") await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+    await owner.press("Enter");
+    await expect(owner).toHaveAttribute("aria-expanded", "true");
     const work = page.getByRole("menuitemradio", { name: /qa-work@example.com/ });
     await expect.poll(() => work.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
     await expect(work.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
@@ -196,7 +198,7 @@ for (const width of [390, 1440]) {
   });
 }
 for (const width of [320, 390, 1440]) {
-  test(`connected Calendar geometry, timeline, windows and shared session recovery at ${width}px`, async ({ page }) => {
+  test(`connected Calendar geometry, timeline, windows and shared session recovery at ${width}px`, async ({ page }, testInfo) => {
     const { errors, unexpectedRequests, calls, failAvailability } = await openFixture(page, width);
     const tabs = page.getByRole("tablist", { name: "Calendar navigation" });
     const tabBounds = (await tabs.boundingBox())!;
@@ -223,7 +225,7 @@ for (const width of [320, 390, 1440]) {
     const selectedSurface = await page.locator("[data-highlighted]").evaluate(element => getComputedStyle(element).backgroundColor);
     const inactiveSurface = await page.getByRole("tab", { name: "Free time", exact: true }).evaluate(element => getComputedStyle(element).backgroundColor);
     await expect(page.getByRole("tab", { name: "Today", exact: true })).toHaveCSS("background-color", selectedSurface);
-    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-owner%40example.com");
     await expect(page.getByRole("link", { name: "Join meeting: QA Design Review", exact: true })).toHaveAttribute("href", "https://zoom.us/j/123456789");
     await expect(page.getByRole("link", { name: "Join meeting: QA Client Call – Acme", exact: true })).toHaveAttribute("href", "https://teams.microsoft.com/l/meetup-join/19%3ameeting_qa/0");
     await expect(page.locator('[data-calendar-event="primary:shared-id"] img[src="/one-calendar/providers/google-meet-reference.png"]')).toBeVisible();
@@ -273,7 +275,9 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("Choose calendars and alternative meeting hours. Free time checks the whole selected day.");
     await expect(page.getByRole("dialog").getByRole("combobox", { name: "Time zone" })).toHaveCount(0);
-    for (let index = 0; index < 6; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
+    // macOS WebKit uses Option-Tab to include all interactive controls.
+    const focusNext = process.platform === "darwin" && testInfo.project.name === "webkit" ? "Alt+Tab" : "Tab";
+    for (let index = 0; index < 6; index++) { await page.keyboard.press(focusNext); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.keyboard.press("Escape");
     await expect(menu).toBeFocused();
     await tabs.getByRole("tab", { name: "Schedule", exact: true }).focus();
@@ -464,7 +468,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See more in Google Calendar")).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-list-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
-    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-owner%40example.com");
     const dialog = page.getByRole("dialog", { name: "Invitation details", exact: true });
     await expect(dialog).toBeVisible();
     await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
@@ -555,6 +559,9 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("tab", { name: "Responded", exact: true }).click();
     await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
     await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
+    await expect(dialog.getByRole("article")).toBeVisible();
+    await expect(dialog.getByLabel("Invitation actions")).toHaveCount(0);
     expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
   });
 }
@@ -618,6 +625,7 @@ for (const width of [390, 1280]) {
     await page.getByRole("tab", { name: "Insights", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Executive snapshot" })).toBeVisible();
     await expect(page.getByText("8", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Focus opportunities" })).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-overview-${width}.png`), fullPage: true });
     const libraryEntry = page.getByRole("button", { name: /Recordings & Notes/ });
     await libraryEntry.scrollIntoViewIfNeeded();
@@ -718,7 +726,11 @@ for (const width of [390, 1280]) {
     await expect(rows).toHaveCount(1);
     await expect(rows).toHaveAccessibleName("Open invitation: QA Tomorrow");
     await page.getByRole("button", { name: "Next day", exact: true }).click();
-    await expect(page.getByText("No pending invitations on this date.")).toBeVisible();
+    const empty = page.getByText("No pending invitations on this date.");
+    await expect(empty).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Needs your response" })).toHaveCount(0);
+    const pendingTab = page.getByRole("tab", { name: "Pending (0)" });
+    expect(Math.abs((await empty.boundingBox())!.x - (await pendingTab.boundingBox())!.x)).toBeLessThanOrEqual(2);
     await page.getByRole("button", { name: "Previous day", exact: true }).click();
     await expect(rows).toHaveCount(1);
     await page.getByRole("button", { name: "Back to today", exact: true }).click();
@@ -792,13 +804,11 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   await page.getByRole("tab", { name: "Invitations", exact: true }).click();
   await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
   await page.getByRole("button", { name: "Decline", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Review decline email" })).toBeDisabled();
+  const send = page.getByRole("button", { name: "Decline", exact: true });
+  await expect(send).toBeDisabled();
   await page.getByLabel("Reason for declining").fill("I have another commitment.");
-  await page.getByRole("button", { name: "Review decline email" }).click();
-  await expect(page.getByText("To: qa-organizer-0@example.test")).toBeVisible();
-  await expect(page.getByText(/I have another commitment\./)).toBeVisible();
   expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(0);
-  await page.getByRole("button", { name: "Decline & send email" }).click();
+  await send.click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("calendar-action")).toHaveText("");
   expect(page.url()).toContain("/calendar-connected-fixture");
@@ -873,8 +883,7 @@ for (const width of [320, 390, 480, 481, 768, 1440]) {
     await decline.click();
     await dialog.getByLabel("Reason for declining").fill("A different commitment.");
     const back = dialog.getByRole("button", { name: "Back", exact: true });
-    const email = dialog.getByRole("button", { name: "Review decline email", exact: true });
-    await expect(email).toBeEnabled();
+    await expect(decline).toBeEnabled();
     expect((await join.boundingBox())!.x).toBe(joinBounds.x);
     await join.click();
     const accountPrompt = page.getByRole("dialog", { name: "Check Google account" });

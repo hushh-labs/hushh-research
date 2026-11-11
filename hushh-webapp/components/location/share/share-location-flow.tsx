@@ -421,7 +421,7 @@ export function ShareLocationFlow({
                 key={recipient.userId}
                 label={recipient.displayName}
                 photoUrl={recipient.photoUrl}
-                verified={recipient.phoneVerified}
+                verified={recipient.isRia}
                 subtitle={
                   recipient.canReceiveLocation
                     ? null

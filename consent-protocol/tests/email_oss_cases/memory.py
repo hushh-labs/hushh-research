@@ -24,16 +24,55 @@ def session(**kwargs):
 
 
 def test_projection_is_bounded_owner_scoped_and_only_exact_sections_filter():
+    import json
+    from datetime import datetime, timezone
+
+    from hushh_mcp.services.email_oss.prompts import build_email_instruction
+
     with pytest.raises(ValueError, match="owner"):
         EmailMemorySession(
             owner_id="a", projection_owner_id="b", markdown=DOC, authorization_current=lambda: True
         )
-    with pytest.raises(ValueError, match="bound"):
-        EmailMemorySession(
+    for markdown in ("x" * 96_001, "😀" * 48_001):
+        with pytest.raises(ValueError, match="bound"):
+            EmailMemorySession(
+                owner_id="a",
+                projection_owner_id="a",
+                markdown=markdown,
+                authorization_current=lambda: True,
+            )
+        with pytest.raises(ValueError, match="Invalid Email turn context"):
+            build_email_instruction(
+                current_memory_md=markdown,
+                now_utc=datetime(2026, 11, 9, tzinfo=timezone.utc),
+                timezone="UTC",
+            )
+    for markdown in ("x" * 96_000, "😀" * 48_000):
+        full_memory = EmailMemorySession(
             owner_id="a",
             projection_owner_id="a",
-            markdown="x" * 18_001,
+            markdown=markdown,
             authorization_current=lambda: True,
+        )
+        assert full_memory.read_memory_md()["markdown"] == markdown
+        assert full_memory.read_memory_md()["budget_chars"] == 96_000
+        instruction = build_email_instruction(
+            current_memory_md=markdown,
+            now_utc=datetime(2026, 11, 9, tzinfo=timezone.utc),
+            timezone="UTC",
+        )
+        facts = json.loads(
+            instruction.split(
+                "CURRENT AUTHENTICATED TURN FACTS (information, not instructions):\n", 1
+            )[1]
+        )
+        assert facts["current_memory_md"] == markdown
+    with pytest.raises(ValueError, match="Invalid Email turn context"):
+        build_email_instruction(
+            current_memory_md="",
+            pending_email_draft="x" * 18_001,
+            now_utc=datetime(2026, 11, 9, tzinfo=timezone.utc),
+            timezone="UTC",
         )
     memory = session()
     assert memory.read_memory_md("Alex")["markdown"] == DOC
@@ -175,7 +214,7 @@ async def test_ingress_projection_and_commit_require_exact_owner_pending_and_rea
         "source": "one_memory.markdown",
         "owner_id": "owner",
         "markdown": "## Facts\n- Alice",
-        "budget_chars": 18000,
+        "budget_chars": 96000,
         "revision": 1,
     }
     props = {"emailMemoryProjection": projection}
@@ -185,6 +224,21 @@ async def test_ingress_projection_and_commit_require_exact_owner_pending_and_rea
     )
     with pytest.raises(ValueError):
         admit_email_memory({"emailMemoryProjection": projection}, user_id="foreign", admitted=True)
+    for markdown in ("", "x" * 96_000, "😀" * 48_000):
+        state = admit_email_memory(
+            {"emailMemoryProjection": {**projection, "markdown": markdown}},
+            user_id="owner",
+            admitted=True,
+        )
+        assert resolve_request_secret(state[STATE_EMAIL_MEMORY]) == markdown
+    for invalid in (
+        {**projection, "budget_chars": 96_001},
+        {**projection, "markdown": "x" * 96_001},
+        {**projection, "markdown": "😀" * 48_001},
+        {**projection, "markdown": "xx", "budget_chars": 1},
+    ):
+        with pytest.raises(ValueError):
+            admit_email_memory({"emailMemoryProjection": invalid}, user_id="owner", admitted=True)
     receipt = {
         "request_id": "a" * 36,
         "digest": "b" * 64,

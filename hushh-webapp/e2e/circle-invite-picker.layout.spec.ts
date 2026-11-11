@@ -109,7 +109,8 @@ for (const viewport of [
     await expect(dialog).toBeVisible();
     await awaitProductFont(page);
     await expect(dialog.getByText("Connected person 1", { exact: true })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: /Select Connected person 1 for Circle invitation/ })).toHaveAccessibleDescription(/Connected .*From your contacts.*Verified advisor/);
+    await expect(dialog.getByRole("button", { name: "Select Connected person 1 for Circle invitation" })).toHaveAccessibleDescription(/Connected .*Verified advisor.*Connected from your contacts/);
+    await expect(dialog.getByText("Connected from your contacts").first()).toHaveClass(/\bsr-only\b/);
     // Content arriving during entry can cancel an animation; both states settle before measurement.
     await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
     expect(errors).toEqual([]);

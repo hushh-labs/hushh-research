@@ -38,7 +38,11 @@ def test_the_fixture_actually_exceeds_the_single_argument_limit() -> None:
     )
 
 
-def test_gate_passes_a_green_sha_whose_check_payload_exceeds_argv(tmp_path: Path) -> None:
+def test_gate_passes_a_green_sha_whose_check_payload_exceeds_argv(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "qualification.json"
+    monkeypatch.setenv("DEPLOY_SHA_EVIDENCE_OUTPUT", str(output))
     result = _run_gate(tmp_path, _payload_over_the_arg_limit())
 
     # Exit 126 with this message is the exact signature of the 2026-08-07 failure.
@@ -46,6 +50,11 @@ def test_gate_passes_a_green_sha_whose_check_payload_exceeds_argv(tmp_path: Path
     assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
     assert "Deploy SHA preflight passed" in result.stdout
     assert "CI Status Gate" in result.stdout
+    proof = json.loads(output.read_text())
+    assert proof["repository"] == "hushh-labs/hushh-research"
+    assert proof["source_branch"] == BRANCH
+    assert proof["checks"][0]["run_attempt"] == 1
+    assert proof["checks"][0]["workflow"] == ".github/workflows/ci.yml"
 
 
 @pytest.mark.parametrize(
@@ -432,3 +441,28 @@ def test_competing_release_attempt_appearing_during_admission_refuses(tmp_path):
         later_workflow_runs=[green, failure],
     )
     assert result.returncode != 0, result.stdout
+
+
+def test_main_functional_evidence_refuses_newer_failure_from_another_producer(
+    tmp_path, monkeypatch
+):
+    from tests.helpers.deploy_gate import _workflow_for
+
+    monkeypatch.setenv("REQUIRE_LATEST_FUNCTIONAL_CI", "1")
+    monkeypatch.setenv("DEPLOY_SHA_EVIDENCE_OUTPUT", str(tmp_path / "proof.json"))
+    green = _check_run("Queue Validation", "success", 1)
+    old = _workflow_for(green)
+    failed = _workflow_for(_check_run("Branch Validation Gate", "failure", 2))
+    failed.update(
+        conclusion="failure",
+        run_started_at="2026-10-26T11:00:00Z",
+        updated_at="2026-10-26T11:01:00Z",
+    )
+    result = _run_gate(
+        tmp_path,
+        {"check_runs": [green]},
+        accepted="Queue Validation,Branch Validation Gate",
+        workflow_runs=[old, failed],
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / "proof.json").exists()

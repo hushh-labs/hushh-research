@@ -510,7 +510,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The owner's consented memory for this turn: Soul.md, then the bounded
     # Live Mirror facts packet. Popped before the bridge can copy forwarded
     # props; only an unlocked owner turn stores it (below).
-    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
+    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")
+    if len(raw_pkm_context) > 128_000:
+        raise HTTPException(413, detail="Private memory context exceeds the request budget")
     try:
         email_memory = admit_email_memory(
             forwarded, user_id=user_id, admitted=bool(token and user_id)
@@ -567,7 +569,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
+        if token
+        else "",
         **email_memory,
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_OWNER_STYLE: owner_style,

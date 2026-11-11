@@ -1094,8 +1094,16 @@ binding) commits nothing and is final for that operation; a raised outcome is
 settled only from the committed full-account tombstone and is never dispatched
 again. An explicit OTP claim no longer treats a holder with a committed
 full-account deletion as an owner; background hydration and provisional
-phone-orphan intents never release a binding. Erasure of either account cascades
-its receipts. Rollback refuses to drop retained receipts.
+phone-orphan intents never release a binding. Erasure of either account detaches
+consumed receipts instead of cascading them: the erased owner's raw id is cleared
+once its tombstone exists and an erased holder's phone digest is blanked, so a spent
+proof stays single-use and the requester can still read the outcome. An erased
+requester's receipts are deleted once they can no longer be replayed (configured
+test-code proofs, or SMS dispatched more than ten minutes earlier); unconsumed
+operations still cascade. Retained receipts prune in bounded batches ninety days after
+expiry, or ten minutes after dispatch once their requester is erased. Every prune skips
+rows another transaction holds, and prepare() prunes in its own short transaction, so
+pruning never waits on an erasure. Rollback refuses to drop retained receipts.
 
 Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE
@@ -1274,3 +1282,44 @@ works. Operators identify legacy settlements as rows whose `cleanup_operation`
 equals `account_legacy_cleanup_reference(identity_hash, generation)`. Both
 rollbacks refuse (forward recovery). A replay of 419 restores its stricter guard
 until 437 runs again and leaves settled rows unchanged.
+
+## Cloud cleanup compatibility and exit
+
+PR #9008 is a source-only UAT port of ordinary owner-bound phone linking and
+the cleanup preflight/exit corrections below. It preserves the newer #9145
+linked-account deletion flow, including outcome recheck, proof release and fresh
+subsequent verification. It changes no Firebase realm, backend deletion policy,
+database migration or deployment configuration. Completing this source PR does
+not deploy UAT or establish live SMS/account-erasure acceptance. The separate
+Dev retirement-handoff work remains outside this UAT port.
+
+Before a new GCP removal reservation, inspection qualifies the recorded owner,
+creation acknowledgement and fresh native runtime identity. A missing provenance
+record or changed runtime refuses before suspending the owner. Execution repeats
+that qualification before the pod fence and retains the independent Memory
+receipt, durable readback and fresh runtime check afterward. This ordering does
+not repair an existing fenced operation or authorize legacy recovery.
+
+Pending cleanup offers the existing sign-out action without cancelling or
+replaying the approved operation. Provider retention remains pending; progress
+counts verified cleanup checks rather than claiming every check is a resource.
+A background Profile pane can mount after normal admission without waiting for
+an animation frame that a hidden tab may never receive. Visibility does not
+bypass authentication, vault admission or owner fencing. Native/provider
+acceptance and each environment release remain separate from source tests.
+
+## Previously revoked Google Drive connections
+
+A disconnected Google Drive row can retain its successful revocation receipt
+after its credential has been removed. The account cleanup worker accepts
+that receipt for the exact owner, inventory reference, and row revision.
+It records the existing revocation during its claim without contacting Google.
+A parked operation resumes automatically once this receipt qualifies its
+entire inventory. Consuming the receipt starts one bounded retry budget, and
+an expired worker claim returns to the scheduler with the same receipt.
+Failed or uncertain revocations and other unresolved items retain their
+existing safeguards.
+
+UAT overlay 455 adds the receipt check while keeping the cleanup producer at
+version 2. Keep the expanded validator during an application rollback so
+completed erasure remains valid for same-sign-in enrollment.

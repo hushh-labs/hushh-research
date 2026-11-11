@@ -29,6 +29,8 @@ from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
+    LOCATION_PEER_UNAVAILABLE,
+    LOCATION_PEER_UNAVAILABLE_MESSAGE,
     MAX_LOCATION_SHARE_HOURS,
     TIMED_LOCATION_SHARE_DURATION_MODE,
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
@@ -39,6 +41,10 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import finance_advisor_directory as finance_directory
+from hushh_mcp.services.account_deletion_lifecycle_service import (
+    AccountDeletionLifecycleService,
+    is_account_deletion_write_guard,
+)
 from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.directory_candidate_statement import build_directory_candidate_statement
@@ -1120,7 +1126,16 @@ class OneLocationAgentService:
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         bound_connection = getattr(self, "_key_writer_connection", None)
         if bound_connection is not None:
-            result = bound_connection.execute(text(sql), params or {})
+            try:
+                result = bound_connection.execute(text(sql), params or {})
+            except Exception as exc:
+                if is_account_deletion_write_guard(exc):
+                    raise OneLocationAgentError(
+                        LOCATION_PEER_UNAVAILABLE,
+                        LOCATION_PEER_UNAVAILABLE_MESSAGE,
+                        status_code=409,
+                    ) from None
+                raise
             if not result.returns_rows:
                 return None
             row = result.mappings().first()
@@ -1321,6 +1336,33 @@ class OneLocationAgentService:
                 command_operation_for_client,
             )
 
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                connection, user_ids=(params["owner_user_id"], params["recipient_user_id"])
+            )
+            # Recipient-key rotation and grant creation acquire this same lock
+            # first. The fixed ordering prevents deadlocks and guarantees that
+            # the mutation below never commits against a key that was rotated
+            # concurrently.
+            connection.execute(
+                text(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                      hashtextextended(:recipient_key_lock_key, 0)
+                    )
+                    """
+                ),
+                {"recipient_key_lock_key": recipient_key_lock_key},
+            )
+            connection.execute(
+                text(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                      hashtextextended(:pair_lock_key, 0)
+                    )
+                    """
+                ),
+                {"pair_lock_key": pair_lock_key},
+            )
             command_operation = (
                 command_operation_for_client(
                     connection,
@@ -1370,30 +1412,6 @@ class OneLocationAgentService:
                         "The sharing relationship changed. Review this person again.",
                         status_code=409,
                     )
-            # Recipient-key rotation and grant creation acquire this same lock
-            # first. The fixed ordering prevents deadlocks and guarantees that
-            # the mutation below never commits against a key that was rotated
-            # concurrently.
-            connection.execute(
-                text(
-                    """
-                    SELECT pg_advisory_xact_lock(
-                      hashtextextended(:recipient_key_lock_key, 0)
-                    )
-                    """
-                ),
-                {"recipient_key_lock_key": recipient_key_lock_key},
-            )
-            connection.execute(
-                text(
-                    """
-                    SELECT pg_advisory_xact_lock(
-                      hashtextextended(:pair_lock_key, 0)
-                    )
-                    """
-                ),
-                {"pair_lock_key": pair_lock_key},
-            )
             if command and prior:
                 existing = connection.execute(
                     text("""SELECT g.id FROM one_location_share_grants g
@@ -1422,7 +1440,16 @@ class OneLocationAgentService:
                     .all()
                 )
                 command.verify_replacements([dict(value) for value in replacements])
-            row = connection.execute(text(mutation_sql), params).mappings().first()
+            try:
+                row = connection.execute(text(mutation_sql), params).mappings().first()
+            except Exception as exc:
+                if is_account_deletion_write_guard(exc):
+                    raise OneLocationAgentError(
+                        LOCATION_PEER_UNAVAILABLE,
+                        LOCATION_PEER_UNAVAILABLE_MESSAGE,
+                        status_code=409,
+                    ) from None
+                raise
             if command and not prior and row is None:
                 # A result-less mutation may already have written dependent
                 # CTEs. Reject inside this transaction so no unreceipted effect
@@ -1465,6 +1492,9 @@ class OneLocationAgentService:
         """Rotate/register a recipient key and finalize stale-key grants atomically."""
 
         with get_db_connection() as connection:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                connection, user_ids=(params["user_id"],)
+            )
             connection.execute(
                 text(
                     """
@@ -1490,6 +1520,9 @@ class OneLocationAgentService:
         key_lock = f"one-location-recipient-key:{recipient_user_id}"
         pair_lock = f"one-location-grant:{owner_user_id}:{recipient_user_id}"
         with get_db_connection() as connection:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                connection, user_ids=(owner_user_id, recipient_user_id)
+            )
             connection.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
                 {"lock_key": key_lock},
@@ -3691,7 +3724,9 @@ class OneLocationAgentService:
         for notification in notifications:
             self._send_metadata_notification(**notification)
 
-    def _repair_legacy_direct_request_deadlines(self, user_id: str | None) -> None:
+    def _repair_legacy_direct_request_deadlines(
+        self, user_id: str | None, *, requester_user_id: str | None = None
+    ) -> None:
         """Adopt direct asks written by an older revision during rollout.
 
         Release migrations run before the new backend is fully promoted. An
@@ -3728,6 +3763,18 @@ class OneLocationAgentService:
               AND legacy_request.expires_at IS NULL
               AND legacy_request.referred_by_user_id IS NULL
               AND (
+                CAST(:requester_user_id AS TEXT) IS NULL
+                OR (legacy_request.owner_user_id = :user_id
+                    AND legacy_request.requester_user_id = :requester_user_id)
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM public.account_deletion_tombstones tombstone
+                WHERE tombstone.user_id_hash IN (
+                  'sha256:' || encode(digest(BTRIM(legacy_request.owner_user_id), 'sha256'), 'hex'),
+                  'sha256:' || encode(digest(BTRIM(legacy_request.requester_user_id), 'sha256'), 'hex')
+                )
+              )
+              AND (
                 :user_id IS NULL
                 OR legacy_request.owner_user_id = :user_id
                 OR legacy_request.requester_user_id = :user_id
@@ -3744,7 +3791,11 @@ class OneLocationAgentService:
               )
             RETURNING legacy_request.id
             """,
-            {"hours": LOCATION_REQUEST_EXPIRY_HOURS, "user_id": user_id},
+            {
+                "hours": LOCATION_REQUEST_EXPIRY_HOURS,
+                "user_id": user_id,
+                "requester_user_id": requester_user_id,
+            },
         )
 
     def _expire_stale_requests(self, user_id: str | None) -> None:
@@ -4414,6 +4465,12 @@ class OneLocationAgentService:
               LIMIT 1
             ) k ON TRUE
             WHERE a.user_id <> :owner_user_id
+              AND NOT EXISTS (
+                SELECT 1 FROM public.account_deletion_tombstones tombstone
+                WHERE tombstone.user_id_hash = 'sha256:' || encode(digest(
+                  BTRIM(a.user_id), 'sha256'
+                ), 'hex')
+              )
               AND (
                 EXISTS (
                   SELECT 1
@@ -4555,6 +4612,12 @@ class OneLocationAgentService:
                 END) AS normalized_name
               FROM actor_identity_cache identity
               WHERE identity.user_id <> :owner_user_id
+                AND NOT EXISTS (
+                  SELECT 1 FROM public.account_deletion_tombstones tombstone
+                  WHERE tombstone.user_id_hash = 'sha256:' || encode(digest(
+                    BTRIM(identity.user_id), 'sha256'
+                  ), 'hex')
+                )
                 AND (
                   EXISTS (
                     SELECT 1 FROM connections connection
@@ -6125,6 +6188,10 @@ class OneLocationAgentService:
         except OneLocationAgentError:
             raise
         except Exception as exc:
+            if is_account_deletion_write_guard(exc):
+                raise OneLocationAgentError(
+                    LOCATION_PEER_UNAVAILABLE, LOCATION_PEER_UNAVAILABLE_MESSAGE, status_code=409
+                ) from None
             logger.exception("one_location.create_grant_transaction_failed")
             raise OneLocationAgentError(
                 "LOCATION_GRANT_CREATE_FAILED",
@@ -9624,6 +9691,54 @@ class OneLocationAgentService:
         )
         return [payload for row in rows if (payload := self._grant_payload(row))]
 
+    def list_recent_received_sms_alerts(self, *, recipient_user_id: str) -> list[dict[str, Any]]:
+        # The durable share event is created at first encrypted publication.
+        # Neither grant creation nor subsequent location heartbeats qualify.
+        rows = self._execute_many(
+            """
+            SELECT g.id, g.owner_user_id, g.recipient_user_id, g.expires_at,
+                   o.display_name AS owner_display_name
+            FROM one_location_share_grants g
+            JOIN system_push_outbox p
+              ON p.source_kind = 'share' AND p.source_id = g.id
+              AND p.source_revision = '' AND p.recipient_user_id = g.recipient_user_id
+            LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+            WHERE g.recipient_user_id = :recipient_user_id
+              AND g.owner_user_id <> g.recipient_user_id
+              AND g.status = 'active'
+              AND (g.expires_at IS NULL OR g.expires_at > now())
+              AND g.latest_envelope_id IS NOT NULL
+              AND p.created_at >= now() - interval '2 minutes'
+              AND p.expires_at > now()
+              AND COALESCE(NULLIF(BTRIM(g.metadata->>'share_kind'), ''),
+                CASE WHEN g.metadata->>'reason' = 'sos_panic' THEN 'sos' ELSE 'share' END) = 'sos'
+              AND EXISTS (
+                SELECT 1 FROM one_location_recipient_keys k
+                WHERE k.user_id = g.recipient_user_id AND k.key_id = g.recipient_key_id
+                  AND k.status = 'active'
+              )
+            ORDER BY p.created_at DESC, g.id
+            LIMIT 20
+            """,
+            {"recipient_user_id": recipient_user_id},
+        )
+        alerts = []
+        for row in rows:
+            alert = {
+                "type": "location_share_created",
+                "grant_id": str(row["id"]),
+                "owner_user_id": row["owner_user_id"],
+                "user_id": row["recipient_user_id"],
+                "share_kind": "sos",
+                "owner_display_label": _identity_notification_label(
+                    {"user_id": row["owner_user_id"], "display_name": row.get("owner_display_name")}
+                ),
+            }
+            if expiry := _iso(row.get("expires_at")):
+                alert["expires_at"] = expiry
+            alerts.append(alert)
+        return alerts
+
     def list_pending_owner_requests(self, *, owner_user_id: str) -> list[dict[str, Any]]:
         """The owner's own pending access requests -- see list_active_owner_grants."""
         self._expire_stale_requests(owner_user_id)
@@ -10343,6 +10458,10 @@ class OneLocationAgentService:
 
             connection = getattr(self, "_key_writer_connection", None)
             if connection is not None:
+                AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                    connection,
+                    user_ids=(owner_user_id, requester_user_id, referred_by_user_id or ""),
+                )
                 command_operation_id = command_operation_for_client(
                     connection,
                     owner=requester_user_id,
@@ -10459,7 +10578,9 @@ class OneLocationAgentService:
                     "The earlier request needs review.",
                     status_code=409,
                 )
-            self._repair_legacy_direct_request_deadlines(owner_user_id)
+            self._repair_legacy_direct_request_deadlines(
+                owner_user_id, requester_user_id=requester_user_id
+            )
             row = self._execute_one(
                 """
                 SELECT *,

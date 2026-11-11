@@ -41,17 +41,20 @@ test("booking dropdown arrows have a consistent responsive inset", async ({ page
   expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
 });
 
-test("Board booking reviews account B and refreshes its event and free time after confirmation", async ({ page }) => {
+test("Board books account B in one click and refreshes its event and free time", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 393, false, "busy", false, true);
   await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
 
   const work = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
-  await work.getByRole("link", { name: "Join meeting: QA Client Call 1" }).click();
+  const joinTrigger = work.getByRole("link", { name: "Join meeting: QA Client Call 1" });
+  await joinTrigger.click();
   const join = page.getByRole("dialog", { name: "Check Google account" });
-  await expect(join).toContainText("Use qa-work@example.com in Google Meet. Tap Switch on the pre-join screen.");
-  await expect(join.getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+  await expect(join).toContainText("Use qa-work@example.com in Google Meet.");
+  await expect(join.getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-work%40example.com");
+  await expect(join.getByRole("link", { name: "Choose account" })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij");
   await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-meet-account-mobile-393.png") });
   await join.getByRole("button", { name: "Cancel" }).click();
+  await expect(joinTrigger).toBeFocused();
 
   let created: Record<string, unknown> | null = null;
   let reviewed: Record<string, unknown> | null = null;
@@ -107,35 +110,22 @@ test("Board booking reviews account B and refreshes its event and free time afte
   expect(dateBox.y + dateBox.height).toBeLessThanOrEqual(startBox.y);
   expect(startBox.x + startBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width);
   await dialog.getByLabel("Title").fill("Bug Bash");
-  await dialog.getByLabel("Guests (optional)").fill("guest@example.com");
+  await dialog.getByLabel("Guests", { exact: true }).fill("guest@example.com");
   await dialog.getByRole("button", { name: "Add" }).click();
-  await dialog.getByRole("button", { name: "Review meeting" }).click();
-  await expect(dialog.getByRole("region", { name: "Meeting review" })).toContainText("guest@example.com");
-  await expect.poll(() => dialog.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
-  await expect(dialog.getByRole("region", { name: "Meeting review" })).toContainText("qa-work@example.com");
-  await expect(dialog.getByRole("region", { name: "Meeting review" })).not.toContainText("Primary calendar");
-  await expect(dialog.getByRole("region", { name: "Meeting review" })).not.toContainText("UTC+05:30");
+  const schedule = dialog.getByRole("button", { name: "Schedule meeting", exact: true });
   const mobileBounds = (await dialog.boundingBox())!;
   expect(mobileBounds.x).toBeGreaterThanOrEqual(0);
   expect(mobileBounds.y).toBeGreaterThanOrEqual(0);
   expect(mobileBounds.x + mobileBounds.width).toBeLessThanOrEqual(393);
   expect(mobileBounds.y + mobileBounds.height).toBeLessThanOrEqual(950);
-  expect(reviewed).toMatchObject({ account_id: "work", checked_account_ids: ["default", "work", "projects"], title: "Bug Bash", meeting_type: "google_meet", attendees: ["guest@example.com"] });
-  await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-booking-review-mobile-393.png") });
-  await page.setViewportSize({ width: 1024, height: 900 });
-  const desktopBounds = (await dialog.boundingBox())!;
-  expect(desktopBounds.x).toBeGreaterThanOrEqual(0);
-  expect(desktopBounds.x + desktopBounds.width).toBeLessThanOrEqual(1024);
-  await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-booking-review-desktop-1024.png") });
-  const confirm = dialog.getByRole("button", { name: "Schedule meeting", exact: true });
-  expect(await confirm.evaluate(button => button.scrollWidth)).toBeLessThanOrEqual(await confirm.evaluate(button => button.clientWidth));
-  await confirm.click();
+  expect(await schedule.evaluate(button => button.scrollWidth)).toBeLessThanOrEqual(await schedule.evaluate(button => button.clientWidth));
+  await schedule.click();
   await expect(dialog).toHaveCount(0);
   await expect(work.getByRole("button", { name: /Schedule from free time/ })).toHaveCount(0);
   await expect(page.getByText("No shared opening on this day.")).toBeVisible();
   await work.getByRole("tab", { name: /Events/ }).click();
   await expect(work.getByRole("button", { name: /Open Bug Bash/ })).toBeVisible();
-  expect(created).not.toBeNull();
+  expect(created).toMatchObject({ account_id: "work", checked_account_ids: ["default", "work", "projects"], title: "Bug Bash", meeting_type: "google_meet", attendees: ["guest@example.com"], send_updates: true });
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -150,7 +140,7 @@ for (const width of [320, 393]) {
     const dialog = page.getByRole("dialog", { name: "Schedule meeting" });
     await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
     const guest = `${"calendar-guest-".repeat(4)}@a-long-guest-domain.example.test`;
-    await dialog.getByLabel("Guests (optional)").fill(guest);
+    await dialog.getByLabel("Guests", { exact: true }).fill(guest);
     await dialog.getByRole("button", { name: "Add", exact: true }).click();
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     const body = dialog.locator("[data-calendar-booking-body]");

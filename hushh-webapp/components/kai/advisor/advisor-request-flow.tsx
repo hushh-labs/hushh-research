@@ -46,12 +46,15 @@ export function AdvisorRequestFlow({
   const lock = useRef(false);
   const pending = useRef<PreparedAdvisorReview | null>(null);
   const pathname = usePathname();
+  const returnToDiscovery = () => {
+    setAdvisor(null);
+    setSnapshot(null);
+    setError(null);
+  };
   useBackLayer(pathname, advisor ? 2 : 1, () => {
     if (!lock.current) {
-      if (advisor && !pending.current) {
-        setAdvisor(null);
-        setSnapshot(null);
-      } else onClose();
+      if (advisor && !pending.current) returnToDiscovery();
+      else onClose();
     }
     return true;
   });
@@ -131,15 +134,40 @@ export function AdvisorRequestFlow({
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
-      title={advisor ? `Review request · ${advisor.name}` : "Find an advisor"}
-      description={
-        advisor
-          ? "Review exactly what this advisor will receive."
-          : "Choose a verified advisor for a second opinion."
-      }
-      surfaceClassName={finance.detail}
-      desktopMaxWidthClassName="sm:!max-w-[min(1040px,calc(100vw-4.5rem))]"
+      title={advisor ? "Review request" : "Find an advisor"}
+      description={advisor?.name}
+      presentation="sheet"
+      surfaceClassName={`${finance.detail} ${styles.handshakeSheet}`}
+      footer={advisor && snapshot ? (
+        <div className={styles.handshakeFooter}>
+          <ShellActionSurface variant="pill" disabled={busy || !!pending.current} onClick={returnToDiscovery}>
+            Back
+          </ShellActionSurface>
+          <ShellActionSurface
+            variant="pill"
+            rippleEffect="fill"
+            wrapperClassName={styles.handshakeForward}
+            className={styles.handshakePrimary}
+            disabled={busy || !approved}
+            onClick={() => void send()}
+          >
+            {pending.current ? "Retry same request" : "Send request"}
+          </ShellActionSurface>
+        </div>
+      ) : undefined}
     >
+      <div
+        className={`${styles.handshakeProgress} mb-4`}
+        role="progressbar"
+        aria-label="Advisor request progress"
+        aria-valuemin={0}
+        aria-valuemax={2}
+        aria-valuenow={advisor ? 2 : 1}
+        aria-valuetext={advisor ? "Step 2 of 2: Review request" : "Step 1 of 2: Choose an advisor"}
+      >
+        <span data-reached />
+        <span data-reached={advisor ? true : undefined} />
+      </div>
       {error ? (
         <p role="alert" className={styles.notice}>
           {error}
@@ -153,70 +181,33 @@ export function AdvisorRequestFlow({
         </p>
       ) : null}
       {advisor && snapshot ? (
-        <div className={styles.columns}>
-          <AdvisorSnapshotView snapshot={snapshot} />
-          <div className={styles.stack}>
-            <section className={styles.card}>
-              <h3 className="ui-text-section-label">
-                One request, two permissions
-              </h3>
-              <p>
-                Accepting connects you with {advisor.name} and opens this fixed
-                Finance snapshot for them.
-              </p>
-              <p className="ui-text-helper-text">
-                The request and snapshot access expire 7 days after sending. The
-                snapshot is locked until acceptance. No ongoing updates, Agent
-                One processing or trading permission is granted.
-              </p>
-              <p className="ui-text-helper-text">
-                Available holdings, values, balances, allocation, history and
-                Finance preferences are included. Goals that have not been
-                provided stay unavailable. Account numbers and unrelated
-                documents are excluded.
-              </p>
-            </section>
-            <label className={styles.field}>
-              A short introduction (optional)
-              <Textarea
-                maxLength={600}
-                value={introduction}
-                onChange={(e) => setIntroduction(e.target.value)}
-                disabled={busy || !!pending.current}
-              />
-            </label>
-            <label className={styles.row}>
-              <input
-                type="checkbox"
-                checked={approved}
-                onChange={(e) => setApproved(e.target.checked)}
-                disabled={busy || !!pending.current}
-              />
-              <span>
-                I approve this connection request and Finance snapshot.
-              </span>
-            </label>
-            <div className={styles.actions}>
-              <ShellActionSurface
-                variant="pill"
-                disabled={busy || !!pending.current}
-                onClick={() => {
-                  setAdvisor(null);
-                  setSnapshot(null);
-                }}
-              >
-                Back
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                className={styles.primary}
-                disabled={busy || !approved}
-                onClick={() => void send()}
-              >
-                {pending.current ? "Retry same request" : "Send request"}
-              </ShellActionSurface>
-            </div>
+        <div className={styles.stack}>
+          <div className="space-y-1">
+            <h3 className="ui-text-section-label">What will the advisor see?</h3>
+            <p>A copy of your available holdings, values, balances, allocation, history and investing preferences.</p>
           </div>
+          <details>
+            <summary className="ui-text-button-label min-h-11 cursor-pointer py-3">Preview shared portfolio</summary>
+            <AdvisorSnapshotView snapshot={snapshot} />
+          </details>
+          <label className={styles.field}>
+            Add a note (optional)
+            <Textarea
+              maxLength={600}
+              value={introduction}
+              onChange={(e) => setIntroduction(e.target.value)}
+              disabled={busy || !!pending.current}
+            />
+          </label>
+          <label className="flex min-h-11 cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              checked={approved}
+              onChange={(e) => setApproved(e.target.checked)}
+              disabled={busy || !!pending.current}
+            />
+            <span>I agree to connect and share this snapshot for 7 days.</span>
+          </label>
         </div>
       ) : (
         <AdvisorDiscovery

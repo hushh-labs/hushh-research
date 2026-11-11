@@ -367,7 +367,7 @@ class TestFlightCompletionTest(unittest.TestCase):
         original["run_attempt"] = 2
         stale = run(302, testflight.RESUME)
         stale_value = testflight.bind_recovery(run(201), upload, 302, 1, value)
-        recovery.update(run_attempt=2, triggering_actor={"login": "maintainer"})
+        recovery.update(run_attempt=2, triggering_actor={"login": "maintainer", "type": "User", "id": 1})
         value = testflight.bind_recovery(original, upload, 301, 2, value)
         inventory = {"total_count": 2, "workflow_runs": [stale, recovery]}
         def artifact(repo, identity, *args, **kwargs):
@@ -412,10 +412,14 @@ class TestFlightCompletionTest(unittest.TestCase):
 
     def test_original_requires_both_positive_steps_and_active_distribution(self):
         original, upload, _, _, _ = self.fixture()
-        for invalid in (None, "skipped-job", "skipped-step", "inactive"):
+        for invalid in (None, "legacy-label", "skipped-job", "skipped-step", "inactive"):
+            distribution_step = (
+                "Attach the same valid build to both TestFlight groups"
+                if invalid == "legacy-label" else "Attach the valid build to internal TestFlight testers"
+            )
             jobs = {"total_count": 1, "jobs": [{"name": "Process and distribute uploaded TestFlight build", "conclusion": "success",
                     "steps": [{"name": name, "conclusion": "success"} for name in (
-                        "Wait for valid TestFlight processing", "Attach the same valid build to both TestFlight groups")]}]}
+                        "Wait for valid TestFlight processing", distribution_step)]}]}
             distribution = {"internal": "active", "build_id": "apple-build-159"}
             if invalid == "skipped-job":
                 jobs["jobs"][0]["conclusion"] = "skipped"
@@ -427,7 +431,7 @@ class TestFlightCompletionTest(unittest.TestCase):
             with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
                     patch.object(github, "api", side_effect=lambda path: inventory if "/workflows/" in path else jobs), \
                     patch.object(github, "artifact_json", side_effect=lambda repo, identity, name, *args, **kwargs: upload if name == "testflight-upload-receipt" else distribution):
-                if invalid:
+                if invalid and invalid != "legacy-label":
                     with self.assertRaises(core.UnsafeRelease):
                         testflight.completion(REPOSITORY, original, upload["source_sha"])
                 else:

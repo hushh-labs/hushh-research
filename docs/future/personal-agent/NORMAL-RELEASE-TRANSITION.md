@@ -7,12 +7,26 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-## Active release-system continuation — 27 October 2026
+## Current release-system checkpoint — 9 November 2026
+
+UAT application acceptance is complete on
+[run 42645497579](https://github.com/hushh-labs/hushh-research/actions/runs/42645497579).
+Use the [current CI procedure](../../reference/operations/ci.md#main-owned-release-control),
+not the historical sequencing below: Main owns deployment execution, Dev/UAT
+select their protected application histories independently, and production uses
+qualified Main content with compatibility and rollback. All deployments remain
+explicit. The coding agent completes reviewed downstream source syncs; those
+merges deploy nothing. The [current readiness memo](../../reference/quality/adk-orchestration-docs-audit.md#current-decision--9-november-2026)
+separates application acceptance from the preserved owner-pod backlog.
+
+<a id="active-release-system-continuation--27-october-2026"></a>
+
+## Historical release-system continuation — 27 October 2026
 
 Preserve restored production `d8a5fa485874`, current identities/database, owner
 assignments, peer edits and active native/ADK work. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md#current-decision--27-october-2026)
-owns current outcomes; the earlier checkpoints below are historical evidence.
+records that historical decision; current execution follows the checkpoint above.
 
 1. Land qualified operations [#8520](https://github.com/hushh-labs/hushh-research/pull/8520)
    through Admin SOP, then verify the landed SHA.

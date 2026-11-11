@@ -22,8 +22,15 @@ const initial: OneLocationCircleDetail = {
     connectionStatus: "connected", phoneVerified: true, secureLocationReady: true })),
 };
 function Workspace() {
-  const creation = new URLSearchParams(location.search).has("create");
-  const circle = useRef(creation ? { ...initial, memberCount: 1, members: initial.members.slice(0, 1) } : initial);
+  const params = new URLSearchParams(location.search);
+  const creation = params.has("create");
+  const circle = useRef(creation
+    ? { ...initial, memberCount: 1, members: initial.members.slice(0, 1) }
+    : params.has("inviteCode")
+      ? { ...initial, activeInviteCode: {
+          id: "invite-code", circleId: initial.id, code: "2345-6789-ABCD", expiresAt: "2099-01-01T00:00:00Z",
+        } }
+      : initial);
   const [creating, setCreating] = useState(creation);
   const [memberSetup, setMemberSetup] = useState(creation);
   if (creating) return <Dialog modal open>

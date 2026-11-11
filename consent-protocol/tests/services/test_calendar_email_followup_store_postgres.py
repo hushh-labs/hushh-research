@@ -6,6 +6,7 @@ Each test reproduces a UAT defect found while tracing the Follow-ups flow.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -21,6 +22,7 @@ from hushh_mcp.services.calendar_email_followup_reader import (
     CompleteMailMessage,
     split_complete_body,
 )
+from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
 from tests.google_oauth_postgres_support import OWNER
 from tests.services.test_calendar_email_followup_oauth_postgres import (
     _add_calendar,
@@ -117,9 +119,25 @@ async def test_undated_review_item_never_outranks_a_dated_request(followup_pg):
     service, store, _ = followup_pg
     account_id = await _monitored_account(service)
     noisy = _message("m-noise", "Please check your account activity.")
+    dated_reply = _message("m-reply", "Please reply before 26 November.")
     dated = _message("m-dated", "Please send the signed document before 26 November.")
     await _commit(
         store, account_id, noisy, _candidate(noisy, "Please check your account activity.")
+    )
+    await _commit(
+        store,
+        account_id,
+        dated_reply,
+        _candidate(
+            dated_reply,
+            "Please reply before 26 November.",
+            title="Reply before 26 November",
+            category="response_needed",
+            responsibility="owner",
+            ambiguities=(),
+            due_date="2026-11-26",
+            due_relation="before",
+        ),
     )
     await _commit(
         store,
@@ -130,6 +148,7 @@ async def test_undated_review_item_never_outranks_a_dated_request(followup_pg):
             "Please send the signed document before 26 November.",
             kind="deadline",
             title="Send the signed document",
+            category="document_or_information",
             responsibility="owner",
             ambiguities=(),
             due_date="2026-11-26",
@@ -139,7 +158,75 @@ async def test_undated_review_item_never_outranks_a_dated_request(followup_pg):
     monitor = await store.monitor(user_id=OWNER, account_id=account_id)
     listing = await store.list_conversations(monitor, limit=10)
     titles = [item["preview_requests"][0]["title"] for item in listing["conversations"]]
-    assert titles[0] == "Send the signed document"
+    assert titles == [
+        "Send the signed document",
+        "Reply before 26 November",
+    ]
+    history = await store.list_conversations(monitor, limit=10, view="history")
+    assert [row["preview_requests"][0]["title"] for row in history["conversations"]] == [
+        "Please check your account activity.",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_thread_rank_uses_the_same_request_as_its_preview(followup_pg):
+    service, store, _ = followup_pg
+    account_id = await _monitored_account(service)
+    reply = _message("m-thread-reply", "Please reply before 26 November.")
+    document = replace(
+        _message("m-thread-document", "Please send the document when you can."),
+        thread_id=reply.thread_id,
+    )
+    meeting = _message("m-thread-meeting", "Please confirm our meeting before 26 November.")
+    await _commit(
+        store,
+        account_id,
+        reply,
+        _candidate(
+            reply,
+            "Please reply before 26 November.",
+            title="Reply before 26 November",
+            category="response_needed",
+            responsibility="owner",
+            ambiguities=(),
+            due_date="2026-11-26",
+            due_relation="before",
+        ),
+    )
+    await _commit(
+        store,
+        account_id,
+        document,
+        _candidate(
+            document,
+            "Please send the document when you can.",
+            title="Send the document",
+            category="document_or_information",
+            responsibility="owner",
+        ),
+    )
+    await _commit(
+        store,
+        account_id,
+        meeting,
+        _candidate(
+            meeting,
+            "Please confirm our meeting before 26 November.",
+            title="Confirm the meeting",
+            category="meeting_request",
+            responsibility="owner",
+            ambiguities=(),
+            due_date="2026-11-26",
+            due_relation="before",
+        ),
+    )
+
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    conversations = (await store.list_conversations(monitor, limit=10))["conversations"]
+    assert [item["preview_requests"][0]["title"] for item in conversations] == [
+        "Confirm the meeting",
+        "Reply before 26 November",
+    ]
 
 
 @pytest.mark.asyncio
@@ -407,7 +494,7 @@ async def test_reassessment_hides_false_positives_but_keeps_real_requests_and_de
     assert state["m-alert"][3] is False
     # The owner's own decision is preserved, not rewritten by reclassification.
     assert state["m-decided"][:2] == ("dismissed", True)
-    assert state["m-real"][:3] == ("pending", False, 2)
+    assert state["m-real"][:3] == ("pending", False, ASSESSMENT_VERSION)
     assert state["m-real"][3] is True
     assert feed_left == 0
     assert await store.stale_assessment_threads(monitor, cutoff_ms=0, limit=10) == []

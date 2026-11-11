@@ -29,6 +29,11 @@ from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.operons.location.policy import (
+    LOCATION_PEER_UNAVAILABLE,
+    LOCATION_PEER_UNAVAILABLE_MESSAGE,
+)
+from hushh_mcp.services.account_deletion_lifecycle_service import is_account_deletion_write_guard
 from hushh_mcp.services.capability_run_service import (
     MAX_CAPABILITY_RUN_RETENTION_PURGE,
     get_capability_run_store,
@@ -609,6 +614,14 @@ def _handle_error(exc: Exception) -> HTTPException:
                 "message": "This command changed or expired. Refresh it before continuing.",
             },
         )
+    if is_account_deletion_write_guard(exc):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": LOCATION_PEER_UNAVAILABLE,
+                "message": LOCATION_PEER_UNAVAILABLE_MESSAGE,
+            },
+        )
     if isinstance(exc, PlaceRatingError):
         return HTTPException(
             status_code=exc.status_code,
@@ -794,6 +807,21 @@ async def _sms_add_identity_ready(
 def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/sms-alerts/recent")
+def get_recent_received_sms_alerts(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    _set_private_no_store(response)
+    try:
+        return {
+            "alerts": _service().list_recent_received_sms_alerts(
+                recipient_user_id=_user_id(token_data)
+            )
+        }
     except Exception as exc:
         raise _handle_error(exc) from exc
 

@@ -69,6 +69,13 @@ def test_webhook_secret_destination_binds_preview_scope_account_and_project(
 
 @pytest.mark.parametrize("scope", ["platform", "connect"])
 @pytest.mark.parametrize(
+    "project,origin,website",
+    [
+        ("hushh-pda-dev", "https://dev.one.hussh.ai", ""),
+        ("hushh-pda-uat", "https://uat.one.hussh.ai", "https://uat.hussh.si"),
+    ],
+)
+@pytest.mark.parametrize(
     "mutation",
     [
         None,
@@ -82,23 +89,28 @@ def test_webhook_secret_destination_binds_preview_scope_account_and_project(
         "mode",
         "account",
         "policy",
+        "source",
     ],
 )
-def test_shared_dev_webhook_sink_requires_exact_commerce_callback_and_test_pin(
-    provider, scope, mutation
+def test_first_party_webhook_sink_requires_exact_commerce_callback_and_test_pin(
+    provider, scope, mutation, project, origin, website
 ):
     service, _ = provider
-    config = replace(service.config, frontend_origin="https://dev.one.hussh.ai")
+    config = replace(service.config, frontend_origin=origin, website_origin=website)
     names = {
         "platform": "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
         "connect": "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
     }
-    backend = "https://consent-protocol-fixture-uc.a.run.app"
+    backend = (
+        "https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
+        if website
+        else "https://consent-protocol-fixture-uc.a.run.app"
+    )
     args = SimpleNamespace(
         account_id="acct_fixture",
         webhook_scope=scope,
         secret_name=names[scope],
-        **{"secret_project": "hushh-pda-dev"},
+        **{"secret_project": project},
         webhook_url=backend + "/api/payments/scope-commerce/webhook",
     )
     evidence = {
@@ -108,10 +120,10 @@ def test_shared_dev_webhook_sink_requires_exact_commerce_callback_and_test_pin(
         "reference": "operator-inspection",
         "verification_owner": "operator",
         "verified_at": datetime.now(UTC).isoformat(),
-        "secret_project": "hushh-pda-dev",
-        "app_origin": config.frontend_origin,
+        "secret_project": project,
+        "app_origin": website or config.frontend_origin,
         "backend_origin": backend,
-        "backend_service": "projects/hushh-pda-dev/locations/us-central1/services/consent-protocol",
+        "backend_service": f"projects/{project}/locations/us-central1/services/consent-protocol",
     }
     pin = {"platform_account_id": "acct_fixture", "livemode": False}
     if mutation == "drive":
@@ -123,8 +135,8 @@ def test_shared_dev_webhook_sink_requires_exact_commerce_callback_and_test_pin(
     elif mutation == "origin":
         evidence["app_origin"] = "https://other.example"
     elif mutation == "retired_origin":
-        config = replace(config, frontend_origin="https://dev.one.hushh.ai")
-        evidence["app_origin"] = config.frontend_origin
+        config = replace(config, frontend_origin=origin.replace(".hussh.ai", ".hushh.ai"))
+        evidence["app_origin"] = website or config.frontend_origin
     elif mutation == "callback":
         args.webhook_url = "https://other.example/api/payments/scope-commerce/webhook"
     elif mutation == "service":
@@ -135,11 +147,13 @@ def test_shared_dev_webhook_sink_requires_exact_commerce_callback_and_test_pin(
         pin["platform_account_id"] = "acct_other"
     elif mutation == "policy":
         config = replace(config, sandbox_policy_required=False)
+    elif mutation == "source":
+        evidence["source"] = "stripe_cli_anonymous_sandbox"
     if mutation:
         with pytest.raises(CommerceProviderError, match="sandbox_secret_destination_unapproved"):
             _secret_destination(args, evidence, config=config, pin=pin)
     else:
         assert (
             _secret_destination(args, evidence, config=config, pin=pin)
-            == f"projects/hushh-pda-dev/secrets/{names[scope]}"
+            == f"projects/{project}/secrets/{names[scope]}"
         )

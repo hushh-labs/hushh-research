@@ -631,6 +631,7 @@ describe("LocationPublisherBridge: Save My Soul", () => {
     expect(payload.precision).toBe("precise");
     expect(mocks.service.captureCurrentPosition).toHaveBeenCalledWith({
       maxAgeMs: 0,
+      fastNetworkFallback: true,
     });
     expect(storedGrantIds().sort()).toEqual(["sos-a", "sos-b"]);
     for (const call of mocks.service.storeEnvelope.mock.calls) {

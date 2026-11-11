@@ -19,8 +19,6 @@
 .accounts[data-count="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .account { min-width: 0; overflow: hidden; padding: .9rem; box-shadow: none; }
 .accountHeader { display: flex; align-items: center; gap: .6rem; min-width: 0; }
-.accountAvatar[data-slot="avatar"] { width: 2.75rem; height: 2.75rem; flex: none; border-radius: .75rem; background: var(--app-accent-surface); border: 1px solid var(--app-separator); }
-.accountAvatar :global([data-slot="avatar-fallback"]) { border-radius: .75rem; color: var(--app-accent); background: transparent; font-size: .9rem; font-weight: 600; }
 .accountIdentity { min-width: 0; flex: 1; }
 .accountName { display: block; font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 550); line-height: var(--app-side-pane-row-title-line, 21px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .accountHeader button { flex: none; min-width: 44px; min-height: 44px; }
@@ -95,8 +93,6 @@
 .accountPickerTrigger:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 .accountPickerEmail { display: block; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .accountPickerChevron { width: 1rem; height: 1rem; flex: none; color: var(--app-secondary-label); }
-.pickerAvatar[data-slot="avatar"] { width: 1.75rem; height: 1.75rem; flex: none; border-radius: 50%; background: var(--app-accent-surface); }
-.pickerAvatar :global([data-slot="avatar-fallback"]) { font-size: .75rem; color: var(--app-accent); background: transparent; }
 .accountPickerMenu { width: min(24rem, calc(100vw - 2rem)); max-width: calc(100vw - 2rem); }
 .accountPickerItem { min-width: 0; min-height: 44px; white-space: nowrap; }
 .accountPickerItem .accountPickerEmail { font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
@@ -114,8 +110,7 @@
 .occasionCopy { display: grid; gap: .2rem; min-width: 0; overflow-wrap: anywhere; }
 .occasionCopy strong { color: var(--app-label); font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 550); line-height: var(--app-side-pane-row-title-line, 21px); }
 .occasionCopy span { color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, 19px); white-space: pre-line; }
-.detail { --foundation-title2-size: var(--profile-type-dialog-title-size, 20px); --foundation-title2-line: var(--profile-type-dialog-title-line, 28px); --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600); --foundation-title3-size: var(--profile-type-dialog-title-size, 20px); --foundation-title3-line: var(--profile-type-dialog-title-line, 28px); --foundation-title3-weight: var(--profile-type-dialog-title-weight, 600); --type-input-value-size: var(--profile-type-label-size, 14px); --type-input-value-line: var(--profile-type-label-line, 22px); max-height: 86dvh; overflow-y: auto; gap: .75rem; padding: 1.35rem; font-family: var(--font-app-body); }
-.detail :global(label > span) { font-size: var(--app-side-pane-row-title-size, 15px); line-height: var(--app-side-pane-row-title-line, 22px); font-weight: var(--app-side-pane-row-title-weight, 550); }
+.detail { --foundation-title2-size: var(--profile-type-dialog-title-size, 20px); --foundation-title2-line: var(--profile-type-dialog-title-line, 28px); --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600); --foundation-title3-size: var(--profile-type-dialog-title-size, 20px); --foundation-title3-line: var(--profile-type-dialog-title-line, 28px); --foundation-title3-weight: var(--profile-type-dialog-title-weight, 600); max-height: 86dvh; overflow-y: auto; gap: .75rem; padding: 1.35rem; font-family: var(--font-app-body); }
 .detailHeader { gap: .3rem; text-align: left; padding-right: 2.5rem; }
 .detailTitleRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: .5rem .75rem; min-width: 0; }
 .detailTitle { min-width: 0; overflow-wrap: anywhere; }
@@ -142,11 +137,8 @@
 .choice input { width: 1.1rem; height: 1.1rem; margin-top: .2rem; flex: none; }
 .choice label span, .previewList li, .outcomeList li { display: grid; gap: .15rem; }
 .choice small, .previewList span, .outcomeList span { font-size: .75rem; color: var(--app-secondary-label); overflow-wrap: anywhere; }
-.noteLabel { display: grid; gap: .3rem; margin-top: .55rem; font-size: var(--app-side-pane-row-title-size, 15px); line-height: var(--app-side-pane-row-title-line, 22px); font-weight: var(--app-side-pane-row-title-weight, 550); }
+.noteLabel { display: grid; gap: .3rem; margin-top: .55rem; font-size: var(--type-form-label-size); line-height: var(--type-form-label-line); font-weight: var(--type-form-label-weight); }
 .noteLabel textarea { min-height: 6rem; font-weight: 400; }
-@media (max-width: 620px) {
-  .detail { --type-input-value-size: 16px; }
-}
 .mailPreview { margin-top: .5rem; padding: .6rem; background: var(--app-card-surface-compact); border-radius: .55rem; overflow-wrap: anywhere; }
 .notePreview { white-space: pre-wrap; }
 .conflictActions { display: flex; gap: .55rem; flex-wrap: wrap; }

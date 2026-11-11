@@ -2,7 +2,7 @@ name: Release iOS to App Store
 
 # Public App Store release for Hushh One iOS. Cuts a build from an exact green
 # `main` SHA and builds the Capacitor app against the backend chosen by
-# `backend_target` (default `uat`; `production` for a store binary that talks
+# `backend_target` (default `production`; a store binary talks
 # to one.hushh.ai). Production Firebase inputs come from hushh-pda, UAT inputs
 # from hushh-pda-uat. Signs with Apple-managed signing via an App Store
 # Connect API key, verifies production APNs in a distribution-exported IPA,
@@ -17,8 +17,8 @@ name: Release iOS to App Store
 # attaching the processed build to a MANUAL-release App Store version.
 #
 # Backend note: `backend_target` picks the backend the binary talks to. The
-# default `uat` keeps the historical behaviour (latest frontend + latest backend,
-# matching UAT); public submission and automatic release require production.
+# default is production; explicit `uat` remains for legacy diagnostic builds.
+# Public submission and automatic release require production.
 # `production` reads routing, web Firebase identity, Maps and native plist inputs
 # through production workload identity. Apple signing custody stays unchanged.
 # PROD and UAT Firebase identities are validated independently, not made equal.
@@ -69,15 +69,16 @@ on:
         required: false
         type: string
       backend_target:
-        description: "Backend the binary talks to. uat = historical default; production = one.hussh.ai and the production API."
+        description: "Production API by default. Explicit UAT is for legacy diagnostic builds, never public submission."
         required: false
-        default: uat
+        default: production
         type: choice
         options:
           - uat
           - production
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
   checks: read
@@ -94,7 +95,7 @@ env:
   GCP_REGION: us-central1
   # Only read when backend_target=production: the routing half of the contract.
   PROD_GCP_PROJECT_ID: hushh-pda
-  BACKEND_TARGET: ${{ github.event.inputs.backend_target || 'uat' }}
+  BACKEND_TARGET: ${{ github.event.inputs.backend_target || 'production' }}
   IOS_BUNDLE_ID: com.hushh.app
   XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
   XCODE_SCHEME: App
@@ -113,12 +114,19 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   preflight:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     needs: deployment-security
     name: Authorize release and admit an editable Apple version
     runs-on: ubuntu-latest
@@ -143,11 +151,13 @@ jobs:
           fi
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Authorize exact main dispatch before allocating macOS
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GITHUB_TOKEN: ${{ github.token }}
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: '1'
@@ -160,6 +170,12 @@ jobs:
           bash scripts/ci/require-deploy-sha-on-main.sh "$RELEASE_SHA"
 
   release:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Build, upload & prepare iOS App Store release
     needs: [preflight, deployment-security]
     if: needs.preflight.outputs.ready == 'true'
@@ -201,11 +217,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -841,6 +859,12 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
   prepare:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Process and prepare uploaded App Store build
     needs: [release, deployment-security]
     if: ${{ needs.release.result == 'success' && inputs.dry_run != true }}
@@ -867,9 +891,12 @@ jobs:
         with:
           # Only tooling comes from main. Build identity is the pinned macOS
           # outputs, never this checkout's source or marketing version.
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Authorize submission actor including individual job reruns
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
       - uses: actions/setup-python@v6
         with:

@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 from .domain import MICRO_PER_CENT as _MICRO_PER_CENT
 from .provider_contracts import ProviderContext, _derived_id, _hosted_url, _opaque, _operation_id
+from .provider_return_surfaces import resolve_return_surface
 from .provider_sandbox import reserve_reviewer_funding
 from .stripe_adapter import CommerceProviderError
 
@@ -62,10 +63,15 @@ class FundingCheckout(ProviderContext):
         buyer_app_id: str | None,
         amount_cents: int,
         operation_id: str,
+        return_surface: str = "one",
     ) -> dict[str, Any]:
         if type(amount_cents) is not int or not 50 <= amount_cents <= 100_000:
             raise CommerceProviderError("funding_amount_invalid")
         operation_id = _operation_id(operation_id)
+        try:
+            return_origin, return_route = resolve_return_surface(self.config, return_surface)
+        except ValueError:
+            raise CommerceProviderError("provider_configuration_invalid") from None
         self._admit_actor(payer_user_id)
         await self._admit()
         parameters = dict(
@@ -82,8 +88,8 @@ class FundingCheckout(ProviderContext):
         metadata = self._metadata(operation_id, payer_user_id)
         metadata["buyer_app_ref"] = _opaque(buyer_app_id or "person")
         return_path = (
-            self.config.frontend_origin
-            + self.config.return_path
+            return_origin
+            + return_route
             + "?"
             + urlencode({"commerceAttemptId": operation_id, "commerceReturn": "1"})
         )

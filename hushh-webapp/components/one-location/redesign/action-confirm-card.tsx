@@ -88,7 +88,8 @@ export function ActionConfirmCard({
         <Button
           data-testid="action-confirm-cancel"
           size="sm"
-          variant="ghost"
+          variant="link"
+          disableHoverRipple
           disabled={busy}
           onClick={onCancel}
           className="ui-text-button-label"

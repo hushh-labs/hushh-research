@@ -42,13 +42,19 @@ def completed_steps(repository: str, run: dict, name: str, steps: set[str]) -> b
 
 def completion(repository: str, run: dict, sha: str) -> dict:
     """Read only; never replace the recorded child or grant dispatch authority."""
-    from release_cadence_github import api, artifact_json, configuration
+    from release_cadence_github import api, artifact_json
     require(run.get("status") == "completed", "TestFlight upload workflow is not terminal")
     upload = artifact_json(repository, run["id"], "testflight-upload-receipt", "testflight-upload-receipt.json")
     require(valid_upload(upload, sha), "TestFlight upload source or build identity mismatch")
-    if run.get("conclusion") == "success" and completed_steps(repository, run,
+    # Preserve older accepted receipts while current releases distribute only
+    # internally. Display-name changes must not erase historical evidence.
+    if run.get("conclusion") == "success" and any(completed_steps(repository, run,
             "Process and distribute uploaded TestFlight build", {
-                "Wait for valid TestFlight processing", "Attach the same valid build to both TestFlight groups"}):
+                "Wait for valid TestFlight processing", distribution_step})
+            for distribution_step in (
+                "Attach the valid build to internal TestFlight testers",
+                "Attach the same valid build to both TestFlight groups",
+            )):
         distribution = artifact_json(repository, run["id"], f"one-voice-testflight-evidence-{sha}", "testflight-distribution.json", optional=True)
         if isinstance(distribution, dict) and distribution.get("internal") == "active" and distribution.get("build_id"):
             return {}
@@ -64,13 +70,11 @@ def completion(repository: str, run: dict, sha: str) -> dict:
                 and isinstance(inventory.get("workflow_runs"), list) and inventory["total_count"] >= 0
                 and min(inventory["total_count"], 20) == len(inventory["workflow_runs"]), "TestFlight recovery inventory is malformed")
         recoveries.extend((workflow, row) for row in inventory["workflow_runs"])
-    _, governance = configuration()
-    allowed = governance["uat"]["manual_dispatch_users"]
+    from release_acceptance_provenance import historical_human_dispatch
     for workflow, recovery in recoveries:
         if not (trusted_run(recovery, repository, workflow) and recovery.get("event") == "workflow_dispatch"
                 and recovery.get("status") == "completed" and recovery.get("conclusion") == "success"
-                and (recovery.get("actor") or {}).get("login") in allowed
-                and (recovery.get("triggering_actor") or (recovery.get("actor") if recovery.get("run_attempt", 1) == 1 else {}) or {}).get("login") in allowed):
+                and historical_human_dispatch(recovery)):
             continue
         value = artifact_json(repository, recovery["id"], "testflight-resumed-distribution", "testflight-distribution.json", optional=True)
         if not isinstance(value, dict) or value.get("upload_run_id") != run["id"]:
@@ -126,7 +130,8 @@ def settle_child(repository: str, request: dict, lane: str, child: dict, run: di
 def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600) -> dict:
     import time
     from release_cadence import WORKFLOWS, trusted_run
-    from release_cadence_github import configuration, receipt, recorded_authority, run_info
+    from release_cadence_github import receipt, recorded_authority, run_info
+    from release_acceptance_provenance import historical_human_dispatch
     deadline = time.monotonic() + timeout
     while True:
         run = run_info(repository, run_id)
@@ -136,8 +141,9 @@ def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600)
             break
         require(time.monotonic() < deadline, "Timed out waiting for production; upload remains blocked")
         time.sleep(15)
-    _, governance = configuration()
-    if (run.get("actor") or {}).get("login") not in governance["production"]["manual_dispatch_users"]:
+    if not historical_human_dispatch(run):
+        require((run.get("actor") or {}).get("login") == "github-actions[bot]",
+                "Production source has no historical human or controller identity")
         authority_deadline = min(deadline, time.monotonic() + 180)
         while True:
             try:

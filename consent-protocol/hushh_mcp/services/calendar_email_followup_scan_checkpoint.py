@@ -9,10 +9,12 @@ from typing import Any
 from hushh_mcp.services.calendar_email_followup_coverage import (
     PERMANENT_UNREADABLE,
     RECOVERABLE_SOURCE,
+    SLOW_SOURCE_RETRY_SECONDS,
     SOURCE_GONE,
     source_backoff_seconds,
     source_exhausted,
 )
+from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
 from hushh_mcp.services.calendar_email_followup_store import CalendarEmailFollowupStore, Monitor
 
 
@@ -30,6 +32,7 @@ def _initial_checkpoint(
     start_ms = int(monitor.historical_start_at.timestamp() * 1000)
     return {
         "version": 1,
+        "assessment_version": ASSESSMENT_VERSION,
         "mode": "bootstrap",
         # Gap recovery narrows this to the unsynchronized period; a first scan
         # always covers the owner's whole approved period.
@@ -94,9 +97,12 @@ def _mark_incomplete(
     else:
         thread["thread"] = code
     thread["attempts"] = int(thread.get("attempts", 0)) + 1
-    thread["retry_at_ms"] = _now_ms(now) + 1000 * source_backoff_seconds(
-        thread["attempts"], retry_after=retry_after
+    delay = (
+        SLOW_SOURCE_RETRY_SECONDS
+        if source_exhausted(thread)
+        else source_backoff_seconds(thread["attempts"], retry_after=retry_after)
     )
+    thread["retry_at_ms"] = _now_ms(now) + 1000 * delay
     checkpoint["failed_this_thread"] = True
 
 
@@ -111,7 +117,11 @@ def _clear_incomplete_thread(checkpoint: dict[str, Any], thread_id: str) -> None
 
 
 def _upgrade_checkpoint(checkpoint: dict[str, Any]) -> dict[str, Any]:
-    """Fill fields added after a checkpoint was sealed; never drops a cursor."""
+    """Restart partial extraction after a contract change, preserving scan progress."""
+    if checkpoint.get("assessment_version") != ASSESSMENT_VERSION:
+        _clear_message(checkpoint)
+        checkpoint["reassess_seen"] = {}
+        checkpoint["assessment_version"] = ASSESSMENT_VERSION
     for key, default in (
         ("partial_candidates", []),
         ("partial_updates", []),
@@ -142,24 +152,30 @@ def _clear_incomplete_message(checkpoint: dict[str, Any], thread_id: str, messag
 
 
 def _next_retry_batch(checkpoint: dict[str, Any], now: datetime | None = None) -> list[str]:
-    """Two retry-due, non-exhausted sources; exhausted ones wait for the owner."""
+    """Queue at most two due sources, including sources on the slow retry cadence."""
     due_ms = _now_ms(now)
     sources = checkpoint.get("incomplete_sources", {})
     threads = [
         thread_id
         for thread_id, entry in sources.items()
-        if not source_exhausted(entry) and int(entry.get("retry_at_ms", 0)) <= due_ms
+        if int(entry.get("retry_at_ms", 0)) <= due_ms
     ]
     if not threads:
         return []
     start = int(checkpoint.get("retry_cursor", 0)) % len(threads)
     batch = [threads[(start + offset) % len(threads)] for offset in range(min(2, len(threads)))]
     checkpoint["retry_cursor"] = (start + len(batch)) % len(threads)
+    # Advance the slow cooldown before reading so even an unresolved gap absent
+    # from the provider's thread listing cannot be selected on every pass.
+    for thread_id in batch:
+        entry = sources[thread_id]
+        if source_exhausted(entry):
+            entry["retry_at_ms"] = due_ms + 1000 * SLOW_SOURCE_RETRY_SECONDS
     return batch
 
 
 def _earliest_retry_in(checkpoint: dict[str, Any], now: datetime | None = None) -> int | None:
-    """Seconds until the next automatic retry, or None when nothing is waiting."""
+    """Schedule fast retries separately so slow retries never postpone history reads."""
     pending = [
         int(entry.get("retry_at_ms", 0))
         for entry in checkpoint.get("incomplete_sources", {}).values()

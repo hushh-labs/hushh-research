@@ -120,7 +120,7 @@ import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-edi
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { FlowActionGroup, QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { CreateCirclePeopleBody, useCreateCirclePeopleModel, type CirclePeoplePageLoader } from "./create-circle-people-step";
@@ -244,8 +244,8 @@ function smsCircleCapacityDescription(
   loading: boolean,
   error: string | null,
 ): string {
-  if (loading) return "Checking available places…";
-  if (error) return "Couldn’t check available places.";
+  if (loading) return "Checking how many people you can add…";
+  if (error) return "Couldn’t check how many people you can add.";
   if (remainingCapacity === 0) return "Your SMS Circle is full.";
   return `You can add ${remainingCapacity} more ${remainingCapacity === 1 ? "person" : "people"}.`;
 }
@@ -2808,16 +2808,17 @@ export function CircleDetailFlow({
                   <TaskSurfaceFooter>
                     <FlowActionGroup
                       separateSecondary={false}
-                      className={taskSurfaceStyles.actionGroup}
+                      className={connectStyles.inviteCodeActions}
                       secondary={
                         <Button
                           type="button"
                           variant="outline"
                           size="compact"
+                          className="bg-transparent hover:bg-[color:var(--app-accent-tint)]"
                           disabled={busy}
                           onClick={() => void copyInviteCode(inviteCode.code)}
                         >
-                          <Copy className="mr-2 h-4 w-4" />
+                          <Copy className="size-4" />
                           {codeCopied ? "Copied" : "Copy code"}
                         </Button>
                       }
@@ -2830,7 +2831,7 @@ export function CircleDetailFlow({
                             void onShareCode(circle, inviteCode.code)
                           }
                         >
-                          <Share2 onAccent className="mr-2 h-4 w-4" />
+                          <Share2 inheritColor className="size-4" />
                           Share invite
                         </Button>
                       }
@@ -2839,7 +2840,9 @@ export function CircleDetailFlow({
                           <Button
                             type="button"
                             variant="ghost"
-                            size="standard"
+                            size="compact"
+                            className={QUIET_FLOW_ACTION_CLASSNAME}
+                            disableHoverRipple
                             disabled={busy}
                             onClick={() => setReplaceCodeConfirmOpen(true)}
                           >
@@ -2870,7 +2873,8 @@ export function CircleDetailFlow({
                             type="button"
                             variant="ghost"
                             size="compact"
-                            className="w-full justify-center"
+                            className={cn("w-full justify-center", QUIET_FLOW_ACTION_CLASSNAME)}
+                            disableHoverRipple
                             onClick={() => setInviteCodeSheetOpen(false)}
                           >
                             Cancel
@@ -2917,7 +2921,7 @@ export function CircleDetailFlow({
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel variant="ghost" size="standard" disableHoverRipple className={QUIET_FLOW_ACTION_CLASSNAME}>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     disabled={busy}
                     onClick={() => void generateCode(true)}
@@ -2969,8 +2973,8 @@ export function CircleDetailFlow({
 
                 <TaskSurfaceBody>
                   {peopleLoading ? (
-                    <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
+                    <div role="status" className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
                       Loading connections…
                     </div>
                   ) : peopleLoadError ? (
@@ -3330,7 +3334,7 @@ export function CircleDetailFlow({
                   variant="ghost"
                   className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  <Trash2 inheritColor className="mr-2 h-4 w-4" />
                   Delete circle
                 </Button>
               </AlertDialogTrigger>

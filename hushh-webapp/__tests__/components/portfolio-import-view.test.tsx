@@ -63,6 +63,18 @@ describe("PortfolioImportView", () => {
     expect(onSkip).toHaveBeenCalledOnce();
   });
 
+  it("allows another statement only after the pending import finishes", () => {
+    const props = { onFileSelect: vi.fn(), onSkip: vi.fn() };
+    const { rerender } = render(<PortfolioImportView {...props} isUploading />);
+
+    expect(screen.getByRole("button", { name: /importing statement/i })).toBeDisabled();
+    expect(screen.getByLabelText("Choose a PDF or CSV brokerage statement")).toBeDisabled();
+
+    rerender(<PortfolioImportView {...props} />);
+    expect(screen.getByRole("button", { name: /upload a statement/i })).toBeEnabled();
+    expect(screen.getByLabelText("Choose a PDF or CSV brokerage statement")).toBeEnabled();
+  });
+
   it("leaves setup routes with one route-owned deferral action", () => {
     render(
       <PortfolioImportView

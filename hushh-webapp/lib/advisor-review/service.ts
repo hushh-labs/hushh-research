@@ -15,8 +15,11 @@ import { PORTFOLIO_REVIEW_CLIENT_TIMEOUT_MS } from "@/lib/utils/request-timeouts
 import {
   advisorSnapshotContext,
   advisorSnapshotSchema,
+  advisorBillingSchema,
   advisorReviewSchema,
+  advisorSandboxPayoutSchema,
   type AdvisorCandidate,
+  type AdvisorMeeting,
   type AdvisorPlan,
   type AdvisorReview,
   type AdvisorSnapshot,
@@ -55,9 +58,13 @@ export class AdvisorReviewError extends Error {
           ADVISOR_TIME_AGREEMENT_REQUIRED:
             "Both people must agree to the time before it can be booked.",
           ADVISOR_INTRODUCTION_REQUIRED:
-            "Complete the introduction before offering a monthly plan.",
+            "Complete the introduction before offering a plan.",
           ADVISOR_CHECK_BILLING_STATUS:
             "Check payment status before opening another checkout.",
+          ADVISOR_PAYMENT_ALREADY_PAID:
+            "This offer is already paid. Check payment status for the receipt.",
+          ADVISOR_BILLING_IN_PROGRESS:
+            "The current checkout needs to finish or expire before you can send a new offer.",
           ADVISOR_PLAN_CHANGED:
             "The plan changed. Refresh and review its current price and terms.",
           ADVISOR_REQUEST_CHANGED:
@@ -161,7 +168,7 @@ async function prepare(
 export const AdvisorReviewService = {
   prepare,
   history: async (c: FinanceShareContext) => {
-    const result = await advisorRequest<{ items: unknown[] }>(c);
+    const result = await advisorRequest<{ items: unknown[] }>(c, "?ui=2");
     if (!Array.isArray(result.items) || result.items.length > 50)
       throw new Error("Advisor requests could not be verified.");
     return {
@@ -170,7 +177,7 @@ export const AdvisorReviewService = {
   },
   view: async (c: FinanceShareContext, id: string) => {
     const result = advisorReviewSchema.parse(
-      await advisorRequest(c, `/${encodeURIComponent(id)}`),
+      await advisorRequest(c, `/${encodeURIComponent(id)}?ui=2`),
     );
     if (
       result.id !== id ||
@@ -185,40 +192,53 @@ export const AdvisorReviewService = {
     c: FinanceShareContext,
     id: string,
     action: "accept" | "decline" | "withdraw" | "stop",
-  ) => advisorRequest<AdvisorReview>(c, `/${id}/decision`, "POST", { action }),
+    requireExistingConnection = false,
+  ) => advisorRequest<AdvisorReview>(c, `/${id}/decision`, "POST", {
+    action,
+    ...(requireExistingConnection ? { requireExistingConnection: true } : {}),
+  }),
   time: (
     c: FinanceShareContext,
     id: string,
-    body: { startAt: string; endAt: string; timeZone: string },
-  ) => advisorRequest(c, `/${id}/meeting`, "POST", body),
+    body: { startAt: string; endAt: string; timeZone: string; expectedMeetingId: string | null },
+    automatic = false,
+  ) => automatic
+    ? advisorRequest(c, `/${id}/meeting/action`, "POST", { action: "propose_booking", time: body })
+    : advisorRequest(c, `/${id}/meeting`, "POST", body),
   meeting: (
     c: FinanceShareContext,
     id: string,
-    action: string,
+    action: "agree" | "accept_booking" | "prepare" | "confirm" | "cancel" | "complete" | "check",
     proposalId?: string,
+    meetingId?: string,
   ) =>
-    advisorRequest(
+    advisorRequest<AdvisorMeeting>(
       c,
       `/${id}/meeting/${["agree", "complete"].includes(action) ? "decision" : "action"}`,
       "POST",
       {
         action,
         proposalId: proposalId ?? null,
+        ...(meetingId ? { meetingId } : {}),
       },
     ),
   offer: (c: FinanceShareContext, id: string, body: AdvisorPlan) =>
     advisorRequest(c, `/${id}/plan`, "POST", body),
-  billing: (c: FinanceShareContext, id: string) =>
-    advisorRequest<{ status: string; mode: "test" }>(c, `/${id}/billing`),
+  billing: async (c: FinanceShareContext, id: string, signal?: AbortSignal) =>
+    advisorBillingSchema.parse(await advisorRequest(c, `/${id}/billing`, "GET", undefined, signal)),
   checkout: (c: FinanceShareContext, id: string, planRevision: number) =>
     advisorRequest<{ url: string; mode: "test" }>(
       c,
       `/${id}/checkout`,
       "POST",
-      { planRevision, acceptRecurringPayment: true },
+      { planRevision, acceptPayment: true },
     ),
   cancelBilling: (c: FinanceShareContext, id: string) =>
     advisorRequest(c, `/${id}/billing`, "DELETE"),
+  sandboxPayout: async (c: FinanceShareContext, id: string, signal?: AbortSignal) =>
+    advisorSandboxPayoutSchema.parse(await advisorRequest(c, `/${id}/sandbox-payout`, "GET", undefined, signal)),
+  sandboxPayoutLink: (c: FinanceShareContext, id: string, action: "onboarding" | "dashboard") =>
+    advisorRequest<{ url: string; mode: "test" }>(c, `/${id}/sandbox-payout/${action}`, "POST"),
   async decrypt(
     context: FinanceShareContext,
     review: AdvisorReview,

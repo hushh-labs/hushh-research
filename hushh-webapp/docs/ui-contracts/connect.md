@@ -134,7 +134,8 @@ The action opens the existing picker; its final confirmation retains its primary
 
 | Control or state | Result and product boundary |
 | --- | --- |
-| **My connections N / Find people** | Tabs appear in that order; discovery remains selected by default. My connections shows accepted relationships, grouped From contacts / Other connections, with its own paged search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **My connections N / Find people** | Tabs appear in that order with discovery selected by default. My connections shows one paged list of accepted relationships in server order with its own search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **Connection source icons** | My connections and My RIAs put **Verified Advisor** and **Via contacts** on the avatar. Hovering either icon explains how the status was earned. Advisor verification describes the person's verified advisor profile. Contacts describes a connection made through a match from the viewer's synced contacts. The Connect icons also show the explanation on focus or tap. A connection can show both. Escape dismisses the tooltip. |
 | **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |
@@ -149,6 +150,7 @@ The action opens the existing picker; its final confirmation retains its primary
 | **Cancel** on outgoing request | Withdraws the still-pending request; busy feedback remains in the same action slot. |
 | **Respond** on incoming request | Opens pending Consent Center review; does not accept merely by navigating. |
 | **Connected** | Relationship status, not a second connection mutation. |
+| **Explore your network** | Appears below directory search in **Find people** and opens the **Your network** dialog. Closing the dialog returns focus to the trigger without switching connection views. |
 | Mutual connections | One mutual opens its public profile directly. More than one opens the paginated shared-connections list through `?mutuals=<public person reference>`, including when the preview is unavailable. Every visible mutual has an independent profile control. Back from that profile restores the same mutual list, loaded pages and scroll; Back again restores Find people with its query, directory filter, loaded rows and scroll. Memory is scoped to the signed-in account and authentication session, expires after 15 minutes, and is never persisted. Refresh rechecks current graph and identity eligibility; a visited list remains a list if relationships change, and failed refreshes retain useful rows with Retry. Graph totals can include identities unavailable to view; the list explains that difference. |
 | **Load more people / Retry loading people** | Automatic scroll loading with manual fallback, 20 per page; preserves rows during retry. |
 | **Invite them to One** | Empty People search only, with a usable invite URL: native/Web Share or clipboard fallback. Cancellation is silent. Not offered in RIAs; an empty search does not prove someone lacks an account. |
@@ -177,6 +179,7 @@ but the ordinary UI has no control that enables selection mode.
 ### Circle task surfaces
 
 Circle Add people, Rename and Invite code use the shared task surface anatomy.
+An active Invite code presents Share invite as the filled primary action, Copy code as the secondary outlined action, and the owner-only Replace code as a quiet text action. The controls size to their labels and can move onto another row. The Share glyph inherits the primary label color.
 Bottom Sheets become centered at 768px through CSS, preserving the mounted
 form, selection and existing callbacks. Create keeps its existing Dialog and
 page variants; Join remains its existing page flow. Circle member actions
@@ -567,7 +570,7 @@ selection and relationship projection. Backend owners are
 | Row/control | Wire and response fields feeding the UI | Commit, failure and negative branch |
 | --- | --- | --- |
 | People/RIAs search/list | F GET `/api/one/connections/directory?page=1&limit=20`, optional `query` trimmed and `audience=ria`; `items[]:{userId,publicPersonRef,displayName,photoUrl,relationship,isRia,mutualConnectionCount,mutualConnectionPreview}`, `page,hasMore,totalCount` |300ms search; query-scoped session restoration. Identity/photo/relationship/mutual preview project these exact fields. Next page dedupes `userId`; sentinel root margin240px plus manual fallback. Opening mode menu alone no call; selecting a mode changes its reader. |
-| My connections/My RIAs | F GET `/api/one/connections?page=1&limit=50&audience=all\|ria`, optional `query`; items `connectionId,userId,publicPersonRef,displayName,photoUrl,createdAt,isRia,connectedFromContacts`; `page,hasMore,totalCount,audience` | Separate search snapshot; browse cache retained (search rows are not written into it); dedupe `connectionId`. `connectedFromContacts` groups From contacts / Other connections; `createdAt` supplies local connected date. Refresh retries this resource, not contact sync. |
+| My connections/My RIAs | F GET `/api/one/connections?page=1&limit=50&audience=all\|ria` accepts an optional `query`. Each item has `connectionId,userId,publicPersonRef,displayName,photoUrl,createdAt,isRia,connectedFromContacts`. The response includes `page,hasMore,totalCount,audience`. | Search uses a separate snapshot and the browse cache retains the browse results. Rows are deduplicated by `connectionId`. `connectedFromContacts` supplies the Via contacts icon and `createdAt` supplies the local connected date. Refresh retries the connection list. |
 | Outgoing cancel map | F GET `/api/one/connections/requests?direction=outgoing` | `items[].counterpartUserId,id` resolve the exact pending request; failure does not block directory/roster. |
 | Identity/avatar/mutual person | No API on click; authored public-person route | Requires `publicPersonRef`; absent reference is inert. Person page starts its own documented reads. |
 | Message | F POST `/api/one/messages/route-token`, `{personRef}`→`token` | Navigate `/one/messages?token=<opaque>` through route builder. Failure `This conversation could not be opened. Try again.` Never put a real token in documentation. |
@@ -583,7 +586,7 @@ selection and relationship projection. Backend owners are
 
 | People surface | Exact authored copy |
 | --- | --- |
-| Search/modes | `Name, email or phone`; `People`; `RIAs`; `Around you`; `Find people`; `My connections {N}`; `My RIAs {N}`; `{N} connections`; `{N} RIAs`; `From contacts`; `Other connections`; `Connected {D Mon}` |
+| Search/modes | `Name, email or phone`, `People`, `RIAs`, `Around you`, `Find people`, `My connections {N}`, `My RIAs {N}`, `{N} connections`, `{N} RIAs`, `Via contacts`, `Verified Advisor`, `Connected {D Mon}` |
 | Discovery loading/rate delay | `Finding people…`; `People are taking a moment` / `Advisors are taking a moment`; `We'll keep trying and show everyone here as soon as they're ready.` No Retry in that delay state. |
 | Unavailable | `People are unavailable` / `Advisors are unavailable`; fallback `Failed to load people`; `Try again` |
 | Empty/query | `No one matches "{query}"`; `Try their full name.` / `Try People, or their full name.`; `No people yet` / `No advisors yet`; `Find by name, email or phone.`; `Invite them to One`; `Share an invite link with them.` |
@@ -893,8 +896,9 @@ Source: [Messages](../../components/direct-messages/direct-messages-page.tsx),
 
 ## Network discovery and profile journeys
 
-Find people includes **Explore your network**, a shared list with exact viewer-relative
-1st, 2nd and 3rd degree filters and paginated name search. A missing degree is not
+In Find people, **Explore your network** is a separate text action below the
+directory search. It opens a shared list with exact viewer-relative 1st, 2nd and
+3rd degree filters and paginated name search. A missing degree is not
 proof that someone is outside the network. Mutuals always mean active direct
 neighbors shared by the viewer and the target: zero has no control, one opens the
 available profile (resolving a missing preview through one mutual page), and more

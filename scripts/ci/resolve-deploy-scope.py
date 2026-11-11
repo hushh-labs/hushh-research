@@ -120,9 +120,59 @@ def run_git_diff(base_sha: str, target_sha: str) -> list[str]:
         return []
     if base_sha == target_sha:
         return []
-    command = ["git", "diff", "--name-only", f"{base_sha}..{target_sha}"]
+    # A rename must include the removed runtime path as well as its destination.
+    command = ["git", "diff", "--no-renames", "--name-only", f"{base_sha}..{target_sha}"]
     result = subprocess.run(command, check=True, text=True, capture_output=True)
     return [normalize_path(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+def source_only_update(base_sha: str, target_sha: str, environment: str) -> bool:
+    """Conservative inspection hint, never deployment admission or acceptance.
+
+    Broad neutral prefixes above are insufficient: release execution, runtime
+    configuration and unknown inputs must retain ordinary qualification.
+    """
+    if environment not in {"dev", "uat", "production"} or not all(
+        re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (base_sha, target_sha)
+    ):
+        return False
+    validation_only = {
+        "AGENTS.md", "README.md", ".github/workflows/ci.yml",
+        ".github/workflows/main-post-merge-smoke.yml", ".github/workflows/queue-validation.yml",
+        "scripts/ci/github_team_authority.py", "scripts/ci/github_security_authority.py",
+        "scripts/ci/promotion_approval.py", "scripts/ci/release_cadence_github.py",
+        "scripts/ci/repo_governance_plan.py", "scripts/ci/require-deploy-sha-on-main.sh",
+        "scripts/ci/verify-predecessor-acceptance.py",
+    }
+    # Another environment's entrypoint does not change this environment's
+    # build/runtime inputs. Shared deployment recipes remain conservative.
+    validation_only.update(
+        f".github/workflows/deploy-{other}.yml"
+        for other in {"dev", "uat", "production"} - {environment}
+    )
+    try:
+        paths = run_git_diff(base_sha, target_sha)
+        tests_changed = any(path.startswith("consent-protocol/tests/") for path in paths)
+        if tests_changed:
+            rules = [
+                subprocess.check_output(
+                    ["git", "show", f"{sha}:consent-protocol/.dockerignore"],
+                    text=True, timeout=10,
+                )
+                for sha in (base_sha, target_sha)
+            ]
+            negatives = {line.strip() for line in rules[0].splitlines() if line.strip().startswith("!")}
+            if (rules[0] != rules[1] or "tests/" not in rules[0].splitlines()
+                    or negatives - {"!hushh_mcp/agents/*.md", "!hushh_mcp/agents/**/*.md"}):
+                return False
+        return all(
+            path.startswith(("docs/", ".agents/", "consent-protocol/tests/"))
+            or path in validation_only
+            or (path.startswith("scripts/ci/test_") and path.endswith(".py"))
+            for path in paths
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def unique_sorted(values: Iterable[str]) -> tuple[str, ...]:
@@ -179,11 +229,9 @@ def auto_decision(
             reason="auto:fallback_missing_deployed_sha",
         )
 
-    candidate_files = changed_files_between_service_bases(
-        target_sha=target_sha,
-        backend_base_sha=backend_base_sha,
-        frontend_base_sha=frontend_base_sha,
-    )
+    backend_diff = set(run_git_diff(backend_base_sha, target_sha))
+    frontend_diff = set(run_git_diff(frontend_base_sha, target_sha))
+    candidate_files = unique_sorted([*backend_diff, *frontend_diff])
 
     backend_files: list[str] = []
     frontend_files: list[str] = []
@@ -192,10 +240,16 @@ def auto_decision(
 
     for path in candidate_files:
         classification = classify_path(path)
+        # Scoped releases can leave the services at different sources. Compare
+        # each service's inputs with its own serving baseline; the other
+        # service's older history must not redeploy already-current inputs.
+        # Shared inputs and atomic lifecycle changes still consider both diffs.
         if classification == "backend":
-            backend_files.append(path)
+            if path in backend_diff:
+                backend_files.append(path)
         elif classification == "frontend":
-            frontend_files.append(path)
+            if path in frontend_diff:
+                frontend_files.append(path)
         elif classification == "shared":
             shared_files.append(path)
         else:

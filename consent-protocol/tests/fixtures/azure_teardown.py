@@ -37,6 +37,7 @@ def partial_setup_state(server, mode, owner, hushh_id):
         "read_only",
         "read_only_existing",
         "predeployment",
+        "unreserved_predeployment",
     }:
         server.execute(
             "INSERT INTO pod_lifecycle_events(user_id,seq,hushh_id,event,stage,registry_status) VALUES (%s,1,%s,'stage','registry_row','pending')",
@@ -45,7 +46,7 @@ def partial_setup_state(server, mode, owner, hushh_id):
     if mode in {"read_only", "read_only_existing"}:
         server.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
         return server, OWNER, None, None
-    if mode == "predeployment":
+    if mode in {"predeployment", "unreserved_predeployment"}:
         server.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
         snapshot = server.execute(
             "SELECT to_jsonb(p) FROM personal_agent_registry p WHERE user_id=%s", (OWNER,)
@@ -57,6 +58,8 @@ def partial_setup_state(server, mode, owner, hushh_id):
             )[0][0]
             is True
         )
+        if mode == "unreserved_predeployment":
+            return server, OWNER, None, None
         digest = server.execute(
             "SELECT azure_cleanup_candidate_digest(%s::jsonb)", (json.dumps(snapshot),)
         )[0][0]
