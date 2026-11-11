@@ -15,11 +15,9 @@ source "$REPO_ROOT/scripts/ci/web-targeted-plan.sh"
 #   node     only packs that never start a browser
 #   browser  only packs whose npm script reaches `playwright`
 #
-# PR Validation runs `node` and `browser` as two parallel legs of Web Targeted
-# Contracts. The browser packs were ~11 of the lane's ~13 minutes, and the node
-# leg needs neither the Playwright download nor its apt dependencies. Each pack
-# is classified by one pure rule, so the two legs partition the matched set:
-# every pack runs in exactly one leg, and together they run what `all` runs.
+# Required CI runs the Node leg. The browser/all modes remain explicit local
+# diagnostics and recovery compatibility. Each pack has one owner, so the two
+# diagnostic legs together partition what `all` runs.
 # Guarded by scripts/ci/test_web_ci_lane_partition.py.
 WEB_TARGETED_PART="${WEB_TARGETED_PART:-all}"
 WEB_TARGETED_ALL_PACKS="${WEB_TARGETED_ALL_PACKS:-0}"
@@ -120,13 +118,26 @@ run_check() {
   fi
 }
 
-# Only the owning hosted workflow may assert that its required full-suite job
-# covers these invocations. Local focused commands retain their original checks.
+# Only the owning workflow may assert coverage in its required unit job. Ordinary
+# affected units own these exact static commands, not arbitrary Vitest packs.
+# Historical full-suite callers retain `1`; local/unknown callers run every check.
 run_full_suite_check() {
-  if [ "${WEB_TARGETED_FULL_SUITE_OWNED:-0}" = "1" ]; then
-    echo "Required Web Full Suite owns: $1"
-    return
-  fi
+  case "${WEB_TARGETED_FULL_SUITE_OWNED:-0}" in
+    1)
+      echo "Required Web Full Suite owns: $1"
+      return
+      ;;
+    static)
+      if [ "$#" -eq 4 ] && [ "$2" = npm ] && [ "$3" = run ]; then
+        case "$4" in
+          verify:voice-gateway|verify:capability-graph|verify:surface-map|verify:capacitor:plugins)
+            echo "Required unit static verifiers own: $1"
+            return
+            ;;
+        esac
+      fi
+      ;;
+  esac
   run_check "$@"
 }
 
@@ -187,8 +198,8 @@ if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != diagnostic ]; then
 fi
 
 
-# This lane already installs Chromium. Render every maintained Mermaid block
-# when documentation or its checker changes; structural lint alone misses parser errors.
+# Explicit browser diagnostics render maintained Mermaid blocks; required Node
+# CI does not install Chromium or claim browser-rendering proof.
 if [ "${CI_VALIDATION_LEVEL:-diagnostic}" = diagnostic ] && has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
   # The node leg intentionally has no browser install. The browser leg owns
   # rendering; an unsplit local run still renders every diagram.
@@ -208,7 +219,7 @@ if has_match '^hushh-webapp/(lib/utils/request-timeouts\.ts|__tests__/utils/requ
   ran=1
 fi
 if has_match '^hushh-webapp/(lib/generated/one-location-workflow-card-catalog\.v1\.ts|__tests__/components/location-command-workflow\.test\.tsx)$'; then
-  run_check "workflow catalog compiler" npm run verify:capability-graph
+  run_full_suite_check "workflow catalog compiler" npm run verify:capability-graph
   run_check "workflow card behavior" npm run test:ci -- __tests__/components/location-command-workflow.test.tsx --maxWorkers=2
   ran=1
 fi
