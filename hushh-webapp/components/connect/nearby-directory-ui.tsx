@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search as SearchIcon, X } from "@/components/icons";
+import { Search as SearchIcon, MapPin, X } from "@/components/icons";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -99,7 +99,7 @@ export function PostalCodeForm({
       <Input
         value={postalCode}
         onChange={(event) => setPostalCode(event.target.value)}
-        placeholder={label}
+        placeholder={label === "ZIP" ? "US ZIP code" : label}
         inputMode={numericOnly ? "numeric" : "text"}
         aria-label={label}
         className="h-11"
@@ -110,6 +110,7 @@ export function PostalCodeForm({
         variant="none"
         effect="fill"
         size="lg"
+        className="shrink-0 bg-[color:var(--app-secondary-fill)]"
         disabled={busy || !postalCode.trim()}
       >
         Search
@@ -190,13 +191,34 @@ export function ExpandRadiusButton({
   return (
     <Button
       type="button"
-      variant="plain"
-      size="sm"
+      variant="blue-gradient"
+      size="lg"
       onClick={() => onExpand(nextRadiusMi)}
     >
       Search within {nextRadiusMi} mi
     </Button>
   );
+}
+
+/** Recovery actions for an empty geographic search, using the workspace scale. */
+export function DirectoryEmptyState({ title, testId, expandAction, children }: {
+  title: string;
+  testId: string;
+  expandAction: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return <section data-testid={testId} className="rounded-3xl border border-border bg-background p-5 sm:p-6">
+    <div className="flex flex-col items-center gap-3 py-3 text-center">
+      <MapPin className="size-9 text-muted-foreground" aria-hidden />
+      <h2 data-connect-role="section" className="type-title3 text-foreground">{title}</h2>
+      <p data-connect-role="description" className="text-muted-foreground">Try a wider radius or search another area.</p>
+      <div className="mt-2">{expandAction}</div>
+    </div>
+    <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:gap-6">
+      <span data-connect-role="form-label" className="shrink-0">Search another area</span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  </section>;
 }
 
 /**

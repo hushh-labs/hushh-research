@@ -224,7 +224,7 @@ for (const dark of [false, true]) {
       await expect(add).toBeVisible();
       expect(measured.title).toMatchObject({ size: "28px", line: "36px", weight: "600" });
       expect(measured.title.family).toContain("Plus Jakarta Sans");
-      expect(measured.add).toMatchObject({ size: "17px", line: "22px", weight: "650" });
+      expect(measured.add).toMatchObject({ size: "12px", line: "18px", weight: "550" });
       expect(measured.addHeight).toBeGreaterThanOrEqual(52);
       expect(measured.overflow).toBeLessThanOrEqual(1);
       if (width === 320) {
@@ -353,7 +353,7 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
     const style = getComputedStyle(node);
     return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
   });
-  expect(stopTitle).toMatchObject({ size: "20px", line: "25px", weight: "600" });
+  expect(stopTitle).toMatchObject({ size: "20px", line: "28px", weight: "600" });
   expect(stopTitle.family).toContain("Plus Jakarta Sans");
   await stopDialog.getByRole("button", { name: "Stop alert", exact: true }).click();
   await expect(message).toBeVisible();

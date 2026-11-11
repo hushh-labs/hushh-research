@@ -1,3 +1,4 @@
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   act,
   cleanup,
@@ -1134,7 +1135,7 @@ describe("LocationImmersiveMap demo experience", () => {
       expect(appInteractionCoordinator.getSnapshot().find(
         (intent) => intent.id === closeIntentId,
       )?.status).toBe("rejected");
-      expect(toast.error).toHaveBeenCalledWith("Couldn’t leave the map. Try again.");
+      expect(toast.error).toHaveBeenCalledWith("Couldn’t leave the map. Try again.", { className: connectTypography.toast });
     } else {
       expect(close).toBeDisabled();
       fireEvent.click(close);
@@ -2872,7 +2873,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(call[0].envelope.publicationContext).toBe("foreground_map_visible");
     // Not the old "Ghost Mode is on. Only you can see this." dead end.
     expect(toast.success).toHaveBeenCalledWith(
-      "Sent to the people you share with.",
+      "Sent to the people you share with.", { className: connectTypography.toast },
     );
   });
 
@@ -2898,7 +2899,7 @@ describe("LocationImmersiveMap reported map defects", () => {
 
     await waitFor(() => {
       expect(toast.message).toHaveBeenCalledWith(
-        "Ghost Mode is on, and you aren't sharing with anyone yet.",
+        "Ghost Mode is on, and you aren't sharing with anyone yet.", { className: connectTypography.toast },
       );
     });
     expect(serviceHarness.storeEnvelope).not.toHaveBeenCalled();
@@ -3267,7 +3268,7 @@ describe("LocationImmersiveMap reported map defects", () => {
 
     await waitFor(() => {
       expect(toast.message).toHaveBeenCalledWith(
-        "No one is sharing a live location with you yet.",
+        "No one is sharing a live location with you yet.", { className: connectTypography.toast },
       );
     });
   });
@@ -3304,7 +3305,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     // With people to show it frames them and says nothing -- the message is
     // reserved for the empty case it explains.
     expect(toast.message).not.toHaveBeenCalledWith(
-      "No one is sharing a live location with you yet.",
+      "No one is sharing a live location with you yet.", { className: connectTypography.toast },
     );
   });
 
@@ -3941,7 +3942,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     );
     fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith("Map could not frame everyone."),
+      expect(toast.error).toHaveBeenCalledWith("Map could not frame everyone.", { className: connectTypography.toast }),
     );
 
     // Map creation may report its neutral camera while clustering is pending.

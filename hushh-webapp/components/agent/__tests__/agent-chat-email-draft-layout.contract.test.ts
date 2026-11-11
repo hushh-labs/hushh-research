@@ -135,7 +135,7 @@ describe("History caller authority", () => {
 });
 
 describe("Initial history warm return", () => {
-  it.each(["current", "watched turn", "selection", "typed turn", "owner ABA", "vault change", "cache invalidation", "refresh failure"])(
+  it.each(["current", "watched turn", "selection", "typed turn", "foreground stream", "owner ABA", "vault change", "cache invalidation", "refresh failure"])(
     "renders expired memory before network and fences %s", async (transition) => {
       publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 });
       const start = source.indexOf('    const loadKey = `${applicationOwnerId}:${vaultOwnerToken.slice(0, 12)}`;');
@@ -152,6 +152,7 @@ describe("Initial history warm return", () => {
         applicationOwnerId: "history-owner", user: { uid: "history-owner" }, vaultOwnerToken: "synthetic-token", vaultKeyRef: { current: "synthetic-key" },
         skipInitialHistoryLoadRef: { current: false }, historyLoadKeyRef: { current: null }, historyRestoreEpochRef: { current: 1 },
         chatSessionRef: { current: { value: 1, isCurrent: (value: number) => value === chatEpoch } },
+        streamAbortControllerRef: { current: null as AbortController | null },
         workspaceOwnerIdRef: { current: "history-owner" }, historyListOwner: { current: null },
         snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, snapshotVaultSessionEpoch, isVaultSessionEpochCurrent,
         peekAgentChatHistoryCache: () => cached,
@@ -159,7 +160,8 @@ describe("Initial history warm return", () => {
         warmAgentChatHistoryCache: vi.fn(() => new Promise<typeof cached>((resolve, reject) => { settle = resolve; fail = reject; })),
         loadAgentChatConversationHistory: vi.fn(async () => [{ id: "refreshed" }]),
         selectedInAppChat: () => "selected-chat", isAgentTurnWatched: () => watched,
-        setIsChatLoading: vi.fn(), responseOutputRef: { current: false }, setHasResponseOutput: vi.fn(), setIsStreaming: vi.fn(), stampNow: () => ({}),
+        setIsChatLoading: vi.fn(), setActiveToolCalls: vi.fn(),
+        responseOutputRef: { current: false }, setHasResponseOutput: vi.fn(), setIsStreaming: vi.fn(), stampNow: () => ({}),
         storedMessagesToAgentMessages: (value: unknown) => value,
         mergePendingConsentMessages: (value: unknown) => value, createGreetingMessage: () => ({ id: "greeting" }),
         setConversations: vi.fn(), setMessages: vi.fn(), updateConversationId: vi.fn(),
@@ -179,6 +181,7 @@ describe("Initial history warm return", () => {
       deps.setMessages.mockClear(); deps.setConversations.mockClear(); deps.setSlotHistoryFailed.mockClear();
       if (transition === "selection") chatEpoch++;
       if (transition === "typed turn") deps.historyRestoreEpochRef.current++;
+      if (transition === "foreground stream") deps.streamAbortControllerRef.current = new AbortController();
       if (transition === "owner ABA") { publishValidatedAuthSessionPrincipal({ firebaseUid: "other-owner", ownerId: "other-owner", accountGeneration: 0 }); publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 }); }
       if (transition === "vault change") advanceVaultSessionEpoch();
       if (transition === "cache invalidation") cacheCurrent = false;
@@ -190,6 +193,10 @@ describe("Initial history warm return", () => {
         expect(deps.setMessages.mock.calls[0][0]([])).toEqual([{ id: "refreshed" }]);
       } else {
         expect(deps.setMessages).not.toHaveBeenCalled();
+      }
+      if (transition === "foreground stream") {
+        expect(deps.setConversations).toHaveBeenCalledWith(cached.conversations);
+        expect(deps.loadAgentChatConversationHistory).not.toHaveBeenCalled();
       }
       expect(deps.setSlotHistoryFailed).not.toHaveBeenCalled();
       publishValidatedAuthSessionPrincipal(null);

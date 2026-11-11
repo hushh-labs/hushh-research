@@ -10868,25 +10868,6 @@ html:has([data-profile-type-scale]),
   }
 }
 
-/* Sonner lives beside the route, not below its type scope. Its vendor rules
-   otherwise replace the product font and the shared authored 20px line box.
-   Keep this presentation-only correction active for the mounted Location
-   journey; shared feedback elsewhere keeps its existing ownership. */
-html:has([data-location-type-scale="connect"]) [data-sonner-toaster] {
-  font-family: var(--font-app-body);
-}
-html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-title] {
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-description] {
-  font-size: 12px;
-  line-height: 20px;
-  font-weight: 400;
-}
-
 /* Consent uses Connect's type roles and ordinary command anatomy while its
    880px manager, four-pane pager, decision colors and portal owners stay put.
    Apply this scope to the route, each embedded review and actual portal content;

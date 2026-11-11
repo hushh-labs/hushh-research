@@ -498,3 +498,25 @@ compensation, or individual performance.
 The historical `morphy-pdf` alias is retired. Every coding tool uses
 `.agents/skills/pdf-artifact-generation/` and the same Foundation formatter.
 A host discovery link cannot introduce another renderer, stylesheet or token vocabulary.
+
+### Connect and Location workspace typography
+
+Connect v14 is owned by `hushh-webapp/lib/morphy-ux/ui/connect-type-scale.module.css`.
+`ConnectTypeScale` marks the page with `data-connect-type-scale="page"` and supplies
+an opt-in React presentation context. Dialog, sheet, drawer, popover, menu, select,
+and tooltip content repeat that scope on the real portal host. Location's route
+layout covers map, check-in, public invite/view/request routes as well as the main
+workspace. Profile previews preserve the initiating presentation in their existing
+in-memory visit state. Contact feedback captures the scope when the action starts;
+route presence must not restyle unrelated global notifications.
+
+Rows use 14/21/550, supporting text 12/18/400, sections 14/22/600, form labels
+15/22/550, compact actions 12/18/550, and dialog titles 20/28/600 (size/line/weight).
+Inputs use 16/22 through 620px and 14/22 above it. Geometry, focus rings, hover,
+disabled behavior, destructive treatment, and touch targets remain owned by the
+existing shared controls. Specialized display numerals and icon glyphs retain
+their display roles. Outside the opt-in scope, shared controls retain their
+existing typography.
+
+Verify with the Connect grid, Circle invitation picker, and SMS browser suites;
+the picker checks the 620/621 breakpoint and selected state in a real portal.

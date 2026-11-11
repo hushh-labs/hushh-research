@@ -340,7 +340,7 @@ async def test_native_adk_toolset_uses_bounded_transport(monkeypatch):
         raise google.auth.exceptions.DefaultCredentialsError("synthetic")
 
     monkeypatch.setattr(google.auth, "default", default)
-    monkeypatch.delenv("GOOGLE_API_USE_CLIENT_CERTIFICATE", raising=False)
+    monkeypatch.setenv("GOOGLE_API_USE_CLIENT_CERTIFICATE", "true")
     binding = McpConnectionBinding("owner", "provider", 1, 1, "https://example.com/mcp")
     toolset = GovernedMcpToolset(
         binding=binding,
@@ -355,7 +355,7 @@ async def test_native_adk_toolset_uses_bounded_transport(monkeypatch):
         assert await manager._get_mtls_transport() is None
         assert loads == []
 
-        # Negative control: the stock manager does load ambient credentials.
+        # Negative control: stock ADK permits an explicitly enabled mTLS upgrade.
         stock = MCPSessionManager(connection_params=manager._connection_params)
         assert await stock._get_mtls_transport() is None
         assert loads, "stock ADK no longer attempts ambient mTLS; revisit the override"

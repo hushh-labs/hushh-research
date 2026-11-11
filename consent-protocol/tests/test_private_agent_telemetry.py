@@ -37,11 +37,8 @@ async def test_incoming_tracestate_never_reaches_instrumentation_or_logs(caplog)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=instrumented), base_url="http://fixture"
         ) as client:
-            # Positive control proves the actual installed instrumentation is vulnerable.
-            await client.get(
-                "/synthetic", headers={**headers, "tracestate": "private=x" + "\t" * 4096 + "!"}
-            )
-            assert "private=x" in caplog.text
+            # Positive control proves actual instrumentation accepts vendor state.
+            await client.get("/synthetic", headers={**headers, "tracestate": "vendor=untrusted"})
             caplog.clear()
             protect_incoming_trace_context()
             guarded = propagate.get_global_textmap()
@@ -53,6 +50,8 @@ async def test_incoming_tracestate_never_reaches_instrumentation_or_logs(caplog)
             assert response.status_code == 200
         assert "private=x" not in caplog.text
         incoming = [span for span in memory.get_finished_spans() if span.name == "GET /synthetic"]
+        assert incoming[0].parent.trace_state.get("vendor") == "untrusted"
+        assert not incoming[-1].parent.trace_state
         assert incoming[-1].parent.trace_id == int("0af7651916cd43dd8448eb211c80319c", 16)
         assert incoming[-1].parent.span_id == int("b7ad6b7169203331", 16)
         local = trace.SpanContext(
@@ -89,7 +88,7 @@ def test_both_public_heads_apply_the_private_sdk_run_config():
     for agent in (_agent, _intro_agent):
         config = agent._run_config_factory(_input())
         assert config.streaming_mode.value == "sse"
-        assert not config.save_input_blobs_as_artifacts
+        assert config.model_dump()["save_input_blobs_as_artifacts"] is False
         assert not config.telemetry.should_add_content_to_legacy_spans
 
 
@@ -237,7 +236,7 @@ async def test_real_sdk_export_excludes_private_content_and_provider_exception(
             )
             assert result["answer"] == "PRIVATE_ANSWER"
         spans = memory.get_finished_spans()
-        assert any(span.name == "call_llm" for span in spans)
+        assert any(span.name == "invoke_agent agent_email_read_interpreter" for span in spans)
         serialized = json.dumps(
             [
                 {

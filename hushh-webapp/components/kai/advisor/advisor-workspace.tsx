@@ -219,7 +219,10 @@ export function AdvisorWorkspace({
           <ShellActionSurface
             variant="pill"
             disabled={busy}
-            onClick={() => void load()}
+            onClick={() => {
+              setError(null);
+              void load();
+            }}
           >
             Refresh status
           </ShellActionSurface>

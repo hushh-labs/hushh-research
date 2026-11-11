@@ -54,11 +54,7 @@
   --type-helper-text-line: var(--type-row-description-line);
 }
 
-.page[data-calendar-profile] .connectionMenu {
-  font-size: var(--type-compact-button-label-size);
-  line-height: var(--type-compact-button-label-line);
-  font-weight: var(--type-compact-button-label-weight);
-}
+
 
 .page[data-calendar-profile] .contactLines a {
   font-size: var(--type-row-description-size);
@@ -100,7 +96,6 @@
 .identityStatus { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .status { --type-helper-text-size: 11px; --type-helper-text-line: 17px; padding: 4px 9px; }
 .status svg { width: 12px; height: 12px; }
-.connectionMenu { min-height: 44px; height: 44px; padding: 0 12px; font-size: 12px; line-height: 15.6px; font-weight: 500; }
 .nameActions { display: flex; justify-content: space-between; align-items: center; gap: 22px; min-width: 0; margin: 13px 0 22px; }
 .identity { min-width: 0; }
 .name { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
@@ -205,4 +200,16 @@
   .available { --type-input-value-size: 16px; }
   .historyRow { flex-direction: column; align-items: stretch; }
   .historyActions { align-items: flex-start; }
+}
+
+.connectedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--app-neutral-fill);
+  color: var(--app-secondary-label);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 550;
 }

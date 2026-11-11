@@ -1,3 +1,4 @@
+import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
 import { startFramePacingProbe } from "../../lib/perf/frame-pacing";
 import React, { useState } from "react";
 import { CircleMemberActionsMenu } from "../../components/one-location/redesign/circles/circle-member-actions-menu";
@@ -69,4 +70,4 @@ if (document.documentElement.dataset.probe) {
   probe.setRoute("/one/connect", "?fixture=circle-picker");
   Object.assign(window, { stopFixtureProbe: () => probe.stop() });
 }
-createRoot(document.getElementById("root")!).render(<Fixture />);
+createRoot(document.getElementById("root")!).render(document.documentElement.dataset.connectScope ? <ConnectTypeScale><Fixture /></ConnectTypeScale> : <Fixture />);

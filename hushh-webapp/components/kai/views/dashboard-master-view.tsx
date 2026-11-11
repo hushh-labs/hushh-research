@@ -2312,9 +2312,7 @@ export function DashboardMasterView({
                   searchKey="symbol"
                   globalSearchKeys={["symbol", "name"]}
                   searchPlaceholder="Search holdings by ticker or company"
-                  initialPageSize={8}
-                  pageSizeOptions={[8, 16, 24]}
-                  compactPagination
+                  paginate={false}
                   rowClassName={(holding) =>
                     cn(
                       financeStyles.interactiveRow,

@@ -7,17 +7,17 @@
 /**
  * Keep the switch legible without letting it become a detached desktop island.
  *
- * Stack the compact caption under the switch at every width. The label owns a
- * 44px tap target while the visual track stays compact above its caption.
+ * Place the status before the switch beside the profile. The label retains a
+ * 44px tap target while the visual track stays compact.
  */
 export const LOCATION_HEADER_ACTIONS_CLASSNAME =
-  "ml-auto flex min-h-0 w-[92px] shrink-0 flex-col items-center justify-center overflow-visible";
+  "flex min-h-11 shrink-0 items-center border-r border-border/60 pr-2 sm:pr-3";
 
 export const LOCATION_HEADER_STATUS_CLASSNAME =
-  "mt-0.5 block w-full whitespace-normal text-center font-[family-name:var(--font-app-body)] ui-text-row-description tracking-[-0.01em] text-[color:var(--app-secondary-label)]";
+  "block max-w-24 whitespace-normal text-right font-[family-name:var(--font-app-body)] ui-text-row-description tracking-[-0.01em] text-[color:var(--app-secondary-label)]";
 
 export const LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME =
-  "flex min-h-11 w-full cursor-pointer flex-col items-center justify-center";
+  "flex min-h-11 cursor-pointer flex-row items-center justify-center gap-1 sm:gap-2";
 
 /** Reduce the entire track and thumb by 10%, preserving the label's tap target. */
 export const LOCATION_HEADER_SWITCH_CLASSNAME =

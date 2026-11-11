@@ -25,6 +25,7 @@ vi.mock("@/components/connect/network-people-list", () => ({ NetworkPeopleList: 
   return <h2>Network {mode}</h2>;
 } }));
 
+import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
 import { PersonProfilePreview } from "@/components/connections/person-profile-preview";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
@@ -69,6 +70,16 @@ describe("person profile return memory @feature_connected_profiles @trace_loop",
       expect(screen.queryByRole("heading", { name: "Profile public-peer" })).toBeNull();
     }
     expect(state.api).toHaveBeenCalledWith("/api/one/connections/peer-uid/context", expect.objectContaining({ cache: "no-store", headers: expect.objectContaining({ Authorization: "Bearer token" }) }));
+  });
+
+  it("preserves Connect presentation in the global preview and nested request portal", async () => {
+    render(<><ConnectTypeScale><button onClick={event => openPersonProfilePreview({ personRef: "public-peer" }, event.currentTarget)}>Open scoped profile</button></ConnectTypeScale><PersonProfilePreview /></>);
+    fireEvent.click(screen.getByRole("button", { name: "Open scoped profile" }));
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    expect(screen.getByRole("dialog")).toHaveAttribute("data-typography-scope");
+    fireEvent.click(screen.getByRole("button", { name: "Request information" }));
+    const title = await screen.findByRole("heading", { name: "Review request" });
+    expect(title.closest('[role="dialog"]')).toHaveAttribute("data-typography-scope");
   });
 
   it.each([true, false])("scopes the portal only for a Calendar-origin preview (%s)", async calendar => {

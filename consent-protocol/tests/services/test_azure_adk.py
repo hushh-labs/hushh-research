@@ -386,7 +386,14 @@ async def test_real_runner_migrates_gemini_fallback_tool_ids_without_guessing_pa
             policy_generation=managed_text_policy()["generation"],
             processing_scope="one_text_chat",
         )
-    agent = LlmAgent(name="migration_agent", model=adapter, instruction="Keep original history.")
+    from hushh_mcp.hushh_adk.tool_history import validate_tool_result_history
+
+    agent = LlmAgent(
+        name="migration_agent",
+        model=adapter,
+        instruction="Keep original history.",
+        before_model_callback=validate_tool_result_history,
+    )
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="azure_migration", user_id="synthetic", session_id="migration"
@@ -471,6 +478,96 @@ async def test_real_runner_migrates_gemini_fallback_tool_ids_without_guessing_pa
             assert client.requests == []
     finally:
         await runner.close()
+
+
+@pytest.mark.parametrize(
+    "identity,name,branch,scope",
+    [
+        ("known", "lookup", "one.child", None),
+        ("known", "lookup", None, "another-task"),
+        ("known", "wrong_name", None, None),
+        ("unknown", None, None, None),
+        (None, "lookup", None, None),
+    ],
+)
+def test_original_history_rejects_a_foreign_receipt_without_rejecting_a_pending_call(
+    identity, name, branch, scope
+):
+    from google.adk.events import Event
+
+    from hushh_mcp.hushh_adk.tool_history import validate_tool_result_history
+
+    call_event = Event(
+        author="one",
+        invocation_id="original",
+        content=types.Content(
+            role="model",
+            parts=[types.Part(function_call=types.FunctionCall(id="known", name="lookup"))],
+        ),
+    )
+    context = SimpleNamespace(session=SimpleNamespace(events=[call_event]))
+    assert validate_tool_result_history(context, request()) is None
+    context.session.events.append(
+        Event(
+            author="one",
+            invocation_id="original",
+            branch=branch,
+            isolation_scope=scope,
+            content=types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id=identity,
+                            name=name,
+                            response={"value": "synthetic"},
+                        )
+                    )
+                ],
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="preceding matching call"):
+        validate_tool_result_history(context, request())
+
+
+def test_original_history_retains_a_legacy_idless_tool_pair():
+    from google.adk.events import Event
+
+    from hushh_mcp.hushh_adk.tool_history import validate_tool_result_history
+
+    history = [
+        Event(
+            author="one",
+            invocation_id="original",
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(function_call=types.FunctionCall(name="legacy_lookup")),
+                ],
+            ),
+        ),
+        Event(
+            author="one",
+            invocation_id="original",
+            content=types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name="legacy_lookup", response={"value": "synthetic"}
+                        )
+                    ),
+                ],
+            ),
+        ),
+    ]
+    assert (
+        validate_tool_result_history(
+            SimpleNamespace(session=SimpleNamespace(events=history)), request()
+        )
+        is None
+    )
 
 
 async def test_streaming_has_text_fragments_and_one_complete_nonpartial_tool_response():
@@ -663,7 +760,7 @@ async def test_managed_invocation_guards_are_owner_local_and_policy_changes_bloc
     original_policy = managed.managed_text_policy()
     token.side_effect = lambda: (
         monkeypatch.setattr(
-            managed, "managed_text_policy", lambda: {**original_policy, "generation": "changed"}
+            managed, "managed_text_policy", lambda **_: {**original_policy, "generation": "changed"}
         )
         or "synthetic"
     )
@@ -679,6 +776,9 @@ async def test_managed_timeout_is_bounded_and_closed_before_single_fallback(monk
 
     from hushh_mcp.runtime_providers import managed_text as managed
 
+    monkeypatch.setattr(
+        managed, "load_drive_text_policy", lambda: None
+    )  # Historical fallback contract.
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     closed, calls = [], []
@@ -701,7 +801,9 @@ async def test_managed_timeout_is_bounded_and_closed_before_single_fallback(monk
         token_supplier=lambda: "synthetic",
         require_current=AsyncMock(),
         fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope="drive_document_requests")[
+            "generation"
+        ],
         processing_scope="drive_document_requests",
         primary_seconds=0.01,
     )
@@ -761,6 +863,9 @@ async def test_vertex_primary_uses_real_sdk_status_and_reports_only_actual_compl
 
     from hushh_mcp.runtime_providers import managed_text as managed
 
+    monkeypatch.setattr(
+        managed, "load_drive_text_policy", lambda: None
+    )  # Historical fallback contract.
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     calls, completed = [], []
@@ -784,7 +889,9 @@ async def test_vertex_primary_uses_real_sdk_status_and_reports_only_actual_compl
         **base.model_dump(exclude={"api_key", "client"}),
         token_supplier=lambda: "synthetic",
         require_current=AsyncMock(),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope="drive_document_requests")[
+            "generation"
+        ],
         processing_scope="drive_document_requests",
         primary_provider="vertex",
         fallback_model=SimpleNamespace(model="gemini-alternate", generate_content_async=vertex),

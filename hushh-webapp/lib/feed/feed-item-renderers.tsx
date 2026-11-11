@@ -637,7 +637,7 @@ const AGENT_OUTCOME_COPY: Record<string, readonly [string, string, string]> = {
   ],
   kai_analysis_failed: [
     "Analysis could not finish",
-    "Open Kai to start another analysis.",
+    "Open Finance to start another analysis.",
     buildKaiMarketRoute("analysis"),
   ],
   kai_analysis_canceled: [
@@ -647,12 +647,12 @@ const AGENT_OUTCOME_COPY: Record<string, readonly [string, string, string]> = {
   ],
   kai_import_completed: [
     "Statement parsing finished",
-    "Open Kai to check your current import.",
+    "Open Finance to check your current import.",
     ROUTES.KAI_IMPORT,
   ],
   kai_import_failed: [
     "Statement import could not finish",
-    "Open Kai to import the statement again.",
+    "Open Finance to import the statement again.",
     ROUTES.KAI_IMPORT,
   ],
   kai_import_canceled: [

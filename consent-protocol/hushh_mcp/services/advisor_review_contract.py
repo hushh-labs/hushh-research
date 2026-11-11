@@ -48,7 +48,7 @@ class MeetingTime(StrictObject):
 
 
 class AdvisorPlan(StrictObject):
-    amountCents: StrictInt = Field(ge=100, le=100000)
+    amountCents: StrictInt = Field(ge=50, le=100000)
     currency: Literal["usd"] = "usd"
     services: str = Field(default="", max_length=1500)
     cancellationTerms: str = Field(default="", max_length=1500)

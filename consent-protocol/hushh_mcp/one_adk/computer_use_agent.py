@@ -17,6 +17,7 @@ from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2
+from hushh_mcp.hushh_adk.tool_history import validate_tool_result_history
 from hushh_mcp.runtime_providers.azure_browser_adk import AzureBrowserAdkModel
 from hushh_mcp.runtime_providers.gemini_config import (
     build_generate_content_config,
@@ -131,6 +132,7 @@ def build_computer_use_agent(
         epoch = await control.require_model_observation()
         context = await processing.require()
         await control.require_model_observation(expected_epoch=epoch)
+        validate_tool_result_history(callback_context, llm_request)
         if context:
             llm_request.append_instructions(
                 [
@@ -138,7 +140,7 @@ def build_computer_use_agent(
                     + json.dumps(context, separators=(",", ":"), allow_nan=False)
                 ]
             )
-        # Pinned ADK 2.9 Gemini preprocessing clears system_instruction for
+        # Pinned ADK Gemini preprocessing clears system_instruction for
         # Computer Use requests. Preserve the exact authored/tool instructions
         # in the supported contents channel before that native adaptation.
         # This is transport normalization, not an alternate semantic policy.

@@ -13,14 +13,12 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
-import { toast } from "sonner";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
+import { useTypographyToast } from "@/lib/morphy-ux/ui/use-typography-toast";
+import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import styles from "./person-profile-page.module.css";
-import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -59,6 +57,7 @@ import {
   type PersonRequestHistoryPage,
 } from "@/lib/services/person-profile-service";
 import {
+  normalizeInternalRouteHref,
   resolvePersonRefFromProfilePathname,
   buildPersonProfileRoute,
   ROUTES,
@@ -70,7 +69,6 @@ import {
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
@@ -131,10 +129,15 @@ function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | 
 
 export function PersonProfilePage(props: Props) {
   const { user } = useAuth();
-  return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
+  const searchParams = useSearchParams();
+  const origin = normalizeInternalRouteHref(searchParams?.get("from"))?.split(/[?#]/)[0];
+  const workspaceOrigin = !props.embedded && (origin === "/one/connect" || origin === "/connect" || origin === "/one/location" || origin?.startsWith("/one/location/"));
+  const session = <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
+  return workspaceOrigin ? <ConnectTypeScale>{session}</ConnectTypeScale> : session;
 }
 
 function PersonProfileSession({ personRef, initialProfile, embedded = false, calendarPresentation = false, onNetworkReady }: Props) {
+  const toast = useTypographyToast();
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -603,7 +606,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
     }
   };
 
-  const updateRelationship = async (action: "connect" | "cancel" | "remove"): Promise<boolean> => {
+  const updateRelationship = async (action: "connect" | "cancel"): Promise<boolean> => {
     if (!user || !userId || !viewerProfile && action !== "connect") return false;
     setRelationshipBusy(true);
     try {
@@ -611,26 +614,14 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
       const relationship =
         action === "connect"
           ? await PersonProfileService.connect(resolvedPersonRef, idToken)
-          : action === "cancel"
-            ? await PersonProfileService.cancelConnectionRequest(
-                resolvedPersonRef,
-                idToken,
-              )
-            : await PersonProfileService.removeConnection(
-                resolvedPersonRef,
-                idToken,
-              );
+          : await PersonProfileService.cancelConnectionRequest(resolvedPersonRef, idToken);
       requestGeneration.current += 1;
       viewerReadGeneration.current += 1;
       relationshipReadGeneration.current += 1;
       catalogInFlight.current = false;
       setCatalogLoading(false);
       setCatalogError(false);
-      if (action === "remove") {
-        CacheSyncService.onConnectionGraphMutated(userId);
-      } else {
-        CacheSyncService.onConnectionCapabilityMutated(userId);
-      }
+      CacheSyncService.onConnectionCapabilityMutated(userId);
       setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value: relationship });
       setViewerProfileState((current) =>
         current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
@@ -716,30 +707,6 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
     status: (await updateRelationship("cancel")) ? "succeeded" : "failed",
     summary: "Connection request cancellation finished.",
   }), { enabled: viewerProfile?.relationship.status === "pending_outgoing" });
-  useLocalOnboardingActionHandler("people.profile.remove_connection", async (_slots, context) => {
-    const displayName = profile?.displayName || "this person";
-    if (!context?.directiveId && !context?.humanConfirmationToken) {
-      return {
-        status: "blocked" as const,
-        summary: `Removing your connection with ${displayName} needs a confirmation.`,
-        data: {
-          [VOICE_CONFIRM_DATA_KEY]: {
-            actionId: "people.profile.remove_connection",
-            slots: {},
-            prompt: `Remove your connection with ${displayName}?`,
-            subject: { name: displayName, detail: null },
-            consequence:
-              "Ends the connection with this person. Existing consent remains governed separately.",
-            confirmLabel: "Remove",
-          },
-        },
-      };
-    }
-    return {
-      status: (await updateRelationship("remove")) ? "succeeded" : "failed",
-      summary: "Connection removal finished.",
-    };
-  }, { enabled: viewerProfile?.relationship.status === "connected" });
   useLocalOnboardingActionHandler("people.profile.review_information_request", async () => {
     return openRequestReview()
       ? { status: "succeeded", summary: "Information request review opened." }
@@ -776,7 +743,6 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
       actions.push({ id: "cancel-connection", label: "Cancel request", actionId: "people.profile.cancel_connection_request", purpose: "Withdraw the pending social connection request." });
     } else if (viewerProfile.relationship.status === "connected") {
       actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
-      actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
     }
     return actions;
   }, [viewerProfile]);
@@ -855,19 +821,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
           network={<PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />}
           shareOnly={!viewerProfile}
           status={relationship?.status === "connected" && viewerProfile?.relationship.status === "connected" ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <ShellActionSurface variant="pill" className={styles.connectionMenu} data-profile-role="action" aria-label="Connected, connection options">
-                  Connected
-                  <ChevronDown className="h-3 w-3" aria-hidden="true" />
-                </ShellActionSurface>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className={calendarPresentation ? calendarType.scope : undefined} data-connect-type-scale={calendarPresentation ? "page" : undefined}>
-                <DropdownMenuItem variant="destructive" disabled={relationshipBusy} onSelect={() => void updateRelationship("remove")} data-voice-control-id="person-profile-remove-connection">
-                  Remove connection
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <span className={styles.connectedBadge} data-profile-role="description">Connected</span>
           ) : relationship ? (
             <>
               <StatusPill className={styles.status} tone={relationship.status === "connected" ? "ready" : "neutral"}>
@@ -881,12 +835,12 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
           ) : user ? <span role="status" className="text-sm text-muted-foreground">Checking connection…</span> : null}
           contacts={<>
             {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
-            <a href={`mailto:${viewerProfile.contactEmail}`}>
+            <a data-connect-role="description" href={`mailto:${viewerProfile.contactEmail}`}>
               <Mail aria-hidden="true" /><span dir="auto">{viewerProfile.contactEmail}</span>
             </a>
           ) : null}
           {viewerProfile?.relationship.status === "connected" && /^\+[1-9][0-9]{1,14}$/.test(viewerProfile.contactPhoneNumber ?? "") ? (
-            <a href={`tel:${viewerProfile.contactPhoneNumber}`}>
+            <a data-connect-role="description" href={`tel:${viewerProfile.contactPhoneNumber}`}>
               <Phone aria-hidden="true" /><span dir="auto">{viewerProfile.contactPhoneNumber}</span>
             </a>
           ) : null}
@@ -998,7 +952,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
           <SectionCard className={styles.signIn}>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h2 className="font-semibold">Connect through Hussh</h2>
+                <h2 data-connect-role="section" className="font-semibold">Connect through Hussh</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Sign in to see requestable information and consented access.
                 </p>
@@ -1016,7 +970,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
         </div> : null}
         {user && !displayViewerProfile && !viewerUnavailable ? <section aria-label="Loading profile details" aria-busy="true" className="space-y-6">
           {["Shared with you", "Available to request", "Request history"].map((label) => <div key={label} className={styles.section}>
-            <h2 className={styles.heading}>{label}</h2><Skeleton className="h-20 w-full rounded-2xl" />
+            <h2 data-connect-role="section" className={styles.heading}>{label}</h2><Skeleton className="h-20 w-full rounded-2xl" />
           </div>)}
         </section> : null}
         {displayViewerProfile ? (
@@ -1027,7 +981,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
               className={styles.section}
               ref={sharedSectionRef}
             >
-              <h2 id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
+              <h2 data-connect-role="section" id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
               <p className="sr-only">End-to-end encrypted information shared with your account, opened on this device only.</p>
 
               {!viewerProfile ? <p role="status" className="text-sm text-muted-foreground">Checking shared information…</p> : sharedCardItems.length ? (
@@ -1055,7 +1009,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
               ref={availableSectionRef}
               data-testid="person-profile-available"
             >
-              <h2 id="available-to-request" className={styles.heading}>Available to request</h2>
+              <h2 data-connect-role="section" id="available-to-request" className={styles.heading}>Available to request</h2>
               {/*
                 One nested list, the same one the Memory route uses.
 
@@ -1098,7 +1052,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
             </section>
 
             <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
-              <h2 id="request-history" className={styles.heading}>Request history</h2>
+              <h2 data-connect-role="section" id="request-history" className={styles.heading}>Request history</h2>
               {currentHistory?.failed ? (
                 <p role="status" className="text-sm text-muted-foreground">Couldn&rsquo;t load older requests. Showing recent ones.</p>
               ) : null}

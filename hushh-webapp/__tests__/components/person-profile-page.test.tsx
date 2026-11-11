@@ -265,6 +265,20 @@ describe("PersonProfilePage native profile route", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    ["/one/connect", true],
+    ["/one/location?view=now", true],
+    ["/one/location/map", true],
+    ["/one/calendar", false],
+    ["https://example.test/one/connect", false],
+    ["/one/location-other", false],
+  ])("inherits workspace typography only from a valid workspace origin %s", async (origin, scoped) => {
+    mocks.search = new URLSearchParams({ from: String(origin) }).toString();
+    const { container } = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await waitFor(() => expect(mocks.getPublic).toHaveBeenCalled());
+    expect(Boolean(container.querySelector('[data-typography-scope]'))).toBe(scoped);
+  });
+
   it.each(["connected", "none", "pending_incoming", "pending_outgoing"])("shows contact details only for an accepted connection (%s)", async (status) => {
     mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
     mocks.getViewer.mockResolvedValue(viewerProfile({

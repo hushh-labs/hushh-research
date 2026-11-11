@@ -165,6 +165,7 @@ describe("notification-backed Feed projection renderers", () => {
     expect(view.href).toMatch(/^\/(?:one(?:\/|\?)|$)/);
     expect(JSON.stringify(view)).not.toContain("private");
     expect(JSON.stringify(view)).not.toContain("evil.example");
+    expect(`${view.label} ${view.description}`).not.toMatch(/kai/i);
   });
 
   it("distinguishes uncertain Drive writes from failure without suggesting a blind retry", () => {

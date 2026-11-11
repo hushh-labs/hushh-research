@@ -1040,6 +1040,15 @@ identity, run/attempt and configuration bind that proof. Trust failures always b
 an HTTP 200 is not sufficient. Core mode neither probes an unused alternate nor
 changes runtime fallback authority.
 
+Core text proof retains both configured scope/provider/structured-output roundtrips.
+The Drive activity planner's semantic quality scenarios belong to explicit `full`
+diagnostics; core reports that planner result as unrun. Full diagnostics retain
+the authored cases, graders and blocking semantic-failure verdicts.
+Scoped receipts still prove each configured provider, model, location, policy
+generation and binding fingerprint. Only trusted core mode accepts an explicit
+unrun planner result; missing or failed evidence is not unrun. Historical core
+receipts with a valid full planner result remain readable.
+
 Search, images, PDFs, transcription, narration, Live audio and the broader capability
 exam are **secondary diagnostics**. A secondary failure is reported as that feature's
 failure rather than a core outage. When full diagnostics were not requested, record
@@ -1068,8 +1077,7 @@ terminal build. Successful builds publish the exact ID for receipt collection.
 For a policy-changing release candidate, run the retained functional/core set once
 on the completed candidate, plus affected security and release contracts. Do not
 repeat the full collection after each edit. Ordinary PRs use core/affected checks.
-Routine PR and deployment targets are 15–20 minutes each, measured separately from
-queue/approval waits; they are optimization targets, not deadlines that waive proof.
+Use the measured timing guidance below; no optimization target waives required proof.
 
 The one-request Azure readiness leaf records its failed stage, elapsed time and
 sanitized exception class. Transport deadlines and network failures retain their
@@ -1580,6 +1588,11 @@ operational reference publication, one prepare command group and exactly one gua
 diagnostic as its final output. Only the setup action's exact unstamped cache-glob
 lines may lack timestamps. The operational reference keeps its own intent artifact
 and idempotent tag readback; this proof covers revision-cleanup custody only.
+The current static production job additionally requires its exact inspection/cleanup
+mode inventory and all four guard-source blobs to match the immutable reviewed
+contract in `retention_production_profile_evidence.py`. Its proof preserves the
+actual run, attempt, job and checkout; it does not relabel a historical profile,
+publish a checkpoint or settle a retained capacity-bridge operation.
 A UAT attempt stopped by that first guard under the reviewed current source
 qualifies through `retention_uat_guard_evidence.py` on the same terms: reviewed
 owner, workflow and publication bodies at its actual checkout, the exact UAT
@@ -2081,10 +2094,15 @@ Only the two proven production-only Drive launchers are excluded; new/shared
 Drive files remain guarded. Do not remove the whole directory comparison.
 
 Routine PR and deployment design target: **10–15 minutes each**, including normal
-startup/queueing. This is a measurement goal, not a forced timeout or permission
-to waive checks. Record critical path, queue wait, runner time and retained work
-separately; genuine drains, migrations, recovery and native-store processing may
-need more time. Source implementation alone does not establish the target.
+startup/queueing, for routine affected-change paths. This is a measurement goal,
+not a forced timeout or a universal release guarantee. On 11 November 2026,
+necessary runs measured ordinary frontend PRs at 7–13 minutes, full-core
+qualification at 22m08, frontend-only deployment at 12m54, and combined Dev/UAT
+deployment at 27m49/37m04. These scopes are distinct. Record critical path, queue
+wait, runner time and retained work separately. Broader backend, schema, worker,
+recovery and native releases retain their required checks even when slower.
+Further optimization needs measured redundant work or a verified safe overlap;
+source completion alone does not establish a faster release.
 
 
 Every deploy lane (`deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml`)
@@ -2279,16 +2297,16 @@ for the canonical commands and live-policy activation. Do not ask a self-approvi
 owner for another person just to satisfy GitHub's native self-review restriction.
 Do not grant ordinary contributors broader bypass to solve an owner-only problem.
 
-CODEOWNERS automatically routes protected paths to `pipeline-editors`. Coding
-agents explicitly request the routed Team after PR creation: protected or mixed
-changes use only `pipeline-editors`; ordinary product work uses
-`allowed-maintainers-to-approve` for visible routing. This is a notification, not
-a new mandatory independent review or automatic PR observer. Only the authorized
-maintainer cohort retains governed self-service. Outside
-contributors cannot self-approve: they need an independent authorized review.
-Organization membership alone is not self-approval authority.
-A blank reviewer list does not waive
-required checks, queue admission or protected approval on a mixed PR.
+CODEOWNERS visibly defaults ordinary PRs to `allowed-maintainers-to-approve`
+and overrides protected files with `pipeline-editors`. After PR creation, source
+updates or retargeting, run `./bin/hushh agents review-route --pr <number> --apply`.
+It reconciles mixed and content-based protected changes to **pipeline-editors
+only**, preserving explicit individual requests and completed current-head reviews.
+Native requests can initially show both Teams on mixed PRs; the CLI corrects that
+without adding an Actions run. See the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
+This is notification only: ordinary maintainers retain existing self-service;
+outside contributors still need independent authorized review. Labels never waive
+required checks, combined-result admission or protected approval.
 
 ### Capacity maintenance job labels
 

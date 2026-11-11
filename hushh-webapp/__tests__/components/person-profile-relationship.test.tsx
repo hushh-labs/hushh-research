@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { viewerProfile } from "./person-profile/fixtures";
@@ -77,24 +77,13 @@ afterEach(() => {
 });
 
 describe("Person profile relationship controls", () => {
-  it("opens removal from Connected without changing the connection on open", async () => {
-    mocks.removeConnection.mockResolvedValue({ status: "none", connectionId: null, connectedAt: null, requestId: null });
+  it("shows Connected as a passive status without removal actions", async () => {
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-
-    const connection = await screen.findByRole("button", { name: "Connected, connection options" });
-    expect(connection).toHaveTextContent("Connected");
-    fireEvent.keyDown(connection, { key: "ArrowDown" });
-    const remove = await screen.findByRole("menuitem", { name: "Remove connection" });
-    expect(mocks.removeConnection).not.toHaveBeenCalled();
-
-    mocks.getViewer.mockResolvedValue(viewerProfile({ relationship: {
-      status: "none", connectionId: null, connectedAt: null, requestId: null,
-    } }));
-    fireEvent.click(remove);
-    await waitFor(() => expect(mocks.removeConnection).toHaveBeenCalledWith("actual-public-ref", "viewer-token"));
-    await screen.findByText("Not connected");
-    expect(mocks.invalidatePublicProfiles).toHaveBeenCalledOnce();
+    const status = await screen.findByText("Connected");
+    expect(status.closest("button")).toBeNull();
     expect(screen.queryByRole("button", { name: "Connected, connection options" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Remove connection" })).toBeNull();
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
   });
 
   it("keeps listed packets browsable when period packets alone are enabled", async () => {

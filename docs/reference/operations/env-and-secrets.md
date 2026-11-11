@@ -333,9 +333,11 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | Setting in that file | Consumers and boundary |
 | --- | --- |
 | `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
+| `drive_text_uat` | UAT Documents genes and Drive request models use native Vertex independently of the fleet default: `gemini-3.8-flash` at the global endpoint, LOW thinking, 16,384 output tokens, and no Azure fallback. Existing prompts and processing stages remain unchanged. |
+| `one_chat_text_uat` | The UAT managed One chat model, its inherited Search model, and conversation titles use Vertex `gemini-3.8-flash` at the global endpoint with LOW thinking and no Azure fallback. Explicit owner model connections follow their own bindings. |
 | `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
 | `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
-| `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
+| `managed_runtime_uat.azure.one_text_root` | Azure One root deployment and generation budget for releases using the legacy fleet text binding. |
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
 
@@ -362,21 +364,22 @@ For exhausted Azure quota, choose a compatible provisioned Azure resource or
 deployment with available capacity and update the relevant entries in this file.
 Changing a deployment name alone does not create quota or provision a model.
 To move UAT to Vertex, set `managed_provider_selection.uat` to `vertex`; set it
-back to `azure_openai` to restore Azure. One chat, its specialists and Search,
-voice and the existing managed capability ports use the selected provider.
-New Drive activity-date requests use the same selected managed planner and preserve
+back to `azure_openai` to restore Azure. The fleet selection supplies independently
+owned capabilities such as voice and research. The Drive and managed One chat
+policies take precedence for their scoped model callers. Activity-date requests preserve
 their existing single interpretation stage, native retrieval and deterministic date
 checks. Provider changes require the affected authored v2 planner qualification. Saved
 requests retain their processor binding and its current-authority validation.
-Azure chat may use the explicit Vertex alternate once after a classified
+Legacy Azure chat may use the explicit Vertex alternate once after a classified
 transport/quota failure before any response is observed. It never replays tools
 or emitted output. Configured Vertex chat remains single-provider. Authority,
 identity denials, content filtering and malformed output never trigger fallback.
 A classified token-exchange transport outage may use the same bounded alternate;
 an invalid credential or 401/403 denial cannot.
-The existing eligible Drive transport fallback retains its separate contract. A new fleet provider needs an adapter
-and complete capability qualification before selection. Ordinary UAT release
-readiness uses the configured provider's core proof; broader capabilities remain
+The scoped policies disable cross-provider fallback. The existing UAT core proof
+checks both scopes' effective model, policy generation and runtime binding and
+grades the authored Drive planner cases. The Azure readiness job still verifies
+the independently configured PWM model. Broader capabilities remain
 separate diagnostics under the [CI policy](./ci.md#managed-provider-readiness-policy).
 
 Validate the complete file without model calls or credentials:
@@ -386,6 +389,19 @@ python3 scripts/ops/managed_ai_config.py --environment uat --format validate
 python3 scripts/ops/managed_ai_config.py --environment uat --format provider
 python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account
 ```
+
+Qualify the exact candidate image under the UAT runtime service account with
+`python scripts/verify_drive_vertex_journey.py`, inside a temporary Cloud Run Job.
+This explicitly invoked script is not a CI/CD hook. It grades the authored v2
+planner with synthetic inputs. The Vertex project's `vertexai.allowedModels`
+policy must permit the configured model before qualification can pass.
+The optional `--live --allow-fixture-mutations` mode requires the designated,
+already Google-connected `REVIEWER_UID` / `REVIEWER_COUNTERPART_UID` pair and normal
+runtime authentication. It separately exercises the existing free `/queries`
+flow, exact-file access and revocation, then trashes its synthetic fixtures.
+It does not certify paid delivery or the new `/requests` pipeline end to end.
+Unknown writes retain fixtures and produce an incomplete cleanup receipt;
+reconcile them before another live run. Never seed consent or payment to pass.
 
 #### Switching the managed Azure account
 
@@ -425,7 +441,7 @@ host, from this file. To move UAT to another Azure account:
    capacity, so fix that and dispatch once more. A semantic or configuration
    failure is deterministic: never retry it; fix the account or select the last
    passing one.
-4. The switch rotates Azure bindings without new owner consent. Trusted (Allow)
+4. Without the scoped Drive override, the switch rotates Azure bindings without new owner consent. Trusted (Allow)
    Drive requests with a ready plan migrate once, on their next claim; an owner's
    own requests migrate once when that owner acts on them. A request migrates only
    once, so a later switch, including a rollback, supersedes it and its owner makes
@@ -434,6 +450,11 @@ host, from this file. To move UAT to another Azure account:
    20 eligible requests; a preview is `consent-protocol/scripts/recover_uat_text_requests.py`
    without `--apply`, inside the runtime. Saved personal research restarts within
    its preserved budget.
+
+   The scoped Drive rollout permits one exact subsequent Azure-to-Vertex
+   transition and retains the earlier migration receipt. It preserves saved
+   results, cursors, request revision, consent, payments and sharing effects;
+   active leases cannot be replaced. Further switches still fail closed.
 
 To roll back, select the previous account while it still serves. Once it is gone,
 fix forward: an image from before the switch points at the old account. Selecting
@@ -450,7 +471,8 @@ change those pins independently. The existing exact-image readiness and
 promotion gates remain mandatory. They require the configured provider's complete
 bundle, including chat tool round trips and voice audio; a healthy alternate
 cannot silently replace the configured choice. Config validation proves shape,
-not live quota, model quality or availability. Azure remains the checked-in default.
+not live quota, model quality or availability. Azure remains the fleet default;
+the packaged Drive override selects Vertex in the API and both Drive workers.
 
 The file is packaged with the backend. A source edit takes effect through the
 normal authorized backend release/restart, including affected workers; it does

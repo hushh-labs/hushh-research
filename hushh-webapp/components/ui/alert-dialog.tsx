@@ -3,6 +3,7 @@
 import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
+import { useTypographyScope } from "@/lib/morphy-ux/ui/typography-scope"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
@@ -81,6 +82,7 @@ function AlertDialogContent({
   size?: "default" | "sm"
   overlayClassName?: string
 }) {
+  const typographyScope = useTypographyScope()
   const contentRef = useNativeNavigationOverlayRef(ref)
   return (
     <AlertDialogPortal>
@@ -88,12 +90,14 @@ function AlertDialogContent({
       <AlertDialogPrimitive.Content
         ref={contentRef}
         data-slot="alert-dialog-content"
+        data-typography-scope={typographyScope}
         data-size={size}
         // Inline as well as the class: a caller's className can override the
         // utility (the native RIA delete confirmation did), the inline value
         // cannot be. Sourced from the ladder token, never a literal.
         style={{ zIndex: "var(--z-dialog)", ...style }}
         className={cn(
+          typographyScope,
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 group/alert-dialog-content fixed top-[50%] left-[50%] z-(--z-dialog) grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-6 shadow-[var(--app-card-shadow-feature)] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-lg",
           className
         )}
