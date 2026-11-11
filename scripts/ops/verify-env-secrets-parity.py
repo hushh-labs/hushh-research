@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from runpy import run_path
 from typing import Any, Iterable
@@ -273,6 +274,13 @@ def _has_secret(project: str, name: str) -> bool:
     # unknown, not missing secrets. Never render provider stderr or credentials.
     raise CloudReadUnavailable("secret_inventory_unverifiable")
 
+
+
+def _missing_secrets(project: str, names: tuple[str, ...], describe) -> list[str]:
+    """Bound three metadata reads, retain order and join before propagating failure."""
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = pool.map(lambda name: describe(project, name), names)
+        return [name for name, present in zip(names, results, strict=True) if not present]
 
 def _read_secret_value(project: str, name: str, version: str = "latest") -> str | None:
     """Read a deploy-time value only for an in-memory boolean contract check.
@@ -922,7 +930,7 @@ def main() -> int:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
     try:
-        missing = [name for name in required if not _has_secret(args.project, name)]
+        missing = _missing_secrets(args.project, required, _has_secret)
     except CloudReadUnavailable:
         unavailable_report = {
             "project": args.project,

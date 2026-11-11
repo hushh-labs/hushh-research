@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore, bulk_outcome_summary
@@ -1076,6 +1076,27 @@ async def test_two_replicas_share_owner_admission_across_connection_generations(
     active, peak, starts = 0, 0, []
     held, release = asyncio.Event(), asyncio.Event()
     loop = asyncio.get_running_loop()
+    deadlines = []
+
+    def observe_permit(connection, _cursor, statement, parameters, _context, _many):
+        if not statement.lstrip().startswith(
+            "UPDATE drive_rest_owner_admission SET next_start_at="
+        ):
+            return
+        # Observe the database pacing decision while its owner-wide lock is
+        # held. Returning from to_thread can delay body-entry timestamps and
+        # compress their apparent spacing without violating database admission.
+        deadlines.append(
+            connection.execute(
+                text(
+                    "SELECT next_start_at FROM drive_rest_owner_admission "
+                    "WHERE user_id=:owner AND connection_generation=:generation"
+                ),
+                {"owner": parameters["owner"], "generation": parameters["generation"]},
+            ).scalar_one()
+        )
+
+    event.listen(bulk.db.engine, "after_cursor_execute", observe_permit)
 
     async def call(generation):
         nonlocal active, peak
@@ -1094,7 +1115,9 @@ async def test_two_replicas_share_owner_admission_across_connection_generations(
     try:
         await asyncio.wait_for(held.wait(), 5)
         assert peak == 8 and len(starts) == 8
-        assert sorted(starts)[-1] - min(starts) >= 0.69
+        assert len(deadlines) == 8
+        span = (max(deadlines) - min(deadlines)).total_seconds()
+        assert span >= 0.69, f"Owner-wide permit deadline span {span:.6f}s is too short"
         await asyncio.sleep(0.15)
         assert len(starts) == 8  # Reconnect did not create eight additional slots.
         tasks[-1].cancel()
@@ -1110,7 +1133,10 @@ async def test_two_replicas_share_owner_admission_across_connection_generations(
         for task in tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            event.remove(bulk.db.engine, "after_cursor_execute", observe_permit)
 
 
 @pytest.mark.asyncio

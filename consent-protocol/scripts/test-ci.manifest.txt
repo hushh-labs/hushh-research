@@ -1678,3 +1678,5 @@ tests/services/test_direct_message_route_cipher.py
 
 # Calendar Follow-ups temporal, scoped read, and migration 454 contracts.
 tests/services/test_calendar_email_followup_temporal_postgres.py
+tests/test_secret_metadata_inventory.py
+tests/test_managed_provider_collection.py

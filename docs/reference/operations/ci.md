@@ -1765,6 +1765,18 @@ or when a restore stops looking up the path and key its saver writes.
 
 ## Backend Checks (Python / FastAPI)
 
+The owner-wide Drive admission regression measures permit deadlines inside the
+real PostgreSQL transaction, including both connection generations. Coroutine
+resumption after a threaded transaction can compress apparent body-entry times;
+it is not the pacing authority. Keep the existing rate, eight-slot, waiting,
+cancellation and lease-erasure assertions. A pacing-bypass negative must fail.
+
+Generated backend capability-graph and route-index mirrors do not select the full
+Protocol suite. Governance recomputes their three copies and runs the backend
+route-index reader contract. Stale or altered mirrors fail those checks. Authored
+runtime changes and unknown contracts retain broad backend coverage; this is not
+a blanket JSON exclusion.
+
 **Working directory:** `consent-protocol/`
 
 | Step | Command / behavior | Fails CI? |
@@ -2031,6 +2043,32 @@ The daily scheduled workflow `.github/workflows/prod-cloudsql-backup-posture.yml
 
 ## Deploy Image Pipeline
 
+### Deployment overhead and retention limits
+
+The existing worker rollout remains required when selected. Frontend-only scope
+already avoids it. Same-image reuse is not yet qualified on a serving release;
+most backend changes alter its shared image. Do not add a retention controller
+or claim worker savings until a real accepted same-image case demonstrates net
+benefit. Cross-image reuse needs an explicit worker compatibility contract.
+
+Selected UAT PKM preservation runs the existing transactionally rolled-back SQL
+rehearsal against the live database. Source contracts run in exact-candidate CI;
+deployment does not repeat those frontend/backend suites. Schema compatibility,
+account-work fences, activation and rollback remain required operational work.
+Secret inventory overlaps at most three metadata reads, preserves ordered
+results and fails closed on unknown access. It never logs secret values.
+
+Ordinary UAT/Dev privileged-input checks retain Main recipe/migration authority.
+Only the two proven production-only Drive launchers are excluded; new/shared
+Drive files remain guarded. Do not remove the whole directory comparison.
+
+Routine PR and deployment design target: **10–15 minutes each**, including normal
+startup/queueing. This is a measurement goal, not a forced timeout or permission
+to waive checks. Record critical path, queue wait, runner time and retained work
+separately; genuine drains, migrations, recovery and native-store processing may
+need more time. Source implementation alone does not establish the target.
+
+
 Every deploy lane (`deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml`)
 builds each image once, pins it to an immutable `sha256` digest, and deploys that
 digest. Nothing downstream re-resolves a mutable tag.
@@ -2061,7 +2099,10 @@ checks, although it depends on none of them. Now:
    deploy-only build). UAT and production then check the candidate revision runs
    exactly that digest.
 
-The deploy, analytics smoke, promotion and rollback order is unchanged. Expected
+Core candidate verification, promotion and rollback retain their ordering. Ordinary
+UAT analytics/browser rehearsal is an explicit secondary diagnostic; a skipped
+diagnostic is reported as not run, not success. Legacy isolated qualification
+retains its required checks. Expected
 saving: 3.5-4.5 minutes per backend + frontend release. `frontend_image_wait` in
 the release status artifact records how long the lane still blocked on the web
 build; near zero means it was fully hidden. Frontend-only and backend-only scopes
@@ -2156,10 +2197,11 @@ matched packs, workers and per-test limits remain unchanged. Browser-role job
 budget is 40 minutes; node-role budget remains 30. A faster install is a hosted
 measurement to verify, not a guaranteed mirror characteristic.
 
-UAT uses the same mirror preference removal and prepares locked npm dependencies,
-Chromium and its system libraries once for the union of frontend analytics and
-selected protected browser checks. Setup retries at most twice within eight
-minutes and remains blocking. Its Chromium cache has a separate key from CI's
+UAT prepares locked npm dependencies, Chromium and its system libraries only for
+explicit browser/PWM diagnostics or legacy isolated qualification. Ordinary
+frontend deployment and SQL-only preservation do not provision a browser. Setup retries at most twice within eight
+minutes. Preparation blocks legacy/PWM qualification; optional diagnostic preparation
+reports its failure separately. Its Chromium cache has a separate key from CI's
 Chromium/WebKit cache; restored binaries still pass the normal installer.
 Both backend provider probes run independently after image and IAM verification.
 The required provider aggregate waits for both results and the deployed candidate

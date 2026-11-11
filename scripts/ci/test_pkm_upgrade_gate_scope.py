@@ -4,13 +4,31 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import os
 
 
 ROOT = Path(__file__).resolve().parents[2]
 GATE = ROOT / "scripts/ci/pkm-upgrade-gate.sh"
 
 
+
+def verify_release_sql_mode():
+    wrapper = (ROOT / "scripts/ci/run-release-pkm-gate.sh").read_text()
+    start = wrapper.index('if [[ "$rehearsal_mode" == --sql-only ]]; then')
+    end = wrapper.index('\nBOOTSTRAP_FOCUS_PROFILE=', start)
+    branch = wrapper[start:end]
+    sql = (ROOT / "consent-protocol/db/verify/pkm_v7_zero_loss_rehearsal.sql").read_text()
+    assert "BEGIN;" in sql and sql.rstrip().endswith("ROLLBACK;")
+    for status in (0, 47):
+        script = ('psql() { test "$*" = "--no-psqlrc -v ON_ERROR_STOP=1 -f consent-protocol/db/verify/pkm_v7_zero_loss_rehearsal.sql" || exit 98; return "$TEST_SQL_STATUS"; };\n'
+                  'set -euo pipefail\nrehearsal_mode=--sql-only\n' + branch)
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                                env={**os.environ, "TEST_SQL_STATUS": str(status)}, timeout=5)
+        assert result.returncode == status, result.stderr
+
 def main() -> int:
+    verify_release_sql_mode()
     content = GATE.read_text(encoding="utf-8")
     excluded = (
         "cache-sync-mutation-cascade",

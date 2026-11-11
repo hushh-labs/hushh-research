@@ -366,6 +366,7 @@ def collect(provider, expected, step_exit, job):
             or complete
             and (
                 expected.get("qualification_mode") == "core"
+                or provider == "vertex"
                 or any("managed_capabilities_probe" in value for value in values)
             )
         )
