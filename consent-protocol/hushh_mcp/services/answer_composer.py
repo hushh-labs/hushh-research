@@ -1,15 +1,16 @@
-"""Writes one Gemini answer from the exact approved information.
+"""Writes one answer with the approved model from the exact approved information.
 
 Where this runs, and why that matters
 -------------------------------------
 The owner's device decrypts their own PKM, projects it down to exactly the
-approved scopes and dates, and sends that projection here for one request so a
-model can write the answer. The backend decrypts nothing and stores nothing:
+approved scopes and dates, and sends that projection to the admitted runtime for
+one request so a model can write the answer. This runtime decrypts and stores nothing:
 the projection lives for the duration of the call and the written answer goes
 straight back to the device, which seals it to the requester's key.
 
-This is the same owner-present shape One chat already uses, but it does mean
-approved plaintext transits the backend during that one request. That is a
+Private owners execute in their own pod; Shared uses its configured hub model.
+This is the same owner-present shape One chat already uses: approved plaintext
+transits that selected runtime during one request. That is a
 security-model property worth stating plainly rather than burying: if it is
 not acceptable for this lane, the rollback is to disable admission and composition, retain owed refunds,
 and leave failed written answers available for explicit retry until timeout.

@@ -110,12 +110,12 @@ def effective_connection() -> dict:
         return {"state": "unavailable", "code": "OWNER_AI_CONNECTION_UNAVAILABLE"}
 
 
-def paid_answer_runtime() -> dict:
+def paid_answer_runtime(*, connection: dict | None = None) -> dict:
     """Actual owner model for paid consent. Cloud policy never changes a connection."""
     from hushh_mcp.services.answer_composition_contract import ProcessingRuntime
     from hushh_mcp.services.pod_platform import workload_platform
 
-    connection = effective_connection()
+    connection = effective_connection() if connection is None else connection
     if connection.get("state") != "configured":
         raise ValueError("ANSWER_RUNTIME_UNAVAILABLE")
     provider, model = connection["provider"], connection["model"]

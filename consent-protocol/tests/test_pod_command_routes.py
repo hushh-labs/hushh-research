@@ -4,7 +4,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, create_autospec
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -325,7 +325,9 @@ async def test_private_paid_composition_uses_owner_model_and_sends_only_commitme
 
     monkeypatch.setattr(route, "_require_enabled", lambda: None)
     monkeypatch.setattr(route, "_admitted", admitted)
-    authority = SimpleNamespace(require_held=AsyncMock())
+    authority = SimpleNamespace(
+        require_held=AsyncMock(), local_token=Mock(return_value="synthetic-local-consent")
+    )
     monkeypatch.setattr(route, "verified_session", lambda *_args, **_kwargs: (authority, owner))
     revision = [2]
     monkeypatch.setattr(route, "_selection", lambda: None)
@@ -388,7 +390,7 @@ async def test_private_paid_composition_uses_owner_model_and_sends_only_commitme
             revision[0] += 1
         return {"answer": "Tokyo.", "covers": [scope], "gaps": []}
 
-    provider_call = AsyncMock(side_effect=run)
+    provider_call = create_autospec(single_turn.run_single_turn, side_effect=run)
     monkeypatch.setattr(single_turn, "run_single_turn", provider_call)
     receipt = Mock(
         return_value=SimpleNamespace(
@@ -410,6 +412,8 @@ async def test_private_paid_composition_uses_owner_model_and_sends_only_commitme
     result = await route.compose_private_answer(body, SimpleNamespace(), "synthetic-app-session")
     assert result.status_code == 200
     assert build.call_args.kwargs["model"] is model
+    assert provider_call.call_args.kwargs["consent_token"] == "synthetic-local-consent"
+    authority.local_token.assert_called_once_with(owner)
     callback = receipt.call_args.kwargs["json"]
     assert set(callback) == {
         "authorityToken",

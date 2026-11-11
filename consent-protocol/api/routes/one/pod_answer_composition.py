@@ -8,9 +8,9 @@ import hmac
 import json
 import secrets
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
-import requests
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
@@ -57,7 +57,7 @@ async def compose_private_answer(
         if model.provider != runtime["provider"] or model.model != runtime["model"]:
             raise HTTPException(409, detail={"code": "ANSWER_RUNTIME_CHANGED"})
 
-        async def current():
+        async def current() -> None:
             actual, actual_claims = verified_session(
                 authorization, role=ROLE_APP, scope=SCOPE_PKM_READ
             )
@@ -101,7 +101,7 @@ async def compose_private_answer(
         if not valid_answer_projection(work, body.projection):
             raise HTTPException(422, detail={"code": "ANSWER_PROJECTION_INVALID"})
 
-        async def run(prompt):
+        async def run(prompt: str) -> Any:
             from hushh_mcp.hushh_adk.manifest import ManifestLoader
             from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 
@@ -119,7 +119,11 @@ async def compose_private_answer(
             # Explicit owner model: use OpenAI on Azure, Gemini on GCP; never a hub fallback.
             agent = build_single_turn_agent(gene, output_schema=ANSWER_COMPOSE_SCHEMA, model=model)
             return await run_single_turn(
-                agent, prompt_parts=prompt, user_id=claims["user_id"], timeout_seconds=30
+                agent,
+                prompt_parts=prompt,
+                user_id=claims["user_id"],
+                consent_token=authority.local_token(claims),
+                timeout_seconds=30,
             )
 
         written = await AnswerComposer(runner=run).compose(
@@ -153,17 +157,16 @@ async def compose_private_answer(
             ),
         }
         await current()
-        with requests.Session() as session:
-            hub = PodHubClient(session=session)
-            response = await asyncio.to_thread(
-                hub.post,
-                f"/api/one/answer-requests/{request_id}/pod-composition-receipt",
-                json=assertion,
-            )
-            await current()
-            if response.status_code != 200:
-                raise HTTPException(409, detail={"code": "ANSWER_RECEIPT_UNAVAILABLE"})
-            receipt = response.json().get("compositionReceipt")
+        hub = PodHubClient()
+        response = await asyncio.to_thread(
+            hub.post,
+            f"/api/one/answer-requests/{request_id}/pod-composition-receipt",
+            json=assertion,
+        )
+        await current()
+        if response.status_code != 200:
+            raise HTTPException(409, detail={"code": "ANSWER_RECEIPT_UNAVAILABLE"})
+        receipt = response.json().get("compositionReceipt")
         if not isinstance(receipt, str) or not receipt.startswith("v2.") or len(receipt) > 2400:
             raise HTTPException(503, detail={"code": "ANSWER_RECEIPT_UNAVAILABLE"})
         return JSONResponse(

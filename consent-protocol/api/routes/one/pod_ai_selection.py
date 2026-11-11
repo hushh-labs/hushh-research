@@ -231,15 +231,16 @@ async def run_ai_selection_get(
         paid_answer_runtime,
     )
 
+    connection = effective_connection()
     try:
-        answer_runtime = paid_answer_runtime()
+        answer_runtime = paid_answer_runtime(connection=connection)
     except ValueError:
         answer_runtime = None
     return {
         "answerRuntime": answer_runtime,
         **store.public_selection(store.current_ai_selection()),
         "lastFailure": store.last_ai_selection_failure(),
-        "effectiveConnection": effective_connection(),
+        "effectiveConnection": connection,
     }
 
 
