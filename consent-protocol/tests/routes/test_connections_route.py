@@ -160,8 +160,10 @@ def test_create_request_returns_typed_conflict_when_pair_is_already_connected():
     }
 
 
-@pytest.mark.parametrize("name_only", [False, True])
-def test_directory_lists_items(name_only):
+@pytest.mark.parametrize(
+    ("name_only", "typed_search"), [(False, False), (True, False), (False, True)]
+)
+def test_directory_lists_items(name_only, typed_search):
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
         svc_cls.return_value.search_directory.return_value = {
@@ -171,12 +173,18 @@ def test_directory_lists_items(name_only):
         }
         resp = client.get(
             "/api/one/connections/directory",
-            params={"query": "bo", **({"name_only": "true"} if name_only else {})},
+            params={"query": "bo", "name_only": name_only, "typed_search": typed_search},
         )
     assert resp.status_code == 200
     assert resp.json() == {"items": [], "page": 1, "hasMore": False}
     svc_cls.return_value.search_directory.assert_called_once_with(
-        "user-a", query="bo", page=1, limit=20, audience="all", name_only=name_only
+        "user-a",
+        query="bo",
+        page=1,
+        limit=20,
+        audience="all",
+        name_only=name_only,
+        typed_search=typed_search,
     )
 
 
