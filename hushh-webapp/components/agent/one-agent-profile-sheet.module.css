@@ -32,8 +32,7 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
   container: one-profile-content / inline-size;
-  padding: 0 var(--page-inline-gutter-standard)
-    max(24px, var(--app-safe-area-bottom-effective, 0px));
+  padding: 0 0 max(24px, var(--app-safe-area-bottom-effective, 0px));
 }
 .hero {
   display: flex;
@@ -71,8 +70,10 @@
   min-height: 0;
   min-width: 0;
   flex: 1;
-  /* Keep scrolling rows separated from the stationary segmented controls. */
-  gap: 12px;
+  margin-inline: var(--page-inline-gutter-standard);
+  border-radius: var(--app-card-radius-standard);
+  background: var(--app-card-surface-default-solid);
+  gap: 0;
   overflow: hidden;
 }
 .modelControl {
@@ -89,7 +90,12 @@
 .tabList {
   flex: none;
   width: auto;
-  margin-inline: var(--page-inline-gutter-standard);
+  margin-inline: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
