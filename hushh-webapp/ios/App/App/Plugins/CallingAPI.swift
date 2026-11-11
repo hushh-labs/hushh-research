@@ -77,8 +77,11 @@ final class CallingAPI {
         if let body { request.httpBody = try CallingWire.bytes(body) }
         let (data, response) = try await session.data(for: request)
         try check()
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
-              data.count <= 650_000 else { throw CallingError.unavailable }
+        guard let response = response as? HTTPURLResponse, data.count <= 650_000 else { throw CallingError.unavailable }
+        if response.statusCode == 409,
+           let body = try? CallingWire.object(data), let detail = body["detail"] as? [String: Any],
+           detail["code"] as? String == "SMS_CALL_SETTLED" { throw CallingError.smsSettled }
+        guard (200..<300).contains(response.statusCode) else { throw CallingError.unavailable }
         return try CallingWire.object(data)
     }
     func initialize() async throws {

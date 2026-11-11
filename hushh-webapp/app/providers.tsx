@@ -42,6 +42,7 @@ import {
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
 import { useAndroidBack } from "@/lib/navigation/android-back";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
+import { SharedDirectCallProvider } from "@/components/direct-messages/direct-call-control";
 import { AuthenticatedFeedStream } from "@/components/feed/authenticated-feed-stream";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
@@ -693,6 +694,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                     <WalletProfileBootstrap />
                     <LocationBusAccountBridge />
                     <WorldModelProvider>
+                      <SharedDirectCallProvider>
                       <ContactInvitationSessionProvider>
                         {/* Keep persistent top chrome outside the route Suspense
                         boundary. Route data may suspend during a transition,
@@ -827,6 +829,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                           </Suspense>
                         </div>
                       </ContactInvitationSessionProvider>
+                      </SharedDirectCallProvider>
                     </WorldModelProvider>
                   </AgentDockProvider>
                 </AgentOwnerGate>

@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -17,10 +18,22 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.getcapacitor.CapConfig
 import com.google.firebase.auth.FirebaseAuth
 import com.hussh.app.MainActivity
 import com.hussh.app.R
+import com.hussh.app.plugins.shared.BackendUrl
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
 import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import org.json.JSONArray
 
 /** One audible owner for all admitted, unacknowledged SMS grants, including Home/lock. */
 class EmergencySmsAlarmService : Service() {
@@ -44,17 +57,14 @@ class EmergencySmsAlarmService : Service() {
         val user = intent?.getStringExtra("userId")
         val grant = intent?.getStringExtra("grantId")
         if (intent?.action == ACKNOWLEDGE) {
-            if (user != null && grant != null && ChatPreviewKeys.legacyKey(this, user) != null) {
-                HushhNotificationsPlugin.emergencyAcknowledged(user, grant)
-                stop(this, user, grant)
-            }
+            if (user != null && grant != null) acknowledgeFromDevice(this, user, grant)
             if (grants.isEmpty()) dispose()
             return START_NOT_STICKY
         }
         // Admission expiry fences a delayed bridge call, never a running alarm.
         val deadline = intent?.getLongExtra("deadline", 0) ?: 0
         val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (user.isNullOrBlank() || grant.isNullOrBlank() || uid == null ||
+        if (!HushhNotificationsPlugin.activityActive || user.isNullOrBlank() || grant.isNullOrBlank() || uid == null ||
             ChatPreviewKeys.legacyKey(this, user).isNullOrBlank() ||
             acknowledged(this, user, grant) || endedBeforeAdmission(this, user, grant)) {
             if (grants.isEmpty()) dispose()
@@ -136,20 +146,28 @@ class EmergencySmsAlarmService : Service() {
             putExtra("user_id", user)
             putExtra("grant_id", grant)
         }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val dismiss = PendingIntent.getService(this, 1, Intent(this, EmergencySmsAlarmService::class.java).apply {
+        val acknowledge = PendingIntent.getService(this, 1, Intent(this, EmergencySmsAlarmService::class.java).apply {
             action = ACKNOWLEDGE
             putExtra("userId", user)
             putExtra("grantId", grant)
         }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(this, channel).setSmallIcon(R.drawable.ic_stat_message)
             .setContentTitle("Emergency SMS alert")
-            .setContentText(if (grants.size == 1) "Tap to view the alert or dismiss its alarm" else "${grants.size} SMS alerts need acknowledgement")
+            .setContentText(if (grants.size == 1) "Open or acknowledge this alert" else "${grants.size} SMS alerts need acknowledgement")
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .addAction(0, "Dismiss alarm", dismiss)
-        if (headsUp) notification.setPriority(NotificationCompat.PRIORITY_HIGH)
-        else notification.setSilent(true)
+            .addAction(acknowledgementAction(acknowledge))
+        if (headsUp) {
+            notification.setPriority(NotificationCompat.PRIORITY_HIGH)
+            if (fullScreenAllowed(this)) {
+                val alert = Intent(this, EmergencySmsAlarmActivity::class.java)
+                    .setData(android.net.Uri.parse("hussh-sms://alarm/${android.net.Uri.encode(grant)}"))
+                    .putExtra("userId", user).putExtra("grantId", grant)
+                val fullScreen = PendingIntent.getActivity(this, 0, alert, PendingIntent.FLAG_IMMUTABLE)
+                notification.setFullScreenIntent(fullScreen, true)
+            }
+        } else notification.setSilent(true)
         startForeground(NOTIFICATION_ID, notification.build())
     }
 
@@ -186,10 +204,68 @@ class EmergencySmsAlarmService : Service() {
     companion object {
         private const val CHANNEL = "one_location_sms_active_v1"
         private const val HEADS_UP_CHANNEL = "one_location_sms_heads_up_v1"
-        private const val ACK_STORE = "one_location_sms_ack_v1"
+        internal const val ACK_STORE = "one_location_sms_ack_v1"
         private const val ACKNOWLEDGE = "com.hussh.app.SMS_ACKNOWLEDGE"
         private const val NOTIFICATION_ID = 24091
         private var running: EmergencySmsAlarmService? = null
+        const val PRESENTATION_SETTINGS = "sms_alert_presentation"
+        const val FULL_SCREEN_REQUESTED = "full_screen_requested"
+        private val acknowledgements = OkHttpClient.Builder().callTimeout(6, TimeUnit.SECONDS).build()
+
+        private fun acknowledgementAction(intent: PendingIntent) =
+            NotificationCompat.Action.Builder(0, "Acknowledge", intent)
+                .setAuthenticationRequired(true).build()
+
+        fun fullScreenAllowed(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
+            val settings = context.getSharedPreferences(PRESENTATION_SETTINGS, Context.MODE_PRIVATE)
+            return settings.getBoolean(FULL_SCREEN_REQUESTED, false) &&
+                context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
+        }
+
+        fun acknowledgeFromDevice(context: Context, user: String, grant: String) {
+            if (FirebaseAuth.getInstance().currentUser == null ||
+                ChatPreviewKeys.legacyKey(context, user).isNullOrBlank() || deleted(context, user)) return
+            val store = context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE)
+            val recent = (recentDeviceAcknowledgements(context, user).filter { it != grant } + grant).takeLast(32)
+            store.edit().putString("sync:$user", JSONArray(recent).toString()).apply()
+            stop(context, user, grant)
+            HushhNotificationsPlugin.emergencyAcknowledged(user, grant)
+            syncDeviceAcknowledgement(context.applicationContext, user, grant)
+        }
+
+        private fun syncDeviceAcknowledgement(context: Context, user: String, grant: String) {
+            val id = runCatching { UUID.fromString(grant).toString() }.getOrNull() ?: return
+            val auth = FirebaseAuth.getInstance()
+            val account = auth.currentUser ?: return
+            val key = ChatPreviewKeys.legacyKey(context, user) ?: return
+            val config = CapConfig.loadDefault(context)
+            val raw = config.getPluginConfiguration("HushhNotifications").getString("backendUrl") ?: return
+            if (raw.isBlank()) return
+            val backend = BackendUrl.normalize(raw, config.getPluginConfiguration("HushhRuntime")
+                .getString("androidLocalBackendMode")).trimEnd('/')
+            account.getIdToken(false).addOnSuccessListener { result ->
+                if (auth.currentUser?.uid != account.uid || ChatPreviewKeys.legacyKey(context, user) != key) {
+                    return@addOnSuccessListener
+                }
+                val token = result.token ?: return@addOnSuccessListener
+                val request = runCatching { Request.Builder()
+                    .url("$backend/api/one/location/sms-alerts/$id/acknowledgement")
+                    .header("Authorization", "Bearer $token")
+                    .put(ByteArray(0).toRequestBody()).build() }.getOrNull() ?: return@addOnSuccessListener
+                acknowledgements.newCall(request).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) = Unit // Retried by the signed-in shell.
+                    override fun onResponse(call: Call, response: Response) { response.close() }
+                })
+            }
+        }
+
+        fun recentDeviceAcknowledgements(context: Context, user: String): List<String> {
+            val store = context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE)
+            val receipts = runCatching { JSONArray(store.getString("sync:$user", "[]")) }.getOrNull()
+                ?: return emptyList()
+            return (0 until receipts.length()).map { receipts.optString(it) }.filter { it.isNotBlank() }
+        }
         private fun deletionKey(user: String) = "deleted:" + MessageDigest.getInstance("SHA-256")
             .digest(user.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
         private fun deleted(context: Context, user: String) =
@@ -218,18 +294,27 @@ class EmergencySmsAlarmService : Service() {
                 putExtra("type", "location_share_created"); putExtra("share_kind", "sos")
                 putExtra("user_id", user); putExtra("grant_id", grant)
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val dismiss = PendingIntent.getService(context, grant.hashCode(), Intent(context, EmergencySmsAlarmService::class.java).apply {
+            val acknowledge = PendingIntent.getService(context, grant.hashCode(), Intent(context, EmergencySmsAlarmService::class.java).apply {
                 action = ACKNOWLEDGE
                 data = android.net.Uri.parse("hussh-sms://dismiss/${android.net.Uri.encode(grant)}")
                 putExtra("userId", user); putExtra("grantId", grant)
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             try {
                 val notification = NotificationCompat.Builder(context, channelId)
-                    .setSmallIcon(R.drawable.ic_stat_message).setContentTitle("Emergency SMS alert")
-                    .setContentText("Open Hussh to review this alert").setContentIntent(open).setDeleteIntent(dismiss)
+                    .setSmallIcon(R.drawable.ic_stat_message).setContentTitle("SMS – Save my Soul")
+                    .setContentText("Open Hussh to review this alert").setContentIntent(open)
                     .setAutoCancel(true).setOnlyAlertOnce(true)
+                    .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                     .setCategory(NotificationCompat.CATEGORY_ALARM).setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .addAction(0, "Dismiss alarm", dismiss)
+                    .addAction(acknowledgementAction(acknowledge))
+                if (fullScreenAllowed(context)) {
+                    val lockScreen = Intent(context, EmergencySmsAlarmActivity::class.java)
+                        .setData(android.net.Uri.parse("hussh-sms://lock/" + android.net.Uri.encode(grant)))
+                        .putExtra("userId", user).putExtra("grantId", grant)
+                    notification.setFullScreenIntent(
+                        PendingIntent.getActivity(context, 0, lockScreen, PendingIntent.FLAG_IMMUTABLE), true
+                    )
+                }
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                     @Suppress("DEPRECATION")
                     notification.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), AudioManager.STREAM_ALARM)
@@ -271,6 +356,9 @@ class EmergencySmsAlarmService : Service() {
         }
 
         fun start(context: Context, user: String, grant: String, deadline: Long): Boolean {
+            // Store builds use the OS notification sound. Looping remains a local debug path.
+            val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (!debuggable || !HushhNotificationsPlugin.activityActive) return false
             if (acknowledged(context, user, grant) || endedBeforeAdmission(context, user, grant)) return false
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -305,7 +393,8 @@ class EmergencySmsAlarmService : Service() {
         @Synchronized fun forget(context: Context, user: String) {
             stop(context, user)
             context.getSharedPreferences(ACK_STORE, Context.MODE_PRIVATE).edit()
-                .putBoolean(deletionKey(user), true).remove(user).remove("pending:$user").remove("ended:$user").commit()
+                .putBoolean(deletionKey(user), true).remove(user).remove("pending:$user").remove("ended:$user")
+                .remove("sync:$user").commit()
         }
     }
 }

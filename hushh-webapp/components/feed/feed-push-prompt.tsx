@@ -20,7 +20,9 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
   const { deliveryMode, deliveryDetail, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
-  const alarmPermissionNeeded = Capacitor.isNativePlatform() && deliveryDetail === "native_emergency_alarm_not_authorized";
+  const android = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+  const alarmPermissionNeeded = Capacitor.isNativePlatform() &&
+    deliveryDetail === "native_emergency_alarm_not_authorized" && (!android || context === "location");
   const quietNative = Capacitor.isNativePlatform() && (
     ["native_alerts_disabled", "native_sound_disabled", "native_emergency_sound_disabled"].includes(deliveryDetail ?? "")
     || (context === "chat" && ["native_chat_alerts_disabled", "native_chat_sound_disabled"].includes(deliveryDetail ?? ""))
@@ -41,7 +43,7 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
       if (alarmPermissionNeeded && permission !== "denied") {
         const { HushhNotifications } = await import("@/lib/capacitor");
         const result = await HushhNotifications.requestEmergencySmsAlarmPermission();
-        setPermission(result.authorized ? "granted" : "denied");
+        if (!android || result.authorized) setPermission(result.authorized ? "granted" : "denied");
         retryPushRegistration();
         return;
       }
@@ -71,7 +73,9 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
       className="mb-3 flex w-full flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 rounded-[12px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-2"
     >
       <p data-profile-role="description" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-        {alarmPermissionNeeded ? "Allow SMS alarms to hear Save My Soul alerts on your Lock Screen until you dismiss them."
+        {alarmPermissionNeeded ? android
+          ? "Allow SMS – Save my Soul alerts to appear full screen while your phone is locked."
+          : "Allow SMS alarms to hear Save my Soul alerts on your Lock Screen until you dismiss them."
           : quietNative ? "Device alerts or sounds are off. Enable them in notification settings to hear alerts."
           : permission === "denied"
           ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
@@ -92,7 +96,9 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
           disabled={isRetryingPushRegistration}
           onClick={() => void enable()}
         >
-          {permission === "denied" ? "Open settings" : alarmPermissionNeeded ? "Allow alarms" : permission === "granted" ? "Retry" : "Turn on"}
+          {permission === "denied" ? "Open settings" : alarmPermissionNeeded
+            ? android ? "Allow full-screen alerts" : "Allow alarms"
+            : permission === "granted" ? "Retry" : "Turn on"}
         </Button>
       ) : null}
     </div>

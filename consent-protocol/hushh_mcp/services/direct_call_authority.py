@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
-from hushh_mcp.services.direct_call_policy import CallError, CallSnapshot
+from hushh_mcp.services.direct_call_policy import CallError, CallSnapshot, android_calling_enabled
 from hushh_mcp.services.direct_messages_service import DirectMessagesService
 
 
@@ -67,13 +67,24 @@ class CallAuthority:
     def proof(self, user: str, operation: str, payload: dict, proof: dict) -> dict:
         lock_connection_graph_users(self.conn, user_ids=[user])
         row = self.one(
-            """SELECT device_public_key FROM trusted_devices
+            """SELECT device_public_key,platform FROM trusted_devices
             WHERE device_id=:device AND user_id=:owner AND status='active' FOR UPDATE""",
             {"device": proof["deviceId"], "owner": user},
         )
         if not row:
             raise CallError("CALL_DEVICE_REVOKED", "This device is no longer authorized.", 403)
         verify_proof(row["device_public_key"], user, operation, payload, proof, int(time.time()))
+        if (
+            row.get("platform") == "android"
+            and (
+                operation in {"create", "offer"}
+                or (operation == "action" and payload["action"] == "accept")
+            )
+            and not android_calling_enabled()
+        ):
+            raise CallError(
+                "CALL_NOT_QUALIFIED", "Android calling is awaiting release verification.", 503
+            )
         consumed = self.one(
             """INSERT INTO direct_call_commands(nonce, user_id, device_id, expires_at)
             VALUES(CAST(:nonce AS UUID), :owner, :device, to_timestamp(:expires))
@@ -172,6 +183,7 @@ class CallAuthority:
             "callerDeviceId": call.caller_device,
             "calleeDeviceId": call.callee_device,
             "peerDisplayName": row.get("peer_display_name"),
+            **({"isSmsEscalation": True} if row.get("sms_incident_id") else {}),
         }
 
     def endpoints_active(self, call):

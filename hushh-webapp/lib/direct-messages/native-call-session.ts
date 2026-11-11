@@ -2,6 +2,7 @@ import type { PluginListenerHandle } from "@capacitor/core";
 import { HushhCalling } from "@/lib/capacitor/calling";
 import type { CallView, VerifyPeer } from "./call-session";
 import { dispatchDirectMessagesUpdated } from "./direct-message-events";
+import type { SmsCallIntent } from "./sms-call-escalation";
 
 /** UI-only adapter. Native CallKit owns call lifetime after the view unmounts. */
 export class NativeCallSession {
@@ -10,6 +11,7 @@ export class NativeCallSession {
   private verification: string | null = null;
   private announcedCall: string | null = null;
   private callId: string | null = null;
+  deviceId: string | undefined;
   constructor(private readonly ownerId: string, private readonly publish: (view: CallView) => void,
     private readonly verifyPeer: VerifyPeer) {}
   async initialize(): Promise<boolean> {
@@ -35,10 +37,15 @@ export class NativeCallSession {
       }).catch(() => undefined);
     });
     if (this.disposed) { await this.listener.remove(); return false; }
-    return (await HushhCalling.initialize({ ownerId: this.ownerId })).available;
+    const state = await HushhCalling.initialize({ ownerId: this.ownerId });
+    if (!this.disposed) this.deviceId = state.deviceId;
+    return !this.disposed && state.available;
   }
-  start(conversationId: string | null, personRef?: string | null): Promise<void> {
-    return HushhCalling.start({ ...(conversationId ? { conversationId } : {}), ...(personRef ? { personRef } : {}) });
+  async start(conversationId: string | null, personRef?: string | null, sms?: SmsCallIntent): Promise<boolean> {
+    await HushhCalling.start({
+      ...(conversationId ? { conversationId } : {}), ...(personRef ? { personRef } : {}), ...(sms ? { sms } : {}),
+    });
+    return true;
   }
   answer = async (expectedCallId = this.callId): Promise<void> => {
     if (expectedCallId) await HushhCalling.answer({ callId: expectedCallId });

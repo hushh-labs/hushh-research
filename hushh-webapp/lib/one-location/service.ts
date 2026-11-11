@@ -591,6 +591,35 @@ export class OneLocationService {
     return alerts;
   }
 
+  static queueSmsIncident(vaultOwnerToken: string, incidentId: string, note?: string | null,
+    escalation?: { callDeviceId: string; callRecipientUserId: string },
+  ) {
+    return apiJson<{ incidentId: string; startedAt: string; grants: OneLocationGrant[]; skippedCount: number;
+      callEscalation?: { callId: string; delayMs: number } | null }>(
+      "/api/one/location/sms-alerts/incidents",
+      { method: "POST", headers: authHeaders(vaultOwnerToken), body: JSON.stringify({ incidentId, note, ...escalation }) },
+    );
+  }
+
+  static async acknowledgeSmsAlert(idToken: string, grantId: string, signal: AbortSignal): Promise<void> {
+    await apiJson(`/api/one/location/sms-alerts/${encodeURIComponent(grantId)}/acknowledgement`, {
+      method: "PUT",
+      headers: authHeaders(idToken),
+      signal,
+    });
+  }
+
+  static async getSmsAcknowledgements(
+    idToken: string, grantIds: string[], signal: AbortSignal,
+  ): Promise<string[]> {
+    const query = new URLSearchParams(grantIds.map((grantId) => ["grant_id", grantId]));
+    const { acknowledgedGrantIds } = await apiJson<{ acknowledgedGrantIds: string[] }>(
+      `/api/one/location/sms-alerts/acknowledgements?${query}`,
+      { headers: authHeaders(idToken), cache: "no-store", signal },
+    );
+    return acknowledgedGrantIds;
+  }
+
   static async updateAutoApprovePreference(params: {
     vaultOwnerToken: string;
     enabled: boolean;

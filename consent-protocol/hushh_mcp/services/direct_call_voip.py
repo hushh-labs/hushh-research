@@ -5,6 +5,7 @@ VoIP pushes carry opaque admission hints, never signaling or relay credentials.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import threading
@@ -17,8 +18,9 @@ import jwt
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 from sqlalchemy import text
 
+from hushh_mcp.services import direct_call_sms
 from hushh_mcp.services.direct_call_authority import CallAuthority
-from hushh_mcp.services.direct_call_policy import CallError
+from hushh_mcp.services.direct_call_policy import CallError, android_calling_enabled
 
 _provider_tokens: dict[APNSConfig, tuple[float, str]] = {}
 _provider_lock = threading.Lock()
@@ -83,6 +85,33 @@ class APNSConfig:
             if self.environment == "sandbox"
             else "https://api.push.apple.com"
         )
+
+
+@dataclass(frozen=True)
+class FCMConfig:
+    project: str
+    token: str = field(repr=False)
+
+    @classmethod
+    def load(cls):
+        import firebase_admin
+
+        from api.utils.firebase_admin import ensure_firebase_admin
+
+        if not ensure_firebase_admin()[0]:
+            return None
+        app = firebase_admin.get_app()
+        if not app.project_id or not re.fullmatch(r"[a-z0-9-]{3,64}", app.project_id):
+            return None
+        # Credential refresh may use the network. Do it before opening the
+        # call transaction so provider retries cannot hold acknowledgement locks.
+        with suppress_instrumentation():
+            token = app.credential.get_access_token().access_token
+        return cls(app.project_id, token)
+
+
+def android_enabled() -> bool:
+    return android_calling_enabled()
 
 
 def available() -> bool:
@@ -168,18 +197,84 @@ def register(authority: CallAuthority, user: str, payload: dict, proof: dict) ->
     return {"registered": True}
 
 
+def register_fcm(authority: CallAuthority, user: str, payload: dict, proof: dict) -> dict:
+    authority.proof(user, "register-fcm", payload, proof)
+    device = proof["deviceId"]
+    key = authority.one(
+        """SELECT k.key_id FROM direct_communication_keys k JOIN trusted_devices d
+        ON d.device_id=k.device_id AND d.user_id=k.user_id
+        WHERE k.device_id=:device AND k.user_id=:owner AND d.platform='android' AND d.status='active'""",
+        {"device": device, "owner": user},
+    )
+    if not key:
+        raise CallError(
+            "CALL_DEVICE_MISMATCH", "Use an enrolled Android calling installation.", 403
+        )
+    fingerprint = payload["tokenHash"]
+    if fingerprint is None:
+        authority.conn.execute(
+            text(
+                "DELETE FROM direct_call_voip_tokens WHERE device_id=:device AND user_id=:owner AND fcm_installation_id IS NOT NULL"
+            ),
+            {"device": device, "owner": user},
+        )
+        return {"registered": False}
+    installation = authority.one(
+        """SELECT id FROM user_push_installations WHERE user_id=:owner AND platform='android'
+        AND encode(digest(token,'sha256'),'hex')=:fingerprint FOR UPDATE""",
+        {"owner": user, "fingerprint": fingerprint},
+    )
+    if not installation:
+        raise CallError(
+            "CALL_DEVICE_MISMATCH", "Enable notifications on this Android installation.", 409
+        )
+    params = {
+        "device": device,
+        "owner": user,
+        "key": key["key_id"],
+        "installation": installation["id"],
+        "fingerprint": fingerprint,
+        "generation": str(uuid4()),
+    }
+    authority.conn.execute(
+        text(
+            "DELETE FROM direct_call_voip_tokens WHERE fcm_installation_id=:installation AND device_id<>:device"
+        ),
+        params,
+    )
+    authority.conn.execute(
+        text("""INSERT INTO direct_call_voip_tokens(device_id,user_id,key_id,generation,fcm_installation_id,fcm_token_hash)
+        VALUES(:device,:owner,:key,CAST(:generation AS UUID),:installation,:fingerprint)
+        ON CONFLICT(device_id) DO UPDATE SET key_id=EXCLUDED.key_id,
+          generation=CASE WHEN direct_call_voip_tokens.fcm_installation_id=EXCLUDED.fcm_installation_id
+          AND direct_call_voip_tokens.fcm_token_hash=EXCLUDED.fcm_token_hash AND direct_call_voip_tokens.key_id=EXCLUDED.key_id
+          THEN direct_call_voip_tokens.generation ELSE EXCLUDED.generation END,
+          fcm_installation_id=EXCLUDED.fcm_installation_id,fcm_token_hash=EXCLUDED.fcm_token_hash,
+          updated_at=clock_timestamp()"""),
+        params,
+    )
+    authority.conn.execute(
+        text("""DELETE FROM direct_call_voip_outbox o USING direct_call_voip_tokens t
+        WHERE o.device_id=t.device_id AND o.device_id=:device AND o.token_generation<>t.generation"""),
+        params,
+    )
+    return {"registered": True}
+
+
 def enqueue(authority: CallAuthority, call: dict) -> None:
     authority.conn.execute(
         text("""INSERT INTO direct_call_voip_outbox(call_id,device_id,token_generation)
         SELECT CAST(:call AS UUID),t.device_id,t.generation FROM direct_call_voip_tokens t
         JOIN direct_communication_keys k ON k.device_id=t.device_id AND k.key_id=t.key_id
         JOIN trusted_devices d ON d.device_id=t.device_id AND d.user_id=t.user_id AND d.status='active'
-        WHERE t.user_id=:peer AND d.platform='ios' ON CONFLICT DO NOTHING"""),
-        {"call": call["id"], "peer": call["callee_user_id"]},
+        WHERE t.user_id=:peer AND ((d.platform='ios' AND t.fcm_installation_id IS NULL)
+          OR (:android AND d.platform='android' AND t.fcm_installation_id IS NOT NULL))
+        ON CONFLICT DO NOTHING"""),
+        {"call": call["id"], "peer": call["callee_user_id"], "android": android_enabled()},
     )
 
 
-def _deliver(db, candidate: dict, config: APNSConfig, client) -> str:
+def _deliver(db, candidate: dict, config: APNSConfig | None, fcm: FCMConfig | None, client) -> str:
     with db.engine.begin() as conn:
         authority = CallAuthority(conn)
         # Same graph -> call -> device -> outbox lock order as admission/revocation.
@@ -205,8 +300,17 @@ def _deliver(db, candidate: dict, config: APNSConfig, client) -> str:
                 {"call": candidate["call_id"], "device": candidate["device_id"]},
             )
             return "discarded"
+        installation_id = candidate["fcm_installation_id"]
+        installation = None
+        if installation_id is not None:
+            installation = authority.one(
+                """SELECT id,token FROM user_push_installations
+                WHERE id=:id AND user_id=:owner AND platform='android' FOR UPDATE""",
+                {"id": installation_id, "owner": candidate["callee_user_id"]},
+            )
         pending = authority.one(
-            """SELECT o.*,t.token,t.key_id,t.environment,t.topic,d.status FROM direct_call_voip_outbox o
+            """SELECT o.*,t.token,t.key_id,t.environment,t.topic,t.fcm_installation_id,t.fcm_token_hash,d.status
+            FROM direct_call_voip_outbox o
             JOIN direct_call_voip_tokens t ON t.device_id=o.device_id AND t.generation=o.token_generation
             JOIN trusted_devices d ON d.device_id=t.device_id AND d.user_id=t.user_id
             WHERE o.call_id=:call AND o.device_id=:device AND o.attempts<3
@@ -215,12 +319,25 @@ def _deliver(db, candidate: dict, config: APNSConfig, client) -> str:
         )
         if not pending:
             return "discarded"
+        if pending["fcm_installation_id"] != installation_id:
+            return "discarded"
+        valid_provider = (
+            fcm
+            and installation
+            and android_enabled()
+            and hashlib.sha256(installation["token"].encode()).hexdigest()
+            == pending["fcm_token_hash"]
+            if installation_id is not None
+            else config
+            and pending["environment"] == config.environment
+            and pending["topic"] == config.bundle + ".voip"
+        )
         if (
             row["state"] != "ringing"
+            or (row.get("sms_incident_id") and not direct_call_sms.enabled())
             or row["expires_at"].timestamp() <= time.time()
             or pending["status"] != "active"
-            or pending["environment"] != config.environment
-            or pending["topic"] != config.bundle + ".voip"
+            or not valid_provider
         ):
             conn.execute(
                 text(
@@ -229,12 +346,11 @@ def _deliver(db, candidate: dict, config: APNSConfig, client) -> str:
                 {"call": candidate["call_id"], "device": candidate["device_id"]},
             )
             return "discarded"
-        return _dispatch_pending(conn, row, pending, candidate, config, client)
+        return _dispatch_pending(conn, row, pending, candidate, config, fcm, installation, client)
 
 
-def _dispatch_pending(conn, row, pending, candidate, config, client) -> str:
+def _dispatch_pending(conn, row, pending, candidate, config, fcm, installation, client) -> str:
     payload = {
-        "aps": {"content-available": 1},
         "callId": str(row["id"]),
         "deviceId": pending["device_id"],
         "keyId": str(pending["key_id"]),
@@ -242,12 +358,30 @@ def _dispatch_pending(conn, row, pending, candidate, config, client) -> str:
     }
     try:
         with suppress_instrumentation():
-            response = client.post(
-                config.origin + "/3/device/" + pending["token"],
-                headers=config.headers(),
-                json=payload,
-            )
-        status = response.status_code
+            if installation:
+                response = client.post(
+                    f"https://fcm.googleapis.com/v1/projects/{fcm.project}/messages:send",
+                    headers={"Authorization": "Bearer " + fcm.token},
+                    json={
+                        "message": {
+                            "token": installation["token"],
+                            "data": {
+                                "type": "direct_call_incoming",
+                                **{k: str(v) for k, v in payload.items()},
+                            },
+                            "android": {"priority": "high", "ttl": "0s"},
+                        }
+                    },
+                    timeout=2.0,
+                )
+                status = _fcm_status(response)
+            else:
+                response = client.post(
+                    config.origin + "/3/device/" + pending["token"],
+                    headers=config.headers(),
+                    json={"aps": {"content-available": 1}, **payload},
+                )
+                status = response.status_code
     except httpx.HTTPError:
         status = 503
     params = {"call": candidate["call_id"], "device": candidate["device_id"]}
@@ -278,6 +412,17 @@ def _dispatch_pending(conn, row, pending, candidate, config, client) -> str:
     )
 
 
+def _fcm_status(response) -> int:
+    if response.status_code == 404:
+        try:
+            for item in response.json().get("error", {}).get("details", []):
+                if item.get("errorCode") == "UNREGISTERED":
+                    return 410
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return response.status_code
+
+
 def drain(db=None, *, client=None) -> dict[str, int]:
     """Bounded best-effort delivery. Run after offer commit and from a retry worker.
 
@@ -292,27 +437,38 @@ def drain(db=None, *, client=None) -> dict[str, int]:
     from mcp_modules.log_redaction import install_sensitive_log_filter
 
     install_sensitive_log_filter()
-    config = APNSConfig.load()
+    config = APNSConfig.load() if available() else None
+    fcm = None
+    if android_enabled():
+        try:
+            fcm = FCMConfig.load()
+        except Exception:
+            # The APNs lane remains independently available.
+            pass
     db = db or get_db()
     counts = {"accepted": 0, "rejected": 0, "retry": 0, "discarded": 0}
     with db.engine.connect() as conn:
         candidates = (
             conn.execute(
-                text("""SELECT o.call_id,o.device_id,c.callee_user_id FROM direct_call_voip_outbox o
-            JOIN direct_calls c ON c.id=o.call_id WHERE o.attempts<3 AND o.next_attempt_at<=clock_timestamp()
-            AND c.state='ringing' AND c.expires_at>clock_timestamp() ORDER BY o.next_attempt_at LIMIT 20""")
+                text("""SELECT o.call_id,o.device_id,c.callee_user_id,t.fcm_installation_id FROM direct_call_voip_outbox o
+            JOIN direct_calls c ON c.id=o.call_id
+            JOIN direct_call_voip_tokens t ON t.device_id=o.device_id
+            WHERE o.attempts<3 AND o.next_attempt_at<=clock_timestamp()
+            AND ((:ios AND t.fcm_installation_id IS NULL) OR (:android AND t.fcm_installation_id IS NOT NULL))
+            AND c.state='ringing' AND c.expires_at>clock_timestamp() ORDER BY o.next_attempt_at LIMIT 20"""),
+                {"ios": config is not None, "android": fcm is not None},
             )
             .mappings()
             .all()
         )
     if client is not None:
         for candidate in candidates:
-            counts[_deliver(db, dict(candidate), config, client)] += 1
+            counts[_deliver(db, dict(candidate), config, fcm, client)] += 1
     else:
         # A fresh transport per batch; no ambient HTTP logging/instrumentation of tokens.
         with httpx.Client(http2=True, timeout=5, follow_redirects=False) as transport:
             for candidate in candidates:
-                counts[_deliver(db, dict(candidate), config, transport)] += 1
+                counts[_deliver(db, dict(candidate), config, fcm, transport)] += 1
     return counts
 
 

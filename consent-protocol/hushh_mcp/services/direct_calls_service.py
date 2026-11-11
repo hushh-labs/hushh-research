@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.services import direct_call_admission as admission
+from hushh_mcp.services import direct_call_sms
 from hushh_mcp.services import direct_call_voip as voip
 from hushh_mcp.services.direct_call_authority import CallAuthority, canonical
 from hushh_mcp.services.direct_call_authority import proof_bytes as proof_bytes
@@ -57,6 +58,8 @@ class DirectCallsService:
                 available = False
         return {
             "available": available,
+            "smsEscalationAvailable": available and direct_call_sms.enabled(),
+            "androidAvailable": available and voip.android_enabled(),
             "iosAvailable": available
             and os.getenv("DIRECT_CALLS_VOIP_WORKER_QUALIFIED") == "1"
             and voip.available(),
@@ -82,6 +85,14 @@ class DirectCallsService:
         with self.db.engine.begin() as conn:
             return voip.register(CallAuthority(conn), user, payload, proof)
 
+    def register_fcm(self, user: str, payload: dict, proof: dict) -> dict:
+        if payload["tokenHash"] is not None:
+            self._require_release()
+            if not voip.android_enabled():
+                raise CallError("CALL_VOIP_UNAVAILABLE", "Android calling is unavailable.", 503)
+        with self.db.engine.begin() as conn:
+            return voip.register_fcm(CallAuthority(conn), user, payload, proof)
+
     def directory(self, user: str, payload: dict, proof: dict) -> dict:
         with self.db.engine.begin() as conn:
             authority = CallAuthority(conn)
@@ -106,6 +117,12 @@ class DirectCallsService:
             row = authority.call(user, payload["callId"])
             authority.proof(user, "read", payload, proof)
             call = authority.snapshot(row)
+            if (
+                row.get("sms_incident_id")
+                and call.state in {"preparing", "ringing"}
+                and not direct_call_sms.enabled()
+            ):
+                raise CallError("SMS_CALL_SETTLED", "The SMS call is no longer needed.", 409)
             if (
                 user == call.caller
                 and proof["deviceId"] != call.caller_device
@@ -181,6 +198,7 @@ class DirectCallsService:
                 JOIN connections edge ON edge.user_a_id=v.participant_a_user_id AND edge.user_b_id=v.participant_b_user_id
                 WHERE :owner IN(c.caller_user_id,c.callee_user_id) AND edge.status='active'
                 AND c.state IN ('ringing','connecting','active')
+                AND (:sms_enabled OR c.sms_incident_id IS NULL OR c.state<>'ringing')
                 AND NOT public.direct_call_expired(c.state,c.expires_at,c.caller_seen_at,c.callee_seen_at,clock_timestamp(),:lease)
                 AND NOT EXISTS(SELECT 1 FROM direct_message_blocks b WHERE
                   (b.blocker_user_id=c.caller_user_id AND b.blocked_user_id=c.callee_user_id)
@@ -188,7 +206,12 @@ class DirectCallsService:
                 AND (c.caller_user_id<>:owner OR c.caller_device_id=:device)
                 AND (c.callee_user_id<>:owner OR c.callee_device_id IS NULL OR c.callee_device_id=:device)
                 ORDER BY c.created_at DESC LIMIT 1"""),
-                    {"owner": user, "device": proof["deviceId"], "lease": LEASE_SECONDS},
+                    {
+                        "owner": user,
+                        "device": proof["deviceId"],
+                        "lease": LEASE_SECONDS,
+                        "sms_enabled": direct_call_sms.enabled(),
+                    },
                 )
                 .mappings()
                 .all()
@@ -205,6 +228,11 @@ class DirectCallsService:
             row = authority.call(user, payload["callId"], allow_finished=payload["action"] == "end")
             authority.proof(user, "action", payload, proof)
             call = authority.snapshot(row)
+            if row.get("sms_incident_id") and payload["action"] == "accept":
+                if not direct_call_sms.enabled() or not direct_call_sms.contact_is_current(
+                    conn, owner=call.caller, peer=call.callee
+                ):
+                    raise CallError("SMS_CALL_SETTLED", "The SMS call is no longer needed.", 409)
             if payload["action"] != "end":
                 authority.endpoints_active(call)
             state, device, expiry = transition(

@@ -1,6 +1,9 @@
 """Real PostgreSQL regressions for source-atomic, per-installation alerts."""
 
+import asyncio
+import math
 import os
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,6 +82,9 @@ def push_db(monkeypatch):
             ]
             cursor.execute(_replay_sql(entry))
             cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
+            cursor.execute(
+                (ROOT / "db/migrations/457_location_sms_acknowledgements.sql").read_text()
+            )
         raw.close()
 
         def execute_raw(sql, params):
@@ -192,6 +198,153 @@ def test_foreground_sms_read_requires_fresh_publication_and_live_recipient_autho
     sql(db, "UPDATE system_push_outbox SET created_at=now()")
     sql(db, "UPDATE one_location_share_grants SET status='revoked' WHERE id=:id", {"id": grant})
     assert service.list_recent_received_sms_alerts(recipient_user_id="recipient") == []
+
+
+def test_sms_acknowledgement_is_recipient_owned_and_preserves_live_share(push_db, monkeypatch):
+    from hushh_mcp.services import one_location_agent_service
+
+    db = push_db
+    monkeypatch.setattr(one_location_agent_service, "get_db", lambda: db)
+    service = one_location_agent_service.OneLocationAgentService()
+    add_devices(db)
+    grant_id = str(
+        sql(
+            db,
+            """INSERT INTO one_location_share_grants(metadata)
+            VALUES('{"share_kind":"sos"}') RETURNING id""",
+        )[0]["id"]
+    )
+    assert (
+        service.acknowledge_received_sms_alert(recipient_user_id="sender", grant_id=grant_id)
+        == "missing"
+    )
+    assert service.list_recent_received_sms_alerts(recipient_user_id="recipient")
+    assert (
+        service.acknowledge_received_sms_alert(recipient_user_id="recipient", grant_id=grant_id)
+        == "recorded"
+    )
+    first = sql(db, "SELECT status, sms_acknowledged_at FROM one_location_share_grants")[0]
+    assert first["status"] == "active" and first["sms_acknowledged_at"]
+    assert (
+        service.acknowledge_received_sms_alert(recipient_user_id="recipient", grant_id=grant_id)
+        == "acknowledged"
+    )
+    assert sql(db, "SELECT status, sms_acknowledged_at FROM one_location_share_grants") == [first]
+    assert service.list_received_sms_acknowledgements(
+        recipient_user_id="recipient", grant_ids=[grant_id]
+    ) == [grant_id]
+    assert (
+        service.list_received_sms_acknowledgements(
+            recipient_user_id="next-owner", grant_ids=[grant_id]
+        )
+        == []
+    )
+    assert service.list_recent_received_sms_alerts(recipient_user_id="recipient") == []
+    pushes.dispatch_system_pushes(db)
+    assert db.sent == []
+
+
+def queued_sms_service(db, monkeypatch):
+    from hushh_mcp.services import one_location_agent_service as location
+
+    monkeypatch.setattr(location, "get_db", lambda: db)
+    service = location.OneLocationAgentService()
+    monkeypatch.setattr(service, "list_sms_contact_ids", lambda **_: ["recipient"])
+
+    def create_grant(**kwargs):
+        row = service._execute_one(
+            """
+            INSERT INTO one_location_share_grants(latest_envelope_id, metadata)
+            VALUES (NULL, jsonb_build_object('share_kind', 'sos',
+                'sms_incident_id', CAST(:incident AS TEXT))) RETURNING *
+            """,
+            {"incident": kwargs["_sms_incident_id"]},
+        )
+        return service._grant_payload(row)
+
+    monkeypatch.setattr(service, "create_grant", create_grant)
+    return service
+
+
+def test_confirmed_sms_incident_queues_once_before_location(push_db, monkeypatch):
+    from hushh_mcp.services import one_location_agent_service as location
+
+    db = push_db
+    service = queued_sms_service(db, monkeypatch)
+    incident_id = str(uuid.uuid4())
+    first = service.queue_sms_incident(owner_user_id="sender", incident_id=incident_id, note=None)
+    replay = service.queue_sms_incident(owner_user_id="sender", incident_id=incident_id, note=None)
+    assert first == replay
+    assert len(sql(db, "SELECT * FROM system_push_outbox")) == 1
+    grant_id = first["grants"][0]["id"]
+    alerts = service.list_recent_received_sms_alerts(recipient_user_id="recipient")
+    assert alerts[0]["grant_id"] == grant_id
+    assert alerts[0]["location_pending"] == "true"
+    assert service.list_recent_received_sms_alerts(recipient_user_id="next-owner") == []
+    with pytest.raises(location.OneLocationAgentError, match="already active"):
+        service.queue_sms_incident(owner_user_id="sender", incident_id=str(uuid.uuid4()), note=None)
+
+    add_devices(db)
+    assert pushes.dispatch_system_pushes(db) == 1
+    assert db.sent
+    payload = db.sent[0]
+    assert "Alex" not in str(payload)
+    sql(db, "UPDATE one_location_share_grants SET latest_envelope_id=gen_random_uuid()")
+    assert len(sql(db, "SELECT * FROM system_push_outbox")) == 1
+    assert (
+        "location_pending"
+        not in service.list_recent_received_sms_alerts(recipient_user_id="recipient")[0]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.getenv("MEASURE_SMS_PUSH_LATENCY") != "1", reason="Opt-in local timing")
+async def test_measure_sms_queue_to_first_provider_attempt(push_db, monkeypatch):
+    import asyncpg
+    from firebase_admin import messaging
+
+    from api.consent_listener import _system_push_ready_callback
+
+    service = queued_sms_service(push_db, monkeypatch)
+    add_devices(push_db)
+    observed = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def send(message):
+        if message.data.get("notification_profile") == "one_location_sms_emergency":
+            loop.call_soon_threadsafe(observed.put_nowait, time.perf_counter())
+
+    monkeypatch.setattr(messaging, "send", send)
+    dsn = push_db.engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+    listener = await asyncpg.connect(dsn)
+    worker = asyncio.create_task(pushes.run_system_push_worker())
+    samples = []
+    try:
+        await listener.add_listener("system_push_ready", _system_push_ready_callback)
+        for _ in range(30):
+            started = time.perf_counter()
+            incident = await asyncio.to_thread(
+                service.queue_sms_incident,
+                owner_user_id="sender",
+                incident_id=str(uuid.uuid4()),
+                note=None,
+            )
+            attempted = await asyncio.wait_for(observed.get(), 10)
+            await asyncio.wait_for(observed.get(), 10)
+            samples.append((attempted - started) * 1000)
+            await asyncio.to_thread(
+                sql,
+                push_db,
+                "UPDATE one_location_share_grants SET status='revoked' WHERE id=CAST(:id AS UUID)",
+                {"id": incident["grants"][0]["id"]},
+            )
+    finally:
+        worker.cancel()
+        await asyncio.gather(worker, return_exceptions=True)
+        await listener.close()
+    p95 = sorted(samples)[math.ceil(len(samples) * 0.95) - 1]
+    print(f"SMS queue entry to first provider attempt, n={len(samples)}, p95={p95:.1f}ms")
+    assert p95 < 2000
 
 
 def test_migration_replay_preserves_intents_and_accepted_devices(push_db):

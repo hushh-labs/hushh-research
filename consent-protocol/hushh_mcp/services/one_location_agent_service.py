@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterator, TypedDict, cast
+from typing import Any, Iterator, Literal, TypedDict, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -39,6 +39,7 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import finance_advisor_directory as finance_directory
+from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.directory_candidate_statement import build_directory_candidate_statement
@@ -1521,7 +1522,10 @@ class OneLocationAgentService:
         Only PostgreSQL has advisory locks; elsewhere this is a no-op.
         """
         lock_key = f"one-location-sos-incident:{owner_user_id}"
-        with get_db_connection() as connection:
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        with (
+            nullcontext(bound_connection) if bound_connection is not None else get_db_connection()
+        ) as connection:
             if connection.dialect.name != "postgresql":
                 yield
                 return
@@ -1530,6 +1534,165 @@ class OneLocationAgentService:
                 {"lock_key": lock_key},
             )
             yield
+
+    def queue_sms_incident(
+        self,
+        *,
+        owner_user_id: str,
+        incident_id: str,
+        note: str | None,
+        call_device_id: str | None = None,
+        call_recipient_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Commit a confirmed Circle alert independently of the first location fix."""
+        from hushh_mcp.services import direct_call_sms
+        from hushh_mcp.services.direct_calls_service import DirectCallsService
+
+        params = {"owner": owner_user_id, "incident": incident_id}
+        with self._event_bound_writer(), self.sos_incident_guard(owner_user_id=owner_user_id):
+            conn = self._key_writer_connection
+            existing = self._execute_many(
+                """
+                SELECT * FROM one_location_share_grants
+                WHERE owner_user_id = :owner AND metadata->>'sms_incident_id' = :incident
+                ORDER BY recipient_user_id
+                """,
+                params,
+            )
+            if existing:
+                now = _utcnow()
+                active = [
+                    row for row in existing if row["status"] == "active" and row["expires_at"] > now
+                ]
+                if not active:
+                    raise OneLocationAgentError(
+                        "SMS_INCIDENT_ENDED", "This SMS alert has ended.", status_code=409
+                    )
+                metadata = _loads_json(existing[0]["metadata"]) or {}
+                reserved = next(
+                    (
+                        _loads_json(row["metadata"]) or {}
+                        for row in active
+                        if row["recipient_user_id"] == call_recipient_user_id
+                    ),
+                    {},
+                )
+                escalation = (
+                    direct_call_sms.public_reservation(conn, reserved)
+                    if call_device_id
+                    and reserved.get("sms_call_device") == call_device_id
+                    and direct_call_sms.enabled()
+                    else None
+                )
+                return {
+                    "incidentId": incident_id,
+                    "startedAt": _iso(existing[0]["created_at"]),
+                    "grants": [self._grant_payload(row) for row in active],
+                    "skippedCount": int(metadata.get("sms_incident_skipped_count") or 0),
+                    **({"callEscalation": escalation} if call_device_id else {}),
+                }
+            if self._execute_one(
+                """
+                SELECT id FROM one_location_share_grants
+                WHERE owner_user_id = :owner AND status = 'active'
+                  AND (expires_at IS NULL OR expires_at > now())
+                  AND COALESCE(NULLIF(BTRIM(metadata->>'share_kind'), ''),
+                    CASE WHEN metadata->>'reason' = 'sos_panic' THEN 'sos' ELSE 'share' END) = 'sos'
+                LIMIT 1
+                """,
+                params,
+            ):
+                raise OneLocationAgentError(
+                    "SMS_INCIDENT_ACTIVE", "An SMS alert is already active.", status_code=409
+                )
+            recipient_ids = sorted(set(self.list_sms_contact_ids(owner_user_id=owner_user_id)))
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                conn, user_ids=(owner_user_id, *recipient_ids)
+            )
+            for recipient_id in recipient_ids:
+                for lock in (
+                    f"one-location-recipient-key:{recipient_id}",
+                    f"one-location-grant:{owner_user_id}:{recipient_id}",
+                ):
+                    conn.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                        {"lock_key": lock},
+                    )
+            conn.execute(
+                text("""
+                    SELECT id FROM one_location_circles
+                    WHERE owner_user_id = :owner AND system_kind = 'sms' AND status = 'active'
+                    FOR SHARE
+                """),
+                params,
+            )
+            grants = []
+            for recipient_id in recipient_ids:
+                try:
+                    with conn.begin_nested():
+                        grant = self.create_grant(
+                            owner_user_id=owner_user_id,
+                            recipient_user_id=recipient_id,
+                            recipient_key_id=None,
+                            duration_hours=8,
+                            reason=note or _SOS_SHARE_REASON,
+                            share_kind="sos",
+                            enforce_connection=True,
+                            _key_writer_guarded=True,
+                            _sms_incident_id=incident_id,
+                        )
+                        self._execute_one(
+                            """
+                            INSERT INTO system_push_outbox
+                              (source_kind, source_id, recipient_user_id, expires_at)
+                            VALUES ('share', CAST(:grant AS UUID), :recipient,
+                              now() + interval '2 minutes')
+                            """,
+                            {"grant": grant["id"], "recipient": recipient_id},
+                        )
+                except OneLocationAgentError as exc:
+                    if exc.status_code >= 500:
+                        raise
+                    continue
+                grants.append(grant)
+            if not grants:
+                raise OneLocationAgentError(
+                    "SMS_CIRCLE_UNAVAILABLE",
+                    "No SMS Circle contacts can receive this alert.",
+                    status_code=409,
+                )
+            skipped_count = len(recipient_ids) - len(grants)
+            if skipped_count:
+                self._execute_one(
+                    """
+                    UPDATE one_location_share_grants
+                    SET metadata = metadata || jsonb_build_object('sms_incident_skipped_count', :skipped)
+                    WHERE owner_user_id = :owner AND metadata->>'sms_incident_id' = :incident
+                    """,
+                    {**params, "skipped": skipped_count},
+                )
+            conn.execute(text("SELECT pg_notify('system_push_ready', '')"))
+            escalation = None
+            if (
+                call_device_id
+                and call_recipient_user_id
+                and direct_call_sms.enabled()
+                and (DirectCallsService.capabilities()["smsEscalationAvailable"])
+            ):
+                escalation = direct_call_sms.reserve(
+                    conn,
+                    owner=owner_user_id,
+                    incident=incident_id,
+                    device=call_device_id,
+                    peer=call_recipient_user_id,
+                )
+            return {
+                "incidentId": incident_id,
+                "startedAt": grants[0]["createdAt"],
+                "grants": grants,
+                "skippedCount": skipped_count,
+                **({"callEscalation": escalation} if call_device_id else {}),
+            }
 
     def _assert_envelope_precision_matches_preference(
         self,
@@ -5316,7 +5479,9 @@ class OneLocationAgentService:
         )
         return eligible
 
-    def _is_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> bool:
+    def _is_sms_contact(
+        self, *, owner_user_id: str, contact_user_id: str, connection: Any = None
+    ) -> bool:
         """Fail closed when the selected-contact table is unavailable.
 
         Postgres is the authoritative membership store. A future Redis layer may
@@ -5324,8 +5489,7 @@ class OneLocationAgentService:
         and fall back to Postgres without broadening the recipient set.
         """
         try:
-            row = self._execute_one(
-                """
+            sql = """
                 SELECT 1
                 WHERE EXISTS (
                         SELECT 1
@@ -5356,12 +5520,11 @@ class OneLocationAgentService:
                           AND membership.status = 'active'
                       )
                 LIMIT 1
-                """,
-                {
-                    "owner_user_id": owner_user_id,
-                    "contact_user_id": contact_user_id,
-                },
-            )
+                """
+            params = {"owner_user_id": owner_user_id, "contact_user_id": contact_user_id}
+            if connection is not None:
+                return connection.execute(text(sql), params).first() is not None
+            row = self._execute_one(sql, params)
         except Exception as exc:  # noqa: BLE001 - safety path must fail closed
             logger.warning(
                 "one_location.sms_contact_lookup_failed owner=%s contact=%s error=%s",
@@ -6148,6 +6311,7 @@ class OneLocationAgentService:
         require_owned_source_circle: bool = False,
         source: str | None = None,
         _key_writer_guarded: bool = False,
+        _sms_incident_id: str | None = None,
     ) -> dict[str, Any]:
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
@@ -6250,6 +6414,8 @@ class OneLocationAgentService:
             "duration_mode": resolved_duration_mode,
             "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
         }
+        if _sms_incident_id is not None:
+            metadata["sms_incident_id"] = _sms_incident_id
         if capability is not None:
             metadata["capability_token"] = capability["token"]
         # Which of the two replacement lanes this grant lands in. Bound into
@@ -7165,7 +7331,7 @@ class OneLocationAgentService:
         if not isinstance(grant_metadata, dict):
             grant_metadata = {}
         stored_kind = str(grant_metadata.get("share_kind") or "")
-        if stored_kind == "sos" and is_first_envelope:
+        if stored_kind == "sos" and is_first_envelope and not grant_metadata.get("sms_incident_id"):
             notification_args = {
                 "grant": self._grant_payload(
                     {
@@ -9624,12 +9790,82 @@ class OneLocationAgentService:
         )
         return [payload for row in rows if (payload := self._grant_payload(row))]
 
+    def acknowledge_received_sms_alert(
+        self, *, recipient_user_id: str, grant_id: str
+    ) -> Literal["recorded", "acknowledged", "missing"]:
+        """Record the recipient's response without changing the location share."""
+        from api.consent_listener import publish_user_state_event_in_transaction
+        from hushh_mcp.services import direct_call_sms
+
+        with self._event_bound_writer():
+            conn = getattr(self, "_key_writer_connection", None)
+            reservation = (
+                direct_call_sms.lock_for_grant(
+                    conn,
+                    actor=recipient_user_id,
+                    grant_id=grant_id,
+                    acknowledgement=True,
+                )
+                if conn is not None
+                else None
+            )
+            row = self._execute_one(
+                """
+                UPDATE one_location_share_grants g
+                SET sms_acknowledged_at = clock_timestamp()
+                WHERE g.id = CAST(:grant_id AS UUID)
+                  AND g.recipient_user_id = :recipient_user_id
+                  AND g.owner_user_id <> g.recipient_user_id
+                  AND g.sms_acknowledged_at IS NULL
+                  AND COALESCE(NULLIF(BTRIM(g.metadata->>'share_kind'), ''),
+                    CASE WHEN g.metadata->>'reason' = 'sos_panic' THEN 'sos' ELSE 'share' END) = 'sos'
+                  AND EXISTS (
+                    SELECT 1 FROM system_push_outbox p
+                    WHERE p.source_kind = 'share' AND p.source_id = g.id
+                      AND p.recipient_user_id = g.recipient_user_id AND p.source_revision = ''
+                  )
+                RETURNING g.id
+                """,
+                {"grant_id": grant_id, "recipient_user_id": recipient_user_id},
+            )
+            if row:
+                if reservation:
+                    direct_call_sms.cancel_unanswered(conn, reservation)
+                publish_user_state_event_in_transaction(
+                    self._key_writer_connection,
+                    recipient_user_id,
+                    {"type": "location_sms_acknowledged"},
+                )
+                return "recorded"
+            if grant_id in self.list_received_sms_acknowledgements(
+                recipient_user_id=recipient_user_id, grant_ids=[grant_id]
+            ):
+                return "acknowledged"
+            return "missing"
+
+    def list_received_sms_acknowledgements(
+        self, *, recipient_user_id: str, grant_ids: list[str]
+    ) -> list[str]:
+        if not grant_ids:
+            return []
+        rows = self._execute_many(
+            """
+            SELECT id FROM one_location_share_grants
+            WHERE recipient_user_id = :recipient_user_id
+              AND id = ANY(CAST(:grant_ids AS UUID[]))
+              AND sms_acknowledged_at IS NOT NULL
+            """,
+            {"recipient_user_id": recipient_user_id, "grant_ids": grant_ids},
+        )
+        return [str(row["id"]) for row in rows]
+
     def list_recent_received_sms_alerts(self, *, recipient_user_id: str) -> list[dict[str, Any]]:
         # The durable share event is created at first encrypted publication.
         # Neither grant creation nor subsequent location heartbeats qualify.
         rows = self._execute_many(
             """
             SELECT g.id, g.owner_user_id, g.recipient_user_id, g.expires_at,
+                   (g.latest_envelope_id IS NULL) AS location_pending,
                    o.display_name AS owner_display_name
             FROM one_location_share_grants g
             JOIN system_push_outbox p
@@ -9639,8 +9875,9 @@ class OneLocationAgentService:
             WHERE g.recipient_user_id = :recipient_user_id
               AND g.owner_user_id <> g.recipient_user_id
               AND g.status = 'active'
+              AND g.sms_acknowledged_at IS NULL
               AND (g.expires_at IS NULL OR g.expires_at > now())
-              AND g.latest_envelope_id IS NOT NULL
+              AND (g.latest_envelope_id IS NOT NULL OR g.metadata ? 'sms_incident_id')
               AND p.created_at >= now() - interval '2 minutes'
               AND p.expires_at > now()
               AND COALESCE(NULLIF(BTRIM(g.metadata->>'share_kind'), ''),
@@ -9669,6 +9906,8 @@ class OneLocationAgentService:
             }
             if expiry := _iso(row.get("expires_at")):
                 alert["expires_at"] = expiry
+            if row["location_pending"]:
+                alert["location_pending"] = "true"
             alerts.append(alert)
         return alerts
 
@@ -9842,11 +10081,34 @@ class OneLocationAgentService:
         return sorted(str(row["id"]) for row in rows)
 
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
+        from hushh_mcp.services import direct_call_sms
+
         with self._event_bound_writer():
+            conn = getattr(self, "_key_writer_connection", None)
+            reservation = (
+                direct_call_sms.lock_for_grant(
+                    conn,
+                    actor=owner_user_id,
+                    grant_id=grant_id,
+                    acknowledgement=False,
+                )
+                if conn is not None
+                else None
+            )
             transition = self._revoke_grant_transition(
                 owner_user_id=owner_user_id,
                 grant_id=grant_id,
             )
+            if (
+                reservation
+                and transition["changed"]
+                and owner_user_id
+                in (
+                    reservation["owner"],
+                    reservation["peer"],
+                )
+            ):
+                direct_call_sms.cancel_unanswered(conn, reservation)
         row = transition["row"]
         if not transition["changed"]:
             return self._grant_payload(row) or {}

@@ -44,33 +44,27 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func getNotificationSettings(_ call: CAPPluginCall) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             Task { @MainActor in
-              var result: [String: Any] = [
+              let result: [String: Any] = [
                 "alertsEnabled": settings.alertSetting == .enabled,
                 "soundsEnabled": settings.soundSetting == .enabled,
                 "emergencySoundEnabled": settings.soundSetting == .enabled
               ]
-              if #available(iOS 26.0, *) {
-                  result["emergencyAlarmSupported"] = true
-                  result["emergencyAlarmAuthorized"] = EmergencySmsSystemAlarm.authorized
-              }
               call.resolve(result)
             }
         }
     }
     @objc func requestEmergencySmsAlarmPermission(_ call: CAPPluginCall) {
-        Task { @MainActor in
-            guard #available(iOS 26.0, *) else { call.resolve(["supported": false, "authorized": false]); return }
-            let authorized = await EmergencySmsSystemAlarm.requestAuthorization()
-            call.resolve(["supported": true, "authorized": authorized])
-        }
+        call.resolve(["supported": false, "authorized": false])
     }
     @objc func getPendingEmergencySmsAlarms(_ call: CAPPluginCall) {
         guard let user = call.getString("userId"), FirebaseApp.app() != nil,
               Auth.auth().currentUser != nil, ChatPreviewKeys.recipientKey(["user_id": user]) != nil
         else { call.resolve(["grantIds": [], "acknowledgedGrantIds": []]); return }
         let requested = Array((call.getArray("grantIds", String.self) ?? []).prefix(512))
+        let acknowledged = requested.filter { SmsAlarmLedger.acknowledged(user: user, grant: $0) }
         call.resolve(["grantIds": SmsAlarmLedger.pending(user: user),
-            "acknowledgedGrantIds": requested.filter { SmsAlarmLedger.acknowledged(user: user, grant: $0) }])
+            "acknowledgedGrantIds": acknowledged,
+            "explicitlyAcknowledgedGrantIds": SmsAlarmLedger.recentDeviceAcknowledgements(user: user)])
     }
     private var chatHandler: ChatNotificationHandler?
     private let chatLock = NSLock()
@@ -99,7 +93,10 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                   ChatPreviewKeys.recipientKey(["user_id": user]) != nil else { return }
             if user == self.emergencyOwner { self.stopEmergencyCue(grantId: grant) }
             self.retireHandoffIfSettled()
-            self.notifyListeners("emergencySmsAcknowledged", data: ["userId": user, "grantId": grant])
+            self.notifyListeners("emergencySmsAcknowledged", data: [
+                "userId": user, "grantId": grant,
+                "explicit": notification.userInfo?["explicit"] as? Bool ?? false
+            ])
         })
         emergencyObservers.append(NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
@@ -256,26 +253,15 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         Task { @MainActor [weak self] in
             let now = Date().timeIntervalSince1970 * 1000
             guard let self, FirebaseApp.app() != nil,
-                  let uid = Auth.auth().currentUser?.uid,
+                  Auth.auth().currentUser != nil,
                   let user = call.getString("userId"), let grant = call.getString("grantId"),
-                  let key = ChatPreviewKeys.recipientKey(["user_id": user]),
+                  ChatPreviewKeys.recipientKey(["user_id": user]) != nil,
                   let deadline = call.getDouble("expiresAt"), deadline.isFinite,
                   deadline > now, deadline <= now + 2000 else { call.resolve(["played": false]); return }
             if SmsAlarmLedger.acknowledged(user: user, grant: grant) {
                 call.resolve(["played": false, "acknowledged": true]); return
             }
             if SmsAlarmLedger.endedBeforeAdmission(user: user, grant: grant) { call.resolve(["played": false]); return }
-            if #available(iOS 26.0, *), EmergencySmsSystemAlarm.authorized {
-                let scheduled = await EmergencySmsSystemAlarm.schedule(user: user, grant: grant)
-                guard Auth.auth().currentUser?.uid == uid,
-                      ChatPreviewKeys.recipientKey(["user_id": user]) == key else {
-                    EmergencySmsSystemAlarm.cancel(user: user, grant: grant)
-                    call.resolve(["played": false]); return
-                }
-                // The shared hand-off series may still cover other in-app grants, so a
-                // system alarm for this grant never retires it.
-                if scheduled { self.systemAlarmOwners[user] = uid; call.resolve(["played": true]); return }
-            }
             self.playForegroundEmergencySmsCue(call)
         }
     }
@@ -305,8 +291,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(["played": self.emergencyPlayer?.isPlaying ?? false]); return
             }
             do {
-                // AppDelegate prepares this same sound for background APNs alerts.
-                let url = library.appendingPathComponent("Sounds/one_location_sms_alarm.wav")
+                let url = Bundle.main.url(forResource: "one_location_sms_alarm", withExtension: "wav")
+                    ?? library.appendingPathComponent("Sounds/one_location_sms_alarm.wav")
                 let player = try AVAudioPlayer(contentsOf: url)
                 player.numberOfLoops = -1
                 player.prepareToPlay()
@@ -375,6 +361,25 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             plugin: self,
             jsName: jsName
         )
+    }
+
+    fileprivate func syncDeviceAcknowledgement(user: String, grant: String, key: String) {
+        guard let grantId = UUID(uuidString: grant), FirebaseApp.app() != nil,
+              let account = Auth.auth().currentUser else { return }
+        let backend = HushhProxyClient.resolveBackendUrl(
+            call: nil, plugin: self, jsName: jsName, allowCallOverride: false
+        )
+        guard let url = URL(string: "\(backend)/api/one/location/sms-alerts/\(grantId.uuidString)/acknowledgement"),
+              url.host != nil else { return }
+        account.getIDToken { token, _ in
+            guard let token, Auth.auth().currentUser?.uid == account.uid,
+                  ChatPreviewKeys.recipientKey(["user_id": user]) == key else { return }
+            var request = URLRequest(url: url, timeoutInterval: 6)
+            request.httpMethod = "PUT"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            // The Keychain receipt remains available for the signed-in shell to retry.
+            URLSession.shared.dataTask(with: request).resume()
+        }
     }
 
     private lazy var urlSession: URLSession = {
@@ -593,13 +598,17 @@ private final class ChatNotificationHandler: NSObject, NotificationHandlerProtoc
            info["share_kind"] as? String == "sos",
            response.actionIdentifier != UNNotificationDismissActionIdentifier,
            let user = info["user_id"] as? String, let grant = info["grant_id"] as? String,
-           ChatPreviewKeys.recipientKey(info) != nil {
-            try? SmsAlarmLedger.acknowledge(user: user, grant: grant)
+           let key = ChatPreviewKeys.recipientKey(info) {
+            let explicit = response.actionIdentifier == "ONE_LOCATION_SMS_ACKNOWLEDGE"
+            try? SmsAlarmLedger.acknowledge(user: user, grant: grant, fromDeviceAction: explicit)
+            if explicit { owner?.syncDeviceAcknowledgement(user: user, grant: grant, key: key) }
             if #available(iOS 26.0, *) {
                 Task { @MainActor in EmergencySmsSystemAlarm.cancel(user: user, grant: grant) }
             }
         }
-        forwarded.didReceive(response: response)
+        if response.actionIdentifier != "ONE_LOCATION_SMS_ACKNOWLEDGE" {
+            forwarded.didReceive(response: response)
+        }
     }
 }
 

@@ -4,6 +4,7 @@ Uses the canonical CI PostgreSQL fixture; never points at an application DB.
 """
 
 import base64
+import hashlib
 import os
 import sys
 import time
@@ -39,6 +40,8 @@ def prepare_call_schema(engine, *, alice="alice", bob="bob"):
           CREATE TABLE conversations(id UUID PRIMARY KEY,participant_a_user_id TEXT,participant_b_user_id TEXT,
             UNIQUE(participant_a_user_id,participant_b_user_id));
           CREATE TABLE direct_message_blocks(blocker_user_id TEXT,blocked_user_id TEXT);
+          CREATE TABLE user_push_installations(id BIGSERIAL PRIMARY KEY,user_id TEXT,token TEXT,platform TEXT);
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
         """)
         owners = {"alice": alice, "bob": bob}
         for statement in (
@@ -57,6 +60,11 @@ def prepare_call_schema(engine, *, alice="alice", bob="bob"):
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
         conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
+        conn.exec_driver_sql(
+            (ROOT / "db/migrations/458_location_sms_call_escalation.sql").read_text(
+                encoding="utf-8"
+            )
+        )
 
 
 @pytest.fixture
@@ -136,10 +144,14 @@ def calls(monkeypatch):
         admin.dispose()
 
 
-def ring(invoke):
+def ring(invoke, payload=None):
     created = invoke(
-        "tdv_alice", "create", {"callId": str(uuid4()), "conversationId": CONVERSATION}
+        "tdv_alice", "create", payload or {"callId": str(uuid4()), "conversationId": CONVERSATION}
     )
+    return offer_call(invoke, created)
+
+
+def offer_call(invoke, created):
     directory = invoke("tdv_alice", "directory", {"conversationId": CONVERSATION})
     offers = [
         {
@@ -153,6 +165,218 @@ def ring(invoke):
         if item["userId"] == "bob"
     ]
     return invoke("tdv_alice", "offer", {"callId": created["id"], "offers": offers})
+
+
+@pytest.mark.parametrize("rotated", [False, True])
+def test_android_fcm_wake_is_bound_to_signed_device_and_current_push_installation(
+    calls, monkeypatch, rotated
+):
+    from hushh_mcp.services import direct_call_voip as voip
+
+    _, engine, invoke = calls
+    monkeypatch.setenv("DIRECT_CALLS_ANDROID_QUALIFIED", "1")
+    monkeypatch.setattr(voip, "available", lambda: False)
+    monkeypatch.setattr(voip.FCMConfig, "load", lambda: voip.FCMConfig("demo-hushh", "synthetic"))
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+            UPDATE trusted_devices SET platform='android' WHERE device_id='tdv_bob_one';
+            INSERT INTO user_push_installations(user_id,token,platform)
+            VALUES ('bob','synthetic-fcm-bob','android'),('alice','synthetic-fcm-alice','android');
+        """)
+    foreign = hashlib.sha256(b"synthetic-fcm-alice").hexdigest()
+    with pytest.raises(CallError, match="Enable notifications"):
+        invoke("tdv_bob_one", "register-fcm", {"tokenHash": foreign})
+    own = hashlib.sha256(b"synthetic-fcm-bob").hexdigest()
+    assert invoke("tdv_bob_one", "register-fcm", {"tokenHash": own}) == {"registered": True}
+    ringing = ring(invoke)
+    if rotated:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "UPDATE user_push_installations SET token='rotated' WHERE user_id='bob'"
+            )
+    sent = []
+
+    def post(url, **kwargs):
+        assert url == "https://fcm.googleapis.com/v1/projects/demo-hushh/messages:send"
+        assert kwargs["timeout"] == 2
+        sent.append(kwargs["json"]["message"])
+        return SimpleNamespace(status_code=200)
+
+    assert (
+        voip.drain(SimpleNamespace(engine=engine), client=SimpleNamespace(post=post))[
+            "discarded" if rotated else "accepted"
+        ]
+        == 1
+    )
+    if rotated:
+        assert not sent
+    else:
+        assert len(sent) == 1
+        assert sent[0]["token"] == "synthetic-fcm-bob"
+        assert sent[0]["data"]["callId"] == ringing["id"]
+        assert sent[0]["data"]["deviceId"] == "tdv_bob_one"
+        assert set(sent[0]["data"]) == {"type", "callId", "deviceId", "keyId", "expiresAt"}
+
+
+@pytest.mark.parametrize(
+    "phase", ["ringing", "answered", "offer-race", "stop", "rollback", "circle-removal", "gate-off"]
+)
+def test_sms_call_acknowledgement_cancels_only_unanswered(calls, monkeypatch, phase):
+    from hushh_mcp.services import direct_call_sms
+    from hushh_mcp.services import one_location_agent_service as location
+
+    service, engine, invoke = calls
+    monkeypatch.setenv("ONE_LOCATION_SMS_CALL_ESCALATION_ENABLED", "1")
+    monkeypatch.setattr(location, "get_db", lambda: service.db)
+    incident = str(uuid4())
+    other_grant = str(uuid4())
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE TABLE one_location_share_grants (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(), owner_user_id TEXT,
+                recipient_user_id TEXT, status TEXT DEFAULT 'active',
+                expires_at TIMESTAMPTZ DEFAULT now()+interval '1 hour',
+                revoked_at TIMESTAMPTZ, updated_at TIMESTAMPTZ DEFAULT now(),
+                sms_acknowledged_at TIMESTAMPTZ, metadata JSONB NOT NULL
+            );
+            CREATE TABLE system_push_outbox (
+                source_kind TEXT, source_id UUID, source_revision TEXT DEFAULT '',
+                recipient_user_id TEXT
+            );
+            CREATE TABLE one_location_sms_contacts (owner_user_id TEXT, contact_user_id TEXT);
+            CREATE TABLE one_location_circles (
+                id UUID DEFAULT gen_random_uuid(), owner_user_id TEXT, is_system BOOLEAN,
+                system_kind TEXT, status TEXT
+            );
+            CREATE TABLE one_location_circle_memberships (circle_id UUID, user_id TEXT, status TEXT);
+            INSERT INTO one_location_sms_contacts VALUES ('alice','bob');
+            WITH circle AS (
+                INSERT INTO one_location_circles(owner_user_id,is_system,system_kind,status)
+                VALUES ('alice',TRUE,'sms','active') RETURNING id
+            )
+            INSERT INTO one_location_circle_memberships SELECT id,'bob','active' FROM circle
+        """)
+        conn.execute(
+            text("""
+                INSERT INTO one_location_share_grants (owner_user_id,recipient_user_id,metadata)
+                VALUES ('alice','bob',jsonb_build_object('sms_incident_id',CAST(:incident AS TEXT),'share_kind','sos'))
+            """),
+            {"incident": incident},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO one_location_share_grants (id,owner_user_id,recipient_user_id,metadata)
+                VALUES (CAST(:id AS UUID),'alice','charlie',
+                    jsonb_build_object('sms_incident_id',CAST(:incident AS TEXT),'share_kind','sos'));
+                INSERT INTO system_push_outbox (source_kind,source_id,recipient_user_id)
+                VALUES ('share',CAST(:id AS UUID),'charlie')
+            """),
+            {"incident": incident, "id": other_grant},
+        )
+        reservation = direct_call_sms.reserve(
+            conn, owner="alice", incident=incident, device="tdv_alice", peer="bob"
+        )
+    assert reservation
+    payload = {"callId": reservation["callId"], "smsIncidentId": incident}
+    with pytest.raises(CallError, match="SMS call is unavailable"):
+        invoke("tdv_alice", "create", payload)
+    with pytest.raises(CallError, match="SMS call is unavailable"):
+        invoke("tdv_alice", "create", {"callId": payload["callId"], "conversationId": CONVERSATION})
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+            UPDATE one_location_share_grants
+            SET metadata=metadata || jsonb_build_object('sms_call_queued_at',now()-interval '11 seconds')
+            WHERE recipient_user_id='bob'
+        """)
+        )
+
+    def acknowledge():
+        return location.OneLocationAgentService().acknowledge_received_sms_alert(
+            recipient_user_id="charlie", grant_id=other_grant
+        )
+
+    if phase == "circle-removal":
+        preparing = invoke("tdv_alice", "create", payload)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_location_circle_memberships SET status='removed' WHERE user_id='bob'"
+                )
+            )
+        with pytest.raises(CallError, match="SMS call is unavailable"):
+            offer_call(invoke, preparing)
+        return
+    if phase == "gate-off":
+        call = ring(invoke, payload)
+        monkeypatch.setenv("ONE_LOCATION_SMS_CALL_ESCALATION_ENABLED", "0")
+        assert invoke("tdv_bob_one", "inbox", {})["items"] == []
+        with pytest.raises(CallError, match="no longer needed"):
+            invoke("tdv_bob_one", "read", {"callId": call["id"], "after": 0})
+        with pytest.raises(CallError, match="no longer needed"):
+            invoke(
+                "tdv_bob_one",
+                "action",
+                {"callId": call["id"], "action": "accept", "revision": call["revision"]},
+            )
+        return
+
+    answered = phase == "answered"
+    if phase == "offer-race":
+        preparing = invoke("tdv_alice", "create", payload)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            offer = pool.submit(offer_call, invoke, preparing)
+            receipt = pool.submit(acknowledge)
+            assert receipt.result(timeout=10) == "recorded"
+            try:
+                assert offer.result(timeout=10)["state"] == "ringing"
+            except CallError as exc:
+                assert exc.code == "SMS_CALL_SETTLED"
+    else:
+        call = ring(invoke, payload)
+        assert call["state"] == "ringing"
+        if answered:
+            invoke(
+                "tdv_bob_one",
+                "action",
+                {"callId": call["id"], "action": "accept", "revision": call["revision"]},
+            )
+        if phase == "stop":
+            monkeypatch.setattr(location.OneLocationAgentService, "_identity_row", lambda *_: {})
+            monkeypatch.setattr(
+                location.OneLocationAgentService, "_insert_event", lambda *_, **__: None
+            )
+            monkeypatch.setattr(
+                location.OneLocationAgentService,
+                "_send_metadata_notification",
+                lambda *_, **__: None,
+            )
+            assert (
+                location.OneLocationAgentService().revoke_grant(
+                    owner_user_id="alice", grant_id=other_grant
+                )["status"]
+                == "revoked"
+            )
+        elif phase == "rollback":
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.exec_driver_sql(
+                    (
+                        ROOT
+                        / "db/migrations/rollback/458_location_sms_call_escalation.rollback.sql"
+                    ).read_text()
+                )
+        else:
+            assert acknowledge() == "recorded"
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT state FROM direct_calls")).scalar_one() == (
+            "connecting" if answered else "cancelled"
+        )
+        assert conn.execute(text("SELECT count(*) FROM direct_call_slots")).scalar_one() == (
+            2 if answered else 0
+        )
+    if phase != "rollback":
+        with pytest.raises(CallError, match="no longer needed"):
+            invoke("tdv_alice", "create", payload)
 
 
 def test_answer_race_revocation_cleanup_and_retention(calls):

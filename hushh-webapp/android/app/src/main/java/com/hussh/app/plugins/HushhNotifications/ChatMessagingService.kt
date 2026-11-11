@@ -24,6 +24,7 @@ import androidx.core.graphics.drawable.IconCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.hussh.app.MainActivity
+import com.hussh.app.plugins.HushhCalling.CallingService
 import com.hussh.app.R
 import io.capawesome.capacitorjs.plugins.firebase.messaging.FirebaseMessagingPlugin
 
@@ -31,11 +32,21 @@ import io.capawesome.capacitorjs.plugins.firebase.messaging.FirebaseMessagingPlu
 class ChatMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) { FirebaseMessagingPlugin.onNewToken(token) }
     override fun onMessageReceived(message: RemoteMessage) {
+        if (message.data["type"] == "direct_call_incoming") {
+            if (Build.VERSION.SDK_INT >= 26) CallingService.receive(this, message)
+            return
+        }
         FirebaseMessagingPlugin.onMessageReceived(message)
         val data = message.data.toMutableMap()
         if (data["recipient_key_id"] == null) data["user_id"]?.let { user -> ChatPreviewKeys.legacyKey(this, user)?.let { data["recipient_key_id"] = it } }
         if (data["recipient_key_id"] == null) data["chat_owner"]?.let { owner -> ChatPreviewKeys.legacyHashKey(this, owner)?.let { data["recipient_key_id"] = it } }
         val kind = data["type"]
+        if (kind == "location_sms_acknowledged") {
+            val user = data["user_id"] ?: return
+            val grant = data["grant_id"] ?: return
+            if (ChatPreviewKeys.legacyKey(this, user) != null) EmergencySmsAlarmService.stop(this, user, grant)
+            return
+        }
         if (kind == "location_share_revoked" || kind == "location_share_expired") {
             val user = data["user_id"] ?: return
             val grant = data["grant_id"] ?: return

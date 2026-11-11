@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import os
 import re
 from dataclasses import dataclass
 from typing import Literal
@@ -23,6 +24,10 @@ CALL_SECONDS = 3600
 CONNECT_SECONDS = 120
 LEASE_SECONDS = 60
 TURN_SECONDS = CALL_SECONDS
+
+
+def android_calling_enabled() -> bool:
+    return os.getenv("DIRECT_CALLS_ANDROID_QUALIFIED") == "1"
 
 
 class CallError(RuntimeError):

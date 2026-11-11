@@ -124,7 +124,12 @@ def send_user_data_push(
                     **message_data,
                     **(
                         {"recipient_key_id": str(row["preview_key_id"])}
-                        if notification_type in {"location_circle_chat_read", "direct_message_read"}
+                        if notification_type
+                        in {
+                            "location_circle_chat_read",
+                            "direct_message_read",
+                            "location_sms_acknowledged",
+                        }
                         and row.get("preview_key_id")
                         else {}
                     ),
