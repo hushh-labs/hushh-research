@@ -972,6 +972,10 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
     assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
     assert not backend.match_file("consent-protocol/scripts/verify_azure_pwm_runtime.py")
     assert not backend.match_file("consent-protocol/scripts/managed_vertex_readiness.py")
+    assert not backend.match_file("consent-protocol/scripts/probe_managed_text.py")
+    assert _governance_plan(("consent-protocol/scripts/probe_managed_text.py",))[
+        "selected_groups"
+    ] == ["controller"]
     plan = _governance_plan((*paths, dedicated))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["controller"]

@@ -1040,6 +1040,11 @@ identity, run/attempt and configuration bind that proof. Trust failures always b
 an HTTP 200 is not sufficient. Core mode neither probes an unused alternate nor
 changes runtime fallback authority.
 
+Core text proof retains both configured scope/provider/structured-output roundtrips.
+The Drive activity planner's semantic quality scenarios belong to explicit `full`
+diagnostics; core reports that planner result as unrun. Full diagnostics retain
+the authored cases, graders and blocking semantic-failure verdicts.
+
 Search, images, PDFs, transcription, narration, Live audio and the broader capability
 exam are **secondary diagnostics**. A secondary failure is reported as that feature's
 failure rather than a core outage. When full diagnostics were not requested, record
