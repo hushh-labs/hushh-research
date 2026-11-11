@@ -18,6 +18,22 @@ async def prepare_text_attempt(owner, request, provider, index, current, stream)
     try:
         request = request.model_copy(deep=True)
         request.model = vertex.model
+        if owner.vertex_thinking_level is not None:
+            from google.genai import types
+
+            from hushh_mcp.runtime_providers.gemini_config import thinking_config_for
+
+            config = request.config or types.GenerateContentConfig()
+            thinking = thinking_config_for(vertex.model, owner.vertex_thinking_level, types)
+            if config.thinking_config is not None:
+                thinking.include_thoughts = config.thinking_config.include_thoughts
+            config.thinking_config = thinking
+            if owner.vertex_max_output_tokens is not None:
+                config.max_output_tokens = min(
+                    config.max_output_tokens or owner.vertex_max_output_tokens,
+                    owner.vertex_max_output_tokens,
+                )
+            request.config = config
         if request.config is not None and request.config.thinking_config is None:
             from google.genai import types
 

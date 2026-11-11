@@ -149,7 +149,7 @@ def build_generate_content_config(types_module: Any, model: str | None, **kwargs
 _FLEET_MODEL_ALIASES = {"default", "gemini-default", "active", "gemini-active", "gemini_default"}
 
 
-def resolve_fleet_model_name(model: str | None) -> str:
+def resolve_fleet_model_name(model: str | None, *, processing_scope: str | None = None) -> str:
     """Map the fleet alias (`gemini-default` and friends) to the switched text model.
 
     Manifests name the alias so one setting (HUSSH_GEMINI_TEXT_MODEL, read by
@@ -159,5 +159,13 @@ def resolve_fleet_model_name(model: str | None) -> str:
 
     normalized = str(model or "").strip()
     if not normalized or normalized.lower() in _FLEET_MODEL_ALIASES:
+        if processing_scope is not None:
+            if processing_scope != "drive_document_requests":
+                raise ValueError("Unsupported managed text processing scope")
+            from hushh_mcp.managed_ai_config import load_drive_text_policy
+
+            policy = load_drive_text_policy()
+            if policy is not None:
+                return str(policy["model"])
         return str(GEMINI_MODEL)
     return normalized

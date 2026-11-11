@@ -1044,6 +1044,10 @@ Core text proof retains both configured scope/provider/structured-output roundtr
 The Drive activity planner's semantic quality scenarios belong to explicit `full`
 diagnostics; core reports that planner result as unrun. Full diagnostics retain
 the authored cases, graders and blocking semantic-failure verdicts.
+Scoped receipts still prove each configured provider, model, location, policy
+generation and binding fingerprint. Only trusted core mode accepts an explicit
+unrun planner result; missing or failed evidence is not unrun. Historical core
+receipts with a valid full planner result remain readable.
 
 Search, images, PDFs, transcription, narration, Live audio and the broader capability
 exam are **secondary diagnostics**. A secondary failure is reported as that feature's
@@ -1073,8 +1077,7 @@ terminal build. Successful builds publish the exact ID for receipt collection.
 For a policy-changing release candidate, run the retained functional/core set once
 on the completed candidate, plus affected security and release contracts. Do not
 repeat the full collection after each edit. Ordinary PRs use core/affected checks.
-Routine PR and deployment targets are 15–20 minutes each, measured separately from
-queue/approval waits; they are optimization targets, not deadlines that waive proof.
+Use the measured timing guidance below; no optimization target waives required proof.
 
 The one-request Azure readiness leaf records its failed stage, elapsed time and
 sanitized exception class. Transport deadlines and network failures retain their
@@ -1585,6 +1588,11 @@ operational reference publication, one prepare command group and exactly one gua
 diagnostic as its final output. Only the setup action's exact unstamped cache-glob
 lines may lack timestamps. The operational reference keeps its own intent artifact
 and idempotent tag readback; this proof covers revision-cleanup custody only.
+The current static production job additionally requires its exact inspection/cleanup
+mode inventory and all four guard-source blobs to match the immutable reviewed
+contract in `retention_production_profile_evidence.py`. Its proof preserves the
+actual run, attempt, job and checkout; it does not relabel a historical profile,
+publish a checkpoint or settle a retained capacity-bridge operation.
 A UAT attempt stopped by that first guard under the reviewed current source
 qualifies through `retention_uat_guard_evidence.py` on the same terms: reviewed
 owner, workflow and publication bodies at its actual checkout, the exact UAT
@@ -2086,10 +2094,15 @@ Only the two proven production-only Drive launchers are excluded; new/shared
 Drive files remain guarded. Do not remove the whole directory comparison.
 
 Routine PR and deployment design target: **10–15 minutes each**, including normal
-startup/queueing. This is a measurement goal, not a forced timeout or permission
-to waive checks. Record critical path, queue wait, runner time and retained work
-separately; genuine drains, migrations, recovery and native-store processing may
-need more time. Source implementation alone does not establish the target.
+startup/queueing, for routine affected-change paths. This is a measurement goal,
+not a forced timeout or a universal release guarantee. On 11 November 2026,
+necessary runs measured ordinary frontend PRs at 7–13 minutes, full-core
+qualification at 22m08, frontend-only deployment at 12m54, and combined Dev/UAT
+deployment at 27m49/37m04. These scopes are distinct. Record critical path, queue
+wait, runner time and retained work separately. Broader backend, schema, worker,
+recovery and native releases retain their required checks even when slower.
+Further optimization needs measured redundant work or a verified safe overlap;
+source completion alone does not establish a faster release.
 
 
 Every deploy lane (`deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml`)
