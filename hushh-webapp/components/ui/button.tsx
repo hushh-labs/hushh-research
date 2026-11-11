@@ -54,7 +54,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         variant="none"
         effect={rippleEffectFor(variant)}
         disabled={isDisabled}
-        disableHover={disableHoverRipple || variant === "plain" || variant === "link"}
+        disableHover={disableHoverRipple || variant === "plain" || variant === "text" || variant === "link"}
       />
     ) : null
 

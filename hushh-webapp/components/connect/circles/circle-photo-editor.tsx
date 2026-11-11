@@ -70,7 +70,7 @@ export function CirclePhotoEditor({ circleId, photoUrl, canEdit, onUpdate, onOpe
           </div>
           {error ? <p data-profile-role="description" role="alert" className="text-center text-sm text-destructive">{error}</p> : null}
           <div className="flex w-full justify-center gap-2">
-            <Button variant="link" className="min-h-11" disabled={busy || picking} onClick={() => changeOpen(false)}>Cancel</Button>
+            <Button variant="text" className="min-h-11" disabled={busy || picking} onClick={() => changeOpen(false)}>Cancel</Button>
             <Button className="min-h-11" disabled={busy || picking || draft === photoUrl} isLoading={busy} onClick={async () => {
               if (!latest.current.canEdit || !latest.current.onUpdate || busy) return;
               const current = epoch.current;

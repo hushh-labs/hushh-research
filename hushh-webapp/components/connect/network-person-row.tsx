@@ -61,7 +61,7 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
     >
       <ConnectionPersonAvatar label={name} photoUrl={person.photoUrl} size="list" className="!size-9 sm:!size-10" />
       <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-        <span dir="auto" className="min-w-0 text-sm leading-snug font-medium underline-offset-4 group-hover/network-person:underline [overflow-wrap:anywhere] sm:text-base">{name}</span>
+        <span dir="auto" className="min-w-0 text-sm leading-snug font-medium group-hover/network-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere] sm:text-base">{name}</span>
         {person.networkDegree ? (
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
             {person.networkDegree === 1 ? "1st" : person.networkDegree === 2 ? "2nd" : "3rd"}

@@ -954,7 +954,7 @@ export function SavedLocationsSection() {
                             type="button"
                             data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
                             disabled={removingId !== null || favoritingId !== null}
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             {removingId === location.id ? (
                               <Loader2
