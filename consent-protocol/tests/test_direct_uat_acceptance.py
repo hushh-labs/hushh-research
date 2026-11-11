@@ -488,6 +488,12 @@ def test_branch_acceptance_producer_authenticates_main_authority_lookup(environm
     producer = producers[0]
     assert 'verify-predecessor-acceptance.py" create' in producer["run"]
     assert producer.get("env", {}).get("GH_TOKEN") == "${{ github.token }}"
+    if environment == "dev":
+        assert "steps.prepare-release-tools.outcome == 'success'" in producer["if"]
+        assert any(
+            step.get("id") == "prepare-release-tools"
+            for step in workflow["jobs"]["deploy"]["steps"]
+        )
 
 
 @pytest.mark.parametrize(

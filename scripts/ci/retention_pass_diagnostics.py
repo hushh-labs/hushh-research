@@ -60,6 +60,20 @@ def safe_failure_diagnostic(stage: object, error: BaseException, retention: Any)
         kind = "other_failure"
 
     fields = [f"stage={stage_name}", f"kind={kind}"]
+    if isinstance(error, retention.UnsafeState):
+        # Match authored refusals exactly; never echo arbitrary exception text.
+        reasons = {
+            "GitHub authority lookup exceeded its bounded budget": "authority_lookup_budget_exceeded",
+            "production mandatory preflight did not succeed": "release_preflight_not_successful",
+            "production source changed during lookup": "release_source_changed",
+            "production release attempt changed during lookup": "release_attempt_changed",
+            "source release artifact is not healthy": "release_not_healthy",
+            "production deployment job inventory is incomplete": "release_job_inventory_incomplete",
+            "UAT deployment job inventory is incomplete": "release_job_inventory_incomplete",
+            "release artifact inventory is incomplete": "release_artifact_inventory_incomplete",
+        }
+        if reason := reasons.get(str(error)):
+            fields.append(f"reason={reason}")
     if isinstance(error, subprocess.CalledProcessError):
         code = error.returncode
         if type(code) is int and -255 <= code <= 255:
