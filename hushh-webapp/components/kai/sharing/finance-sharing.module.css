@@ -40,7 +40,7 @@
 .sharedLayout { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 16px; }
 .sharedPager { flex: 1; min-height: 0; }
 .sharedPager > div { height: 100%; }
-.sharedPager > div > [role="tabpanel"] { overflow: hidden auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.sharedPager > div > [role="tabpanel"] { overflow: hidden auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; padding-inline: 2px; }
 .compactDetails { margin-top: 16px; }
 .compactDetails > summary { cursor: pointer; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 @media(min-width: 768px) { .grantInfo { grid-template-columns: minmax(0, 1fr) minmax(240px, .9fr); gap: 24px; } }
