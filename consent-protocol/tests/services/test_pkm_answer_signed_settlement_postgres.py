@@ -708,7 +708,7 @@ async def test_runtime_approval_migration_replay_and_incompatible_rollback(
     from psycopg2.errors import RaiseException
 
     root = Path(__file__).resolve().parents[2] / "db/migrations"
-    forward = (root / "989_pkm_answer_processing_runtime.sql").read_text()
+    forward = (root / "parked/989_pkm_answer_processing_runtime.sql").read_text()
     rollback = (root / "rollback/989_pkm_answer_processing_runtime.rollback.sql").read_text()
     raw = answer_engine.raw_connection()
     driver = raw.driver_connection
