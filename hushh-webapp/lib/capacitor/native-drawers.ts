@@ -13,6 +13,12 @@ import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocumen
 export type NativeDrawerFamily = "history" | "profile" | "agent-profile";
 export type NativeDrawerOption = { id: string; label: string; selected: boolean; symbol?: string; colorHex?: string };
 export type NativeWorkspaceAvatar = { initials: string; jpeg?: string; verified?: boolean; active?: boolean };
+/** Private Location presentation values; the retained React owner reconciles expiry. */
+export type NativeWorkspaceLocationShare = {
+  count: number; singleGrant: boolean; startedAt?: number; endsAt?: number; footer?: string;
+  people: readonly NativeWorkspaceAvatar[];
+  audience?: { locationCount: number; smsCount: number; bothCount: number };
+};
 export type NativeWorkspaceInlineAction = {
   id: string; label: string; enabled: boolean; pending?: boolean;
   tone: "primary" | "ghost" | "danger" | "success"; symbol?: string;
@@ -28,6 +34,7 @@ export type NativeDrawerRow = {
   /** Feed/Connect identity and independent actions, never nested row buttons. */
   avatar?: NativeWorkspaceAvatar;
   inlineActions?: readonly NativeWorkspaceInlineAction[];
+  locationShare?: NativeWorkspaceLocationShare;
   milestone?: number;
   expanded?: boolean;
   symbol?: string;

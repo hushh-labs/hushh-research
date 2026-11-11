@@ -12,12 +12,14 @@ import { useNativeWorkspace, useNativeWorkspacePresentation } from "./use-native
 import { useNativeWorkspaceHandoff } from "./use-native-workspace-handoff";
 import { nativePersonInitials, useNativeWorkspacePortraits } from "@/components/app-ui/use-native-workspace-portraits";
 import type { NativeWorkspaceChoice, NativeWorkspaceIdentity } from "./native-workspace";
+import type { NativeWorkspaceLocationShare } from "./native-drawers";
 import { useNativeShellOverlayBlocked } from "./native-navigation";
 
 export type NativeWorkspaceSurfaceRow = { key: string; label: string; detail?: string; run?: () => unknown; web?: boolean;
   enabled?: boolean; pending?: boolean; selected?: boolean; destructive?: boolean; prominent?: boolean; symbol?: string;
   artworkId?: string; iconHex?: string; trailing?: string;
   person?: { name: string; photoUrl?: string | null; verified?: boolean; active?: boolean };
+  locationShare?: Omit<NativeWorkspaceLocationShare, "people"> & { people: { name: string; photoUrl?: string | null }[] };
   inlineActions?: (Pick<NativeWorkspaceSurfaceRow, "key" | "label" | "run" | "web" | "enabled" | "pending" | "symbol"> & { tone: "primary" | "ghost" | "danger" | "success" })[];
   toggle?: { value: boolean; change: (value: boolean) => unknown };
   choices?: { key: string; label: string; selected: boolean; run: () => unknown }[] };
@@ -113,7 +115,10 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
     { key: "confirmation-description", label: confirmation.title, detail: confirmation.description }, confirmation.confirm,
     { key: "confirmation-cancel", label: confirmation.cancelLabel, enabled: confirmation.confirm.enabled !== false && !confirmation.confirm.pending, run: confirmation.cancel },
   ] }] : props.sections;
-  const portraits = useNativeWorkspacePortraits(props.owner, props.active, projected.flatMap(section => section.rows.flatMap(row => row.person ? [{ key: row.key, source: row.person.photoUrl }] : [])));
+  const portraits = useNativeWorkspacePortraits(props.owner, props.active, projected.flatMap(section => section.rows.flatMap(row => [
+    ...(row.person ? [{ key: row.key, source: row.person.photoUrl }] : []),
+    ...(row.locationShare?.people.map((person, index) => ({ key: `${row.key}:share:${index}`, source: person.photoUrl })) ?? []),
+  ])));
   const sections = projected.filter(section => section.rows.length).map(section => ({ id: handles(`section:${section.key}`), title: section.title, ...(section.layout ? { layout: section.layout } : {}),
     rows: section.rows.map(row => {
       const id = handles(`row:${row.key}`);
@@ -134,6 +139,8 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
       return { id, label: row.label, detail: row.detail ?? row.choices?.find(choice => choice.selected)?.label, enabled: row.enabled !== false, pending: row.pending, selected: row.selected,
         destructive: row.destructive, ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
         ...(row.person ? { avatar: { initials: nativePersonInitials(row.person.name), verified: row.person.verified === true, ...(row.person.active !== undefined ? { active: row.person.active } : {}), ...(portraits.get(row.key) ? { jpeg: portraits.get(row.key) } : {}) } } : {}),
+        ...(row.locationShare ? { locationShare: { ...row.locationShare, people: row.locationShare.people.map((person, index) => ({ initials: nativePersonInitials(person.name),
+          ...(portraits.get(`${row.key}:share:${index}`) ? { jpeg: portraits.get(`${row.key}:share:${index}`) } : {}) })) } } : {}),
         ...(row.inlineActions?.length ? { inlineActions: row.inlineActions.map(action => {
           const actionId = handles(`row:${row.key}:action:${action.key}`);
           actions.set(actionId, () => { if (current() && row.enabled !== false && !row.pending && action.enabled !== false && !action.pending)

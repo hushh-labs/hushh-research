@@ -1128,6 +1128,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(try projection().permits("row", row: "create-link"))
         row["readOnly"] = true
         XCTAssertFalse(try projection().valid)
+        row = ["id": "active", "label": "Sharing with 2 people", "enabled": true, "readOnly": true,
+            "locationShare": ["count": 2, "singleGrant": false, "people": [["initials": "PA"], ["initials": "PB"]], "audience": ["locationCount": 2, "smsCount": 1, "bothCount": 1]],
+            "inlineActions": [["id": "manage", "label": "Manage", "enabled": true, "tone": "ghost"]]]
+        XCTAssertTrue(NativeWorkspaceProjection.closed(object))
+        XCTAssertTrue(try projection().valid)
+        object["workspace"] = "calendar"
+        XCTAssertFalse(try projection().valid)
+        object["workspace"] = "location"
+        var share = row["locationShare"] as! [String: Any]
+        share["startedAt"] = NSNull(); row["locationShare"] = share; _ = try projection()
+        XCTAssertFalse(NativeWorkspaceProjection.closed(object))
+        share.removeValue(forKey: "startedAt")
+        share["audience"] = ["locationCount": 1, "smsCount": 0, "bothCount": 1]; row["locationShare"] = share
+        XCTAssertFalse(try projection().valid)
     }
 
     @MainActor

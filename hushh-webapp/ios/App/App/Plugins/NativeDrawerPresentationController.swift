@@ -1340,6 +1340,7 @@ private struct NativeMemorySearchControl: View {
 struct NativeProfilePortraitImage: View {
     let data: String?
     let initials: String
+    var initialsFont: Font = .title3.weight(.medium)
     @State private var decoded: UIImage?
     @State private var decodedSource: String?
     var body: some View {
@@ -1347,7 +1348,7 @@ struct NativeProfilePortraitImage: View {
             Circle().fill(Color(uiColor: .tertiarySystemFill))
             if decodedSource == data, let decoded {
                 Image(uiImage: decoded).resizable().scaledToFill()
-            } else { Text(initials).font(.title3.weight(.medium)) }
+            } else { Text(initials).font(initialsFont) }
         }.clipShape(Circle())
             .onAppear(perform: decode)
             .onChange(of: data) { _, _ in decode() }

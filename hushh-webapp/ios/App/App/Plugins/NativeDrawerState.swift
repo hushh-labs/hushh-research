@@ -95,8 +95,35 @@ struct NativeDrawerRow: Codable, Identifiable {
     var formattedText: NativeMemoryText? = nil
     var avatar: NativeWorkspaceAvatar? = nil
     var inlineActions: [NativeWorkspaceInlineAction]? = nil
+    var locationShare: NativeWorkspaceLocationShare? = nil
     var milestone: Int? = nil
     var expanded: Bool? = nil
+}
+
+struct NativeWorkspaceLocationShare: Codable {
+    struct Audience: Codable {
+        let locationCount: Int; let smsCount: Int; let bothCount: Int
+        func valid(count: Int) -> Bool {
+            [locationCount, smsCount, bothCount].allSatisfy { $0 >= 0 && $0 <= count } && bothCount <= min(locationCount, smsCount)
+        }
+    }
+    let count: Int; let singleGrant: Bool
+    var startedAt: Double?; var endsAt: Double?; var footer: String?
+    let people: [NativeWorkspaceAvatar]; var audience: Audience?
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any], Set(value.keys).isSubset(of: ["count", "singleGrant", "startedAt", "endsAt", "footer", "people", "audience"]),
+              !value.values.contains(where: { $0 is NSNull }), let people = value["people"] as? [Any], people.allSatisfy(NativeWorkspaceAvatar.closed) else { return false }
+        if let raw = value["audience"] {
+            guard let audience = raw as? [String: Any], Set(audience.keys) == ["locationCount", "smsCount", "bothCount"], !audience.values.contains(where: { $0 is NSNull }) else { return false }
+        }
+        return true
+    }
+    var valid: Bool {
+        count >= 1 && count <= 9_007_199_254_740_991 && people.count <= min(2, count) &&
+            people.allSatisfy { $0.valid && $0.active == nil && $0.verified == nil } &&
+            [startedAt, endsAt].allSatisfy { $0 == nil || ($0!.isFinite && $0! >= 0 && $0! <= 8.64e15) } &&
+            (footer == nil || NativeDrawerProjection.text(footer!, 256)) && (audience == nil || audience!.valid(count: count))
+    }
 }
 
 struct NativeDrawerProgress: Codable {

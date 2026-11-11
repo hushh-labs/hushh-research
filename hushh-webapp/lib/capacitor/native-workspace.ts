@@ -144,7 +144,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     if (!section || !closed(section, ["id", "title", "rows", "layout"]) || !insert(section.id) || section.title !== undefined && !text(section.title, 256) || !Array.isArray(section.rows)) return false;
     if (section.layout !== undefined && (value.workspace !== "location" || !["cards", "tiles"].includes(section.layout) || section.layout === "tiles" && section.rows.length > 3)) return false;
     for (const row of section.rows) {
-      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) ||
+      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) ||
         !insert(row.id) || !text(row.label, 4096) || row.detail !== undefined && !text(row.detail, 4096) || row.trailing !== undefined && !text(row.trailing, 32) ||
         row.symbol !== undefined && !id(row.symbol) || row.artworkId !== undefined && !id(row.artworkId) || row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex) ||
         typeof row.enabled !== "boolean" || [row.chevron, row.destructive, row.selected, row.pending, row.readOnly].some(v => v !== undefined && typeof v !== "boolean")) return false;
@@ -154,6 +154,20 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
         if (!["feed", "connect", "location"].includes(value.workspace) || row.formattedText || row.options || row.toggle) return false;
       }
       if (row.avatar !== undefined && !admitAvatar(row.avatar)) return false;
+      if (row.locationShare !== undefined) {
+        const share = row.locationShare;
+        if (value.workspace !== "location" || !share || !closed(share, ["count", "singleGrant", "startedAt", "endsAt", "footer", "people", "audience"]) ||
+            !Number.isSafeInteger(share.count) || share.count < 1 || typeof share.singleGrant !== "boolean" ||
+            [share.startedAt, share.endsAt].some(time => time !== undefined && (typeof time !== "number" || !Number.isFinite(time) || time < 0 || time > 8.64e15)) ||
+            share.footer !== undefined && !text(share.footer, 256) || !Array.isArray(share.people) || share.people.length > 2 || share.people.length > share.count ||
+            !share.people.every((person: NonNullable<NativeDrawerRow["avatar"]>) => person && person.active === undefined && person.verified === undefined && admitAvatar(person)) ||
+            row.avatar || row.formattedText || row.options || row.toggle || row.prominent !== undefined || row.readOnly !== true ||
+            !row.inlineActions?.length || row.inlineActions.length > 3) return false;
+        const audience = share.audience;
+        if (audience !== undefined && (!audience || !closed(audience, ["locationCount", "smsCount", "bothCount"]) ||
+            [audience.locationCount, audience.smsCount, audience.bothCount].some(count => !Number.isSafeInteger(count) || count < 0 || count > share.count) ||
+            audience.bothCount > Math.min(audience.locationCount, audience.smsCount))) return false;
+      }
       if (row.inlineActions !== undefined) {
         if (!Array.isArray(row.inlineActions) || !row.inlineActions.length || row.inlineActions.length > 6) return false;
         for (const action of row.inlineActions) {

@@ -669,6 +669,17 @@ describe("private route-body presentation boundary", () => {
     const location: NativeWorkspaceProjection = { ...rich, workspace: "location", sections: [{ id: "people", layout: "cards",
       rows: [{ ...row, milestone: undefined, avatar: { initials: "PA", verified: true, active: true } }] }] };
     expect(validNativeWorkspace(location)).toBe(true);
+    const sharing = { ...location, sections: [{ id: "sharing", rows: [{ id: "active", label: "Sharing with 2 people", enabled: true, readOnly: true,
+      locationShare: { count: 2, singleGrant: false, people: [{ initials: "PA" }, { initials: "PB" }], audience: { locationCount: 2, smsCount: 1, bothCount: 1 } },
+      inlineActions: [{ id: "manage", label: "Manage", enabled: true, tone: "ghost" as const }] }] }] };
+    expect(validNativeWorkspace(sharing)).toBe(true);
+    expect(validNativeWorkspace({ ...sharing, workspace: "calendar" })).toBe(false);
+    const shareRow = sharing.sections[0]!.rows[0]!;
+    const withShare = (patch: object) => ({ ...sharing, sections: [{ id: "sharing", rows: [{ ...shareRow, locationShare: { ...shareRow.locationShare, ...patch } }] }] });
+    expect(validNativeWorkspace(withShare({ singleGrant: true, startedAt: 1_800_000_000_000, endsAt: 1_800_003_600_000 }))).toBe(true);
+    for (const patch of [{ people: [{ initials: "PA", url: "https://untrusted.test/photo" }] }, { startedAt: null }, { endsAt: Infinity },
+      { count: 0 }, { audience: { locationCount: 1, smsCount: 0, bothCount: 1 } }, { action: "stop" }])
+      expect(validNativeWorkspace(withShare(patch) as never)).toBe(false);
     const primaryLocation = { ...location, sections: [{ id: "link", rows: [{ id: "create-link", label: "Create link", enabled: true, prominent: true }] }] };
     expect(validNativeWorkspace(primaryLocation)).toBe(true);
     expect(validNativeWorkspace({ ...primaryLocation, workspace: "calendar" })).toBe(false);

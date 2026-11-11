@@ -189,9 +189,10 @@ struct NativeWorkspaceProjection: Decodable {
               let sections = value["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows", "layout"]), !(section["layout"] is NSNull), let rows = section["rows"] as? [[String: Any]] else { return false }
-            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) { return false }
+            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) { return false }
             for row in rows {
                 if let raw = row["formattedText"], !NativeMemoryText.closed(raw) { return false }
+                if let raw = row["locationShare"], !NativeWorkspaceLocationShare.closed(raw) { return false }
                 if let raw = row["avatar"] {
                     guard NativeWorkspaceAvatar.closed(raw) else { return false }
                 }
@@ -262,6 +263,12 @@ struct NativeWorkspaceProjection: Decodable {
                 if let avatar = row.avatar {
                     avatars += 1; avatarBytes += avatar.jpeg?.utf16.count ?? 0
                     guard avatar.valid, avatars <= 48, avatarBytes <= 1_920_000, avatar.verified == nil || ["connect", "location"].contains(workspace), avatar.active == nil || workspace == "location" else { return false }
+                }
+                if let share = row.locationShare {
+                    guard workspace == "location", share.valid, row.avatar == nil, row.formattedText == nil, row.options == nil, row.toggle != true,
+                          row.prominent == nil, row.readOnly == true, let actions = row.inlineActions, (1...3).contains(actions.count) else { return false }
+                    avatars += share.people.count; avatarBytes += share.people.reduce(0) { $0 + ($1.jpeg?.utf16.count ?? 0) }
+                    guard avatars <= 48, avatarBytes <= 1_920_000 else { return false }
                 }
                 if let actions = row.inlineActions {
                     guard (1...6).contains(actions.count), actions.filter({ $0.avatar != nil }).count <= 1 else { return false }
@@ -356,6 +363,95 @@ struct NativeWorkspaceProjection: Decodable {
         } }
     }
 }
+/// The native clock paints locally. The retained feature still owns expiry and
+/// server reconciliation; this view never grants, revokes or starts a reader.
+private struct NativeLocationShareSchedule: TimelineSchedule {
+    let endsAt: Double?
+    func entries(from startDate: Date, mode: Mode) -> Entries { Entries(date: startDate, endsAt: endsAt) }
+    struct Entries: Sequence, IteratorProtocol {
+        var date: Date
+        let endsAt: Double?
+        mutating func next() -> Date? {
+            let current = date
+            date.addTimeInterval(endsAt.map { $0 - current.timeIntervalSince1970 * 1000 > 3_600_000 ? 15 : 1 } ?? 1)
+            return current
+        }
+    }
+}
+@available(iOS 26.0, *)
+private struct NativeLocationShareSummary: View {
+    let share: NativeWorkspaceLocationShare
+    let title: String
+    private func duration(_ milliseconds: Double) -> String {
+        let seconds = Int(max(0, milliseconds) / 1000)
+        if milliseconds < 3_600_000 { return String(format: "%02d:%02d", seconds / 60, seconds % 60) }
+        if milliseconds < 86_400_000 { return String(format: "%dh %02dm", seconds / 3600, (seconds % 3600) / 60) }
+        return "\(seconds / 86400)d \((seconds % 86400) / 3600)h"
+    }
+    private var identities: some View {
+        HStack(spacing: -8) {
+            if share.people.isEmpty {
+                ForEach(0..<min(share.count, 2), id: \.self) { index in
+                    NativeProfilePortraitImage(data: nil, initials: "\(index + 1)", initialsFont: .caption2.weight(.medium)).frame(width: 28, height: 28)
+                        .overlay(Circle().stroke(Color(uiColor: .secondarySystemGroupedBackground), lineWidth: 2))
+                }
+            } else {
+                ForEach(Array(share.people.enumerated()), id: \.offset) { _, person in
+                    NativeProfilePortraitImage(data: person.jpeg, initials: person.initials, initialsFont: .caption2.weight(.medium)).frame(width: 28, height: 28)
+                        .overlay(Circle().stroke(Color(uiColor: .secondarySystemGroupedBackground), lineWidth: 2))
+                }
+            }
+            let visible = share.people.isEmpty ? min(share.count, 2) : share.people.count
+            if share.count > visible {
+                Text("+\(share.count - visible)").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 14)
+            }
+        }.accessibilityHidden(true)
+    }
+    @ViewBuilder private var audience: some View {
+        if let audience = share.audience {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { audienceLabels(audience) }
+                VStack(alignment: .leading, spacing: 6) { audienceLabels(audience) }
+            }.font(.subheadline).foregroundStyle(.secondary)
+            if audience.bothCount > 0 {
+                Text("\(audience.bothCount) \(audience.bothCount == 1 ? "person receives" : "people receive") both").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+    @ViewBuilder private func audienceLabels(_ audience: NativeWorkspaceLocationShare.Audience) -> some View {
+        if audience.locationCount > 0 { Label("\(audience.locationCount) Location \(audience.locationCount == 1 ? "share" : "shares")", systemImage: "mappin.and.ellipse") }
+        if audience.smsCount > 0 { Label("\(audience.smsCount) SMS", systemImage: "message").foregroundStyle(.red) }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                identities
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.body.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    if share.singleGrant && (share.startedAt != nil || share.endsAt != nil) {
+                        TimelineView(NativeLocationShareSchedule(endsAt: share.endsAt)) { context in
+                            let now = context.date.timeIntervalSince1970 * 1000
+                            let elapsed = max(0, now - (share.startedAt ?? now))
+                            let remaining = share.endsAt.map { max(0, $0 - now) }
+                            VStack(alignment: .leading, spacing: 6) {
+                            Text(share.endsAt != nil && remaining == 0 ? "Stopping now" : "\(duration(remaining ?? elapsed)) \(share.endsAt == nil ? "so far" : "left")")
+                                .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                                .accessibilityLabel(share.endsAt != nil && remaining == 0 ? "Sharing is stopping now" : "\(duration(remaining ?? elapsed)) \(share.endsAt == nil ? "elapsed" : "remaining")")
+                            if let start = share.startedAt, let end = share.endsAt, end > start {
+                                ProgressView(value: min(1, max(0, (now - start) / (end - start))))
+                                    .tint(.green).accessibilityHidden(true)
+                            }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    if let footer = share.footer { Text(footer).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            audience
+        }
+    }
+}
+
 /// Identity and decisions share a visual row, while each tap has its own
 /// registered action. A secondary control is never nested inside a button.
 @available(iOS 26.0, *)
@@ -413,7 +509,14 @@ private struct NativeWorkspaceRichRow: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if row.avatar?.active != nil, let actions = row.inlineActions {
+            if let share = row.locationShare, let actions = row.inlineActions {
+                HStack {
+                    Label("Sharing now", systemImage: "circle.fill").font(.caption.weight(.semibold)).foregroundStyle(.green)
+                    Spacer(minLength: 8)
+                    if let first = actions.first { decision(first) }
+                }
+                NativeLocationShareSummary(share: share, title: row.label)
+            } else if row.avatar?.active != nil, let actions = row.inlineActions {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) { primary; ForEach(actions) { decision($0) } }
                     VStack(alignment: .leading, spacing: 12) { primary; HStack(spacing: 8) { ForEach(actions) { decision($0) } } }
@@ -430,7 +533,8 @@ private struct NativeWorkspaceRichRow: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage)
             }
-            if row.avatar?.active == nil, let actions = row.inlineActions {
+            if row.avatar?.active == nil, let allActions = row.inlineActions {
+                let actions = row.locationShare == nil ? allActions : Array(allActions.dropFirst())
                 if row.artworkId == "location-share-pulse" {
                     ForEach(actions) { action in decision(action).controlSize(.large) }.padding(.leading, 76)
                 } else {
@@ -812,7 +916,7 @@ private struct NativeWorkspaceCollectionRow: View {
     var body: some View {
         if let formatted = row.formattedText {
             NativeMemoryTextBody(text: formatted, enabled: row.enabled && row.pending != true && model.pending == nil) { model.choice("row", row: $0) }
-        } else if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil || row.artworkId == "location-share-pulse" {
+        } else if row.avatar != nil || row.inlineActions != nil || row.locationShare != nil || row.milestone != nil || row.expanded != nil || row.artworkId == "location-share-pulse" {
             NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
         } else if row.toggle == true, let options = row.options, options.count == 2 {
             Toggle(isOn: Binding(get: { options[0].selected }, set: { value in model.choice("row", row: options[value ? 0 : 1].id) })) {

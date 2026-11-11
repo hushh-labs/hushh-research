@@ -9,7 +9,7 @@ import { NativeWorkspaceSurface, type NativeWorkspaceSurfaceSection } from "@/li
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 
 type LocationTab = "now" | "people" | "links";
-type LocationModel = { owner: string | null; tab: LocationTab; flow: string; richRoot?: boolean; select: (tab: LocationTab) => void; root: NativeWorkspaceSurfaceSection[] };
+type LocationModel = { owner: string | null; tab: LocationTab; flow: string; select: (tab: LocationTab) => void; root: NativeWorkspaceSurfaceSection[] };
 type Scope = { model: LocationModel; frame: RefObject<HTMLDivElement | null>; enabled: boolean; current: () => boolean; presentation: ReturnType<typeof useNativeWorkspacePresentation> };
 const LocationPresentation = createContext<Scope | null>(null);
 
@@ -30,7 +30,7 @@ export function NativeLocationRoute({ model, frame, children }: { model: Locatio
 }
 export function useNativeLocationPaneActive(tab: LocationTab) {
   const scope = useContext(LocationPresentation);
-  return Boolean(scope?.enabled && !scope.model.richRoot && scope.presentation.status.phase !== "web" && scope.model.flow === "none" && scope.model.tab === tab);
+  return Boolean(scope?.enabled && scope.presentation.status.phase !== "web" && scope.model.flow === "none" && scope.model.tab === tab);
 }
 export function NativeLocationLayer(props: { tab?: LocationTab; flow?: string; title: string; sections: NativeWorkspaceSurfaceSection[];
   search?: { query: string; label: string; change: (query: string) => void }; webChild?: boolean; contentPresentation?: "native" | "rich"; children: ReactNode }) {
@@ -40,7 +40,7 @@ export function NativeLocationLayer(props: { tab?: LocationTab; flow?: string; t
   // native owns their visible controls. No second reader or timer is started.
   return <>{props.children}{active && scope ? <NativeWorkspaceSurface owner={scope.model.owner!} workspace="location" active current={scope.current}
     backPath={ROUTES.ONE_LOCATION} presentation={scope.presentation} frame={scope.frame} title={props.title}
-    contentPresentation={props.flow ? props.contentPresentation : scope.model.richRoot ? "rich" : props.contentPresentation} sections={[...(!props.flow ? scope.model.root : []), ...props.sections]} search={props.search} webChild={props.webChild} fallback={null}
+    contentPresentation={props.contentPresentation} sections={[...(!props.flow ? scope.model.root : []), ...props.sections]} search={props.search} webChild={props.webChild} fallback={null}
     tabs={!props.flow ? { label: "Location sections", options: (["now", "people", "links"] as const).map(tab => ({ key: tab,
       label: tab === "now" ? "Now" : tab === "people" ? "People" : "Links", selected: scope.model.tab === tab, run: () => scope.model.select(tab) })) } : undefined} /> : null}</>;
 }

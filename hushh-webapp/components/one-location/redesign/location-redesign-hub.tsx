@@ -71,7 +71,7 @@ import {
   groupGrantsByCounterpart,
   type OneLocationGrantLaneGroup,
 } from "@/lib/one-location/grant-lanes";
-import { parseTimestamp } from "@/lib/one-location/share-countdown";
+import { formatShareEndsAt, parseTimestamp } from "@/lib/one-location/share-countdown";
 import {
   resolveShareDurationHours,
   shareReplacementsLosingTime,
@@ -187,6 +187,8 @@ import { approveShorterDurationOptions } from "@/lib/one-location/approve-durati
 import { AskForMoreTime, type RequestMoreTimeHours } from "./request-more-time";
 import {
   LiveShareStatusCard,
+  liveShareTitle,
+  liveShareTimeSummary,
   ShareCountdownText,
   type LiveShareStatus,
 } from "@/components/one-location/redesign/live-share-status-card";
@@ -1184,7 +1186,7 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
     ] : []),
   ] }];
   const renderLocationSurface = (children: ReactNode) => (
-    <NativeLocationRoute model={{ owner: vm.userId, tab, flow, richRoot: Boolean(vm.liveShare), select: next => setTab(next), root: nativeRoot }} frame={nativeFrame ?? localFrame}>
+    <NativeLocationRoute model={{ owner: vm.userId, tab, flow, select: next => setTab(next), root: nativeRoot }} frame={nativeFrame ?? localFrame}>
       <div ref={nativeFrame ? undefined : localFrame}>
         <LocationFeatureRoot vm={vm} pushPrompt={pushPrompt} liveShareDurationTriggerRef={liveShareDurationTriggerRef}>{children}</LocationFeatureRoot>
       </div>
@@ -2127,17 +2129,28 @@ function NowHub({
       voiceActionId: "location.open_settings",
     },
   ];
+  const share = vm.liveShare;
+  const singleGrant = Boolean(share?.grantCount === 1 && share.stoppableGrantId);
+  const endsAt = parseTimestamp(share?.endsAt);
+  const startedAt = parseTimestamp(share?.startedAt);
+  const footer = share ? !singleGrant && share.audience ? undefined :
+    (!share.audience ? liveShareTimeSummary(share) : null) ?? (endsAt === null ? "Until you stop" : `Ends ${formatShareEndsAt(endsAt)}`) : undefined;
   const nativeSections: NativeWorkspaceSurfaceSection[] = [
-    { key: "sharing", rows: vm.liveShare ? [
-      { key: "active", label: `Sharing with ${vm.liveShare.count} ${vm.liveShare.count === 1 ? "person" : "people"}`,
-        detail: vm.liveShare.endsAt ? vm.expiresCountdownLabel(vm.liveShare.endsAt) : "Until you stop", run: onOpenActiveShares, web: true },
-      ...(vm.liveShare.grantCount === 1 && vm.liveShare.stoppableGrantId ? [
-        { key: "stop", label: "Stop sharing", destructive: true, enabled: vm.revokingGrantId !== vm.liveShare.stoppableGrantId,
-          pending: vm.revokingGrantId === vm.liveShare.stoppableGrantId, run: () => vm.onStopGrant(vm.liveShare!.stoppableGrantId!) },
-        ...(!vm.liveShare.singleGrantIsSms ? [{ key: "duration", label: "Change duration", run: () => vm.onEditLiveShareDurationStart(undefined), web: true }] : []),
-      ] : []),
-      { key: "share-more", label: "Share with more people", run: onStartShare, web: true },
-    ] : [{ key: "share-intro", label: "You're not sharing", detail: "Choose a Circle or contact.", artworkId: "location-share-pulse",
+    { key: "sharing", rows: share ? [{ key: "active", label: liveShareTitle(share), locationShare: {
+      count: share.count, singleGrant, ...(startedAt === null ? {} : { startedAt }), ...(endsAt === null ? {} : { endsAt }),
+      ...(footer ? { footer } : {}),
+      people: (share.people?.length ? share.people.map(person => ({ name: person.displayName, photoUrl: person.photoUrl })) :
+        share.names.map(name => ({ name }))).slice(0, 2),
+      ...(share.audience ? { audience: { locationCount: share.audience.locationCount, smsCount: share.audience.smsCount, bothCount: share.audience.bothCount } } : {}),
+    }, inlineActions: [
+      singleGrant ? { key: "stop", label: share.singleGrantIsSms ? "Stop SMS" : "Stop", tone: "danger",
+        enabled: vm.revokingGrantId !== share.stoppableGrantId, pending: vm.revokingGrantId === share.stoppableGrantId,
+        run: () => vm.onStopGrant(share.stoppableGrantId!) } :
+        { key: "manage", label: "Manage", tone: "ghost", run: onOpenActiveShares },
+      { key: "share-more", label: "Share with more", tone: "primary", run: onStartShare, web: true },
+      ...(singleGrant && !share.singleGrantIsSms ? [{ key: "duration", label: endsAt === null ? "Set an end time" : "Change end time", tone: "ghost" as const,
+        run: () => vm.onEditLiveShareDurationStart(undefined), web: true }] : []),
+    ] }] : [{ key: "share-intro", label: "You're not sharing", detail: "Choose a Circle or contact.", artworkId: "location-share-pulse",
       inlineActions: [{ key: "share", label: "Share location", tone: "primary", run: onStartShare, web: true }] }] },
     { key: "actions", layout: "tiles", rows: [
       { key: "ask", label: "Ask for location", symbol: "person.crop.circle.badge.questionmark", run: onRequestLocation, web: true },
@@ -2750,13 +2763,30 @@ function LocationDetailFlow({
   }[kind];
 
   const groups = kind === "active-shares" ? ownerGrantGroups : receivedGrantGroups;
+  const activeSections: NativeWorkspaceSurfaceSection[] = ([false, true] as const).flatMap(sms => {
+    const rows: NativeWorkspaceSurfaceSection["rows"] = ownerGrantGroups.flatMap(group => group.grants.filter(grant => isSmsTriggeredGrant(grant) === sms).map(grant => {
+      const end = grant.durationMode === "until_stopped" ? null : parseTimestamp(grant.expiresAt);
+      const start = parseTimestamp(grant.createdAt);
+      return { key: grant.id, label: vm.grantRecipientLabel(grant), locationShare: { count: 1, singleGrant: true,
+        ...(start === null ? {} : { startedAt: start }), ...(end === null ? {} : { endsAt: end }),
+        footer: end === null ? "Until you stop" : `Ends ${formatShareEndsAt(end)}`,
+        people: [{ name: vm.grantRecipientLabel(grant), photoUrl: grant.recipientPhotoUrl }],
+      }, inlineActions: [
+        { key: `${grant.id}:stop`, label: sms ? "Stop SMS" : "Stop", tone: "danger" as const,
+          enabled: vm.revokingGrantId !== grant.id, pending: vm.revokingGrantId === grant.id, run: () => vm.onStopGrant(grant.id) },
+        ...(!sms ? [{ key: `${grant.id}:duration`, label: end === null ? "Set end time" : "Change time", tone: "ghost" as const,
+          enabled: vm.revokingGrantId !== grant.id, run: () => vm.onEditLiveShareDurationStart(grant.id), web: true }] : []),
+      ] };
+    }));
+    return rows.length ? [{ key: sms ? "sms-shares" : "location-shares", title: sms ? "SMS" : "Location shares", layout: "cards", rows }] : [];
+  });
   const nativeSections: NativeWorkspaceSurfaceSection[] = [{ key: "summary", rows: [{ key: "summary", label: copy.title, detail: copy.description }] },
-    { key: "entries", rows: kind === "needs-review" ? (vm.pendingOwnerRequests.length ? vm.pendingOwnerRequests.map(request => ({
+    ...(kind === "active-shares" && activeSections.length ? activeSections : [{ key: "entries", rows: kind === "needs-review" ? (vm.pendingOwnerRequests.length ? vm.pendingOwnerRequests.map(request => ({
       key: request.id, label: vm.requesterLabel(request), detail: locationAskPromptLine(request, vm.nowMs), run: () => setRichReview(true), web: true,
     })) : [{ key: "empty", label: "No requests to review" }]) : groups.length ? groups.map(group => ({
       key: group.counterpartUserId, label: kind === "active-shares" ? vm.grantRecipientLabel(group.primaryGrant) : vm.grantOwnerLabel(group.primaryGrant),
       detail: shareGroupStatusLabel({ group, countdownLabel: vm.expiresCountdownLabel, incoming: kind === "shared-with-me" }), run: () => setRichReview(true), web: true,
-    })) : [{ key: "empty", label: kind === "active-shares" ? "Not sharing your location" : "No one is sharing with you" }] },
+    })) : [{ key: "empty", label: kind === "active-shares" ? "Not sharing your location" : "No one is sharing with you" }] }]),
     ...(kind === "active-shares" && onStartShare ? [{ key: "share", rows: [{ key: "share", label: "Share location", run: onStartShare, web: true }] }] : []),
     ...(kind === "shared-with-me" && onRequestLocation ? [{ key: "ask", rows: [{ key: "ask", label: "Ask for location", run: onRequestLocation, web: true }] }] : []),
   ];
