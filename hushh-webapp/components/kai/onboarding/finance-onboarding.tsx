@@ -2,14 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowUpRight,
   Building2,
   Check,
+  ChevronRight,
   Database,
   FileUp,
 } from "@/components/icons";
 import { usePathname } from "next/navigation";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { Button } from "@/components/ui/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { FinanceDemoPhone } from "./finance-demo-phone";
@@ -233,7 +232,6 @@ export function FinanceSourcePicker({
   status?: string;
   error?: string | null;
 }) {
-  const [selected, setSelected] = useState<FinanceSource | null>(null);
   const pathname = usePathname();
   useBackLayer(pathname, 2, () => {
     if (busy) return true;
@@ -241,11 +239,7 @@ export function FinanceSourcePicker({
     onBack();
     return true;
   });
-  const source =
-    (selected === "plaid" && !plaidAvailable) ||
-    (selected === "sample" && !sampleAvailable)
-      ? "statement"
-      : selected ?? (plaidAvailable ? "plaid" : "statement");
+  // Every source is its own button: tapping a card starts that path at once.
   const options = [
     {
       id: "plaid" as const,
@@ -255,6 +249,7 @@ export function FinanceSourcePicker({
         : "Bank connection unavailable",
       Icon: Building2,
       disabled: !plaidAvailable,
+      start: onConnect,
     },
     {
       id: "statement" as const,
@@ -262,21 +257,23 @@ export function FinanceSourcePicker({
       description: "PDF or CSV",
       Icon: FileUp,
       disabled: false,
+      start: onStatement,
     },
     {
       id: "sample" as const,
       title: "Try a sample",
-      description: "Sample holdings",
+      description: sampleAvailable ? "Sample holdings" : "Sample unavailable",
       Icon: Database,
       disabled: !sampleAvailable,
+      start: onSample,
     },
   ];
   return (
     <section className={`app-type-compact ${styles.surface} ${styles.sourcePicker}`} aria-label="Add your portfolio">
       <div className={styles.sourceContent}>
         <div className={styles.importHeading}>
-          <p className={styles.eyebrow}>Optional</p>
-          <PageHeader title="Add your portfolio" accent="neutral" />
+          <p className={styles.sourceEyebrow}>Optional</p>
+          <h1 className={styles.sourceTitle}>Add your portfolio</h1>
         </div>
         <div
           className={styles.sourceGrid}
@@ -284,60 +281,35 @@ export function FinanceSourcePicker({
           aria-label="Portfolio source"
           data-testid="finance-setup-source-options"
         >
-          {options.map(({ id, title, description, Icon, disabled }) => (
+          {options.map(({ id, title, description, Icon, disabled, start }) => (
             <button
               key={id}
               type="button"
               className={styles.sourceCard}
               data-source={id}
               data-testid={`finance-source-${id}`}
-              aria-pressed={source === id}
               disabled={disabled || busy}
-              onClick={() => setSelected(id)}
+              onClick={() => {
+                if (!busy) start();
+              }}
             >
-              <span className={styles.selection} aria-hidden="true">
-                {source === id && <Check size={14} />}
+              <span className={styles.sourceIcon} aria-hidden="true"><Icon size={22} /></span>
+              <span className={styles.cardText}>
+                <span className={styles.cardTitle}>{title}</span>
+                <span className={styles.description}>{description}</span>
               </span>
-              {id === "plaid" ? (
-                <span className={styles.recommended}>Recommended</span>
-              ) : (
-                <span className={styles.sourceIcon} aria-hidden="true"><Icon size={22} /></span>
-              )}
-              <span className={styles.cardTitle}>{title}</span>
-              <span className={styles.description}>{description}</span>
-              {id === "plaid" && (
-                <span className={styles.connectionArt} aria-hidden="true">
-                  <span className={styles.sourceIcon}><Building2 size={22} /></span>
-                  <span className={styles.connectionLine} data-plaid-connection />
-                  <span className={styles.oneIcon}><ArrowUpRight size={22} /></span>
-                </span>
-              )}
+              <ChevronRight size={18} className={styles.chevron} aria-hidden="true" />
             </button>
           ))}
         </div>
       </div>
       <div className={styles.sourceFooter}>
         {error && <p className={styles.error} role="alert">{error}</p>}
-        <Button
-          type="button"
-          size="compact"
-          disabled={busy}
-          onClick={() => {
-            if (busy) return;
-            if (source === "plaid") onConnect();
-            else if (source === "statement") onStatement();
-            else onSample();
-          }}
-          aria-busy={busy}
-        >
-          {busy
-            ? (status ?? "Preparing…")
-            : source === "plaid"
-              ? "Connect account"
-              : source === "statement"
-                ? "Upload statement"
-                : "Try sample"}
-        </Button>
+        {busy && (
+          <p className="ui-text-row-description text-muted-foreground" role="status">
+            {status ?? "Preparing…"}
+          </p>
+        )}
         <button
           type="button"
           className="ui-text-row-description min-h-11 px-4 text-muted-foreground"
