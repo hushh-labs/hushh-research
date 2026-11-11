@@ -24,6 +24,7 @@ from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.events import bounded_adk_events
 from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
 from hushh_mcp.hushh_adk.telemetry import private_telemetry
+from hushh_mcp.hushh_adk.tool_history import validate_tool_result_history
 
 logger = logging.getLogger(__name__)
 _MAX_HISTORY = 12
@@ -77,6 +78,7 @@ class _CallBudget(BasePlugin):
         self.tool_results: list[types.FunctionResponse] = []
 
     async def before_model_callback(self, *, callback_context: Any, llm_request: Any):
+        validate_tool_result_history(callback_context, llm_request)
         # AgentTool defaults to sharing the parent's plugins. This same instance
         # therefore counts nested calls too, unlike per-invocation RunConfig.
         if self.calls >= self.limit:

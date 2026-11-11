@@ -33,6 +33,7 @@ class _NativeTask:
     sessions: InMemorySessionService
     session_id: str
     runner: Runner
+    goal: str
     calls: int = 0
     segments: int = 0
 
@@ -86,17 +87,21 @@ class NativeAdkBrowserModel:
                 sessions,
                 session_id,
                 Runner(agent=agent, app_name="pod_browser", session_service=sessions),
+                goal,
             )
             self._tasks[task_id] = context
+        if context.goal != goal:
+            raise BrowserRefused("BROWSER_PROCESSING_TERMS_MISMATCH")
         if context.control is not control or context.calls >= 60:
             raise BrowserRefused("BROWSER_CONTINUATION_LIMIT")
         runner, sessions, session_id = context.runner, context.sessions, context.session_id
         retained_agent = runner.agent
         if not isinstance(retained_agent, LlmAgent):
             raise BrowserRefused("BROWSER_TASK_COMPOSITION_UNAVAILABLE")
+        continuing = bool(context.segments)
         message = (
             await self._continuation_message(context, processing, retained_agent)
-            if context.segments
+            if continuing
             else types.Content(role="user", parts=[types.Part(text=goal)])
         )
         context.segments += 1
@@ -113,7 +118,19 @@ class NativeAdkBrowserModel:
                             invocation_id="browser_segment_" + uuid4().hex,
                             new_message=message,
                             run_config=RunConfig(
-                                max_llm_calls=60 - context.calls, telemetry=telemetry
+                                max_llm_calls=60 - context.calls,
+                                telemetry=telemetry,
+                                # ADK 2.14 retains completed tool context, but
+                                # substitutes the handback for the original
+                                # root-task input. Restore only that approved
+                                # input transiently, never another session turn.
+                                model_input_context=[
+                                    types.Content(
+                                        role="user", parts=[types.Part(text=context.goal)]
+                                    )
+                                ]
+                                if continuing
+                                else None,
                             ),
                         )
                     ) as events:
