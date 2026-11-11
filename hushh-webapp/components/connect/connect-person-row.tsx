@@ -61,7 +61,7 @@ export function ConnectPersonRow({
       </span>
       <span data-slot="settings-row-identity" className="min-w-0">
         <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
-          <span data-slot="settings-row-title" className="min-w-0 underline-offset-4 group-hover/connect-person:underline [overflow-wrap:anywhere]">
+          <span data-slot="settings-row-title" className="min-w-0 group-hover/connect-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere]">
             {title}
           </span>
         </span>

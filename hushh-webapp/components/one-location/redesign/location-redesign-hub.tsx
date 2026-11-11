@@ -2284,7 +2284,7 @@ function LocationMenuListRow({
         {leading}
         <RowLabel
           as="span"
-          className="min-w-0 underline-offset-4 group-hover:underline"
+          className="min-w-0 group-hover:text-[color:var(--app-accent)]"
         >
           {title}
         </RowLabel>
@@ -3335,7 +3335,7 @@ function LocationSettingsFlow({
               secondary={
                 <Button
                   type="button"
-                  variant="link"
+                  variant="text"
                   size="standard"
                   className={QUIET_FLOW_ACTION_CLASSNAME}
                   disableHoverRipple
@@ -5395,7 +5395,7 @@ function ShareFlow({
             }
             secondary={
               <Button
-                variant="link"
+                variant="text"
                 size="standard"
                 onClick={() => onClose()}
                 className={QUIET_FLOW_ACTION_CLASSNAME}
@@ -5687,7 +5687,7 @@ function LiveShareDurationEditor({
         }
         secondary={
           <Button
-            variant="link"
+            variant="text"
             size="standard"
             className={QUIET_FLOW_ACTION_CLASSNAME}
             disableHoverRipple
@@ -6284,7 +6284,7 @@ function AskFlow({
               }
               secondary={
                 <Button
-                  variant="link"
+                  variant="text"
                   size="standard"
                   onClick={() => onClose()}
                   className={QUIET_FLOW_ACTION_CLASSNAME}

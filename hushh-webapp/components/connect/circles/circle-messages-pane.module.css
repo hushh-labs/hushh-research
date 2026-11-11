@@ -17,7 +17,7 @@
 .listHeader a, .back { width: var(--messages-control-size); min-width: var(--messages-control-size); height: var(--messages-control-size); display: grid; place-items: center; border-radius: 50%; color: var(--chat-accent); }
 @media (hover: hover) {
   .listHeader a:hover, .back:hover { opacity: .8; }
-  .row:hover .rowText strong { text-decoration: underline; text-underline-offset: 4px; }
+  .row:hover .rowText strong { color: var(--chat-accent); }
 }
 .row { min-height: var(--messages-row-size); display: flex; align-items: center; gap: var(--messages-row-gap); padding: var(--messages-row-inset-block) var(--messages-row-inset-inline); margin-inline: var(--messages-list-inset); width: calc(100% - 2 * var(--messages-list-inset)); border-radius: var(--messages-row-radius); text-align: left; }
 .row:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: -2px; }
