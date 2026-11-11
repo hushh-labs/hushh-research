@@ -5323,7 +5323,6 @@ function ShareFlow({
         </SectionCard>
 
         <SelectedRecipientsRail
-          title="Can see you"
           ariaLabel="People who can see your location"
           recipients={selectedReady}
           recipientLabel={vm.recipientLabel}
@@ -5332,7 +5331,7 @@ function ShareFlow({
               type="button"
               onClick={backToPeople}
               aria-label="Change who can see you"
-              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+              className="flex min-h-11 min-w-11 shrink-0 items-center rounded-full pe-3 text-sm font-semibold text-[color:var(--app-accent)]"
             >
               Edit
             </button>
@@ -6463,8 +6462,8 @@ function SelectedRecipientsRail({
   recipientLabel,
   trailing,
 }: {
-  title: string;
-  ariaLabel?: string;
+  title?: string;
+  ariaLabel: string;
   recipients: OneLocationRecipient[];
   recipientLabel: (recipient: OneLocationRecipient) => string;
   trailing?: ReactNode;
@@ -6476,14 +6475,16 @@ function SelectedRecipientsRail({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 px-1">
-        <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
-          {title}
-        </p>
+        {title ? (
+          <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
+            {title}
+          </p>
+        ) : null}
         {trailing}
       </div>
       {compact ? (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
@@ -6516,7 +6517,7 @@ function SelectedRecipientsRail({
         </div>
       ) : (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"

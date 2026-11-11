@@ -4502,8 +4502,14 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("heading", { name: "Who can see you?" }),
     ).toBeNull();
-    await waitFor(() => expect(screen.getByText("Can see you")).toBeTruthy());
-    expect(screen.getByText("Abdul Rashid")).toBeTruthy();
+    const recipients = await screen.findByRole("list", {
+      name: "People who can see your location",
+    });
+    expect(within(recipients).getByText("Abdul Rashid")).toBeTruthy();
+    expect(screen.queryByText("Can see you", { exact: true })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Change who can see you" }),
+    ).toHaveTextContent("Edit");
     const startSharing = screen.getByRole("button", { name: "Start sharing" });
     expect(startSharing).toBeEnabled();
     fireEvent.click(startSharing);
