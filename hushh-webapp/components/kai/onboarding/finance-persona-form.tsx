@@ -126,12 +126,16 @@ export function FinancePersonaForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const saving = useRef(false);
+  const [picked, setPicked] = useState<Record<string, string>>({});
   const questions = onboarding ? KAI_PREFERENCE_QUESTIONS : editQuestions;
   const [horizon, drawdown, volatility, capacity] = questions;
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (saving.current) return;
     const data = new FormData(event.currentTarget);
+    // Onboarding answers live in state (tap to choose, tap again to clear); a
+    // question left unanswered is saved as "not sure yet".
+    if (onboarding) for (const [key, value] of Object.entries(picked)) data.set(key, value);
     const preferences = {
       investment_horizon: answer(data, horizon),
       drawdown_response: answer(data, drawdown),
@@ -177,31 +181,18 @@ export function FinancePersonaForm({
     >
       {onboarding ? (
         <header>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="ui-text-helper-text">Finance setup</p>
-            <ShellActionSurface
-              type="button"
-              variant="pill"
-              className="min-h-11 ui-text-compact-button-label"
-              disabled={busy}
-              onClick={() => {
-                if (!saving.current) onDone();
-              }}
-            >
-              Skip all
-            </ShellActionSurface>
-          </div>
+          <p className="ui-text-helper-text">Finance setup</p>
           <h1 className="ui-text-page-title">
             Let’s build your financial persona
           </h1>
         </header>
       ) : null}
-      <p className="ui-text-body">
-        {onboarding
-          ? "Think about the investments you plan to add to Finance."
-          : "Think about the investments you want One to review."}{" "}
-        Your answers help One tailor your portfolio review.
-      </p>
+      {onboarding ? null : (
+        <p className="ui-text-body">
+          Think about the investments you want One to review. Your answers help
+          One tailor your portfolio review.
+        </p>
+      )}
       <div className={styles.questions}>
         {questions.map((question, index) => {
           const hintId = `${id}-${question.id}`;
@@ -222,7 +213,24 @@ export function FinancePersonaForm({
                   {question.hint}
                 </p>
               ) : null}
-              {[
+              {onboarding
+                ? question.options.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={styles.choice}
+                      aria-pressed={picked[question.id] === value}
+                      onClick={() =>
+                        setPicked((current) => {
+                          const { [question.id]: chosen, ...rest } = current;
+                          return chosen === value ? rest : { ...rest, [question.id]: value };
+                        })
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))
+                : [
                 ...question.options,
                 { value: "unknown", label: "I’m not sure yet" },
               ].map(({ value, label }) => (
@@ -258,7 +266,7 @@ export function FinancePersonaForm({
           rippleEffect="fill"
           disabled={busy}
         >
-          {busy ? "Saving…" : "Save persona"}
+          {busy ? "Saving…" : onboarding ? "Continue" : "Save persona"}
         </ShellActionSurface>
       </footer>
     </form>
