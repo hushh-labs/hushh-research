@@ -2139,9 +2139,8 @@ export function PortfolioReviewView({
                   ? holdingTables.analyzeEligible : holdingsTab === "cash" ? holdingTables.cashSweep : holdingTables.nonAnalyzable}
                 globalSearchKeys={["symbol", "name"]}
                 searchPlaceholder="Search holdings"
-                initialPageSize={8}
+                paginate={false}
                 density="compact"
-                compactPagination
                 renderMobileCard={(position) => (
                   <article className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-b border-border py-2">
                     {positionLabel(position)}

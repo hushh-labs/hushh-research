@@ -116,9 +116,10 @@
 .scroll {
   max-height: 20rem;
   overflow: auto;
-  overscroll-behavior: contain;
 }
 .holding {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.5rem;
   display: flex;
   justify-content: space-between;
   gap: 1rem;

@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { StockListToolbar } from "@/components/kai/cards/stock-list-toolbar";
-import { CompactPaginationFooter } from "@/components/app-ui/compact-pagination-footer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -27,8 +26,10 @@ import type { StockQuoteLoader } from "@/lib/services/public-stock-quote";
 
 
 const ALL_FILTER = "all";
-const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
-const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
+// One continuous list: this many companies show first, and the next batch is
+// added as the end of the list nears the screen. Company facts load for the
+// rows shown, so a long list never asks the data provider for everything at once.
+const PICKS_BATCH_SIZE = 24;
 
 
 
@@ -91,10 +92,6 @@ export function RiaPicksList({
 }) {
   const isMobile = useIsMobile();
   void controlMode;
-  const pageSizeOptions: readonly number[] = isMobile
-    ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
-    : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
-  const defaultPageSize = pageSizeOptions[0] ?? 6;
   const [selectedSeed, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(
     null,
   );
@@ -103,8 +100,8 @@ export function RiaPicksList({
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
-  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
-  const [page, setPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(PICKS_BATCH_SIZE);
+  const endOfList = useRef<HTMLDivElement>(null);
   const [factsBySymbol, setFactsBySymbol] = useState<Record<string, KaiMarketCompanyFacts>>({});
 
   useEffect(() => {
@@ -112,15 +109,6 @@ export function RiaPicksList({
     return () => onSelectedSymbolChange?.(null);
   }, [onSelectedSymbolChange, selectedRow?.symbol]);
 
-
-  useEffect(() => {
-    setPageSize((current) => {
-      if (pageSizeOptions.includes(current)) {
-        return current;
-      }
-      return defaultPageSize;
-    });
-  }, [defaultPageSize, pageSizeOptions]);
 
   const availableSources = useMemo<KaiHomePickSource[]>(
     () =>
@@ -174,19 +162,30 @@ export function RiaPicksList({
   }, [query, rows, sectorFilter, tierFilter]);
 
   useEffect(() => {
-    setPage(1);
-  }, [activeSourceId, pageSize, query, sectorFilter, tierFilter]);
+    setVisibleCount(PICKS_BATCH_SIZE);
+  }, [activeSourceId, query, sectorFilter, tierFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-
+  const hasMoreRows = visibleCount < filteredRows.length;
+  const canObserve = typeof IntersectionObserver !== "undefined";
   useEffect(() => {
-    setPage((currentPage) => Math.min(currentPage, totalPages));
-  }, [totalPages]);
+    const end = endOfList.current;
+    if (!hasMoreRows || !end || !canObserve) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((count) => count + PICKS_BATCH_SIZE);
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [canObserve, hasMoreRows, visibleCount]);
 
-  const currentPageRows = useMemo(() => {
-    const startIndex = (page - 1) * pageSize;
-    return filteredRows.slice(startIndex, startIndex + pageSize);
-  }, [filteredRows, page, pageSize]);
+  const currentPageRows = useMemo(
+    () => filteredRows.slice(0, visibleCount),
+    [filteredRows, visibleCount],
+  );
   const visibleSymbolsKey = currentPageRows.map((row) => row.quote_symbol || row.symbol).join(",");
   useEffect(() => {
     if (!loadCompanyFacts || !visibleSymbolsKey) return;
@@ -200,10 +199,6 @@ export function RiaPicksList({
     return () => { cancelled = true; };
   }, [loadCompanyFacts, visibleSymbolsKey, rows]);
   const selectedFacts = selectedRow ? factsBySymbol[selectedRow.quote_symbol || selectedRow.symbol] || selectedRow.company_facts : undefined;
-
-  const goToPage = (nextPage: number) => {
-    setPage(Math.max(1, Math.min(totalPages, nextPage)));
-  };
 
   return (
     <div className={cn(styles.detail, "space-y-4")}>
@@ -300,16 +295,19 @@ export function RiaPicksList({
           </div>
         )}
 
-        <CompactPaginationFooter
-          total={filteredRows.length}
-          page={page}
-          pageSize={pageSize}
-          pageSizes={pageSizeOptions}
-          onPageChange={goToPage}
-          onPageSizeChange={setPageSize}
-          itemLabels={["company", "companies"]}
-          className="border-t border-border px-4 py-1"
-        />
+        {hasMoreRows ? (
+          <div ref={endOfList} className="border-t border-border px-4 py-1 text-center">
+            {canObserve ? null : (
+              <button
+                type="button"
+                className="ui-text-row-description min-h-11 px-4 text-muted-foreground"
+                onClick={() => setVisibleCount((count) => count + PICKS_BATCH_SIZE)}
+              >
+                Show more
+              </button>
+            )}
+          </div>
+        ) : null}
       </SettingsGroup>
 
       <KaiControlSurface

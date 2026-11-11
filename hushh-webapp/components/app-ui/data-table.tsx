@@ -50,7 +50,6 @@ import { Search } from "@/components/icons";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
-import { CompactPaginationFooter } from "@/components/app-ui/compact-pagination-footer";
 
 function buildPaginationItems(
   currentPage: number,
@@ -110,8 +109,16 @@ interface DataTableProps<TData, TValue> {
   density?: "default" | "compact";
   stickyHeader?: boolean;
   preserveMobilePaginationPosition?: boolean;
-  compactPagination?: boolean;
+  /**
+   * `false` shows every row in one continuous list instead of pages: no page
+   * controls, the page scrolls on phones, and a wider screen scrolls inside the
+   * table with the header kept in view. A list past ROW_LIMIT rows shows the
+   * first ROW_LIMIT and one "Show all" button, so a very large list stays smooth.
+   */
+  paginate?: boolean;
 }
+
+const ROW_LIMIT = 200;
 
 export function DataTable<TData, TValue>({
   columns,
@@ -133,8 +140,9 @@ export function DataTable<TData, TValue>({
   density = "default",
   stickyHeader = false,
   preserveMobilePaginationPosition = false,
-  compactPagination = false,
+  paginate = true,
 }: DataTableProps<TData, TValue>) {
+  const [showAll, setShowAll] = React.useState(false);
   const mobilePaginationRef = React.useRef<HTMLElement>(null);
   const paginationAnchorRef = React.useRef<number | null>(null);
   const capturePaginationPosition = () => {
@@ -201,7 +209,7 @@ export function DataTable<TData, TValue>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    ...(paginate ? { getPaginationRowModel: getPaginationRowModel() } : {}),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onSortingChange: setSorting,
@@ -254,7 +262,10 @@ export function DataTable<TData, TValue>({
       : Math.min((pageIndex + 1) * pageSize, filteredCount);
   const pageCount = table.getPageCount();
   const currentPage = pageCount === 0 ? 0 : pageIndex + 1;
-  const hasMultiplePages = pageCount > 1;
+  const hasMultiplePages = paginate && pageCount > 1;
+  const allRows = table.getRowModel().rows;
+  const cappedRows = !paginate && !showAll && allRows.length > ROW_LIMIT;
+  const rows = cappedRows ? allRows.slice(0, ROW_LIMIT) : allRows;
 
   const paginationItems = React.useMemo(
     () => buildPaginationItems(currentPage, pageCount),
@@ -336,12 +347,23 @@ export function DataTable<TData, TValue>({
 
       {renderMobileCard ? (
         <div className="grid w-full min-w-0 grid-cols-1 gap-3 md:hidden" data-slot="data-table-mobile-list">
-          {table.getRowModel().rows?.length ? (
-            table.getRowModel().rows.map((row, index) => (
-              <React.Fragment key={row.id}>
-                {renderMobileCard(row.original, { index, tableRow: row })}
-              </React.Fragment>
-            ))
+          {rows.length ? (
+            rows.map((row, index) =>
+              paginate ? (
+                <React.Fragment key={row.id}>
+                  {renderMobileCard(row.original, { index, tableRow: row })}
+                </React.Fragment>
+              ) : (
+                // The browser skips layout and paint for cards far off screen,
+                // so a long continuous list still scrolls smoothly.
+                <div
+                  key={row.id}
+                  className="[contain-intrinsic-size:auto_5.5rem] [content-visibility:auto]"
+                >
+                  {renderMobileCard(row.original, { index, tableRow: row })}
+                </div>
+              ),
+            )
           ) : (
             <div className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-8 text-center text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
               No results found.
@@ -350,7 +372,7 @@ export function DataTable<TData, TValue>({
         </div>
       ) : null}
 
-      {!compactPagination && renderMobileCard && hasMultiplePages ? (
+      {renderMobileCard && hasMultiplePages ? (
         <nav
           ref={mobilePaginationRef}
           aria-label="Table pagination"
@@ -405,6 +427,10 @@ export function DataTable<TData, TValue>({
           // the rounded surface as a clipping frame, not a second scroller.
           "w-full min-w-0 max-w-full overflow-hidden",
           renderMobileCard && "hidden md:block",
+          // One list: on a wide screen the table scrolls on its own with the
+          // header in view, and hands the scroll to the page at either end.
+          !paginate &&
+            "md:[&_[data-slot=table-container]]:max-h-[min(70vh,44rem)] md:[&_[data-slot=table-container]]:overflow-y-auto md:[&_[data-slot=table-container]]:overscroll-y-auto",
           resolvedTableShellClassName,
         )}
         data-slot="surface-data-table-shell"
@@ -412,7 +438,7 @@ export function DataTable<TData, TValue>({
         <Table className={tableClassName}>
           <TableHeader
             className={
-              stickyHeader
+              stickyHeader || !paginate
                 ? "sticky top-0 z-10 bg-[color:var(--app-card-surface-sticky-header-solid)] backdrop-blur"
                 : undefined
             }
@@ -471,8 +497,8 @@ export function DataTable<TData, TValue>({
             ))}
           </TableHeader>
           <TableBody data-no-auto-fade="true">
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
+            {rows.length ? (
+              rows.map((row) => (
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
@@ -538,16 +564,17 @@ export function DataTable<TData, TValue>({
         </Table>
       </div>
 
-      {compactPagination ? (
-        <CompactPaginationFooter
-          total={filteredCount}
-          page={currentPage}
-          pageSize={pageSize}
-          pageSizes={normalizedPageSizeOptions}
-          onPageChange={page => table.setPageIndex(page - 1)}
-          onPageSizeChange={size => table.setPageSize(size)}
-        />
-      ) : hasMultiplePages && (
+      {cappedRows ? (
+        <button
+          type="button"
+          className="ui-text-row-description mx-auto block min-h-11 px-4 text-muted-foreground"
+          onClick={() => setShowAll(true)}
+        >
+          Show all {allRows.length}
+        </button>
+      ) : null}
+
+      {hasMultiplePages && (
         <div
           className={cn(
             "flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between min-w-0 max-w-full flex-wrap",

@@ -85,6 +85,31 @@ describe("DataTable", () => {
     expect(screen.queryByText(/showing/i)).toBeNull();
   });
 
+  it("shows every row in one list without page controls when paginate is off", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(30)}
+        enableSearch={false}
+        paginate={false}
+        renderMobileCard={(row) => <article>Card {row.name}</article>}
+      />,
+    );
+
+    expect(screen.getAllByText("Row 30").length).toBeGreaterThan(0);
+    expect(screen.getByText("Card Row 30")).toBeTruthy();
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.queryByText(/showing|page \d/i)).toBeNull();
+  });
+
+  it("caps a very long one-list table and reveals the rest on request", () => {
+    render(<DataTable columns={columns} data={makeRows(260)} enableSearch={false} paginate={false} />);
+
+    expect(screen.queryByText("Row 201")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show all 260" }));
+    expect(screen.getByText("Row 260")).toBeTruthy();
+  });
+
   it("preserves whitespace-only search filter behavior", () => {
     render(
       <DataTable
