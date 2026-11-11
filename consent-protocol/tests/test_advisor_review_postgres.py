@@ -54,6 +54,8 @@ def advisor_db(finance_db, monkeypatch):  # noqa: F811
     db.apply_migrations(["447_finance_advisor_handshake.sql"])
     db.apply_migrations(["456_finance_advisor_one_time_payment.sql"])
     db.apply_migrations(["456_finance_advisor_one_time_payment.sql"])
+    db.apply_migrations(["457_advisor_payment_minimum_50c.sql"])
+    db.apply_migrations(["457_advisor_payment_minimum_50c.sql"])
     with db.engine.connect() as conn:
         ref = conn.execute(
             text("SELECT public_person_ref FROM actor_profiles WHERE user_id='bob'")
