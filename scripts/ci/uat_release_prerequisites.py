@@ -472,6 +472,7 @@ def main() -> int:
             return 0
         api = GitHub(exact.REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
         if args.mode == "validate-deployment":
+            validate_pins(args.sha, args.ci_run_id, args.ci_attempt, args.base_sha)
             verify_release_scope(api, args.sha, args.base_sha, args.approved_scope, branch=args.source_branch)
             validate_deployment(api, args.sha, args.ci_run_id, args.ci_attempt, args.base_sha, branch=args.source_branch, authority=args.authority_sha)
         elif args.mode == "validate-scope-live":

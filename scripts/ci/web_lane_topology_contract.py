@@ -31,17 +31,19 @@ def _assert_unit_job(workflow: str) -> None:
     unit = _job_block(workflow, "web-full-suite-check")
     _assert_job_name(unit, "Web Unit Contracts")
     assert "fail-fast: false" in unit and "max-parallel: 3" in unit
-    assert "needs: [preflight-gate, repo-governance]" in unit
-    assert "fromJSON(needs.repo-governance.outputs.unit_matrix" in unit
+    assert "needs: [preflight-gate, ui-contracts]" in unit
+    assert "fromJSON(needs.ui-contracts.outputs.unit_matrix" in unit
     assert "WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}" in unit
     assert "run: bash scripts/ci/orchestrate.sh web-full-suite" in unit
     for shard in ("1/1", "1/3", "2/3", "3/3"):
         assert f"name: Verify unit shard ({shard})" in unit
         assert f"if: matrix.shard == '{shard}'" in unit
-    governance = _job_block(workflow, "repo-governance")
-    assert "unit_matrix: ${{ steps.unit-plan.outputs.matrix }}" in governance
-    assert "affected-tests.mjs unit-matrix" in governance
-    assert 'CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"' in governance
+    planner = _job_block(workflow, "ui-contracts")
+    assert "unit_matrix: ${{ steps.unit-plan.outputs.matrix }}" in planner
+    assert "affected-tests.mjs unit-matrix" in planner
+    assert 'CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"' in planner
+    assert "- *ci_impact" in planner
+    assert "fetch-depth: 0" in planner
 
 
 def _assert_database_pair(workflow: str) -> None:
@@ -70,9 +72,11 @@ def _assert_status_gate(workflow: str) -> None:
     needs = gate.split("    needs:\n", 1)[1].split("\n    if:", 1)[0]
     for job in required_jobs:
         assert f"- {job}" in needs, f"ci-status must need {job}"
-    assert 'WEB_TARGETED="${{ needs[\'web-targeted-check\'].result }}"' in gate
-    assert 'WEB_FULL_SUITE="${{ needs[\'web-full-suite-check\'].result }}"' in gate
-    assert 'PROTOCOL_DATABASE="${{ needs[\'protocol-database-check\'].result }}"' in gate
+    assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
+    assert "WEB_FULL_SUITE=\"${{ needs['web-full-suite-check'].result }}\"" in gate
+    assert (
+        "PROTOCOL_DATABASE=\"${{ needs['protocol-database-check'].result }}\"" in gate
+    )
     assert (
         "PROTOCOL_DATABASE_TWO=\"${{ needs['protocol-database-check-two'].result }}\""
         in gate
