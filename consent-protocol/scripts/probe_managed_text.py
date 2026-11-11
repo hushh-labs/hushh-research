@@ -16,7 +16,13 @@ from hushh_mcp.runtime_providers.managed_text import (
 )
 
 
-async def probe_managed_text(provider: Literal["azure_openai", "vertex"]) -> dict:
+async def probe_managed_text(
+    provider: Literal["azure_openai", "vertex"],
+    *,
+    qualification_mode: Literal["core", "full"] = "full",
+) -> dict:
+    if qualification_mode not in {"core", "full"}:
+        raise ValueError("Managed text qualification mode is invalid")
     document = json.loads(PROFILE_PATH.read_text())
     scoped = {
         scope: load_scoped_text_policy(scope, environment="uat", document=document)
@@ -48,9 +54,11 @@ async def probe_managed_text(provider: Literal["azure_openai", "vertex"]) -> dic
     policy = managed_text_policy()
     if policy is None:
         raise ValueError("Managed text readiness requires UAT policy")
-    from scripts.probe_drive_activity_planner import probe_drive_activity_planner
+    activity_planner = None
+    if qualification_mode == "full":
+        from scripts.probe_drive_activity_planner import probe_drive_activity_planner
 
-    activity_planner = await probe_drive_activity_planner(providers["drive_document_requests"])
+        activity_planner = await probe_drive_activity_planner(providers["drive_document_requests"])
     return {
         "schema": "managed_text_probe.v2" if uses_scoped_policy else "managed_text_probe.v1",
         "provider": provider,

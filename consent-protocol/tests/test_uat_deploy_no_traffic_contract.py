@@ -2787,6 +2787,31 @@ def test_vertex_drive_evidence_cannot_qualify_one_chat():
     assert not module.valid_core(vertex["core"], "vertex", expected, document)
 
 
+def test_scoped_core_skips_only_explicitly_unrun_planner_diagnostics():
+    module = _managed_provider_gate()
+    expected, vertex = _provider_fixture(module, "vertex")
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    core = vertex["core"]
+    expected["qualification_mode"] = "core"
+    # Historical core images that ran the full planner remain compatible.
+    assert module.valid_core(core, "vertex", expected, document)
+    core["activity_planner"]["passed"] = False
+    assert not module.valid_core(core, "vertex", expected, document)
+    core["activity_planner"] = None
+    assert module.valid_core(core, "vertex", expected, document)
+    expected["qualification_mode"] = "full"
+    assert not module.valid_core(core, "vertex", expected, document)
+    expected["qualification_mode"] = "core"
+    row = core["scopes"]["one_text_chat"]
+    for field in ("provider", "model", "location", "policy_generation", "binding_fingerprint"):
+        original = row[field]
+        row[field] = "wrong-binding"
+        assert not module.valid_core(core, "vertex", expected, document)
+        row[field] = original
+    del core["activity_planner"]
+    assert not module.valid_core(core, "vertex", expected, document)
+
+
 def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monkeypatch):
     module = _managed_provider_gate()
     expected, _ = _provider_fixture(module, "vertex")

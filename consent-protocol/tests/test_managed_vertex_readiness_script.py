@@ -80,7 +80,7 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
         ),
     )
     report = await module.main()
-    text_probe.assert_awaited_once_with("vertex")
+    text_probe.assert_awaited_once_with("vertex", qualification_mode=mode)
     if mode == "core":
         complete.assert_not_awaited()
         assert report["ok"] is True
@@ -154,6 +154,69 @@ async def test_common_core_proves_only_the_actual_chat_target(monkeypatch, envir
         assert report["ok"] is report["one_chat_probe_ok"] is True
         assert report["candidate_models_exercised"] is False
     probe.assert_awaited_once_with(selected_model, profile["text_model"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["vertex", "azure_openai"])
+@pytest.mark.parametrize("mode", ["core", "full"])
+@pytest.mark.parametrize("scoped", [False, True])
+async def test_text_core_keeps_scope_proof_and_full_keeps_planner_failures(
+    monkeypatch, provider, mode, scoped
+):
+    from unittest.mock import AsyncMock
+
+    from scripts import probe_drive_activity_planner, probe_managed_text
+
+    scope_probe = AsyncMock(return_value={"ready": True})
+    planner_probe = AsyncMock(side_effect=RuntimeError("synthetic planner defect"))
+    monkeypatch.setattr(probe_managed_text, "probe_managed_text_model", scope_probe)
+    monkeypatch.setattr(probe_managed_text, "managed_text_policy", lambda: {"generation": 1})
+    providers = {"one_text_chat": "azure_openai", "drive_document_requests": "vertex"}
+    monkeypatch.setattr(
+        probe_managed_text,
+        "load_scoped_text_policy",
+        lambda scope, **_: {"provider": providers[scope]} if scoped else None,
+    )
+    monkeypatch.setattr(
+        probe_managed_text,
+        "managed_text_binding",
+        lambda **_: {"approval_generation": "synthetic", "config_fingerprint": "a" * 64},
+    )
+    clock = iter(range(0, 10_000, 60))
+    monkeypatch.setattr(probe_managed_text, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+    monkeypatch.setattr(probe_drive_activity_planner, "probe_drive_activity_planner", planner_probe)
+    if mode == "full":
+        with pytest.raises(RuntimeError, match="synthetic planner defect"):
+            await probe_managed_text.probe_managed_text(provider)
+        planner_probe.assert_awaited_once_with(
+            providers["drive_document_requests"] if scoped else provider
+        )
+    else:
+        receipt = await probe_managed_text.probe_managed_text(provider, qualification_mode=mode)
+        assert receipt["activity_planner"] is None
+        assert set(receipt["scopes"]) == set(probe_managed_text.TEXT_SCOPES)
+        assert receipt["schema"] == ("managed_text_probe.v2" if scoped else "managed_text_probe.v1")
+        if scoped:
+            assert all(
+                row["policy_generation"] == "synthetic" for row in receipt["scopes"].values()
+            )
+        planner_probe.assert_not_awaited()
+    assert [call.kwargs for call in scope_probe.await_args_list] == [
+        {
+            "scope": scope,
+            "provider": providers[scope] if scoped else provider,
+            "allow_fallback": False,
+        }
+        for scope in sorted(probe_managed_text.TEXT_SCOPES)
+    ]
+    scope_probe.reset_mock(side_effect=True)
+    scope_probe.side_effect = RuntimeError("synthetic core transport defect")
+    with pytest.raises(RuntimeError, match="synthetic core transport defect"):
+        await probe_managed_text.probe_managed_text(provider, qualification_mode=mode)
+    scope_probe.reset_mock()
+    with pytest.raises(ValueError, match="qualification mode is invalid"):
+        await probe_managed_text.probe_managed_text(provider, qualification_mode="unknown")
+    scope_probe.assert_not_awaited()
 
 
 @pytest.mark.parametrize("transport", ["textPayload", "jsonPayload", "prefixed_text"])

@@ -17,6 +17,10 @@ import retention_production_evidence as production
 import retention_publication_source as publication_source
 
 APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
+# This reviewed contract reaches publication admission before provider mutation.
+# Compare its actual blobs, not a mutable Main ref or an invented historical profile.
+STATIC_GUARD_SOURCE = "b31636cee1f7281688d58b54e0445ddf717e825e"
+STATIC_GUARD_PATHS = (*production.SOURCE_PATHS, records.PASS_DIAGNOSTICS)
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
 PROFILE_NAME = "publication-aec6-blobless-v2"
 PROFILE_TEMPLATE_RUN_ID = 41489711406
@@ -502,6 +506,28 @@ def _clock_proof(owner, repository, worker_run, candidate):
     return record, proof
 
 
+def _static_cleanup_view(job):
+    """Adapt only the exact authored labels for existing pure transcript checks."""
+    from retention_production_clock_evidence import CLOCK_BOUND_STEP_NAMES
+
+    steps = job.get("steps")
+    modes = ("Maintenance mode: inspection", "Maintenance mode: cleanup")
+    names = (CLOCK_BOUND_STEP_NAMES[0], *modes, *CLOCK_BOUND_STEP_NAMES[1:])
+    if not isinstance(steps, list) or len(steps) != len(names):
+        return None
+    if any(not isinstance(step, dict) for step in steps):
+        return None
+    numbers = [step.get("number") for step in steps]
+    if (tuple(step.get("name") for step in steps) != names
+            or any(type(number) is not int or number < 1 for number in numbers)
+            or numbers != sorted(set(numbers))
+            or any(steps[i].get("status") != "completed" for i in (1, 2))
+            or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]):
+        return None
+    view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
+    return view if production._steps_match(view, clock_bound=True) else None
+
+
 def qualify_source_refusal(
     owner, repository, run, job, *, log_reader, source_reader, workflow_path
 ):
@@ -511,6 +537,12 @@ def qualify_source_refusal(
     mutation preparation step and never saved a checkpoint cannot have mutated
     providers. Do not infer a successful dispatch, usable checkpoint or cleanup.
     """
+    original_job = job
+    static = isinstance(job, dict) and job.get("name") == "Production revision maintenance"
+    if static:
+        job = _static_cleanup_view(job)
+        if job is None:
+            return None
     if not _worker_is_exact(owner, repository, run, job):
         return None
     current_profiles = {
@@ -520,6 +552,15 @@ def qualify_source_refusal(
             "publication-pass-diagnostics-v4",
         )
     }
+    if static:
+        approved = source_reader(owner, repository, STATIC_GUARD_SOURCE, STATIC_GUARD_PATHS)
+        _require(owner, isinstance(approved, dict) and set(approved) == set(STATIC_GUARD_PATHS),
+                 "reviewed static guard source is incomplete")
+        current_profiles = {
+            STATIC_GUARD_SOURCE: {
+                path: (blob["sha"], blob["size"]) for path, blob in approved.items()
+            }
+        }
     checkout = run["head_sha"]
     core = source_reader(owner, repository, checkout, production.SOURCE_PATHS)
     _require(
@@ -553,7 +594,7 @@ def qualify_source_refusal(
             "{sha,size}",
         )
     )
-    log = log_reader(owner, job)
+    log = log_reader(owner, original_job)
     rows = production._raw_rows(log, job)
     if (
         workflow_blob != blobs[base.WORKFLOW]
