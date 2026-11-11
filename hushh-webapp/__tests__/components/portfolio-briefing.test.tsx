@@ -37,6 +37,11 @@ describe("portfolio briefing", () => {
     fireEvent.click(screen.getByRole("button", { name: "View analysis" }));
     expect(open).toHaveBeenCalledOnce();
   });
+  it("names the missing answer instead of a bare Unavailable", () => {
+    render(<PortfolioBriefing onOpen={vi.fn()} missing="ability to absorb losses" />);
+    expect(screen.getByText("Add ability to absorb losses")).toBeVisible();
+    expect(screen.queryByText("Unavailable")).toBeNull();
+  });
   it("computes a stock-decline scenario", () => {
     const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
       { symbol: "SMALL", name: "Smaller", quantity: 1, price: 100, market_value: 100 },
