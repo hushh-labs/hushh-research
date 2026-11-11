@@ -198,3 +198,13 @@
     line-height: max(18px, calc(var(--type-button-label-size) * 1.5)) !important;
   }
 }
+
+/* Sonner actions are outside the shared Button component. */
+.surface:global([data-sonner-toast][data-styled]) :global([data-button]),
+.toast:global([data-sonner-toast][data-styled]) :global([data-button]) {
+  font-family: var(--font-app-body);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 550;
+  min-height: 44px;
+}
