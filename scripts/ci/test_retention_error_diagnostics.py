@@ -115,6 +115,53 @@ class RetentionErrorDiagnosticTest(unittest.TestCase):
             "Hosted maintenance stopped: stage=publication_guard kind=invalid_data",
         )
 
+    def test_manual_production_apply_bounds_release_lookup_after_checkpoint_restore(self):
+        for event, ref, force, environment, pass_deadline, expected in (
+            ("workflow_dispatch", "main", True, "production", 295, 280),
+            ("workflow_dispatch", "main", True, "production", 180, 180),
+            ("workflow_dispatch", "main", False, "production", 295, 90),
+            ("workflow_dispatch", "uat", True, "production", 295, 90),
+            ("repository_dispatch", "main", True, "production", 295, 90),
+            ("workflow_dispatch", "main", True, "uat", 295, 90),
+        ):
+            with self.subTest(event=event, ref=ref, force=force, environment=environment):
+                with tempfile.TemporaryDirectory() as temporary:
+                    args = SimpleNamespace(
+                        environment=environment, apply=True, force_inspection=force,
+                        release_run_id="123", state_dir=Path(temporary),
+                        check_mutations=False,
+                    )
+                    lookup = MAINTENANCE._LOOKUP_DEADLINE
+                    retention = MAINTENANCE.retention
+                    original = lookup.set(90)
+                    outer = retention.PASS_DEADLINE.set(pass_deadline)
+
+                    def guard(*_):
+                        self.assertEqual(lookup.get(), 90)
+
+                    def release(*_):
+                        self.assertEqual(lookup.get(), expected)
+                        self.assertEqual(retention.PASS_DEADLINE.get(), pass_deadline)
+
+                    try:
+                        with (
+                            mock.patch.dict(os.environ, {
+                                "GITHUB_REPOSITORY": "org/repo",
+                                "GITHUB_EVENT_NAME": event, "GITHUB_REF_NAME": ref,
+                            }),
+                            mock.patch.object(MAINTENANCE.time, "monotonic", return_value=130),
+                            mock.patch.object(MAINTENANCE, "maintenance_cli", return_value=args),
+                            mock.patch.object(DIAGNOSTICS, "checkpoint_guard", side_effect=guard),
+                            mock.patch.object(DIAGNOSTICS, "restore_checkpoint", side_effect=guard),
+                            mock.patch.object(DIAGNOSTICS, "load_release_context", side_effect=release),
+                            mock.patch.object(DIAGNOSTICS, "should_run_preflight", return_value=True),
+                            mock.patch.object(DIAGNOSTICS, "find_release", side_effect=release),
+                        ):
+                            self.assertEqual(MAINTENANCE.maintenance_pass(), 0)
+                    finally:
+                        lookup.reset(original)
+                        retention.PASS_DEADLINE.reset(outer)
+
     def test_child_failure_reports_only_stage_kind_and_bounded_exit_code(self):
         error = subprocess.CalledProcessError(
             7,
