@@ -2,7 +2,7 @@
 
 import presentationStyles from "./calendar-presentation.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, MoreHorizontal } from "@/components/icons";
+import { ExternalLink } from "@/components/icons";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -14,7 +14,6 @@ import styles from "./calendar-insights.module.css";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import {
   coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, primaryRequest, shortDate,
@@ -38,9 +37,10 @@ type Props = {
 // scan that is not due, so this only avoids pointless round trips.
 const CATCH_UP_INTERVAL_MS = 5 * 60_000;
 const lastCatchUp = new Map<string, number>();
-// A quiet progress check while the first scan is still running; bounded so a
-// stuck account never polls forever.
-const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
+// A quiet progress check while the first scan is still running. The scheduled
+// worker does the bulk of the first month, so the card keeps looking for new
+// results; bounded (about 30 minutes) so a stuck account never polls forever.
+const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, ...Array.from({ length: 14 }, () => 120_000)];
 // Each scan call does one bounded step on the server. While it reports more work
 // the card keeps asking, so the first results arrive in seconds, not scheduler
 // ticks. Capped, and it stops the moment the card goes away.
@@ -83,6 +83,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   selectedIdRef.current = selectedId;
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
+  const hasVerifiedRows = useRef(false);
   const pageOffsetRef = useRef(0);
   const viewRef = useRef<ActiveView>("upcoming");
   const firstPageRef = useRef<FollowupList | null>(null);
@@ -132,11 +133,13 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }
       if (alive()) {
         if (offset === 0 && selectedView === "upcoming") firstPageRef.current = nextList;
+        hasVerifiedRows.current = nextList.conversations.length > 0;
         pageOffsetRef.current = offset; setPageOffset(offset); setList(nextList); setLoading(false); setError("");
       }
     } catch (failure) {
-      // A background refresh never replaces verified items with an error.
-      if (alive() && !quiet) { setError(followupErrorText(failure)); setLoading(false); }
+      // Neither a background refresh nor a failed reload replaces items the owner
+      // is already looking at with an error: the last verified list stays.
+      if (alive() && !quiet) { if (!hasVerifiedRows.current) setError(followupErrorText(failure)); setLoading(false); }
     }
   }, [userId, accountId]);
 
@@ -225,6 +228,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   useEffect(() => {
     if (vaultAvailable) return;
+    hasVerifiedRows.current = false;
     detailSeq.current += 1;
     selectedIdRef.current = null;
     setSelectedId(null);
@@ -385,20 +389,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     finally { if (requestSeq.current === seq) setLoadingPage(false); }
   };
 
-  const disable = async () => {
-    setBusy(true); setError("");
-    try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to turn off monitoring.");
-      await CalendarFollowupsService.post("preferences", {
-        user_id: userId, account_id: accountId, enabled: false,
-      }, await getIdToken(), ownerToken);
-      setSelectedId(null); setDetail(null);
-      await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(followupErrorText(failure)); }
-    finally { setBusy(false); }
-  };
-
   const askRemove = (entry: FollowupConversation, from: HTMLButtonElement) => {
     const request = primaryRequest(entry);
     if (!request || removing.current) return;
@@ -476,7 +466,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
   const card = <SectionCard title="Follow-ups" className={styles.followupCard}>
     <div className="min-w-0 space-y-2" aria-busy={loading}>
-      {!status && loading ? <p className={styles.muted} role="status">Checking follow-ups…</p> : null}
+      {loading && (!status || (status.monitoring_enabled && !list)) ? <p className={styles.muted} role="status">Checking follow-ups…</p> : null}
       {needsMailChoice && renewing ? <div className={`${styles.muted} flex flex-wrap items-center justify-between gap-2`}>
         <span>Renew email access for {accountEmail}.</span>
         <Button size="compact" disabled={busy || !onConnectMail} onClick={() => void turnOn()}>Allow email access</Button>
@@ -523,8 +513,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       {error ? <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
         {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
-        {status?.monitoring_enabled ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className={presentationStyles.scope} data-connect-type-scale="page"><DropdownMenuItem disabled={busy} onSelect={() => void checkAgain()}>Check email again</DropdownMenuItem><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
       </div>
       {expanded && list ? <PaginatedListFooter
         page={Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1}

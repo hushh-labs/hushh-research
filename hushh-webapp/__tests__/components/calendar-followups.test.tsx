@@ -4,6 +4,7 @@ import { CalendarFollowups } from "@/components/calendar/calendar-followups";
 import {
   coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, rowSummary,
 } from "@/lib/calendar/calendar-followup-presentation";
+import { scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
 
 const service = vi.hoisted(() => ({
   status: vi.fn(), list: vi.fn(), detail: vi.fn(), source: vi.fn(), sourceLink: vi.fn(),
@@ -207,6 +208,19 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.queryByText(/could not be checked completely/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+  });
+
+  it("has no settings menu and keeps the last verified list when a reload fails", async () => {
+    service.status.mockResolvedValue(status("account_B"));
+    service.list.mockResolvedValue(bList);
+    const view = render(<CalendarFollowups {...props("account_B")} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Follow-up settings" })).not.toBeInTheDocument();
+    service.list.mockRejectedValue(new Error("FOLLOWUPS_UNAVAILABLE"));
+    view.rerender(<CalendarFollowups {...props("account_B")} refreshRevision={1} />);
+    await waitFor(() => expect(service.list).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("keeps verified follow-ups visible and retries quietly when email coverage is partial", async () => {
@@ -503,5 +517,23 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(await screen.findByText("Unlock One before turning on email follow-ups.")).toBeInTheDocument();
     expect(screen.queryByText("Follow-ups could not be checked. Try again.")).not.toBeInTheDocument();
     expect(onConnectMail).not.toHaveBeenCalled();
+  });
+});
+
+describe("Follow-ups catch-up loop", () => {
+  const run = (refresh = vi.fn(async () => undefined)) => scanWhilePending({
+    userId: "owner", accountId: "account_B", ownerToken: "synthetic-owner-token", maxCalls: 10,
+    getIdToken: async () => "synthetic-id-token", refresh,
+  });
+
+  beforeEach(() => { service.scan.mockReset(); });
+
+  it("survives one failed call and keeps scanning until the server is done", async () => {
+    service.scan.mockRejectedValueOnce(new Error("FOLLOWUPS_UNAVAILABLE"))
+      .mockResolvedValueOnce({ state: "pending" }).mockResolvedValueOnce({ state: "complete" });
+    const refresh = vi.fn(async () => undefined);
+    await expect(run(refresh)).resolves.toBe(true);
+    expect(service.scan).toHaveBeenCalledTimes(3);
+    expect(refresh).toHaveBeenCalledTimes(3);
   });
 });

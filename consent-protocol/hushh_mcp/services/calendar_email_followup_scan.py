@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -40,6 +41,7 @@ from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
     _reset_exhausted,
     _save,
     _upgrade_checkpoint,
+    bootstrap_window_is_stale,
 )
 from hushh_mcp.services.calendar_email_followup_scan_navigation import _step_page, _step_thread
 from hushh_mcp.services.calendar_email_followup_scan_source import (
@@ -60,6 +62,21 @@ logger = logging.getLogger(__name__)
 
 Reconcile = Callable[..., Awaitable[tuple[ValidatedCandidate, ...]]]
 _MODES = frozenset({"bootstrap", "history", "retry", "reassess"})
+
+# A pass is bounded by wall-clock time, not by a handful of steps: every step is
+# durable, so stopping between two of them loses nothing, and the same code then
+# serves a quick on-screen catch-up and a longer scheduled one.
+#   interactive: answers while the owner is looking; must return well inside the
+#                web proxy's 45 s limit even when its last model call is slow.
+#   background:  the scheduled worker, which does the bulk of the first month.
+INTERACTIVE_BUDGET_SECONDS = 8.0
+INTERACTIVE_SECTIONS = 8
+BACKGROUND_BUDGET_SECONDS = 35.0
+BACKGROUND_SECTIONS = 40
+MAX_SECTIONS_PER_PASS = 60
+# Without a time budget (direct callers, tests) a pass keeps its small step cap.
+_UNTIMED_STEPS = 12
+_TIMED_STEPS = 600
 
 
 @dataclass(frozen=True)
@@ -341,8 +358,11 @@ async def _prepare(
     """
     if force and checkpoint.get("mode") != "gap":
         _reset_exhausted(checkpoint)
-    if checkpoint and checkpoint.get("mode") != "gap":
+    if checkpoint and checkpoint.get("mode") != "gap" and not bootstrap_window_is_stale(checkpoint):
         return checkpoint
+    # A first scan sealed before the 30-day cap restarts inside it: everything it
+    # already assessed is skipped without a fetch or a model call, and what it
+    # still had unverified is carried forward.
     recovering = checkpoint.get("mode") == "gap"
     carried = {key: checkpoint[key] for key in _CARRIED if key in checkpoint}
     history_id = await profile_history_id(
@@ -375,9 +395,10 @@ async def _drain(
     now: datetime | None,
     reconcile: Reconcile,
     progress: dict[str, Any],
+    deadline: float | None = None,
 ) -> None:
     """Take bounded steps until the budget is spent or the scan is complete."""
-    for _ in range(12):
+    for _ in range(_UNTIMED_STEPS if deadline is None else _TIMED_STEPS):
         used, completed, progress["done"] = await _step(
             monitor=monitor,
             checkpoint=checkpoint,
@@ -392,6 +413,8 @@ async def _drain(
         progress["messages"] += completed
         if progress["done"] or progress["sections"] >= max_sections:
             break
+        if deadline is not None and time.monotonic() >= deadline:
+            break
 
 
 async def scan_once(
@@ -404,15 +427,21 @@ async def scan_once(
     max_sections: int = 2,
     force: bool = False,
     reconcile: Reconcile | None = None,
+    budget_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Bound one drain while retaining every page, thread, and section cursor.
 
     ``force`` is the owner's manual Retry: it runs now and gives every source
     that exhausted its automatic attempts a fresh bounded allowance.
+    ``budget_seconds`` keeps stepping until that much wall-clock time has passed
+    (or the section cap is reached) instead of stopping after a few steps.
     """
     store = store or CalendarEmailFollowupStore()
-    if not 1 <= max_sections <= 4:
+    if not 1 <= max_sections <= MAX_SECTIONS_PER_PASS or (
+        budget_seconds is not None and not 0 < budget_seconds <= 120
+    ):
         raise ValueError("invalid_scan_budget")
+    deadline = None if budget_seconds is None else time.monotonic() + budget_seconds
     monitor = await store.acquire_scan(
         user_id=user_id, account_id=account_id, **({"force": True} if force else {})
     )
@@ -442,6 +471,7 @@ async def scan_once(
                 now=now,
                 reconcile=reconcile or reconcile_candidates,
                 progress=progress,
+                deadline=deadline,
             )
         state = (
             "partial"
