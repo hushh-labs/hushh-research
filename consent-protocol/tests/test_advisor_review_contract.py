@@ -522,3 +522,50 @@ async def test_sandbox_payout_status_reads_a_real_stripe_list_object():
 
 async def _async(value):
     return value
+
+
+def test_advisor_stripe_calls_return_plain_dicts_the_billing_code_can_read(monkeypatch):
+    from types import SimpleNamespace
+
+    import stripe
+
+    from hushh_mcp.services import advisor_stripe
+
+    account = stripe.Account.construct_from(
+        {"id": "acct_1", "payouts_enabled": True, "capabilities": {"transfers": "active"}}, "k"
+    )
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            self.v1 = SimpleNamespace(accounts=SimpleNamespace(retrieve=lambda *_a, **_k: account))
+
+    monkeypatch.setattr(stripe, "StripeClient", Client)
+    remote = dict(advisor_stripe.provider().Account.retrieve("acct_1", api_key="k"))
+    assert remote["id"] == "acct_1"
+    assert remote["capabilities"].get("transfers") == "active"
+
+
+def test_signed_webhook_event_from_the_real_sdk_is_readable(monkeypatch):
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    from hushh_mcp.services import advisor_review_billing_events as events
+
+    secret = "whsec_" + "b" * 24
+    monkeypatch.setenv("RIA_STRIPE_TEST_SECRET_KEY", "sk_test_" + "a" * 24)
+    monkeypatch.setenv("RIA_STRIPE_TEST_WEBHOOK_SECRET", secret)
+    payload = json.dumps(
+        {
+            "id": "evt_1",
+            "object": "event",
+            "type": "checkout.session.completed",
+            "livemode": False,
+            "data": {"object": {"id": "cs_test_1", "object": "checkout.session", "metadata": {}}},
+        }
+    )
+    stamp = int(time.time())
+    digest = hmac.new(secret.encode(), f"{stamp}.{payload}".encode(), hashlib.sha256).hexdigest()
+    header = f"t={stamp},v1={digest}"
+    assert events.process_event(payload.encode(), header) == {"received": True}
