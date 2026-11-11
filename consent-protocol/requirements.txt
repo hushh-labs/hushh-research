@@ -99,7 +99,7 @@ jinja2==3.1.6
 jiter==0.14.0
 jmespath==1.1.0
 joblib==1.6.0
-joserfc==1.7.3
+joserfc==1.7.6
 jsonpatch==1.33
 jsonpointer==3.1.1
 jsonschema==4.26.0
@@ -163,7 +163,7 @@ proto-plus==1.27.0
 protobuf==6.33.6
 psycopg2-binary==2.9.11
 py-rust-stemmers==0.1.8
-pyasn1==0.6.4
+pyasn1==0.6.5
 pyasn1-modules==0.4.2
 pycountry==26.2.16
 pycparser==3.0 ; implementation_name != 'PyPy'

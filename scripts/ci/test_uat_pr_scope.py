@@ -6,6 +6,9 @@ from pathlib import Path
 import copy
 import json
 import os
+
+import contextlib
+import io
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -47,6 +50,31 @@ class ApprovedUatScopeTest(unittest.TestCase):
                 with self.assertRaisesRegex(subject.Refused, "enable flag is invalid"):
                     prerequisites.require_fresh_email_risk("a" * 40)
             git.assert_not_called()
+
+    def test_manual_deployment_reports_missing_pins_before_scope_lookup(self):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "uat_release_prerequisites.py",
+                    "validate-deployment",
+                    "--sha",
+                    "a" * 40,
+                    "--ci-run-id",
+                    "123",
+                    "--ci-attempt",
+                    "1",
+                ],
+            ),
+            patch.object(prerequisites, "GitHub") as api,
+            patch.object(prerequisites, "verify_release_scope") as scope,
+            contextlib.redirect_stdout(io.StringIO()) as errors,
+        ):
+            self.assertEqual(prerequisites.main(), 1)
+        scope.assert_not_called()
+        api.return_value.read.assert_not_called()
+        self.assertIn("ci_base_sha", errors.getvalue())
+        self.assertIn("operation=inspect", errors.getvalue())
 
     def test_ci_ready_inspection_selects_exact_sha_without_a_manual_pr_chain(self):
         report = prerequisites.render({"ready": True, "candidate_sha": "a" * 40,
