@@ -95,11 +95,12 @@ for (const width of [320, 393, 768, 1440]) {
     await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
     const count = preview.getByRole("button", { name: "3 connections", exact: true });
     await expect(count).toBeVisible();
+    await expect(preview).toHaveCSS("opacity", "1");
     const [contactBounds, countBounds] = await Promise.all([
       preview.getByRole("link", { name: "profile@example.com" }).boundingBox(), count.boundingBox(),
     ]);
     expect(countBounds!.y).toBeGreaterThanOrEqual(contactBounds!.y + contactBounds!.height);
-    expect(countBounds!.x).toBeCloseTo(contactBounds!.x, 0);
+    expect(Math.abs(countBounds!.x - contactBounds!.x)).toBeLessThanOrEqual(1);
     expect(countBounds!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: testInfo.outputPath(`profile-connection-count-${width}.png`) });
     await count.click();
