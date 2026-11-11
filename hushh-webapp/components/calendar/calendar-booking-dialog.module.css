@@ -3,10 +3,6 @@
 .body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: .5rem; }
 .fields { display: grid; min-width: 0; gap: .7rem; }
 .fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: var(--type-form-label-size); font-weight: var(--type-form-label-weight); color: var(--app-label); line-height: var(--type-form-label-line); }
-.selectField { position: relative; display: block; min-width: 0; }
-.fields select { display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; min-height: 44px; padding: .55rem .7rem; padding-inline-end: 2.5rem; appearance: none; -webkit-appearance: none; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: var(--type-input-value-size); font-weight: 400; color: var(--app-label); line-height: var(--type-input-value-line); }
-.selectChevron { position: absolute; inset-inline-end: .75rem; top: 50%; transform: translateY(-50%); width: 1rem; height: 1rem; color: var(--app-secondary-label); pointer-events: none; }
-@media (forced-colors: active) { .fields select { appearance: auto; -webkit-appearance: auto; } .selectChevron { display: none; } }
 .fields input { font-weight: 400; }
 .timeGrid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .85fr); gap: .5rem; }
 /* iOS/WebKit date and time controls keep an intrinsic width; clamp them to their cell and left-align the value like a text field. */
@@ -25,10 +21,10 @@
 .description { font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
 .description summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: var(--type-form-label-size); line-height: var(--type-form-label-line); font-weight: var(--type-form-label-weight); }
 .description textarea { margin-top: .2rem; field-sizing: fixed; min-height: 6rem; max-height: 10rem; resize: vertical; }
-.conflicts { padding-left: 1.2rem; color: var(--app-destructive); overflow-wrap: anywhere; }
+.conflicts { font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); font-weight: var(--type-row-description-weight); padding-left: 1.2rem; color: var(--app-destructive); overflow-wrap: anywhere; }
 .error { color: var(--app-destructive); font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, 19px); }
 .alternatives { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, normal); }
-.alternatives p { width: 100%; font-weight: 600; }
+.alternatives p { width: 100%; font-size: var(--type-section-label-size); line-height: var(--type-section-label-line); font-weight: var(--type-section-label-weight); }
 .alternatives button { min-height: 44px; }
 .actions { flex: none; display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; padding-top: .5rem; background: var(--app-card-surface-default-solid); }
 .actions button { min-height: 44px; }

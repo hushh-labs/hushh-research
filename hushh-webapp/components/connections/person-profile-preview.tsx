@@ -11,6 +11,8 @@ import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/
 import { PERSON_PROFILE_PREVIEW_EVENT, type PersonProfilePreviewIdentity } from "@/lib/connections/person-profile-preview";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
+import { cn } from "@/lib/utils";
 
 const Profile = lazy(() => import("./person-profile-page").then(module => ({ default: module.PersonProfilePage })));
 const NetworkList = lazy(() => import("../connect/network-people-list").then(module => ({ default: module.NetworkPeopleList })));
@@ -133,7 +135,10 @@ export function PersonProfilePreview() {
       if (!opening.current) returnFocus.current = detail.returnFocus;
       opening.current = true;
       const key = ++nextJourneyKey;
-      const visit: Visit = { personRef: detail.personRef, userId: detail.userId, networkList: detail.networkList, owner: user.uid, generation: getAuthSessionGeneration(), route, key };
+      const fromPreview = detail.returnFocus && scroll.current?.contains(detail.returnFocus);
+      const presentation = detail.presentation ?? (fromPreview ? currentEntry.current?.presentation : undefined);
+      const visit: Visit = { personRef: detail.personRef, userId: detail.userId, networkList: detail.networkList,
+        presentation, owner: user.uid, generation: getAuthSessionGeneration(), route, key };
       visits.current.set(key, visit);
       if (visits.current.size > 64) visits.current.delete(visits.current.keys().next().value!);
       openPersonPreviewHistory(key);
@@ -155,12 +160,13 @@ export function PersonProfilePreview() {
 
   const personRef = active?.personRef?.trim() || (resolved?.key === active?.key ? resolved?.personRef : null);
   const networkMode = active?.networkList;
+  const calendar = active?.presentation === "calendar";
   const title = networkMode === "discovery" ? "Your network" : networkMode === "mutuals" ? "Mutual connections" : networkMode === "connections" ? "Connections" : "Profile";
   return <Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
-    <DialogContent data-person-profile-preview aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
-      className={networkMode
+    <DialogContent data-person-profile-preview data-connect-type-scale={calendar ? "page" : undefined} aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
+      className={cn(calendar && calendarPresentation.portal, networkMode
         ? "!w-[calc(100%-1rem)] !max-w-[760px] !gap-0 !overflow-hidden !p-0 sm:!w-[calc(100%-2rem)]"
-        : "!w-full !max-w-[880px] !gap-0 !p-0"}
+        : "!w-full !max-w-[880px] !gap-0 !p-0")}
       onCloseAutoFocus={event => { event.preventDefault(); if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); }}>
       <div className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b bg-background px-3 py-2">
         <button type="button" aria-label="Back to previous screen" className="flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring" onClick={close}><ArrowLeft className="size-5" /></button>
@@ -168,7 +174,7 @@ export function PersonProfilePreview() {
       </div>
       <div ref={scroll} data-network-scroll-owner className="min-h-0 overflow-y-auto overscroll-contain py-4">
         {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} /></Suspense></PreviewBoundary>
-          : active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
+          : active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded calendarPresentation={calendar} onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
           : <p role={resolved?.key === active?.key ? "alert" : "status"} className="p-6">{resolved?.key === active?.key ? "This profile is unavailable." : "Loading profile…"}</p>}
       </div>
     </DialogContent>

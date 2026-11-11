@@ -18,9 +18,11 @@ export function lockSyntheticVault() {
   vaultSnapshot = { vaultOwnerToken: null, ownerTokenStatus: "locked" };
   for (const listener of listeners) listener();
 }
+const getVaultOwnerToken = () => vaultSnapshot.vaultOwnerToken;
+
 export function useVault() {
   const snapshot = useSyncExternalStore(listener => { listeners.add(listener); return () => listeners.delete(listener); }, () => vaultSnapshot);
-  return { ...snapshot, isVaultUnlocked: Boolean(snapshot.vaultOwnerToken), retryOwnerTokenRenewal: async () => authorizeSyntheticVault() };
+  return { ...snapshot, getVaultOwnerToken, isVaultUnlocked: Boolean(snapshot.vaultOwnerToken), retryOwnerTokenRenewal: async () => authorizeSyntheticVault() };
 }
 export function useRouter() {
   return { push: () => {}, replace: () => {}, prefetch: () => {} };

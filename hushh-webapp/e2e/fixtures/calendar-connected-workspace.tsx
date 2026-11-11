@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Toaster } from "../../components/ui/sonner";
 import { AgentCalendarProposalCard } from "../../components/agent/agent-calendar-proposal-card";
 import { CalendarConnectedWorkspace } from "../../components/calendar/calendar-connected-workspace";
 import { authorizeSyntheticVault, lockSyntheticVault } from "./calendar-connected-boundaries";
@@ -20,6 +21,7 @@ function Fixture() {
   const boardAccounts = ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]
     .map((google_email, index) => ({ account_id: index === 0 ? "default" : index === 1 ? "work" : "projects", google_email, google_email_verified: index < 2, status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true }));
   return <>
+    <Toaster />
     <div className="fixed inset-x-0 top-0 z-50 flex h-12 items-center justify-center bg-background text-xs text-muted-foreground">{location.search.includes("providerReplay=1") ? "Explorer-backed local replay · sanitized dates · not live UAT" : "Synthetic Calendar QA fixture"}</div>
     <div data-testid="calendar-scroll-root" className="h-dvh overflow-y-auto pt-16 pb-[var(--app-bottom-content-clearance)]">
       {proposal ? <div className="mx-auto max-w-[820px] px-4">

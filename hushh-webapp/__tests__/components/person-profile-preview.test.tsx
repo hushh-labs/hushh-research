@@ -71,6 +71,17 @@ describe("person profile return memory @feature_connected_profiles @trace_loop",
     expect(state.api).toHaveBeenCalledWith("/api/one/connections/peer-uid/context", expect.objectContaining({ cache: "no-store", headers: expect.objectContaining({ Authorization: "Bearer token" }) }));
   });
 
+  it.each([true, false])("scopes the portal only for a Calendar-origin preview (%s)", async calendar => {
+    render(<PersonProfilePreview />);
+    act(() => {
+      openPersonProfilePreview({ personRef: "public-peer", ...(calendar && { presentation: "calendar" }) });
+    });
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    const dialog = screen.getByRole("dialog");
+    if (calendar) expect(dialog).toHaveAttribute("data-connect-type-scale", "page");
+    else expect(dialog).not.toHaveAttribute("data-connect-type-scale");
+  });
+
   it("retains normal profile navigation when no preview host accepts the link", () => {
     render(<PersonProfileLink href="/people/11111111-1111-4111-8111-111111111111">View profile</PersonProfileLink>);
     let intercepted: boolean | undefined;

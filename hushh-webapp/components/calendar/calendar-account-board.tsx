@@ -303,7 +303,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     else setRevision(value => value + 1);
   };
 
-  return <AppPageShell width="agent" headerContentSpacing="compact" className={`${styles.shell} ${presentationStyles.scope}`} data-profile-type-scale="page" data-connect-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
+  return <AppPageShell width="agent" headerContentSpacing="compact" className={`${styles.shell} ${presentationStyles.scope}`} data-connect-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
     <div className={styles.content} data-calendar-account-board data-calendar-presentation>
       <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile className={styles.accountSummary}
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
@@ -408,11 +408,11 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
             await CalendarFollowupsService.confirmBooking(userId, accountId, request, result.event.id, await getIdToken(), ownerToken);
             setInsightsRefreshRevision(value => value + 1);
           } catch {
-            morphyToast.error("Calendar event created, but its follow-up could not be marked booked. Review it again before dismissing reminders.");
+            morphyToast.error("Calendar event created, but its follow-up could not be marked booked. Review it again before dismissing reminders.", { className: presentationStyles.toast });
             return;
           }
         }
-        morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`);
+        morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`, { className: presentationStyles.toast });
       }} /> : null}
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
         <DialogContent className={`${styles.occasionDialog} ${presentationStyles.portal}`} data-connect-type-scale="page">

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import calendarType from "@/components/calendar/calendar-presentation.module.css";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import {
   snapshotValidatedAuthSessionOwner,
@@ -133,6 +135,7 @@ function GoogleOAuthReturnContent() {
     }
   }, [ownerId]);
   const [message, setMessage] = useState<string | null>(null);
+  const [calendarOwner, setCalendarOwner] = useState<string | null>(null);
   const [popupEnd, setPopupEnd] = useState<PopupEnd | null>(null);
   const [windowRemains, setWindowRemains] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -188,6 +191,10 @@ function GoogleOAuthReturnContent() {
       return cleanup;
     }
     const attempt = flow.current?.attempt ?? readGoogleOAuthPopupAttempt();
+    if (attempt && attempt.ownerId === authority.current.ownerId) {
+      const calendar = attempt.service === "calendar" || (attempt.service === "gmail_read" && attempt.calendarAdditional);
+      setCalendarOwner(calendar ? attempt.ownerId : null);
+    }
     const isSameWindowCalendar =
       attempt?.service === "calendar" && attempt.returnMode === "same_window";
     const fail = (text: string, outcome: "cancelled" | "failed" = "failed") => {
@@ -383,37 +390,44 @@ function GoogleOAuthReturnContent() {
   }, [loading, router, search, user, userId]);
 
   const target = popupEnd ? popupReturnTarget(popupEnd) : null;
+  const calendar = Boolean(ownerId && calendarOwner === ownerId);
+  const resultClass = cn("mx-auto flex max-w-md flex-col gap-4 p-6", calendar && calendarType.scope);
+  const linkClass = cn("inline-flex min-h-11 items-center text-primary underline", calendar && calendarType.action);
   if (popupEnd?.outcome === "succeeded" && windowRemains) {
     return (
-      <div className="mx-auto flex max-w-md flex-col gap-4 p-6" data-testid="google-oauth-popup-done">
-        <p role="status">
+      <div className={resultClass} data-connect-type-scale={calendar ? "page" : undefined} data-testid="google-oauth-popup-done">
+        <p role="status" className={calendar ? calendarType.support : undefined}>
           {acknowledged
             ? "Google access saved and One is updated. You can close this window."
             : "Google access saved. If One did not update on its own, return to it here."}
         </p>
         {target ? (
-          <Link className="inline-flex min-h-11 items-center text-primary underline" href={target.href} onClick={target.prepare}>
+          <Link className={linkClass} href={target.href} onClick={target.prepare}>
             Return to One
           </Link>
         ) : (
-          <Link className="inline-flex min-h-11 items-center text-primary underline" href={buildProfileConnectorsPaneHref()}>
+          <Link className={linkClass} href={buildProfileConnectorsPaneHref()}>
             Back to connections
           </Link>
         )}
       </div>
     );
   }
-  if (!message) return <HushhLoader label="Finishing Google connection…" />;
+  if (!message) {
+    return calendar
+      ? <div className={calendarType.scope} data-connect-type-scale="page"><HushhLoader labelClassName={calendarType.support} label="Finishing Google connection…" /></div>
+      : <HushhLoader label="Finishing Google connection…" />;
+  }
   return (
-    <div className="mx-auto flex max-w-md flex-col gap-4 p-6">
-      <p role="status">{message}</p>
+    <div className={resultClass} data-connect-type-scale={calendar ? "page" : undefined}>
+      <p role="status" className={calendar ? calendarType.support : undefined}>{message}</p>
       {target ? (
-        <Link className="inline-flex min-h-11 items-center text-primary underline" href={target.href} onClick={target.prepare}>
+        <Link className={linkClass} href={target.href} onClick={target.prepare}>
           Return to One
         </Link>
       ) : (
         <Link
-          className="inline-flex min-h-11 items-center text-primary underline"
+          className={linkClass}
           href={buildProfileConnectorsPaneHref()}
         >
           Back to connections

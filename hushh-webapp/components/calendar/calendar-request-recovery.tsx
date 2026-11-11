@@ -28,13 +28,13 @@ export function RequestRecoveryPanel({ recovery, copyText, onClose, contextGuard
   const noteLine = note ? <p role="status" className={styles.muted}>{note}</p> : null;
   const field = <textarea readOnly aria-label="Request to send to the organizer" className={REQUEST_FIELD} rows={4} value={copyText} />;
   if (recovery.tone === "retry") return recovery.copy ? <div className="space-y-2">
-    <p>If this keeps failing, copy this request and send it directly.</p>
+    <p className={styles.muted}>If this keeps failing, copy this request and send it directly.</p>
     {field}
     <Button variant="outline" onClick={() => void copy()}>Copy request</Button>
     {noteLine}
   </div> : null;
   return <div className="space-y-3" data-testid="calendar-request-recovery">
-    <p role="alert">{recovery.message}</p>
+    <p role="alert" className={styles.muted}>{recovery.message}</p>
     {recovery.copy ? field : null}
     <div className="flex flex-wrap gap-2">
       {recovery.copy ? <Button variant="outline" onClick={() => void copy()}>Copy request</Button> : null}

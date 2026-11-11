@@ -94,6 +94,16 @@ describe("GoogleOAuthReturnPage", () => {
     vi.useRealTimers();
   });
 
+  it.each(["calendar", "drive"])("scopes the pending return UI for the current Calendar attempt (%s)", async service => {
+    mocks.readAttempt.mockReturnValue(attempt(service));
+    const completion = pending<ReturnType<typeof connected>>();
+    mocks.completeConnect.mockReturnValue(completion.promise);
+    render(<GoogleOAuthReturnPage />);
+    await waitFor(() => expect(mocks.completeConnect).toHaveBeenCalledOnce());
+    const status = screen.getByText("Finishing Google connection…");
+    expect(Boolean(status.closest('[data-connect-type-scale="page"]'))).toBe(service === "calendar");
+  });
+
   it("preserves Calendar routing through neutral completion", async () => {
     render(<GoogleOAuthReturnPage />);
     expect(screen.getByText("Finishing Google connection…")).toBeTruthy();

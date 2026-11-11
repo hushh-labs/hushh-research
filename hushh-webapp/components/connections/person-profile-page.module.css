@@ -23,6 +23,48 @@
   overflow-wrap: anywhere;
 }
 
+.page[data-calendar-profile],
+.page[data-calendar-profile] :is(.actionCards, .manage) {
+  --type-button-label-size: var(--profile-type-action-size);
+  --type-button-label-line: var(--profile-type-action-line);
+  --type-button-label-weight: var(--profile-type-action-weight);
+  --type-compact-button-label-size: var(--profile-type-action-size);
+  --type-compact-button-label-line: var(--profile-type-action-line);
+  --type-compact-button-label-weight: var(--profile-type-action-weight);
+}
+
+.page[data-calendar-profile] :is(.available, .history) {
+  --type-row-label-size: var(--profile-type-label-size);
+  --type-row-label-line: var(--profile-type-label-line);
+  --type-row-label-compact-size: var(--profile-type-label-size);
+  --type-row-label-compact-line: var(--profile-type-label-line);
+}
+
+.page[data-calendar-profile] .heading {
+  --foundation-title2-size: var(--type-section-label-size);
+  --foundation-title2-line: var(--type-section-label-line);
+  --foundation-title2-weight: var(--type-section-label-weight);
+  --foundation-title3-size: var(--type-section-label-size);
+  --foundation-title3-line: var(--type-section-label-line);
+  --foundation-title3-weight: var(--type-section-label-weight);
+}
+
+.page[data-calendar-profile] :is(.status, .role, .empty) {
+  --type-helper-text-size: var(--type-row-description-size);
+  --type-helper-text-line: var(--type-row-description-line);
+}
+
+.page[data-calendar-profile] .connectionMenu {
+  font-size: var(--type-compact-button-label-size);
+  line-height: var(--type-compact-button-label-line);
+  font-weight: var(--type-compact-button-label-weight);
+}
+
+.page[data-calendar-profile] .contactLines a {
+  font-size: var(--type-row-description-size);
+  line-height: var(--type-row-description-line);
+}
+
 .hero {
   --profile-file-question: color-mix(in oklab, var(--app-purple) 55%, var(--app-destructive));
   --profile-cover-base: #e9eefb;

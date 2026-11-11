@@ -37,7 +37,7 @@ export function CalendarRequestSection({ request, offered, statusText, copyText,
   ];
   const form = offered.length ? <div className="space-y-3">
     {only ? null : <>
-      <p id="calendar-request-question">What would you like to request?</p>
+      <p id="calendar-request-question" className={styles.muted}>What would you like to request?</p>
       <SegmentedTabs variant="filter" ariaLabel="What would you like to request?" value={selected ?? ""}
         onValueChange={value => request.choose(value as RequestChoice)} options={options} disabled={busy} />
     </>}
@@ -46,7 +46,7 @@ export function CalendarRequestSection({ request, offered, statusText, copyText,
       <Link href={ROUTES.CONNECT} className="underline" onClick={onConnect}>{NOT_CONNECTED_HINT}</Link></p> : null}
   </div> : null;
   return <SectionCard title="Recording or notes?">
-    {statusText ? <p role="status">{statusText}</p> : null}
+    {statusText ? <p role="status" className={styles.muted}>{statusText}</p> : null}
     {notice ? <p role="status" className={styles.muted}>{notice}</p> : null}
     {form}
     {failure ? <RequestRecoveryPanel recovery={failure} copyText={copyText} contextGuard={contextGuard} onClose={request.close} /> : null}

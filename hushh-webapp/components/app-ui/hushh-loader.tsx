@@ -14,6 +14,7 @@ export interface HushhLoaderProps {
   label?: string;
   variant?: HushhLoaderVariant;
   className?: string;
+  labelClassName?: string;
   /**
    * A boot or guard stage (session, vault, phone, setup, workspace, ...).
    * With a stage, this loader paints nothing of its own: it holds the one
@@ -78,6 +79,7 @@ export function HushhLoader({
   label = "Loading…",
   variant = "page",
   className,
+  labelClassName,
   stage,
   presentation = "surface",
   holdThroughNavigation = false,
@@ -111,7 +113,7 @@ export function HushhLoader({
       aria-atomic="true"
       className={cn(loaderVariants({ variant }), className)}
     >
-      <p className={cn("text-sm motion-safe:animate-pulse", variant === "inline" && "text-xs")}>{label}</p>
+      <p className={cn("text-sm motion-safe:animate-pulse", variant === "inline" && "text-xs", labelClassName)}>{label}</p>
     </div>
   );
 }

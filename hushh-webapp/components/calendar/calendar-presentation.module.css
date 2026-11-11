@@ -1,28 +1,30 @@
 .workspace {
-  --foundation-title2-size: var(--app-side-pane-row-title-size, 14px);
-  --foundation-title2-line: var(--app-side-pane-row-title-line, 22px);
-  --foundation-title2-weight: var(--app-side-pane-row-title-weight, 600);
-  --foundation-title3-size: var(--app-side-pane-row-title-size, 14px);
-  --foundation-title3-line: var(--app-side-pane-row-title-line, 22px);
-  --foundation-title3-weight: var(--app-side-pane-row-title-weight, 600);
+  --foundation-title2-size: var(--type-section-label-size);
+  --foundation-title2-line: var(--type-section-label-line);
+  --foundation-title2-weight: var(--type-section-label-weight);
+  --foundation-title3-size: var(--type-section-label-size);
+  --foundation-title3-line: var(--type-section-label-line);
+  --foundation-title3-weight: var(--type-section-label-weight);
   font-family: var(--font-app-body);
 }
 
 .setup {
-  --type-agent-title-line: 36px;
-  --foundation-title1-size: 28px;
-  --foundation-title1-line: 36px;
-  --foundation-title1-weight: 600;
+  --type-agent-title-size: var(--connect-display-size);
+  --type-agent-title-line: var(--connect-display-line);
+  --type-agent-title-weight: var(--connect-display-weight);
+  --foundation-title1-size: var(--connect-display-size);
+  --foundation-title1-line: var(--connect-display-line);
+  --foundation-title1-weight: var(--connect-display-weight);
   font-family: var(--font-app-body);
 }
 
 .flowTitle {
-  --foundation-title2-size: 28px;
-  --foundation-title2-line: 36px;
-  --foundation-title2-weight: 600;
-  --foundation-title3-size: 28px;
-  --foundation-title3-line: 36px;
-  --foundation-title3-weight: 600;
+  --foundation-title2-size: var(--connect-display-size);
+  --foundation-title2-line: var(--connect-display-line);
+  --foundation-title2-weight: var(--connect-display-weight);
+  --foundation-title3-size: var(--connect-display-size);
+  --foundation-title3-line: var(--connect-display-line);
+  --foundation-title3-weight: var(--connect-display-weight);
 }
 
 .flowDescription {
@@ -54,9 +56,6 @@
   min-height: 44px;
   align-items: center;
   color: var(--app-accent);
-  font-size: var(--app-side-pane-row-title-size, 13px);
-  line-height: var(--app-side-pane-row-title-line, 21px);
-  font-weight: var(--app-side-pane-row-title-weight, 550);
 }
 
 .publicOffer {
@@ -83,14 +82,28 @@
 }
 
 .utility {
-  --type-compact-button-label-size: var(--profile-type-action-size, 13px);
-  --type-compact-button-label-line: var(--profile-type-action-line, 21px);
-  --type-compact-button-label-weight: var(--profile-type-action-weight, 550);
   min-width: 44px;
   min-height: 44px;
-  font-size: var(--app-side-pane-row-title-size, 13px);
-  line-height: var(--app-side-pane-row-title-line, 21px);
-  font-weight: var(--app-side-pane-row-title-weight, 550);
+}
+
+.utility,
+.action,
+.sourceLink {
+  font-size: var(--type-compact-button-label-size);
+  line-height: var(--type-compact-button-label-line);
+  font-weight: var(--type-compact-button-label-weight);
+}
+
+.sectionLabel {
+  font-size: var(--type-section-label-size);
+  line-height: var(--type-section-label-line);
+  font-weight: var(--type-section-label-weight);
+}
+
+.body {
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: var(--type-row-description-weight);
 }
 
 .status {
@@ -115,14 +128,18 @@
   font-family: var(--font-app-body);
 }
 
-.portal :global(h3) {
-  --foundation-title3-size: var(--app-side-pane-row-title-size, 14px);
-  --foundation-title3-line: var(--app-side-pane-row-title-line, 22px);
-  --foundation-title3-weight: var(--app-side-pane-row-title-weight, 600);
+.portal :is(:global(h3), :global(h4)) {
+  --foundation-title3-size: var(--type-section-label-size);
+  --foundation-title3-line: var(--type-section-label-line);
+  --foundation-title3-weight: var(--type-section-label-weight);
+  --foundation-headline-size: var(--type-section-label-size);
+  --foundation-headline-line: var(--type-section-label-line);
+  --foundation-headline-weight: var(--type-section-label-weight);
 }
 
 .portal :global(label > span),
-.portal :global(fieldset > legend) {
+.portal :global(fieldset > legend),
+.fieldLabel {
   font-size: var(--type-form-label-size);
   line-height: var(--type-form-label-line);
   font-weight: var(--type-form-label-weight);
@@ -169,24 +186,12 @@
 }
 
 @media (max-width: 620px) {
-  .utility {
-  --type-compact-button-label-size: var(--profile-type-action-size, 12px);
-  font-size: var(--profile-type-description-size, 12px);
-  line-height: var(--profile-type-description-line, normal);
-}
-  .sourceLink { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
   .joinLink { min-width: 78px; padding-inline: 11px; }
 }
 
 @media (max-width: 350px) {
   .joinLink { min-width: 72px; padding-inline: 9px; }
 }
-
-/* Profile roles for dialog chrome: primary buttons take the label role and the
-   dialog description the description role. Outside the Calendar scope the
-   fallbacks keep the app-wide values. */
-.portal { --type-button-label-size: var(--app-side-pane-row-title-size, 17px); --type-button-label-line: var(--app-side-pane-row-title-line, 22px); --type-button-label-weight: var(--app-side-pane-row-title-weight, 650); }
-.portal :global([data-slot="dialog-description"]) { font-size: var(--profile-type-description-size, 14px); line-height: var(--profile-type-description-line, 20px); }
 
 /* Calendar surfaces use Connect's roles while keeping their own layout. */
 .scope {
@@ -239,8 +244,10 @@
 .scope :is(input:not([type="checkbox"], [type="radio"]), textarea, select) {
   min-width: 0;
   max-width: 100%;
+  font-family: var(--font-app-body);
   font-size: var(--type-input-value-size);
   line-height: var(--type-input-value-line);
+  font-weight: var(--type-row-description-weight);
 }
 
 .scope :is(:global([data-slot="dropdown-menu-item"]), :global([data-slot="dropdown-menu-radio-item"]), :global([data-slot="select-item"])) {
@@ -249,7 +256,7 @@
   font-weight: var(--type-row-label-weight);
 }
 
-.scope :global([data-slot="button"]) {
+.scope :is(:global(.ui-text-button-label), :global(.ui-text-compact-button-label)) {
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -259,3 +266,87 @@
 .calendarDirective { composes: scope; }
 .calendarPrompt { composes: scope; }
 .chatCard { composes: scope; }
+
+/* Toasts mount beside the current route, so the Calendar event supplies the scope. */
+.toast {
+  composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css";
+}
+
+.toast:global([data-sonner-toast][data-styled]) :global([data-title]) {
+  font-family: var(--font-app-body);
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: var(--type-row-label-weight);
+}
+
+.toast:global([data-sonner-toast][data-styled]) :global([data-description]) {
+  font-family: var(--font-app-body);
+  font-size: var(--type-row-description-size);
+  line-height: var(--type-row-description-line);
+  font-weight: var(--type-row-description-weight);
+}
+
+.selectField {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.selectField > select {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: .55rem .7rem;
+  padding-inline-end: 2.5rem;
+  appearance: none;
+  border: 1px solid var(--app-separator);
+  border-radius: var(--app-input-radius);
+  background: var(--app-secondary-surface);
+}
+
+.selectChevron {
+  position: absolute;
+  inset-inline-end: .75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1rem;
+  height: 1rem;
+  color: var(--app-secondary-label);
+  pointer-events: none;
+}
+
+@media (forced-colors: active) {
+  .selectField > select { appearance: auto; }
+  .selectChevron { display: none; }
+}
+
+.calendarPrompt > p {
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: var(--type-row-label-weight);
+}
+
+.calendarPrompt :is(
+  :global([data-testid="clarification-option"]),
+  :global([data-testid="clarification-confirm"]),
+  :global([data-testid="clarification-cancel"])
+) {
+  font-size: var(--type-compact-button-label-size);
+  line-height: var(--type-compact-button-label-line);
+  font-weight: var(--type-compact-button-label-weight);
+}
+
+.chatResult {
+  composes: scope;
+  font-weight: var(--type-row-description-weight);
+}
+
+.routeLoading {
+  composes: scope;
+}
+
+.routeLoading :global([data-route-loading-content] [role="status"]) {
+  font-size: var(--type-row-description-size);
+  line-height: var(--type-row-description-line);
+  font-weight: var(--type-row-description-weight);
+}

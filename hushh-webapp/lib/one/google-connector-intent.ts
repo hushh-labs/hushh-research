@@ -13,6 +13,9 @@ export function googleConnectorIntent(raw: string): GoogleConnector | null {
 
 /** In-app web handoff event carries the same closed connector intent as a QR. */
 export const GOOGLE_CONNECTOR_HANDOFF_EVENT = 'hushh:google-connector-intent';
-export function requestGoogleConnectorPhoneHandoff(connector: GoogleConnector): void {
-  window.dispatchEvent(new CustomEvent(GOOGLE_CONNECTOR_HANDOFF_EVENT, { detail: `hushh://one/connect/google/${connector}` }));
+export function requestGoogleConnectorPhoneHandoff(connector: GoogleConnector, presentation?: "calendar"): void {
+  const link = `hushh://one/connect/google/${connector}`;
+  window.dispatchEvent(new CustomEvent(GOOGLE_CONNECTOR_HANDOFF_EVENT, {
+    detail: presentation ? { link, presentation } : link,
+  }));
 }

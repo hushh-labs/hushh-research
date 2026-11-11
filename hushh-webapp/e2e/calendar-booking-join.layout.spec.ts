@@ -9,12 +9,20 @@ test("booking dropdown arrows have a consistent responsive inset", async ({ page
   const { errors, unexpectedRequests } = await openFixture(page, 393, false, "busy", false, true);
   await page.getByRole("button", { name: /^Schedule from shared free time/ }).click();
   const dialog = page.getByRole("dialog", { name: "Schedule meeting" });
-  for (const width of [320, 393, 480, 481, 768, 1440]) {
+  await expect(dialog).toHaveAttribute("data-connect-type-scale", "page");
+  await expect(dialog.getByRole("heading", { name: "Schedule meeting" })).toHaveCSS("line-height", "28px");
+  await expect(dialog.getByRole("button", { name: "Schedule meeting" })).toHaveCSS("font-weight", "550");
+  await expect(dialog.getByPlaceholder("Project planning meeting").locator("..")).toHaveCSS("font-size", "15px");
+  for (const width of [320, 393, 480, 481, 620, 621, 767, 768, 1440]) {
     await page.setViewportSize({ width, height: 950 });
     await page.screenshot({ animations: "disabled" });
     for (const label of ["Calendar account and destination", "Duration", "Where"]) {
       const select = dialog.getByRole("combobox", { name: label, exact: true });
       await select.scrollIntoViewIfNeeded();
+      await expect(select).toHaveCSS("font-family", /Plus Jakarta Sans/);
+      await expect(select).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
+      await expect(select).toHaveCSS("line-height", "22px");
+      await expect(select).toHaveCSS("font-weight", "400");
       const selectBounds = (await select.boundingBox())!;
       const chevron = select.locator("..").locator("svg");
       const chevronBounds = (await chevron.boundingBox())!;
@@ -25,6 +33,9 @@ test("booking dropdown arrows have a consistent responsive inset", async ({ page
       await expect(chevron).toHaveAttribute("aria-hidden", "true");
       await expect(chevron).toHaveCSS("pointer-events", "none");
     }
+    const title = dialog.getByPlaceholder("Project planning meeting");
+    await expect(title).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
+    await expect(title).toHaveCSS("line-height", "22px");
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }

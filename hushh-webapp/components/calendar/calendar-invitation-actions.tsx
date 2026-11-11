@@ -73,7 +73,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
         setFailure(failure);
         if (failure.reasonCode === "calendar_review_expired") { setReview(null); setReviewRequired(true); }
         // A row action uses the shared transient feedback owner.
-        morphyToast.error(failure.message);
+        morphyToast.error(failure.message, { className: presentationStyles.toast });
       }
     } finally { flight.current = false; if (current() && !handedOff.current) { setBusy(false); busyCallback.current?.(false); } }
   };
@@ -147,7 +147,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       if (["failed", "unknown"].includes(response.calendar) || ["failed", "unknown"].includes(response.email)) throw new Error(attendanceResultMessage(response));
       return response;
     });
-    morphyToast.promise(feedback, { loading: "Updating your invitation…", success: response => attendanceResultMessage(response), error: error => error instanceof Error ? error.message : "Your response could not be confirmed." });
+    morphyToast.promise(feedback, { className: presentationStyles.toast, loading: "Updating your invitation…", success: response => attendanceResultMessage(response), error: error => error instanceof Error ? error.message : "Your response could not be confirmed." });
     const response = await confirmation;
     if (!current()) return;
     if (!["accepted", "declined", "tentative", "failed", "unknown"].includes(response.calendar) || !["sent", "not_sent", "failed", "unknown"].includes(response.email)) throw new GoogleCalendarError("Calendar did not confirm the outcome. Check the invitation before retrying.", null, 502);

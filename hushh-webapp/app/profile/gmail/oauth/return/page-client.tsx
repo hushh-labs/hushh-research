@@ -10,6 +10,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import mailStyles from "@/components/gmail/mail-workspace.module.css";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
@@ -215,6 +216,7 @@ export default function ProfileGmailOAuthReturnPageClient({
       }
     };
   }, [renderedOwnerId]);
+  const [calendarOwner, setCalendarOwner] = useState<string | null>(null);
   const [stage, setStage] = useState<CompleteStage>("loading");
   const [error, setError] = useState<string | null>(null);
   const [returnToSetup, setReturnToSetup] = useState(false);
@@ -277,6 +279,8 @@ export default function ProfileGmailOAuthReturnPageClient({
       window.setTimeout(() => window.close(), 0);
       return;
     }
+
+    if (popupAttempt) setCalendarOwner(popupAttempt.presentation === "calendar" ? userId : null);
 
     if (oauthError) {
       const oauthErrorDescription =
@@ -580,14 +584,16 @@ export default function ProfileGmailOAuthReturnPageClient({
   ]);
 
   const isCloudReturn = (searchParams.get("state") || initialState || "").startsWith("byoc.");
-  const mailPresentation = isCloudReturn ? "" : `${mailStyles.typography} ${mailStyles.callback}`;
+  const calendar = !isCloudReturn && Boolean(userId && calendarOwner === userId);
+  const presentationClass = isCloudReturn ? "" : calendar ? calendarType.scope : `${mailStyles.typography} ${mailStyles.callback}`;
 
   if (stage !== "error") {
     return (
       <AppPageShell
         as="div"
         width="reading"
-        className={`${mailPresentation} flex min-h-[60vh] items-center justify-center`}
+        className={`${presentationClass} flex min-h-[60vh] items-center justify-center`}
+        data-connect-type-scale={calendar ? "page" : undefined}
         nativeTest={{
           routeId: "/one/profile/gmail/oauth/return",
           marker: "native-route-profile-gmail-return",
@@ -600,7 +606,8 @@ export default function ProfileGmailOAuthReturnPageClient({
       >
         <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
           <HushhLoader
-            className={isCloudReturn ? undefined : mailStyles.callbackStatus}
+            className={isCloudReturn || calendar ? undefined : mailStyles.callbackStatus}
+            labelClassName={calendar ? calendarType.support : undefined}
             label={
               isCloudReturn
                 ? "Setting up your cloud. This can take a few minutes…"
@@ -618,7 +625,8 @@ export default function ProfileGmailOAuthReturnPageClient({
     <AppPageShell
       as="div"
       width="reading"
-      className={`${mailPresentation} flex min-h-[60vh] items-center justify-center`}
+      className={`${presentationClass} flex min-h-[60vh] items-center justify-center`}
+      data-connect-type-scale={calendar ? "page" : undefined}
       nativeTest={{
         routeId: "/one/profile/gmail/oauth/return",
         marker: "native-route-profile-gmail-return",
@@ -630,10 +638,10 @@ export default function ProfileGmailOAuthReturnPageClient({
     >
       <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
         <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">
+          <h1 className={calendar ? `${calendarType.setup} text-foreground` : "text-lg font-semibold text-foreground"}>
             Mail connection needs attention
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <p className={`mt-2 text-muted-foreground ${calendar ? calendarType.support : "text-sm"}`}>{error}</p>
           <Button
             onClick={() => router.replace(returnToSetup ? ROUTES.ONE_SETUP : buildProfileGmailReturnPath())}
             className="mt-4 w-full"
