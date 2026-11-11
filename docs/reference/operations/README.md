@@ -44,9 +44,13 @@ flowchart TD
   root --> n18
   n19["Source and Release Recovery"]
   root --> n19
+  n20["Repository History Maintenance"]
+  root --> n20
 ```
 
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
+For the next coordinated historical cleanup, use the
+[repository history maintenance plan](./repository-history-maintenance.md).
 For the owner-pod library, see [Private Files library](./private-files-library.md)
 for storage, analysis consent, recovery, on-demand operation and cost assumptions.
 One-time rollout notes belong in PRs, issues, or git history, not in the active operations surface.
