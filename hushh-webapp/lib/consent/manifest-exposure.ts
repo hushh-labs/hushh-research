@@ -31,7 +31,8 @@ export function blockedManifestPaths(manifest: ExposureManifest, readable: reado
   const allowed = new Set(readable);
   return [...new Set([
     ...(manifest.paths ?? []).filter(entry => typeof entry.json_path === "string" &&
-      (entry.exposure_eligibility === false || isInternalManifestPath(entry.json_path) ||
+      // Structural containers are not shareable leaves; branch privacy lives in the registry.
+      (entry.exposure_eligibility === false && entry.path_type !== "object" && entry.path_type !== "array" || isInternalManifestPath(entry.json_path) ||
         entry.path_type === "leaf" && !allowed.has(entry.json_path))).map(entry => entry.json_path!),
     ...privateScopeRoots(manifest),
   ])].sort();
