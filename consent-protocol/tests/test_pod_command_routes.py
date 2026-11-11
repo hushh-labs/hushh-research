@@ -4,7 +4,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, create_autospec
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -301,3 +301,127 @@ def test_memory_preparation_logs_one_content_free_outcome_per_attempt(monkeypatc
         assert "route=pod capture_source=app_activity_digest memory_profile=general " in line
         assert fragment in line
     assert "Synthetic notebook preference" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "cloud,provider,mode",
+    [("azure", "azure_openai", "user_azure_mi"), ("gcp", "gemini", "user_adc")],
+)
+@pytest.mark.parametrize("attack", [None, "sibling", "runtime_change", "legacy_approval"])
+async def test_private_paid_composition_uses_owner_model_and_sends_only_commitments(
+    monkeypatch, cloud, provider, mode, attack
+):
+    from uuid import uuid4
+
+    from api.routes.one import pod_answer_composition as route
+    from hushh_mcp.hushh_adk import single_turn
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+
+    owner = {"user_id": "owner", "hushh_id": "agent"}
+
+    @asynccontextmanager
+    async def admitted(*_args):
+        yield owner
+
+    monkeypatch.setattr(route, "_require_enabled", lambda: None)
+    monkeypatch.setattr(route, "_admitted", admitted)
+    authority = SimpleNamespace(
+        require_held=AsyncMock(), local_token=Mock(return_value="synthetic-local-consent")
+    )
+    monkeypatch.setattr(route, "verified_session", lambda *_args, **_kwargs: (authority, owner))
+    revision = [2]
+    monkeypatch.setattr(route, "_selection", lambda: None)
+    monkeypatch.setattr(route, "ai_selection_revision", lambda: revision[0])
+    runtime = {
+        "version": 1,
+        "provider": provider,
+        "model": "gpt-fixture" if cloud == "azure" else "gemini-fixture",
+        "mode": "private",
+        "fingerprint": "a" * 64,
+    }
+    model = SimpleNamespace(provider=provider, model=runtime["model"], runtime_mode=mode)
+    monkeypatch.setattr(route, "_owner_model", lambda: model)
+    monkeypatch.setattr(route, "paid_answer_runtime", lambda: runtime)
+    request_id = str(uuid4())
+    scope = "attr.travel.trips"
+
+    def read(*_args, params, **_kwargs):
+        return {
+            "readNonce": params["read_nonce"],
+            "paidAnswer": {
+                "requestId": request_id,
+                "termsDigest": "b" * 64,
+                "question": "Where did you travel?",
+                "modelProcessingConsented": True,
+                "processingRuntime": None if attack == "legacy_approval" else runtime,
+                "approvedScopes": [scope],
+                "omittedScopes": [],
+                "period": None,
+                "runtimeBinding": {
+                    "owner": "sibling" if attack == "sibling" else "owner",
+                    "hushh_id": "agent",
+                    "service_uid": "service",
+                    "signing_key_id": "key",
+                    "image_digest": "c" * 64,
+                    "placement_epoch": 0,
+                },
+                "authorityToken": "synthetic-authority",
+            },
+        }
+
+    monkeypatch.setattr(route, "owner_feed_client", lambda: SimpleNamespace(read=read))
+    gene = SimpleNamespace(
+        id="one_paid_answer_writer",
+        runtime=SimpleNamespace(adk_mode="single_turn"),
+        privacy=SimpleNamespace(plaintext_telemetry=False),
+        model=SimpleNamespace(provider="gemini"),
+    )
+
+    def load(path):
+        assert __import__("pathlib").Path(path).is_file()
+        return SimpleNamespace(subagents=[gene])
+
+    monkeypatch.setattr(ManifestLoader, "load", load)
+    build = Mock(return_value="agent")
+    monkeypatch.setattr(single_turn, "build_single_turn_agent", build)
+
+    async def run(*_args, **_kwargs):
+        if attack == "runtime_change":
+            revision[0] += 1
+        return {"answer": "Tokyo.", "covers": [scope], "gaps": []}
+
+    provider_call = create_autospec(single_turn.run_single_turn, side_effect=run)
+    monkeypatch.setattr(single_turn, "run_single_turn", provider_call)
+    receipt = Mock(
+        return_value=SimpleNamespace(
+            status_code=200, json=lambda: {"compositionReceipt": "v2.synthetic.receipt"}
+        )
+    )
+    monkeypatch.setattr(route, "PodHubClient", lambda **_kwargs: SimpleNamespace(post=receipt))
+    body = route.ComposeRequest(
+        requestId=request_id,
+        projection={"memory": "Approved synthetic trip.", "values": {scope: {"trips": ["Tokyo"]}}},
+    )
+    if attack:
+        with pytest.raises(HTTPException):
+            await route.compose_private_answer(body, SimpleNamespace(), "synthetic-app-session")
+        receipt.assert_not_called()
+        if attack in {"sibling", "legacy_approval"}:
+            provider_call.assert_not_awaited()
+        return
+    result = await route.compose_private_answer(body, SimpleNamespace(), "synthetic-app-session")
+    assert result.status_code == 200
+    assert build.call_args.kwargs["model"] is model
+    assert provider_call.call_args.kwargs["consent_token"] == "synthetic-local-consent"
+    authority.local_token.assert_called_once_with(owner)
+    callback = receipt.call_args.kwargs["json"]
+    assert set(callback) == {
+        "authorityToken",
+        "processingRuntime",
+        "selectionRevision",
+        "runtimeMode",
+        "answerDigest",
+        "inputDigest",
+    }
+    assert callback["processingRuntime"] == runtime
+    assert "Tokyo" not in __import__("json").dumps(callback)

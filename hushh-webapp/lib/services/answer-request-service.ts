@@ -12,7 +12,12 @@
 
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { AnswerPayoutService } from "./answer-payout-service";
+import { AnswerPreparationError } from "@/lib/answers/answer-preparation-error";
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { ownerContentIsPrivate } from "./private-agent-specialist-chat";
 
 const REQUEST_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -22,6 +27,29 @@ export const MAX_ANSWER_PRICE_CENTS = 50_000;
 
 export const ANSWER_REQUEST_HELPER =
   "They approve the question, the exact information it uses, and the price before you pay.";
+
+export interface AnswerProcessingRuntime {
+  version: 1;
+  provider: "gemini" | "azure_openai" | "openai";
+  model: string;
+  mode: "private" | "shared";
+  fingerprint: string;
+}
+
+export function answerProcessorLabel(runtime: AnswerProcessingRuntime): string {
+  const provider = { gemini: "Google Gemini", azure_openai: "Azure OpenAI", openai: "OpenAI" }[runtime.provider];
+  return `${provider} · ${runtime.model}`;
+}
+
+function processingRuntime(value: unknown): AnswerProcessingRuntime {
+  const runtime = value as AnswerProcessingRuntime | null;
+  if (!runtime || Object.keys(runtime).sort().join() !== "fingerprint,mode,model,provider,version" || runtime.version !== 1 ||
+      !["gemini", "azure_openai", "openai"].includes(runtime.provider) || !["private", "shared"].includes(runtime.mode) ||
+      typeof runtime.model !== "string" || !/^[A-Za-z0-9._:/-]{1,128}$/.test(runtime.model) ||
+      typeof runtime.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(runtime.fingerprint))
+    throw new AnswerPreparationError("Could not verify the connected model. Update your agent or try again.");
+  return runtime;
+}
 
 export type AnswerRequestStatus =
   | "pending_resolution"
@@ -284,6 +312,7 @@ export class AnswerRequestService {
     scopes: string[],
     amountCents: number,
     modelProcessingConsent: boolean,
+    processingRuntime?: AnswerProcessingRuntime,
   ): Promise<{ termsDigest: string }> {
     if (!firebaseIdToken) throw new Error("Sign in to approve");
     if (!modelProcessingConsent)
@@ -300,13 +329,31 @@ export class AnswerRequestService {
           Authorization: `Bearer ${firebaseIdToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ scopes, amountCents, modelProcessingConsent }),
+        body: JSON.stringify({ scopes, amountCents, modelProcessingConsent, ...(processingRuntime ? { processingRuntime } : {}) }),
       },
     );
     if (!response.ok) throw new Error("This request could not be approved");
     const value = await readJson(response);
     dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
     return { termsDigest: String(value.termsDigest || "") };
+  }
+
+  /** Provider/model metadata from the same runtime that will prepare this answer. */
+  static async runtime(firebaseIdToken: string): Promise<AnswerProcessingRuntime> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal) && AuthService.getCurrentUser()?.uid === principal.firebaseUid && isVaultSessionEpochCurrent(epoch));
+    if (!firebaseIdToken || !current()) throw new AnswerPreparationError("Sign in and unlock to check the connected model.");
+    const privateOwner = await ownerContentIsPrivate();
+    if (!current()) throw new AnswerPreparationError("Your account changed.");
+    const response = privateOwner
+      ? await ApiService.ownerPodRequest("ai-selection", { method: "GET", cache: "no-store" }, false, undefined, undefined, current)
+      : await ApiService.apiFetch("/api/one/answer-requests/runtime", { cache: "no-store", headers: { Authorization: `Bearer ${firebaseIdToken}` }, isEffectCurrent: current });
+    const body = await readJson(response);
+    if (!response.ok || !current()) throw new AnswerPreparationError("Could not verify the connected model.");
+    const result = processingRuntime(privateOwner ? body.answerRuntime : body.processingRuntime);
+    if (result.mode !== (privateOwner ? "private" : "shared")) throw new AnswerPreparationError("Your agent hosting changed. Review this question again.");
+    return result;
   }
 
   static async decline(
@@ -370,7 +417,7 @@ export class AnswerRequestService {
    * Have the answer written from the projection this device just built.
    *
    * The projection is the approved scopes and dates only, and nothing is
-   * persisted server-side. A successful Gemini answer carries a request-bound
+   * persisted server-side. A successful model answer carries a request-bound
    * composition receipt for staging; a model failure remains retryable.
    */
   static async compose(
@@ -389,36 +436,55 @@ export class AnswerRequestService {
     compositionReceipt?: string;
   }> {
     if (!firebaseIdToken) throw new Error("Sign in to compose this answer");
-    const response = await ApiService.apiFetch(
-      `${requestPath(requestId)}/compose`,
-      {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal) && AuthService.getCurrentUser()?.uid === principal.firebaseUid && isVaultSessionEpochCurrent(epoch));
+    if (!current()) throw new AnswerPreparationError("Unlock your memory to prepare this answer.");
+    const privateOwner = await ownerContentIsPrivate();
+    if (!current()) throw new AnswerPreparationError("Your account or memory changed. Preparation stopped.");
+    const init = {
         method: "POST",
-        cache: "no-store",
-        headers: {
-          Authorization: `Bearer ${firebaseIdToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ projection }),
-      },
-    );
-    if (!response.ok) return { answerMode: "projection", answer: null };
-    const value = await readJson(response);
-    const mode = value.answerMode === "agent" ? "agent" : "projection";
-    const answer =
-      typeof value.answer === "string" && value.answer.trim()
-        ? value.answer
-        : null;
-    // An 'agent' mode with no answer is not an agent answer.
-    if (mode === "agent" && answer && Array.isArray(value.gaps) && value.gaps.length === 0 && typeof value.compositionReceipt === "string" && value.compositionReceipt.trim()) {
-      return {
-        answerMode: "agent",
-        answer,
-        compositionReceipt: value.compositionReceipt,
-        covers: Array.isArray(value.covers) ? (value.covers as string[]) : [],
-        gaps: Array.isArray(value.gaps) ? (value.gaps as string[]) : [],
-      };
+        cache: "no-store" as const,
+        authRefreshRetry: "never" as const,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(privateOwner ? { requestId, projection } : { projection }),
+    };
+    let response: Response;
+    try {
+      response = privateOwner
+        ? await ApiService.ownerPodRequest("answers/compose", init, false, undefined, undefined, current)
+        : await ApiService.apiFetch(`${requestPath(requestId)}/compose`, {
+            ...init, headers: { ...init.headers, Authorization: `Bearer ${firebaseIdToken}` },
+            isEffectCurrent: current, authRefreshRetry: "never",
+          });
+    } catch {
+      throw new AnswerPreparationError("Preparation was not confirmed. Check the question before trying again.");
     }
-    return { answerMode: "projection", answer: null };
+    if (!current()) throw new AnswerPreparationError("Your account or memory changed. Preparation stopped.");
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      if (body?.detail?.code === "ANSWER_PROCESSOR_APPROVAL_REQUIRED" || body?.detail?.code === "ANSWER_RUNTIME_CHANGED")
+        throw new AnswerPreparationError("This request needs fresh model consent. Ask the requester to send a new question.");
+      if (privateOwner && response.status === 404)
+        throw new AnswerPreparationError("Update your private agent to prepare paid answers.");
+      throw new AnswerPreparationError("Preparation was not confirmed. Check the question before trying again.");
+    }
+    try {
+      const value = await readJson(response);
+      if (!current()) throw new AnswerPreparationError("Your account or memory changed. Preparation stopped.");
+      if (value.answerMode !== "agent" || typeof value.answer !== "string" || !value.answer.trim() ||
+          !Array.isArray(value.gaps) || value.gaps.length !== 0 ||
+          !Array.isArray(value.covers) || !value.covers.every((item: unknown) => typeof item === "string") ||
+          typeof value.compositionReceipt !== "string" || !value.compositionReceipt.trim())
+        throw new AnswerPreparationError("An answer was not prepared. Check this question before trying again.");
+      return {
+        answerMode: "agent", answer: value.answer,
+        compositionReceipt: value.compositionReceipt, covers: value.covers as string[], gaps: [],
+      };
+    } catch (error) {
+      if (error instanceof AnswerPreparationError) throw error;
+      throw new AnswerPreparationError("Preparation was not confirmed. Check the question before trying again.");
+    }
   }
 
   /** Post the sealed answer. Ciphertext only; the server cannot read it. */
@@ -428,19 +494,19 @@ export class AnswerRequestService {
     body: { envelope: unknown; sourceRevisions?: unknown; hasContent: boolean; compositionReceipt?: string },
   ): Promise<void> {
     if (!firebaseIdToken) throw new Error("Sign in to deliver this answer");
-    const response = await ApiService.apiFetch(
-      `${requestPath(requestId)}/deliver`,
-      {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          Authorization: `Bearer ${firebaseIdToken}`,
-          "Content-Type": "application/json",
+    try {
+      const response = await ApiService.apiFetch(
+        `${requestPath(requestId)}/deliver`,
+        {
+          method: "POST", cache: "no-store", authRefreshRetry: "never",
+          headers: { Authorization: `Bearer ${firebaseIdToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      },
-    );
-    if (!response.ok) throw new Error("This answer could not be delivered");
+      );
+      if (!response.ok) throw new Error("Unconfirmed delivery");
+    } catch {
+      throw new AnswerPreparationError("Delivery was not confirmed. Refresh this question before trying again.");
+    }
     dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
   }
 

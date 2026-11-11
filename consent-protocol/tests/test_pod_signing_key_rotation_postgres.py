@@ -65,12 +65,14 @@ NEW_SIGNING = Ed25519PrivateKey.from_private_bytes(bytes([8]) * 32)
 # This registry-only fixture does not adopt canonical419/421. Account erasure
 # and legacy-removal successors are qualified by the complete canonical/Dev
 # replay, account-erasure and legacy-removal suites.
+# Paid-answer schema is qualified by its own PostgreSQL settlement suite.
 _UNRELATED = {
     "944_one_chat_history_legacy_cutover.sql",
     "985_legacy_cloud_removal_recovery.sql",
     "986_legacy_cloud_removal_resume.sql",
     "987_account_firebase_erasure.sql",
     "988_account_cloud_retirement.sql",
+    "989_pkm_answer_processing_runtime.sql",
 }
 
 

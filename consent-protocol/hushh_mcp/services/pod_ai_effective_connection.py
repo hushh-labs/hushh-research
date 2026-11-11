@@ -13,7 +13,7 @@ import os
 from hushh_mcp.services import pod_ai_selection as store
 
 
-def cloud_default_fingerprint(provider: str, model: str) -> str:
+def cloud_default_fingerprint(provider: str, model: str, *, include_revision: bool = True) -> str:
     """Bind historical verification to public deployment configuration, never keys."""
     from hushh_mcp.runtime_providers.azure_openai import azure_openai_topology
     from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
@@ -30,6 +30,7 @@ def cloud_default_fingerprint(provider: str, model: str) -> str:
             "CONTAINER_APP_REVISION",
             "AZURE_CLIENT_ID",
         )
+        if include_revision or name not in {"K_REVISION", "CONTAINER_APP_REVISION"}
     }
     if provider == "azure_openai":
         topology = azure_openai_topology()
@@ -107,3 +108,38 @@ def effective_connection() -> dict:
         # Resolver exceptions may contain credential/endpoint context. A public
         # metadata read never returns their payload or chooses another provider.
         return {"state": "unavailable", "code": "OWNER_AI_CONNECTION_UNAVAILABLE"}
+
+
+def paid_answer_runtime(*, connection: dict | None = None) -> dict:
+    """Actual owner model for paid consent. Cloud policy never changes a connection."""
+    from hushh_mcp.services.answer_composition_contract import ProcessingRuntime
+    from hushh_mcp.services.pod_platform import workload_platform
+
+    connection = effective_connection() if connection is None else connection
+    if connection.get("state") != "configured":
+        raise ValueError("ANSWER_RUNTIME_UNAVAILABLE")
+    provider, model = connection["provider"], connection["model"]
+    cloud = workload_platform()
+    if (
+        (cloud == "azure" and provider not in {"azure_openai", "openai"})
+        or (cloud == "gcp" and provider != "gemini")
+        or cloud not in {"gcp", "azure"}
+    ):
+        raise ValueError("ANSWER_RUNTIME_CLOUD_MISMATCH")
+    selection = store.active_ai_selection()
+    if selection is None:
+        # Software updates require new installation verification, not renewed
+        # processing consent when the actual model and connection are unchanged.
+        fingerprint = cloud_default_fingerprint(provider, model, include_revision=False)
+    else:
+        public = {
+            "provider": provider,
+            "model": model,
+            "selection": selection.selection_id,
+            "issued": selection.issued_at_ms,
+            "pod": os.getenv("HUSSH_ID", ""),
+        }
+        fingerprint = hashlib.sha256(json.dumps(public, sort_keys=True).encode()).hexdigest()
+    return ProcessingRuntime(
+        provider=provider, model=model, mode="private", fingerprint=fingerprint
+    ).model_dump()
