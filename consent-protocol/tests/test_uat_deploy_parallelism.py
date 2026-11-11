@@ -390,18 +390,19 @@ def test_parallel_build_keeps_release_and_readiness_before_deployment():
 
 
 @pytest.mark.parametrize(
-    "frontend,protected,pwm,reviewer",
+    "frontend,protected,pwm,reviewer,isolated",
     [
-        (True, False, False, False),
-        (False, True, False, False),
-        (False, False, True, False),
-        (True, True, True, True),
-        (False, False, False, False),
-        (False, False, False, True),
+        (True, False, False, False, False),
+        (False, True, False, False, False),
+        (False, False, True, False, False),
+        (True, True, True, True, False),
+        (False, False, False, False, False),
+        (False, False, False, True, False),
+        (True, False, False, False, True),
     ],
 )
 def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
-    frontend, protected, pwm, reviewer
+    frontend, protected, pwm, reviewer, isolated
 ):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
@@ -409,6 +410,7 @@ def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
     installs = [step for step in steps if "npm ci" in step.get("run", "")]
     assert len(installs) == 1, "Analytics and protected verification must reuse one install"
     install = installs[0]
+    assert "PREPROMOTION_UAT_GATES" not in install["if"]
     condition = install["if"].replace(
         "steps.scope.outputs.deploy_frontend == 'true'", str(frontend)
     )
@@ -418,9 +420,10 @@ def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
     condition = condition.replace("inputs.run_pwm_acceptance", str(pwm)).replace(
         "inputs.repeat_reviewer_byok", str(reviewer)
     )
+    condition = condition.replace("env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'", str(isolated))
     assert all(term.strip() in {"True", "False"} for term in condition.split("||"))
     assert any(term.strip() == "True" for term in condition.split("||")) == (
-        frontend or protected or pwm or reviewer
+        pwm or reviewer or isolated
     )
     for step in steps:
         if step.get("uses", "").startswith("actions/setup-node@"):
@@ -447,11 +450,11 @@ def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
     assert "uat-chromium" in cache["with"]["key"]
     assert (
         cache["if"]
-        == "steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
+        == "inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'"
     )
     assert (
         install["env"]["RUN_CHROMIUM_VERIFICATION"]
-        == "${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}"
+        == "${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true' }}"
     )
 
 
@@ -489,16 +492,18 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
         'n=$((n+1)); echo "$n" > "$ATTEMPTS"; echo "$*" >> "$CALLS"; [ "$n" -gt "$FAILURES" ]; };\n'
     )
     calls, attempts = tmp_path / "calls", tmp_path / "attempts"
-    # Resolve the authored dependency condition, including mandatory analytics
-    # when optional app-browser diagnostics are off.
+    # Resolve the actual diagnostic dependency condition. Ordinary frontend
+    # deployment alone must not provision a browser.
     browser_required = install["env"]["RUN_CHROMIUM_VERIFICATION"]
     browser_required = browser_required.replace("${{", "").replace("}}", "")
     browser_required = browser_required.replace(
         "steps.scope.outputs.deploy_frontend == 'true'", str(frontend)
     )
-    browser_required = browser_required.replace(
-        "inputs.repeat_reviewer_byok", str(diagnostic)
-    ).replace("inputs.run_pwm_acceptance", "False")
+    browser_required = (
+        browser_required.replace("inputs.repeat_reviewer_byok", str(diagnostic))
+        .replace("inputs.run_pwm_acceptance", "False")
+        .replace("env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'", "False")
+    )
     assert all(term.strip() in {"True", "False"} for term in browser_required.split("||"))
     browser_required = any(term.strip() == "True" for term in browser_required.split("||"))
     result = subprocess.run(  # noqa: S603 - actual installer with synthetic package commands only.
@@ -517,7 +522,7 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
     )
     assert result.returncode == expected, result.stderr
     assert calls.read_text().splitlines().count("npm") == 1
-    if npm_status or not (frontend or diagnostic):
+    if npm_status or not diagnostic:
         assert not attempts.exists()
     else:
         assert int(attempts.read_text()) == min(failures + 1, 2)
@@ -762,3 +767,59 @@ def test_cleanup_stops_both_owned_builds_even_before_mutation(tmp_path, first_ca
         line for line in calls.read_text().splitlines() if line.startswith("builds cancel")
     ]
     assert len(cancelled) == 2 and first in cancelled[0] and second in cancelled[1]
+
+
+@pytest.mark.parametrize("wrong_revision", [None, "backend", "frontend"])
+def test_uat_core_preverification_retains_serving_proof_without_analytics(tmp_path, wrong_revision):
+    import json
+    import sys
+
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    step = next(row for row in steps if row.get("id") == "current-state")
+    program = step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("PY", 1)[0]
+    values = {
+        "steps.scope.outputs.deploy_backend": "true",
+        "steps.scope.outputs.deploy_frontend": "true",
+        "steps.candidate-state.outputs.backend_revision": "backend-current",
+        "steps.candidate-state.outputs.frontend_revision": "frontend-current",
+        "env.LEGACY_UAT_ANALYTICS_REQUIRED": "false",
+        "steps.verify-analytics-uat.outcome": "skipped",
+    }
+    program = re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: values[m[1]], program)
+    for lane in ("backend", "frontend"):
+        path = tmp_path / f"{lane}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "status": {
+                        "url": f"https://{lane}.example",
+                        "traffic": [
+                            {
+                                "percent": 100,
+                                "revisionName": f"{lane}-wrong"
+                                if wrong_revision == lane
+                                else f"{lane}-current",
+                            }
+                        ],
+                    }
+                }
+            )
+        )
+        program = program.replace(
+            json.dumps(f"/tmp/uat-{lane}-promoted-service.json"),  # noqa: S108 - source literal only
+            json.dumps(str(path)),
+        )
+    result = subprocess.run(  # noqa: S603 - authored readback program and synthetic service snapshots
+        [sys.executable, "-c", program],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GITHUB_OUTPUT": str(tmp_path / "output")},
+        timeout=10,
+    )
+    assert result.returncode == (1 if wrong_revision else 0), result.stderr
+    if wrong_revision:
+        assert "Promoted revision mismatch" in result.stderr
+    else:
+        assert "backend_revision=backend-current" in (tmp_path / "output").read_text()

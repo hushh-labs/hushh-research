@@ -887,6 +887,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
     monkeypatch.setenv("CI_PROTOCOL_CONTROLLER_OWNER", "true")
     paths = (
+        "consent-protocol/tests/test_secret_metadata_inventory.py",
+        "consent-protocol/tests/test_managed_provider_collection.py",
         "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
         "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
         "consent-protocol/tests/test_pwm_runtime_probe.py",
@@ -1036,3 +1038,18 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
     assert backend.match_file("consent-protocol/tests/helpers/plg_runtime.py")
     assert backend.match_file("consent-protocol/tests/helpers/new.py")
     assert backend.match_file("deploy/plg/qualification_candidate.py")
+
+
+def test_generated_backend_mirrors_have_required_integrity_and_reader_owner():
+    backend = _filters()["backend"]
+    paths = (
+        "consent-protocol/contracts/kai/one-capability-graph.v1.json",
+        "consent-protocol/contracts/kai/one-route-orchestration-index.v1.json",
+    )
+    assert all(not backend.match_file(path) for path in paths)
+    assert backend.match_file("consent-protocol/contracts/kai/new-runtime-contract.json")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/route_orchestration_index.py")
+    selection = _governance_plan(paths)
+    assert selection["selection_error"] is None
+    commands = {item["id"] for item in selection["commands"]}
+    assert {"capability-graph-integrity", "route-index-integrity", "route-index-reader"} <= commands
