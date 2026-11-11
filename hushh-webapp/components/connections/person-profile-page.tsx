@@ -13,15 +13,12 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
+import { LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
 import { useTypographyToast } from "@/lib/morphy-ux/ui/use-typography-toast";
 import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import styles from "./person-profile-page.module.css";
-import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -72,7 +69,6 @@ import {
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
@@ -610,7 +606,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
     }
   };
 
-  const updateRelationship = async (action: "connect" | "cancel" | "remove"): Promise<boolean> => {
+  const updateRelationship = async (action: "connect" | "cancel"): Promise<boolean> => {
     if (!user || !userId || !viewerProfile && action !== "connect") return false;
     setRelationshipBusy(true);
     try {
@@ -618,26 +614,14 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
       const relationship =
         action === "connect"
           ? await PersonProfileService.connect(resolvedPersonRef, idToken)
-          : action === "cancel"
-            ? await PersonProfileService.cancelConnectionRequest(
-                resolvedPersonRef,
-                idToken,
-              )
-            : await PersonProfileService.removeConnection(
-                resolvedPersonRef,
-                idToken,
-              );
+          : await PersonProfileService.cancelConnectionRequest(resolvedPersonRef, idToken);
       requestGeneration.current += 1;
       viewerReadGeneration.current += 1;
       relationshipReadGeneration.current += 1;
       catalogInFlight.current = false;
       setCatalogLoading(false);
       setCatalogError(false);
-      if (action === "remove") {
-        CacheSyncService.onConnectionGraphMutated(userId);
-      } else {
-        CacheSyncService.onConnectionCapabilityMutated(userId);
-      }
+      CacheSyncService.onConnectionCapabilityMutated(userId);
       setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value: relationship });
       setViewerProfileState((current) =>
         current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
@@ -723,30 +707,6 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
     status: (await updateRelationship("cancel")) ? "succeeded" : "failed",
     summary: "Connection request cancellation finished.",
   }), { enabled: viewerProfile?.relationship.status === "pending_outgoing" });
-  useLocalOnboardingActionHandler("people.profile.remove_connection", async (_slots, context) => {
-    const displayName = profile?.displayName || "this person";
-    if (!context?.directiveId && !context?.humanConfirmationToken) {
-      return {
-        status: "blocked" as const,
-        summary: `Removing your connection with ${displayName} needs a confirmation.`,
-        data: {
-          [VOICE_CONFIRM_DATA_KEY]: {
-            actionId: "people.profile.remove_connection",
-            slots: {},
-            prompt: `Remove your connection with ${displayName}?`,
-            subject: { name: displayName, detail: null },
-            consequence:
-              "Ends the connection with this person. Existing consent remains governed separately.",
-            confirmLabel: "Remove",
-          },
-        },
-      };
-    }
-    return {
-      status: (await updateRelationship("remove")) ? "succeeded" : "failed",
-      summary: "Connection removal finished.",
-    };
-  }, { enabled: viewerProfile?.relationship.status === "connected" });
   useLocalOnboardingActionHandler("people.profile.review_information_request", async () => {
     return openRequestReview()
       ? { status: "succeeded", summary: "Information request review opened." }
@@ -783,7 +743,6 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
       actions.push({ id: "cancel-connection", label: "Cancel request", actionId: "people.profile.cancel_connection_request", purpose: "Withdraw the pending social connection request." });
     } else if (viewerProfile.relationship.status === "connected") {
       actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
-      actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
     }
     return actions;
   }, [viewerProfile]);
@@ -862,19 +821,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
           profile={profile}
           shareOnly={!viewerProfile}
           status={relationship?.status === "connected" && viewerProfile?.relationship.status === "connected" ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <ShellActionSurface variant="pill" className={styles.connectionMenu} data-profile-role="action" aria-label="Connected, connection options">
-                  Connected
-                  <ChevronDown className="h-3 w-3" aria-hidden="true" />
-                </ShellActionSurface>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className={calendarPresentation ? calendarType.scope : undefined} data-connect-type-scale={calendarPresentation ? "page" : undefined}>
-                <DropdownMenuItem variant="destructive" disabled={relationshipBusy} onSelect={() => void updateRelationship("remove")} data-voice-control-id="person-profile-remove-connection">
-                  Remove connection
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <span className={styles.connectedBadge} data-profile-role="description">Connected</span>
           ) : relationship ? (
             <>
               <StatusPill className={styles.status} tone={relationship.status === "connected" ? "ready" : "neutral"}>

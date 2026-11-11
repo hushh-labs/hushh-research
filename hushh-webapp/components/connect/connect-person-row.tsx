@@ -4,7 +4,6 @@ import { PersonSelectionSurface } from "@/components/connections/person-selectio
 import type { ComponentProps, ReactNode } from "react";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
-import { ConnectionStatusBadges } from "@/components/connections/connection-status-badges";
 import { connectPersonName, type ConnectPersonIdentity } from "@/lib/connections/person-label";
 import type { DirectoryPerson, MutualConnectionMetadata } from "@/lib/services/connections-service";
 import { cn } from "@/lib/utils";
@@ -79,7 +78,7 @@ export function ConnectPersonRow({
     </>
   );
   const identityClassName =
-    "grid min-h-[52px] -ms-2.5 w-fit max-w-full min-w-0 grid-cols-[30px_minmax(0,1fr)] items-center gap-x-2 px-2.5 py-1.5 text-left";
+    "grid min-h-[52px] -ms-2.5 w-full max-w-full min-w-0 grid-cols-[30px_minmax(0,1fr)] items-center gap-x-2 px-2.5 py-1.5 text-left";
 
   return (
     <div
@@ -99,7 +98,7 @@ export function ConnectPersonRow({
             aria-label={openLabel}
             className={cn(
               identityClassName,
-              "rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:bg-foreground/[0.065] motion-reduce:transition-none [@media(hover:hover)]:hover:bg-foreground/[0.04]",
+              "rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:bg-foreground/[0.065] motion-reduce:transition-none [@media(hover:hover)]:hover:bg-foreground/[0.04]",
             )}
           >
             {identity}
@@ -135,12 +134,7 @@ export function ConnectDirectoryPersonRow({
       description={person.relationship === "pending_outgoing"
         ? "Request sent"
         : person.relationship === "pending_incoming" ? "Wants to connect" : undefined}
-      supplement={person.isRia === true ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">
-          <ConnectionStatusBadges riaVerified />
-          {supplement}
-        </div>
-      ) : supplement}
+      supplement={supplement}
     />
   );
 }

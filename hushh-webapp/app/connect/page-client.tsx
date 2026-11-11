@@ -3538,8 +3538,11 @@ function ConnectPageClientContent() {
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
                                           photoUrl={person.photoUrl}
                                           label={title}
+                                          verified={person.isRia === true}
+                                          showBadgeDetails
                                         />
                                       }
+                                      leadingInteractive={person.isRia === true}
                                       openLabel={`Open ${title}'s profile`}
                                       onOpen={
                                         !isSelectionMode &&
@@ -3811,7 +3814,7 @@ function ConnectPageClientContent() {
                                 aria-label="Refresh contacts" aria-busy={connectionsRefreshingFirstPage}
                                 disabled={connectionsRefreshingFirstPage} onClick={handleRefreshConnections}
                                 className={styles.utilityAction}>
-                                <RefreshCw aria-hidden="true" className={cn("size-4", connectionsRefreshingFirstPage && "animate-spin")} />
+                                <RefreshCw aria-hidden="true" className={cn("mr-1.5 size-4", connectionsRefreshingFirstPage && "animate-spin")} />
                                 {connectionsRefreshingFirstPage ? "Refreshing…" : "Refresh"}
                               </Button>
                             }

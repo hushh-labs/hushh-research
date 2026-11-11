@@ -208,3 +208,16 @@
   font-weight: 550;
   min-height: 44px;
 }
+
+/* Keep the active underline separate from the rounded hover surface. */
+.surface [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  overflow: visible;
+}
+.surface [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] > :global(.morphy-ripple-host) {
+  inset: 3px -10px;
+  border-radius: 999px !important;
+}
+
+.surface [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"]:hover {
+  background-color: transparent;
+}

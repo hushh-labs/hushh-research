@@ -105,6 +105,7 @@ const connections = () =>
 const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
   (displayName, index) => ({
     userId: `directory-${index}`,
+    isRia: dataset().directoryAdvisor === "1" && index === 1,
     publicPersonRef: `person_directory_${index}`,
     displayName: dataset().longDirectoryIdentity === "1" && index === 0
       ? "Avery Featherstonehaugh-Rajendran"

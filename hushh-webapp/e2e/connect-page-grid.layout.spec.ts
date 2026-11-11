@@ -888,8 +888,13 @@ for (const width of [393, 1440]) {
     });
   }
   test(`Connection hover highlights stay centered inside touch targets at ${width}px`, async ({ page }) => {
-    await open(page, width, false);
+    await open(page, width, false, undefined, () => { document.documentElement.dataset.directoryAdvisor = "1"; });
     await settle(page, width);
+    const advisorBadge = page.getByTestId("connect-directory-group").getByRole("button", { name: "Verified Advisor" });
+    await expect(advisorBadge).toBeVisible();
+    const badgeBox = (await advisorBadge.boundingBox())!;
+    const faceBox = (await advisorBadge.locator('xpath=ancestor::*[@data-avatar-size]').boundingBox())!;
+    expect(badgeBox.y + badgeBox.height / 2).toBeGreaterThan(faceBox.y + faceBox.height / 2);
     await page.getByRole("tab", { name: /My connections/ }).click();
     const row = page.getByTestId("connect-person-row").filter({ has: page.getByRole("button", { name: "Message Jordan Lee", exact: true }) });
     for (const label of ["Message Jordan Lee", "Options for Jordan Lee"]) {
@@ -910,10 +915,21 @@ for (const width of [393, 1440]) {
     await refresh.hover();
     await expect(refresh).toHaveCSS("padding-left", "10px");
     await expect(refresh).toHaveCSS("padding-right", "10px");
+    await expect(refresh.locator("svg").first()).toHaveCSS("margin-right", "6px");
+    const tab = page.getByRole("tab", { name: /Find people/ });
+    await tab.hover();
+    await expect(tab).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(tab.locator(".morphy-ripple-host")).toHaveCSS("border-radius", "999px");
+    await page.screenshot({ path: test.info().outputPath(`tab-hover-${width}.png`) });
     const identity = row.locator('[data-person-row-action]').first();
-    if (await identity.count()) {
+    await expect(identity).toHaveCount(1);
+    {
       const identityBox = (await identity.boundingBox())!;
-      expect(identityBox.width).toBeLessThan((await row.boundingBox())!.width - 88);
+      await identity.hover();
+      await expect(identity.locator("..")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await page.screenshot({ path: test.info().outputPath(`row-hover-${width}.png`), animations: "disabled" });
+      expect(identityBox.width).toBeCloseTo((await row.locator(":scope > div").first().boundingBox())!.width, 0);
+      expect(await identity.evaluate(node => parseFloat(getComputedStyle(node).borderRadius))).toBeGreaterThan(100);
     }
   });
   for (const joined of [false, true]) {

@@ -232,7 +232,7 @@ export function SmsContactsFlow({
                   "ui-text-agent-tab-label min-h-11 flex-1 rounded-full px-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   active
                     ? "bg-[color:var(--app-card-surface-default-solid)] text-foreground shadow-sm"
-                    : "text-muted-foreground",
+                    : "text-muted-foreground [@media(hover:hover)]:hover:bg-[color:var(--app-secondary-fill)]",
                 )}
               >
                 {entry.label}

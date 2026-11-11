@@ -1802,6 +1802,8 @@ describe("Request scope during profile authority refresh", () => {
     mocks.getViewer.mockReturnValue(new Promise(() => {}));
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
     expect(await screen.findByText("Connected")).toBeVisible();
+    expect(screen.getByText("Connected").closest("button")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connected, connection options" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Loading profile details" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Ask a question", exact: true }));
     const field = await screen.findByLabelText("Your question");
@@ -1816,6 +1818,8 @@ describe("Request scope during profile authority refresh", () => {
     mocks.getViewer.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
     expect(await screen.findByText("Connected")).toBeVisible();
+    expect(screen.getByText("Connected").closest("button")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connected, connection options" })).not.toBeInTheDocument();
     await act(async () => { finish(viewerProfile({ relationship: { status: "none" }, contactEmail: "old@example.test" })); });
     expect(await screen.findByText("Not connected")).toBeVisible();
     expect(screen.queryByRole("link", { name: "old@example.test" })).toBeNull();
