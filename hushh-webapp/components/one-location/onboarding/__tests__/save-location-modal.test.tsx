@@ -1824,13 +1824,13 @@ describe("SaveLocationModal", () => {
       expect(screen.getByRole("button", { name: "Edit address details" })).toHaveAccessibleDescription(mapPickerMockState.picked.address);
       fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
       await screen.findByRole("button", { name: "Try saving again" });
-      expect(screen.queryByRole("heading", { name: "Your people." })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Find your circle" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Try saving again" }));
-      await screen.findByRole("heading", { name: "Your people." });
+      await screen.findByRole("heading", { name: "Find your circle" });
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
       await screen.findByRole("heading", { name: "Your place." });
       fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
-      await screen.findByRole("heading", { name: "Your people." });
+      await screen.findByRole("heading", { name: "Find your circle" });
       expect(onSave).toHaveBeenCalledTimes(2);
     });
   });

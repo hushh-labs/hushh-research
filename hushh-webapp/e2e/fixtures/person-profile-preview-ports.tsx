@@ -16,6 +16,8 @@ const PEOPLE = [
 ];
 export class ConnectionsServiceRequestError extends Error { status = 500; }
 const requests = new Set<string>();
+const sharedConnections = (personRef: string) =>
+  PEOPLE.filter(person => person.publicPersonRef !== personRef && person.networkDegree <= 2);
 function rowMetadata(person: typeof PEOPLE[number]) {
   const previews = person.networkDegree === 3 ? [] : person.networkDegree === 2 ? [PEOPLE[1]] : PEOPLE.filter(p => p.networkDegree === 1 && p !== person).slice(0, 2);
   return { ...person, relationship: person.networkDegree === 1 ? "connected" : requests.has(person.publicPersonRef) ? "pending_outgoing" : "none", mutualConnectionCount: previews.length,
@@ -33,7 +35,8 @@ export const ConnectionsService = {
     const person = PEOPLE.find(p => p.publicPersonRef === personRef) ?? PEOPLE[0];
     const mutuals = PEOPLE.filter(p => p.networkDegree === 1 && p !== person);
     return { person, networkDegree: person.networkDegree, mutualConnectionCount: person.networkDegree === 3 ? 0 : person.networkDegree === 2 ? 1 : mutuals.length,
-      mutualConnectionPreview: person.networkDegree === 2 ? PEOPLE[1] : mutuals[0], canBrowseConnections: person.networkDegree === 1 };
+      mutualConnectionPreview: person.networkDegree === 2 ? PEOPLE[1] : mutuals[0], canBrowseConnections: person.networkDegree === 1,
+      visibleConnectionCount: person.networkDegree === 1 ? sharedConnections(personRef).length : null };
   },
   listMutualConnections: async ({ personRef }: { personRef: string }) => ({
     person: PEOPLE.find(p => p.publicPersonRef === personRef),
@@ -42,7 +45,7 @@ export const ConnectionsService = {
   }),
   listNetwork: async ({ personRef, degree, query }: { personRef?: string; degree?: number; query?: string }) => ({
     person: personRef ? PEOPLE.find(p => p.publicPersonRef === personRef) : null,
-    items: PEOPLE.filter(p => (!personRef || p.networkDegree === 2) && (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase()))).map(rowMetadata),
+    items: (personRef ? sharedConnections(personRef) : PEOPLE).filter(p => (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase()))).map(rowMetadata),
     page: 1, hasMore: false,
   }),
 };
@@ -53,6 +56,8 @@ export function PersonProfilePage({ personRef = PEOPLE[0].publicPersonRef, onNet
   const person = PEOPLE.find(p => p.publicPersonRef === personRef) ?? PEOPLE[0];
   return <AppPageShell width="agent" fitContent><PersonProfileHero
     profile={{ ...person, verifiedRole: person === PEOPLE[0] ? "Registered investment adviser" : null }}
-    status={<span>Connected</span>} contacts={<span>Profile details</span>} primaryActions={<button type="button" onClick={() => setReview(true)}>Request information</button>} tasks={null} footer={null}
-  /><PersonNetworkSummary personRef={personRef} onReady={onNetworkReady} /><Dialog modal open={review} onOpenChange={setReview}><DialogContent><DialogTitle>Review information request</DialogTitle><button type="button" onClick={() => setReview(false)}>Cancel request</button></DialogContent></Dialog></AppPageShell>;
+    status={<span>Connected</span>} contacts={<a href="mailto:profile@example.com">profile@example.com</a>}
+    network={<PersonNetworkSummary personRef={personRef} onReady={onNetworkReady} />}
+    primaryActions={<button type="button" onClick={() => setReview(true)}>Request information</button>} tasks={null} footer={null}
+  /><Dialog modal open={review} onOpenChange={setReview}><DialogContent><DialogTitle>Review information request</DialogTitle><button type="button" onClick={() => setReview(false)}>Cancel request</button></DialogContent></Dialog></AppPageShell>;
 }
