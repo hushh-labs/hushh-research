@@ -180,6 +180,7 @@ def _default_directory_search(
     limit: int,
     audience: str = DIRECTORY_AUDIENCE_ALL,
     name_only: bool = False,
+    typed_search: bool = False,
 ) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
@@ -190,6 +191,7 @@ def _default_directory_search(
         limit=limit,
         audience=audience,
         name_only=name_only,
+        typed_search=typed_search,
     )
 
 
@@ -3117,6 +3119,7 @@ class ConnectionsService:
         limit: int,
         audience: str,
         name_only: bool = False,
+        typed_search: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         """Call the injected directory search with the options it supports.
 
@@ -3142,13 +3145,12 @@ class ConnectionsService:
         options: dict[str, Any] = {"query": query, "page": page, "limit": limit}
         if accepts_audience:
             options["audience"] = audience
-        if name_only and (
-            "name_only" in parameters
-            or any(
-                parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
-            )
-        ):
-            options["name_only"] = name_only
+        accepts_options = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+        )
+        for option, enabled in (("name_only", name_only), ("typed_search", typed_search)):
+            if enabled and (option in parameters or accepts_options):
+                options[option] = True
         return directory_search(owner_user_id, **options), accepts_audience
 
     def _filter_people_by_audience(
@@ -3215,6 +3217,7 @@ class ConnectionsService:
         limit: int = 20,
         audience: str = DIRECTORY_AUDIENCE_ALL,
         name_only: bool = False,
+        typed_search: bool = False,
     ) -> dict[str, Any]:
         """Search visible people; name resolvers opt out of contact-only matches."""
         user_id = (user_id or "").strip()
@@ -3244,6 +3247,7 @@ class ConnectionsService:
                 limit=limit,
                 audience=audience,
                 name_only=name_only,
+                typed_search=typed_search,
             )
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
@@ -3266,6 +3270,7 @@ class ConnectionsService:
                         phone_number=person.get("phoneNumber"),
                         phone_verified=bool(person.get("phoneVerified")),
                         name_only=name_only,
+                        typed_search=typed_search,
                     )
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]

@@ -9,18 +9,12 @@
 export const PUBLIC_LINK_CONTROLS_CLASSNAME =
   "w-full space-y-3 sm:max-w-[320px]";
 
-/**
- * The create-link form shares the row's 16px gutter, so "Duration", the
- * select and the CTA start on the same edge as the link icon above and end on
- * the card's right gutter. Centering a narrow column under a left-aligned row
- * left the controls floating, aligned to nothing.
- */
+/** Aligns the create-link form with the row's 16px gutter. */
 export const PUBLIC_LINK_CREATE_FORM_CLASSNAME =
   "flex w-full max-w-[420px] flex-col items-stretch gap-4 px-4 pb-4 pt-1";
 
-export const PUBLIC_LINK_DURATION_GROUP_CLASSNAME = "w-full";
+export const PUBLIC_LINK_DURATION_GROUP_CLASSNAME = "w-full max-w-[11rem]";
 
-/** The field fills its form; the action keeps a compact width at the left edge. */
 export const PUBLIC_LINK_SELECT_CLASSNAME = "h-12 rounded-full px-4";
 
 export const PUBLIC_LINK_PRIMARY_CTA_CLASSNAME =

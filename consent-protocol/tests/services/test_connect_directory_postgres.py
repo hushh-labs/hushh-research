@@ -1015,6 +1015,69 @@ def test_bounded_directory_profile_lookup_keeps_visibility_and_empty_list_bounda
     )
 
 
+def test_typed_directory_search_matches_spacing_variants_before_paging(connection, monkeypatch):
+    names = ["Sharu Khan", "Sharukhan", "Sharu  Khan", "SHARUKHAN", "Sharu\u00a0Khan"]
+    for index, name in enumerate(names):
+        _person(connection, f"match-{index}", name)
+    _person(connection, "contact-only", "Other Person", email="sharukhan@example.test")
+    _person(connection, "unlisted", "Sharukhan", vault=None)
+    _person(connection, "recovered", "")
+    service = _Directory(connection)
+    monkeypatch.setattr(
+        service,
+        "_directory_auth_profiles",
+        lambda ids: (
+            {"recovered": {"display_name": "Sharu Khan", "photo_url": None}}
+            if "recovered" in ids
+            else {}
+        ),
+    )
+
+    previous_ids = None
+    for query in ("Sharu", "Sharu K", "Sharu Khan", "Sharukhan", "SHARUKHA", "  Sharu\t Khan  "):
+        ids = []
+        for page in range(1, 4):
+            result = service.search_directory_candidates(
+                owner_user_id=OWNER, query=query, typed_search=True, page=page, limit=2
+            )
+            assert result["hasMore"] == (page < 3)
+            ids.extend(row["userId"] for row in result["items"])
+        assert len(ids) == 6
+        assert set(ids) == {*(f"match-{index}" for index in range(5)), "recovered"}
+        if previous_ids is not None:
+            assert ids == previous_ids
+        previous_ids = ids
+
+
+def test_typed_directory_search_uses_literal_short_name_matches_and_explicit_contacts(connection):
+    _person(connection, "prefix", "Neelesh Meena")
+    _person(connection, "substring", "Dinesh Kumar")
+    _person(connection, "joined-only", "John Ellis")
+    _person(
+        connection,
+        "contact-only",
+        "Other Person",
+        email="ne@example.test",
+        phone="+14155550100",
+        phone_verified=True,
+    )
+    _person(
+        connection, "private-contact", "Hidden Person", email="ne@example.test", discoverable=False
+    )
+    service = _Directory(connection)
+
+    def search(query):
+        return service.search_directory_candidates(
+            owner_user_id=OWNER, query=query, typed_search=True
+        )
+
+    assert [row["userId"] for row in search("NE")["items"]] == ["prefix", "substring"]
+    assert [row["userId"] for row in search("n")["items"]] == ["prefix"]
+    assert [row["userId"] for row in search("ne@")["items"]] == ["contact-only"]
+    assert [row["userId"] for row in search("415 555")["items"]] == ["contact-only"]
+    assert search("%")["items"] == []
+
+
 def test_directory_email_typeahead_ranks_names_and_pages_contact_matches(connection, monkeypatch):
     email = "mailbox.alias+tag@example.test"
     _person(connection, OWNER, "Owner", email=email)

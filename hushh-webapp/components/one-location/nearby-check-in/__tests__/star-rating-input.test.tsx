@@ -2,6 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { Star } from "@/components/icons";
 import {
   CHECK_IN_STAR_TARGET_CLASSNAME,
 } from "@/components/one-location/nearby-check-in/check-in-panel-layout";
@@ -32,13 +33,21 @@ describe("StarRatingInput", () => {
   });
 
   it("fills every star up to the chosen one and none above it", () => {
+    const { container: variants } = render(
+      <>
+        <Star weight="fill" />
+        <Star weight="regular" />
+      </>,
+    );
     const { container } = render(<StarRatingInput value={3} onChange={vi.fn()} />);
-    const glyphs = container.querySelectorAll("svg");
+    const paths = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll("svg path"), (path) => path.getAttribute("d"));
+    const [solid, outline] = paths(variants);
 
-    expect(glyphs).toHaveLength(5);
-    glyphs.forEach((glyph, index) => {
-      expect(glyph.classList.contains("fill-current")).toBe(index < 3);
-    });
+    expect(solid).toBeTruthy();
+    expect(outline).toBeTruthy();
+    expect(solid).not.toBe(outline);
+    expect(paths(container)).toEqual([solid, solid, solid, outline, outline]);
   });
 
   it("stops at five instead of wrapping round to one", async () => {
