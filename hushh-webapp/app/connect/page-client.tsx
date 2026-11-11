@@ -4287,7 +4287,6 @@ export default function ConnectPageClient() {
         <ContactSyncResultsSheet
           {...contactSync.resultsSheetProps}
           onRequestConnection={requestConnectionFromContactMatch}
-          onViewConnections={() => setConnectionView("connections")}
         />
         <ContactDiscoverabilityConsentDialog
           {...contactSync.discoverabilityConsentDialogProps}

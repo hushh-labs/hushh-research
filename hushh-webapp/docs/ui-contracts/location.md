@@ -151,9 +151,9 @@ No row below implies a server call unless the wire column names one. Opening a d
 | Ready invite `Try again` | Re-runs guarded circle invite preparation after preparation error; response code repopulates the evergreen `Your circle code` card. Stored circle names, including seasonal names, remain unchanged and are used by sharing. | One preparation per initial Ready entry; no automatic endless retry. Finish remains available if provisioning fails. |
 | Ready `Copy` | Local clipboard helper receives invite code. Parent success toast `Circle code copied.`; failure toast `Could not copy the Circle code.` | Child immediately renders `Copied` for two seconds without awaiting clipboard success, so that label alone does not prove a successful write. No Location mutation. |
 | Ready `Share` | Builds Circle join URL from canonical web origin and code; invokes shared native/Web Share or clipboard fallback. See payload copy below. | Share cancellation is silent. Clipboard fallback gives `Circle code copied.`; other failure `Could not open the share sheet.`. Opening/handoff is not confirmed sending or delivery. |
-| Ready `Join with a code` | Local mutually exclusive sheet; presents `onboarding-join-circle-panel`, aria-expanded. Reveals text field and Look up. | Close/Escape/Back closes the sheet, preserves local flow; no lookup or join until explicit CTA. Focus stays in the sheet; its content scrolls when needed. |
-| Join input / `Look up` | Local trimmed input, aria `Circle code`, placeholder `Enter their code`, upper-case characters, auto-correct off, no spellcheck. Own normalized code is rejected locally; otherwise authenticated code preview POST below → preview `{name, ownerDisplayName, memberCount, alreadyMember}`. | Look up disabled for empty trimmed input, joinBusy or leaving. Dynamic safe error alert; no membership mutation from preview. Own-code rejection makes no request. |
-| Preview `Join {name}` | If `alreadyMember` false, accept via authenticated vault join POST if token exists, otherwise owner-bound pending code storage. Success shows accepted state. | Disabled joinBusy/leaving, spinner keeps label. Failure preserves flow and shows safe error/fallback. This is Circle membership, not a Location share. |
+| Ready `Join with a code` | Local mutually exclusive sheet; presents `onboarding-join-circle-panel`, aria-expanded. Reveals text field and Preview circle. | Close/Escape/Back closes the sheet, preserves local flow; no lookup or join until explicit CTA. Focus stays in the sheet; its content scrolls when needed. |
+| Join input / `Preview circle` | Local trimmed input, aria `Circle code`, placeholder `Enter their code`, upper-case characters, auto-correct off, no spellcheck. Own normalized code is rejected locally; otherwise authenticated code preview POST below → preview `{name, ownerDisplayName, memberCount, alreadyMember}`. | Preview circle disabled for empty trimmed input, joinBusy or leaving. Dynamic safe error alert; no membership mutation from preview. Own-code rejection makes no request. |
+| Preview `Join circle` | If `alreadyMember` false, accept via authenticated vault join POST if token exists, otherwise owner-bound pending code storage. Success shows accepted state. | Disabled joinBusy/leaving, spinner keeps label. Failure preserves flow and shows safe error/fallback. This is Circle membership, not a Location share. |
 | Preview `Use a different code` | Local reset of preview/accepted/error; typed code remains available to edit. | No leave/undo request, no join rollback, no HTTP call. |
 | Ready `Find contacts` | Local mutually exclusive disclosure `onboarding-contacts-panel`, shown only when a usable native contacts or configured Google source is detected. It does not read the address book by opening. | Hidden for no supported source. Closing disclosure does not undo accepted connections. |
 | Embedded `Check my contacts` / `Sync again` / `Try again` | Calls guarded contact handler after privacy preference gate. Native/device picker and matching or Google account consent/read/matching detailed below. Local `busy` → matched/none/failed outcomes. | Cancelled picker/Google account selection restores prior matched/none result if any, otherwise idle. Unknown/partial outcomes are preserved, not reclassified as no match. Double invocation blocked. |
@@ -226,9 +226,9 @@ Source: [flow](../../components/one-location/onboarding/one-location-onboarding-
 | Invite actions | `Copy` / `Copied` / `Share` |
 | Disclosure buttons | `Join with a code` / `Find contacts` |
 | Join input placeholder / aria | `Enter their code` / `Circle code` |
-| Lookup | `Look up` |
+| Lookup | `Preview circle` |
 | Preview subline | `{ownerDisplayName} · {count} person` / `{ownerDisplayName} · {count} people` |
-| Accept / already member | `Join {name}` / `Already in this circle.` |
+| Accept / already member | `Join circle` / `Already in this circle.` |
 | Accepted | `You'll join {name} after setup.`; fallback name `their circle` |
 | Change code | `Use a different code` |
 | Local own-code error | `That's your own code — send it to someone else so they can join you.` |
@@ -342,7 +342,7 @@ The shared canonical owner is [Connect](./connect.md); this table repeats the cu
 
 ### Mounted contact results sheet: action matrix and exact copy
 
-Source: [results sheet](../../components/one-location/contact-sync-results-sheet.tsx), 1–479; [Google empty summaries](../../lib/contacts/google-contact-sync-summary.ts). This is mounted alongside Ready, not an extra mandatory step. If invitations are enabled and active, it yields to the invitation sheet below. No onViewConnections callback is supplied here; Proceed follows the authored Connect URL and closes the sheet.
+The results sheet opens from Ready and yields to the invitation sheet when an invitation session is active. [Results sheet](../../components/one-location/contact-sync-results-sheet.tsx) · [Google empty summaries](../../lib/contacts/google-contact-sync-summary.ts)
 
 | Control / state | Effect / guard |
 | --- | --- |
@@ -352,8 +352,6 @@ Source: [results sheet](../../components/one-location/contact-sync-results-sheet
 | Row `Request` | Sends selected explicit connection request, body above; spinner during row pending, then Request sent. Error is visible, retry Request remains available. |
 | `Show more ({count})` | Adds up to100 local matched rows. |
 | `Sync again` / `Check more` | Starts matching again via owning source callback; disabled while syncing. |
-| `Check Google Contacts` | External `https://contacts.google.com`, new tab/noopener/noreferrer. No Hussh mutation. |
-| `Proceed to connections` | Follows `CONNECT_CONNECTIONS_LIST_HREF` (`/one/connect?tab=all&view=connections`) and closes. |
 | `Invite contacts` | Opens invitation selector for eligible locally retained contacts. Disabled while syncing or no eligible candidates; omitted for empty Google address book. Unknown/unchecked phone results never become inviteable by inference. |
 
 | State / element | Authored literal / template |
@@ -365,9 +363,7 @@ Source: [results sheet](../../components/one-location/contact-sync-results-sheet
 | Google busy labels | `Waiting for Google…` / `Syncing contacts…` |
 | Google idle/busy/dismiss controls | `Choose Google account` / `Cancel` / `Close` |
 | Results title | `Contact sync results` |
-| Invitations-enabled description / otherwise | `Contact details stay on your device.` / `Only eligible Hushh accounts are shown.` |
 | Google read summary | `Read {count} saved Google contact.` / `Read {count} saved Google contacts.` |
-| Google external link | `Check Google Contacts` |
 | Count tiles | `Checked` / `Matched` / `Connected` / `No match` (Connected = autoConnected + alreadyConnected) |
 | Partial read warning | `Only part of your contact list was checked.` / `{partialFailureMessage}` |
 | Unknown count | `{count} contacts need confirmation. They are not counted as unmatched or inviteable.` |
@@ -387,7 +383,8 @@ Source: [results sheet](../../components/one-location/contact-sync-results-sheet
 | Google zero-match heading | `No matching One accounts found` |
 | Google zero-match detail | `Your Google contacts were checked using their phone numbers. A match requires a verified number and a discoverable One account. You can invite eligible contacts below or try another Google account.` |
 | Pagination | `Showing {visible} of {total} matched people` / `Show more ({count})` |
-| Footer recovery/navigation/invite | `Choose Google account` / `Check more` / `Sync again` / `Proceed to connections` / `Invite contacts` |
+| Recovery in results | `Choose Google account` / `Check more` / `Sync again` |
+| Footer action | `Invite contacts` |
 
 ### Mounted invitation selector/review/handoff: controls and exact copy
 
