@@ -409,15 +409,15 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       const request = latest.requests.find(item => item.id === removal.requestId && isVisible(item));
       if (!request) {
         await refresh(lifetime.current?.signal);
-        toast.info("This follow-up is no longer available.");
+        toast.info("This follow-up is no longer available.", { className: presentationStyles.toast });
         return;
       }
       await CalendarFollowupsService.change(userId, accountId, request, "dismiss", null, idToken, ownerToken);
       if (lifetime.current?.signal.aborted) return;
-      toast.success("Removed from Follow-ups");
+      toast.success("Removed from Follow-ups", { className: presentationStyles.toast });
       await refresh(lifetime.current?.signal);
     } catch (failure) {
-      if (!lifetime.current?.signal.aborted) toast.error(followupErrorText(failure));
+      if (!lifetime.current?.signal.aborted) toast.error(followupErrorText(failure), { className: presentationStyles.toast });
     } finally {
       removing.current = false;
       setBusy(false);
@@ -473,7 +473,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       </div> : null}
       {needsMailChoice && !renewing ? <div className="space-y-3">
         <div className="space-y-1">
-          <p className="font-medium">Find Calendar follow-ups in email.</p>
+          <p className={presentationStyles.windowPrimary}>Find Calendar follow-ups in email.</p>
           <p className={styles.muted}>
             {status?.mail_connected
               ? `Checks the last ${FIRST_SCAN_DAYS} days of ${accountEmail}, then only new mail.`
@@ -498,7 +498,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           if (!primaryRequest(entry)) return null;
           return <CalendarFollowupRow key={entry.id} title={summary.title} description={summary.detail} busy={busy}
             onReview={from => void openDetail(entry.id, from)}
-            onKeep={() => toast.success("Kept in Follow-ups")} onRemove={from => askRemove(entry, from)} />;
+            onKeep={() => toast.success("Kept in Follow-ups", { className: presentationStyles.toast })} onRemove={from => askRemove(entry, from)} />;
         })}
       </div> : null}
       {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className={styles.muted}>{viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups."}</p> : null}
@@ -518,7 +518,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         pending={loadingPage || loading}
         onPrevious={() => void changePage(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}
         onNext={() => { if (list.next_offset != null) void changePage(list.next_offset); }}
-        className="px-0"
+        className={`px-0 ${presentationStyles.support}`}
+        buttonSize="compact"
       /> : null}
     </div>
   </SectionCard>;

@@ -20,6 +20,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import styles from "./person-profile-page.module.css";
+import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -73,7 +74,7 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
-type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; onNetworkReady?: () => void };
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; calendarPresentation?: boolean; onNetworkReady?: () => void };
 
 function renderCategoryIcon(domain: string) {
   const presentation = {
@@ -133,7 +134,7 @@ export function PersonProfilePage(props: Props) {
   return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
 }
 
-function PersonProfileSession({ personRef, initialProfile, embedded = false, onNetworkReady }: Props) {
+function PersonProfileSession({ personRef, initialProfile, embedded = false, calendarPresentation = false, onNetworkReady }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -848,7 +849,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
 
   return (
     <AppPageShell width="agent" fitContent>
-      <div className={styles.page} data-native-route="native-route-person-profile">
+      <div className={styles.page} data-calendar-profile={calendarPresentation || undefined} data-native-route="native-route-person-profile">
         <PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />
         <PersonProfileHero
           profile={profile}
@@ -861,7 +862,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
                   <ChevronDown className="h-3 w-3" aria-hidden="true" />
                 </ShellActionSurface>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className={calendarPresentation ? calendarType.scope : undefined} data-connect-type-scale={calendarPresentation ? "page" : undefined}>
                 <DropdownMenuItem variant="destructive" disabled={relationshipBusy} onSelect={() => void updateRelationship("remove")} data-voice-control-id="person-profile-remove-connection">
                   Remove connection
                 </DropdownMenuItem>

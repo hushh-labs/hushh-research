@@ -63,9 +63,9 @@
 .eventSource { display: flex; align-items: center; gap: .35rem; }
 .eventSource span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eventSource img, .eventSource svg { width: 14px; height: 14px; flex: none; }
-.conflictButton { display: flex; align-items: center; justify-content: center; gap: .18rem; flex: none; min-width: 44px; min-height: 44px; border-radius: .6rem; color: var(--app-label); background: var(--app-warning-surface); font-size: .7rem; font-weight: 700; }
+.conflictButton { display: flex; align-items: center; justify-content: center; gap: .18rem; flex: none; min-width: 44px; min-height: 44px; border-radius: .6rem; color: var(--app-label); background: var(--app-warning-surface); font-size: var(--type-compact-button-label-size); line-height: var(--type-compact-button-label-line); font-weight: var(--type-compact-button-label-weight); }
 .conflictButton:hover { background: var(--app-warning-tint); }
-.freeList li { border: 1px solid var(--app-separator); border-radius: .8rem; font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, 21px); }
+.freeList li { border: 1px solid var(--app-separator); border-radius: .8rem; }
 .freeList button { display: flex; align-items: center; gap: .55rem; width: 100%; min-height: 3rem; padding: .7rem; text-align: left; border-radius: .8rem; }
 .freeList button:hover { background: var(--app-accent-surface); }
 .freeList button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
@@ -79,12 +79,21 @@
 .shared { padding: 1rem 1.15rem; box-shadow: none; }
 .sharedTitle { display: flex; align-items: center; gap: .7rem; }
 .sharedTitle svg { color: var(--app-success); flex: none; }
-.sharedTitle h2 { --foundation-title2-size: var(--app-side-pane-row-title-size, 14px); --foundation-title2-line: var(--app-side-pane-row-title-line, 22px); --foundation-title2-weight: var(--app-side-pane-row-title-weight, 600); --foundation-title3-size: var(--app-side-pane-row-title-size, 14px); --foundation-title3-line: var(--app-side-pane-row-title-line, 22px); --foundation-title3-weight: var(--app-side-pane-row-title-weight, 600); }
+.sharedTitle h2 { --foundation-title2-size: var(--type-section-label-size); --foundation-title2-line: var(--type-section-label-line); --foundation-title2-weight: var(--type-section-label-weight); --foundation-title3-size: var(--type-section-label-size); --foundation-title3-line: var(--type-section-label-line); --foundation-title3-weight: var(--type-section-label-weight); }
 .sharedTitle p, .shared > p { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); color: var(--app-secondary-label); }
 .sharedList { list-style: none; display: flex; gap: .5rem; flex-wrap: wrap; margin: .8rem 0 0; padding: 0; }
-.sharedList li { border-radius: .7rem; padding: .5rem .8rem; background: var(--app-accent-surface); color: var(--app-accent); font-size: .77rem; }
+.sharedList li { border-radius: .7rem; padding: .5rem .8rem; background: var(--app-accent-surface); color: var(--app-accent); }
 .sharedList button { display: grid; gap: .2rem; text-align: left; min-height: 44px; }
-.sharedList button span { font-weight: 650; }
+.freeList button, .sharedList button {
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: var(--type-row-label-weight);
+}
+.sharedList button span {
+  font-size: var(--type-compact-button-label-size);
+  line-height: var(--type-compact-button-label-line);
+  font-weight: var(--type-compact-button-label-weight);
+}
 .sharedList button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 .secondary { min-width: 0; display: grid; gap: 1rem; }
 .accountPicker { display: grid; gap: .35rem; width: min(100%, 24rem); min-width: 0; }
@@ -136,7 +145,7 @@
 .choice > label:first-child { display: flex; align-items: flex-start; gap: .65rem; min-height: 44px; cursor: pointer; }
 .choice input { width: 1.1rem; height: 1.1rem; margin-top: .2rem; flex: none; }
 .choice label span, .previewList li, .outcomeList li { display: grid; gap: .15rem; }
-.choice small, .previewList span, .outcomeList span { font-size: .75rem; color: var(--app-secondary-label); overflow-wrap: anywhere; }
+.choice small, .previewList span, .outcomeList span { font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); font-weight: var(--type-row-description-weight); color: var(--app-secondary-label); overflow-wrap: anywhere; }
 .noteLabel { display: grid; gap: .3rem; margin-top: .55rem; font-size: var(--type-form-label-size); line-height: var(--type-form-label-line); font-weight: var(--type-form-label-weight); }
 .noteLabel textarea { min-height: 6rem; font-weight: 400; }
 .mailPreview { margin-top: .5rem; padding: .6rem; background: var(--app-card-surface-compact); border-radius: .55rem; overflow-wrap: anywhere; }
@@ -147,11 +156,6 @@
 @media (max-width: 900px) { .accounts, .accounts[data-count="2"] { grid-template-columns: 1fr; } .freeStream { max-height: min(24rem, 48vh); } }
 @media (max-width: 600px) { .content { gap: .9rem; } .toolbar { align-items: stretch; } .summary span { width: 100%; margin-left: 0; } .freeStream { max-height: min(20rem, 42vh); } }
 
-/* Profile roles for dialog chrome: primary buttons take the label role and the
-   dialog description the description role. Outside the Calendar scope the
-   fallbacks keep the app-wide values. */
-.detail, .occasionDialog { --type-button-label-size: var(--app-side-pane-row-title-size, 17px); --type-button-label-line: var(--app-side-pane-row-title-line, 22px); --type-button-label-weight: var(--app-side-pane-row-title-weight, 650); }
-.detail :global([data-slot="dialog-description"]), .occasionDialog :global([data-slot="dialog-description"]) { font-size: var(--profile-type-description-size, 14px); line-height: var(--profile-type-description-line, 20px); }
 .declinedNote { display: grid; gap: .75rem; padding: .7rem .8rem; border-radius: .75rem; background: color-mix(in srgb, var(--app-secondary-label) 8%, transparent); }
 .declinedNote section { display: grid; gap: .2rem; min-width: 0; }
 .declinedNote strong { color: var(--app-secondary-label); font-size: var(--app-side-pane-row-title-size, 13px); line-height: var(--app-side-pane-row-title-line, 18px); font-weight: var(--app-side-pane-row-title-weight, 600); overflow-wrap: anywhere; }

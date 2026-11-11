@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { bookingInstant, bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
 import { dueText } from "@/lib/calendar/calendar-followup-presentation";
+import { CalendarSelect } from "./calendar-select";
+import presentation from "./calendar-presentation.module.css";
 import type { FollowupRequest } from "@/lib/services/calendar-followups-service";
 
 export function MeetingReview({ request, zone, busy, onReview }: {
@@ -22,10 +24,10 @@ export function MeetingReview({ request, zone, busy, onReview }: {
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       <label>Date<Input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
       <label>Time<Input type="time" value={time} onChange={event => setTime(event.target.value)} /></label>
-      <label>Duration<select className="h-10 w-full rounded-md border bg-background px-2" value={duration} onChange={event => setDuration(event.target.value as typeof duration)}><option value="">Choose</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></label>
-      <label>Time zone<select className="h-10 w-full rounded-md border bg-background px-2" value={timeZone} onChange={event => setTimeZone(event.target.value)}><option value="">Choose</option><option value={zone}>{zone}</option>{request.time_zone && request.time_zone !== zone ? <option value={request.time_zone}>{request.time_zone}</option> : null}{zone !== "UTC" && request.time_zone !== "UTC" ? <option value="UTC">UTC</option> : null}</select></label>
+      <label>Duration<CalendarSelect value={duration} onChange={event => setDuration(event.target.value as typeof duration)}><option value="">Choose</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></CalendarSelect></label>
+      <label>Time zone<CalendarSelect value={timeZone} onChange={event => setTimeZone(event.target.value)}><option value="">Choose</option><option value={zone}>{zone}</option>{request.time_zone && request.time_zone !== zone ? <option value={request.time_zone}>{request.time_zone}</option> : null}{zone !== "UTC" && request.time_zone !== "UTC" ? <option value="UTC">UTC</option> : null}</CalendarSelect></label>
     </div>
-    {error ? <p role="alert" className="text-red-600">{error}</p> : null}
+    {error ? <p role="alert" className={`${presentation.support} text-destructive`}>{error}</p> : null}
     <Button size="compact" disabled={busy} onClick={() => {
       if (!date || !time || !duration || !timeZone) { setError("Choose the meeting date, time, duration and time zone first."); return; }
       try {

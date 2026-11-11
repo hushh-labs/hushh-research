@@ -13,9 +13,9 @@
 .organizerCopy { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
 .title { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); letter-spacing: 0; }
 .muted { color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); font-weight: 400; }
-.dateBlock { display: flex; flex-direction: column; align-items: center; width: 58px; height: 76px; overflow: hidden; border-radius: 12px; background: var(--app-neutral-fill); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.dateBlock { display: flex; flex-direction: column; align-items: center; width: 58px; min-height: 76px; overflow: hidden; border-radius: 12px; background: var(--app-neutral-fill); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .dateBlock > span { width: 100%; padding: 3px 0; text-align: center; font-size: var(--app-side-pane-section-size, 10px); line-height: var(--app-side-pane-section-line, 15px); color: var(--app-destructive, #e63335); background: color-mix(in oklab, var(--app-destructive, #ff3b30) 9%, var(--app-card-surface-default-solid)); letter-spacing: var(--app-side-pane-section-tracking, normal); font-weight: var(--app-side-pane-section-weight, 600); }
-.dateBlock > strong { font-size: 25px; line-height: 30px; font-weight: 600; }
+.dateBlock > strong { font-size: var(--connect-display-size); line-height: var(--connect-display-line); font-weight: var(--connect-display-weight); }
 .dateBlock > small { font-size: var(--profile-type-description-size, 11px); line-height: var(--profile-type-description-line, 17px); color: var(--app-secondary-label); }
 .organizer, .person { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); }
 .organizer { gap: 8px; margin-top: 6px; }
@@ -73,12 +73,11 @@
 .actionPair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
 .actionPair > button { width: 100%; }
 .actionPair > button > span { width: 100%; }
-.actions .offerButton { justify-self: center; width: fit-content; max-width: 100%; min-height: 44px; padding-inline: 8px; border-color: transparent !important; background-color: transparent !important; --type-compact-button-label-size: var(--profile-type-description-size, 12px); --type-compact-button-label-weight: 400; }
+.actions .offerButton { justify-self: center; width: fit-content; max-width: 100%; min-height: 44px; padding-inline: 8px; border-color: transparent !important; background-color: transparent !important; }
 .actions .offerButton:hover, .actions .offerButton:active { background-color: var(--app-accent-surface) !important; }
 .actions[data-workspace="true"] > button { justify-self: center; width: fit-content; max-width: 100%; }
 .actions[data-workspace="true"] .actionPair > button { width: 100%; }
 .review { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, 21px); overflow-wrap: anywhere; }
-.review h3 { --foundation-headline-size: var(--app-side-pane-row-title-size, 14px); --foundation-headline-line: var(--app-side-pane-row-title-line, 22px); --foundation-headline-weight: var(--app-side-pane-row-title-weight, 600); }
 .review .message { font-size: var(--profile-type-description-size, 13px); max-height: 260px; overflow-y: auto; line-height: var(--profile-type-description-line, normal); }
 .openings { margin: 0; padding-left: 18px; font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
 .empty { margin: 0; padding-block: 8px; color: var(--app-secondary-label); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }

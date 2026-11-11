@@ -462,12 +462,12 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       <span className={styles.muted}>{requestStatus(meeting) || focusedStatus(meeting, filter)}</span>
     </span><ChevronRight className="size-4" />
   </button>;
-  const errorCard = error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null;
+  const errorCard = error ? <SectionCard><p role="alert" className={styles.muted}>{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null;
 
   return <div className={styles.insights} data-connect-type-scale="page" data-view={view} aria-busy={loading}>
     {refreshControl === "inline" ? <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
       disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); }}>Refresh</Button></div> : null}
-    {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
+    {!canRefresh ? <p role="status" className={styles.muted}>Updates paused while this page is hidden or offline.</p> : null}
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
       aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
       <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : view === "followups" ? "Follow-ups" : "Meeting library"}</div> : null}
@@ -484,7 +484,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
         {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only loaded events.</p> : null}</> : error ? <p className={styles.muted}>Snapshot unavailable.</p> : <Skeleton aria-label="Snapshot loading" className="h-16 w-full" />}
       </SectionCard>
       <SectionCard title="Your week at a glance">
-        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : error ? <p className={styles.muted}>Weekly chart unavailable.</p> : <Skeleton className="h-40 w-full" />}
+        {overview ? <ChartContainer className={`${styles.chart} h-40 w-full`} config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent className={styles.chartTooltip} labelClassName={styles.rowTitle} />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : error ? <p className={styles.muted}>Weekly chart unavailable.</p> : <Skeleton className="h-40 w-full" />}
       </SectionCard>
       <SectionCard title="Schedule risks"><p>{overview ? String(overview.overlaps) + " overlapping pairs · " + String(overview.back_to_back) + " back-to-back pairs" : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
       <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={`${styles.copy} ${styles.rowTitle}`}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>No recurring commitments in the loaded events.</p>}</SectionCard>
@@ -514,13 +514,13 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {!detail && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meeting files…</p> : null}
       {errorCard}
       {detail && !detail.complete ? <p role="status" className={styles.muted}>{limitationText[detail.discovery] || "Some files could not be checked. Refresh later."}</p> : null}
-      {!visibleArtifacts.length && selectedDisplayed && !requestSectionShown ? <SectionCard><p>{requestStatus(selectedDisplayed, verifiedKinds.size > 0) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
+      {!visibleArtifacts.length && selectedDisplayed && !requestSectionShown ? <SectionCard><p className={styles.muted}>{requestStatus(selectedDisplayed, verifiedKinds.size > 0) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
       {detail ? <div className={styles.details}>{visibleArtifacts.some(item => item.kind === "recording") ? <SectionCard title="Recordings">{visibleArtifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}
         {visibleArtifacts.some(item => item.kind === "notes") ? <SectionCard title="Meeting notes">{visibleArtifacts.filter(item => item.kind === "notes").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}</div> : null}
       {requestOutcome?.requests.length && !requestSectionShown ? <p role="status" className={styles.muted}>{requestStatus(selectedDisplayed || selected!, verifiedKinds.size > 0) || "Only files verified for the selected Google account appear above."}</p> : null}
       {(requestOutcome?.artifacts.some(item => item.state === "permission_required") ||
         detail?.artifacts.some(item => item.state === "permission_required")) && onAllowMeetingFiles ?
-        <SectionCard><p>The selected Google account needs permission to check shared file names and metadata. File content stays in Google Drive.</p>
+        <SectionCard><p className={styles.muted}>The selected Google account needs permission to check shared file names and metadata. File content stays in Google Drive.</p>
           <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction>
         </SectionCard> : null}
       {requestSectionShown && selected ? <CalendarRequestSection request={request} offered={offeredKinds}

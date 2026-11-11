@@ -79,6 +79,7 @@ export type InPlaceConnectOwner = {
 };
 
 export type ConnectControls = {
+  presentation?: "calendar";
   /** Ends the attempt without a UI update (unmount, account switch). */
   signal?: AbortSignal;
   /** The person's explicit "Cancel sign-in"; ends quietly as not connected. */
@@ -156,7 +157,7 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
   const outcome = await connectGoogleConnector(connector, { isCurrent: () => current() && !controls.cancelSignal?.aborted,
     vaultOwnerCapability: controls.vaultOwnerCapability, confirmLegacyTransition: controls.confirmLegacyTransition });
   if (!current() || controls.cancelSignal?.aborted) return false;
-  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector); return 'phone_handoff'; }
+  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector, controls.presentation); return 'phone_handoff'; }
   if (!outcome.ok && outcome.code === 'PRIVATE_AGENT_UNLOCK_REQUIRED') return 'unlock_required';
   if (!outcome.ok && outcome.code !== 'SIGN_IN_CANCELLED') throw new Error('Google connection could not be completed.');
   if (outcome.ok && outcome.legacyCleanup === 'unconfirmed') return 'cleanup_unconfirmed';
@@ -271,6 +272,7 @@ export function connectGmailInPlace(
   const attempt = createGmailOAuthPopupAttempt(
     input.applicationOwnerId,
     purpose === "send" ? "send" : "read",
+    input.presentation,
   );
   const popup = openGmailOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {

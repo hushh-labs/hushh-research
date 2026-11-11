@@ -47,18 +47,18 @@ export function SpecialistDirectiveCard({
     <div
       className={`${brand === "calendar" ? calendarPresentation.calendarDirective : ""} rounded-2xl border border-primary/20 bg-primary/5 p-3`}
       data-testid="specialist-directive-card"
-      data-calendar-presentation={brand === "calendar" || undefined}
+      data-connect-type-scale={brand === "calendar" ? "page" : undefined}
     >
       <div className="flex items-center gap-3">
         {brand ? <ConnectorBrandMark brand={brand} /> : null}
-        <p className="min-w-0 text-sm font-medium text-foreground/90">{summary}</p>
+        <p className={`min-w-0 text-foreground/90 ${brand === "calendar" ? calendarPresentation.windowPrimary : "text-sm font-medium"}`}>{summary}</p>
       </div>
       {details && details.length > 0 ? (
-        <dl className="mt-2 space-y-1 text-sm" data-testid="specialist-directive-details">
+        <dl className={`mt-2 space-y-1 ${brand === "calendar" ? calendarPresentation.support : "text-sm"}`} data-testid="specialist-directive-details">
           {details.map((line) => (
             <div key={line.label} className="flex gap-2">
               <dt className="shrink-0 text-foreground/55">{line.label}</dt>
-              <dd className="min-w-0 break-words font-medium text-foreground/90">
+              <dd className={`min-w-0 break-words text-foreground/90 ${brand === "calendar" ? calendarPresentation.windowPrimary : "font-medium"}`}>
                 {line.value}
               </dd>
             </div>
@@ -67,7 +67,7 @@ export function SpecialistDirectiveCard({
       ) : null}
       {items && items.length > 0 ? (
         <ul
-          className="mt-2 space-y-1 text-xs text-foreground/70"
+          className={`mt-2 space-y-1 text-foreground/70 ${brand === "calendar" ? calendarPresentation.support : "text-xs"}`}
           data-testid="specialist-directive-items"
         >
           {items.map((item, index) => (

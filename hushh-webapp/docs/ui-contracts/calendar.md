@@ -158,12 +158,19 @@ not separate shipped files.
 | Setup/hero flow title | Connected setup h2 followed foundation; hero token28/34 | 28/36/600 | Scoped setup role; illustration unchanged. |
 | Board, free-time, Invitation and Insights sections | Several inherited foundation20–22px titles | 14/22/600 | Local heading variables, including app-shell h2→title3 cascade. |
 | Dialog/detail title | Foundation title-slot/heading cascade, not the JSX utility | 20/28/600 | Board, invitation, settings, attendance, disconnect, Calendar grant and phone portals. |
-| Account/event/invitation/library primary | Mixed 13–16px and 400–600 | 14/21/550 | Row owners; invitation day numeral25/30, metrics24/28 and time rail stay specialized. |
+| Account/event/invitation/library primary | Mixed 13–16px and 400–600 | 14/21/550 | Invitation day numerals and Insights metrics use the Connect display role at 28/36/600. |
 | Supporting copy | Mixed 11–14px | 12/18/400 | Status/count/read-only tone retained. Notes/transcripts stay readable14/21. |
 | Status, including connection/Ended/RSVP | Mixed 11–12px | 13/18/600 where status is a label | Event and invitation owners; warning/destructive color retained. |
 | Form label and semantic input | Mixed local label and shared Input17/22 | Label15/22/550; Input16/22 at≤620,14/22 above | Scoped Calendar workspace and modal tokens. Native date/select and textarea retain their shared/browser behavior. |
-| Compact action | Stock default/outline, often17/22/650 | 12/18/550 | Calendar ordinary-action wrapper; never applied to a final commit or full setup footer. |
-| Utility/helper | Shared or local, role dependent | Utility13/21/550,12px≤620; genuine helper13/18/400 | Existing Back/Cancel/Edit/Done/copy/source controls remain utility or links. |
+| Compact action | Stock default/outline, often17/22/650 | 12/18/550 | Calendar actions and confirmation labels share this role. Confirmation and setup keep their existing prominence and target sizes. |
+| Utility/helper | Shared or local, role dependent | Utility12/18/550 and supporting copy12/18/400 | Existing Back/Cancel/Edit/Done/copy/source controls remain utility or links. |
+
+Calendar applies the shared roles inside booking, RSVP and Follow-up forms and
+their confirmation states. The chart uses the supporting role for ticks and
+labels and the row role for tooltip values. The Follow-ups pager uses the
+compact action role. Calendar-origin person previews and OAuth return pages
+receive the scope through their existing in-memory visit or callback attempt.
+Provider screens and system pickers continue to use their own presentation.
 
 The ordinary Calendar action uses the same scoped recipe as Connect's person
 row: Morphy button with existing ripple/focus/disabled handling; the visible
@@ -180,9 +187,9 @@ target. The Board overlap warning remains warning-colored with44px target.
 | --- | --- | --- |
 | Ordinary compact | Changed: Board **Add account**, **Retry**, **Reconnect/Retry check**, **Resolve these overlaps**; fallback **Reconnect Calendar/Allow Calendar access**, **Retry**, inclusion, **Can't attend**, **Allow attendance changes/Review**, Mail recovery; invitation **Accept**, **Decline**, **Decline & offer another time**, access/Mail recovery; conflict **Keep this instead**, **Review Calendar and Mail**, failed-only **Review email retry for {meeting}**, Mail recovery; Insights **Try again**, **Continue checking this day**, **Open**, **Download**; public **Try again**; Calendar-branded connection directive. | Preserve each existing handler, account, current owner and disabled/busy condition. Retry reads; preparatory actions open local review or permission path. They do not imply a Calendar write. |
 | Full-flow primary/final | Verified exception: **Connect your calendar**, **Finish Calendar setup/Skip Calendar setup**, workspace **Try Calendar Agent with One**, conflict **Confirm selected changes/Send reviewed note**, RSVP **Confirm**, invitation send/confirm labels and proposal **Schedule meeting/Reschedule/Cancel**. | Existing shared primary/destructive owners, explicit confirmation, signed review and acknowledged outcomes stay distinct from quiet actions. |
-| Utility/link | Changed or verified: Calendar detail Back, Edit, Done, Insights Refresh/Copy/Back, proposal **Not now/Change time**, chat **Close invitations**, Calendar grant **Not now**, source/provider links and **Open this meeting in Google Calendar**. **Disconnect Calendar** remains destructive in tone. Shared shell Back and modal close keep their owner. | Quiet utility type is13/21/550,12px≤620, with44px targets. Back/close/selector actions are local; provider links and mailto hand off only. Destructive controls keep confirmation/tone. |
+| Utility/link | Changed or verified: Calendar detail Back, Edit, Done, Insights Refresh/Copy/Back, proposal **Not now/Change time**, chat **Close invitations**, Calendar grant **Not now**, source/provider links and **Open this meeting in Google Calendar**. **Disconnect Calendar** remains destructive in tone. Shared shell Back and modal close keep their owner. | Quiet utility type is12/18/550 with44px targets. Back/close/selector actions are local; provider links and mailto hand off only. Destructive controls keep confirmation/tone. |
 | Selectors and rows | Verified exception: tabs, Events/Free time, Today, date, account select, duration, filters, checkboxes/radios, invitation/event/library whole rows, menu triggers. | Selection changes local state or starts its existing read. Board Free time rows open the booking form. Schedule meeting confirms the displayed details and runs the server checks before creating the event. |
-| Shared or provider-owned | Verified exception: shell Back/avatar, Dialog close and Google consent/OS picker/email composer. Calendar's portalled Sonner toast now opts into the product family and shared13/20 title,12/20 description roles while its shared behavior remains owned by Sonner. | Shared primitives retain focus, animation, platform and authority contracts. |
+| Shared or provider-owned | Verified exception: shell Back/avatar, Dialog close and Google consent/OS picker/email composer. Calendar Sonner messages opt into the row and supporting roles at the individual toast. | Shared primitives retain focus, animation, platform and authority contracts. |
 
 The status below refers to executable mounted paths. Exact copy, negative,
 busy, stale, partial/unknown and dismissal branches remain in the detailed

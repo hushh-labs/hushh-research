@@ -212,6 +212,7 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import { type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
@@ -514,6 +515,7 @@ const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
 type AgentMessage = {
   id: string;
   calendarMeeting?: MeetingSelection;
+  presentation?: "calendar";
   /**
    * The server's id for this answer (ADK event id), set when the run's closing
    * snapshot arrives. Ratings key on this, so a thumbs given during the live
@@ -2126,7 +2128,7 @@ export function AgentBubble({
                     data-agent-response-bubble
                     className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-fit max-w-full sm:max-w-[min(82%,48rem)]")}
                   >
-                    <AgentMarkdown text={assistantText} />
+                    <AgentMarkdown text={assistantText} className={message.presentation === "calendar" ? calendarType.chatResult : undefined} />
                     {hoverResponseActionsNode}
                   </div>
                 ) : null
@@ -2134,7 +2136,7 @@ export function AgentBubble({
             />
           ) : assistantText ? (
             <>
-              <AgentMarkdown text={assistantText} />
+              <AgentMarkdown text={assistantText} className={message.presentation === "calendar" ? calendarType.chatResult : undefined} />
               {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
             </>
           ) : backgroundOnly || canRenderConsentActions ||
@@ -4156,17 +4158,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         if (cancelled || !isCurrent()) return;
         if (outcome === "connected") {
           setPendingSpecialistDirective(null);
-          toast.success(kind === "calendar" ? "Calendar access updated." : inPlaceConnectCopy(kind, outcome));
+          toast.success(kind === "calendar" ? "Calendar access updated." : inPlaceConnectCopy(kind, outcome), kind === "calendar" ? { className: calendarType.toast } : undefined);
           if (kind === "calendar") calendarChatRecoveryRef.current();
         } else if (outcome === "failed") {
-          toast.error(inPlaceConnectCopy(kind, outcome));
+          toast.error(inPlaceConnectCopy(kind, outcome), kind === "calendar" ? { className: calendarType.toast } : undefined);
         } else {
-          toast.info(inPlaceConnectCopy(kind, outcome));
+          toast.info(inPlaceConnectCopy(kind, outcome), kind === "calendar" ? { className: calendarType.toast } : undefined);
         }
       },
     );
     if (started === "started") setSpecialistBusy(true);
-    else if (started === "blocked") toast.info(OAUTH_WINDOW_BLOCKED_COPY);
+    else if (started === "blocked") toast.info(OAUTH_WINDOW_BLOCKED_COPY, kind === "calendar" ? { className: calendarType.toast } : undefined);
     else if (started === "unsupported") {
       // The native Google sign-in plugins request an explicit scope list and do
       // not yet include gmail.modify; never start a grant they would reject.
@@ -4386,7 +4388,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const attendanceChatEpoch = chatSessionRef.current.value;
       const id = `calendar-attendance-${handoff.id}`;
       setMessages(current => [...current, { id, role: "assistant", timestamp, sentAtMs,
-        text: `Declining ${attendance.title} and sending your email to ${attendance.recipient}…`,
+        text: `Declining ${attendance.title} and sending your email to ${attendance.recipient}…`, presentation: "calendar",
         status: "done", renderAsPlainAssistantMessage: true }]);
       void attendance.outcome.then(outcome => {
         if (!isVaultSessionEpochCurrent(attendance.epoch) || !chatSessionRef.current.isCurrent(attendanceChatEpoch)) return;
@@ -4415,7 +4417,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       } }, message: invitation.request || "Review this invitation.", stateChanged: true,
         sourceAssistantMessageId: `handoff-${handoff.id}-assistant` });
       setMessages(current => [...current, ...(invitation.request ? [{ id: `handoff-${handoff.id}-user`, role: "user" as const, timestamp, sentAtMs, text: invitation.request, status: "done" as const }] : []), { id: `handoff-${handoff.id}-assistant`, role: "assistant", timestamp, sentAtMs,
-        text: "Review this invitation below. I'll ask you to confirm before changing your response or sending Mail.",
+        text: "Review this invitation below. I'll ask you to confirm before changing your response or sending Mail.", presentation: "calendar",
         status: "done", renderAsPlainAssistantMessage: true }]);
       consumeHandoff(handoff.id);
       return;
@@ -8467,11 +8469,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   calendarChatRecoveryRef.current = () => {
     if (pendingSpecialistDirective?.delegateAgentId === "agent_calendar" &&
         pendingSpecialistDirective.directive.payload.type === "calendar.execute_proposal") {
-      toast.info("Review the Calendar proposal in this conversation before continuing.");
+      toast.info("Review the Calendar proposal in this conversation before continuing.", { className: calendarType.toast });
       return;
     }
     if (!conversationIdRef.current) {
-      toast.info("Open the conversation containing your Calendar request to continue.");
+      toast.info("Open the conversation containing your Calendar request to continue.", { className: calendarType.toast });
       return;
     }
     if (calendarChatRecoveryBusy.current || isChatLoading || isStreaming || isToolWorking) return;
@@ -10691,7 +10693,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         expectedAccountEmail={calendarInvitationContext && calendarInvitationContext.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountEmail : undefined}
                         onBusyChange={setSpecialistBusy} onClose={() => { setPendingSpecialistDirective(null); setCalendarInvitationContext(null); }}
                         onResult={result => appendMessage({ id: `calendar-rsvp-${crypto.randomUUID()}`, role: "assistant", ...stampNow(),
-                          text: attendanceResultMessage(result), status: result.calendar === "failed" || result.calendar === "unknown" ? "error" : "done",
+                          text: attendanceResultMessage(result), presentation: "calendar", status: result.calendar === "failed" || result.calendar === "unknown" ? "error" : "done",
                           renderAsPlainAssistantMessage: true })} />;
                     }
                     const calendarAction: CalendarProposalAction =
@@ -10781,6 +10783,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       setCalendarSlot(null);
                       toast.info(
                         "Calendar change cancelled. Nothing was changed.",
+                        { className: calendarType.toast },
                       );
                     };
 

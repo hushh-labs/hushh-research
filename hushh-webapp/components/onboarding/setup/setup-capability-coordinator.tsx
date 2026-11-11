@@ -769,6 +769,6 @@ export function SetupCapabilityTerminalFooter({
   );
 }
 
-export function SetupCapabilityLoading({ label }: { label: string }) {
-  return <RouteLoadingState label={label} surface="onboarding" />;
+export function SetupCapabilityLoading({ label, className }: { label: string; className?: string }) {
+  return <RouteLoadingState label={label} surface="onboarding" className={className} />;
 }

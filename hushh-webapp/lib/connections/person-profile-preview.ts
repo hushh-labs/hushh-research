@@ -7,6 +7,7 @@ export type PersonProfilePreviewIdentity = {
   personRef?: string | null;
   userId?: string | null;
   networkList?: "mutuals" | "connections" | "discovery";
+  presentation?: "calendar";
 };
 
 export function isPersonProfilePreviewOpen(doc: Document = document): boolean {

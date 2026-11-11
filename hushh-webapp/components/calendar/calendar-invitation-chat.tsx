@@ -59,16 +59,29 @@ export function CalendarInvitationChat({ owner, ownerId: applicationOwnerId, pay
     const controls = { owner, signal: controller.signal, vaultOwnerCapability: capability, confirmLegacyTransition,
       isCurrent: () => isValidatedAuthSessionOwnerCurrent(principal) && lifetime.current === controller && !controller.signal.aborted &&
         binding.current.ownerId === ownerId && binding.current.accountId === accountId && binding.current.capability === capability && isVaultSessionEpochCurrent(epoch) };
-    const attempt = kind === "calendar" ? connectCalendarInPlace({ ...controls, accountId, accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true }) : connectGmailInPlace({ ...controls, purpose: "send" });
+    const attempt = kind === "calendar" ? connectCalendarInPlace({ ...controls, accountId, accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true }) : connectGmailInPlace({ ...controls, purpose: "send", presentation: "calendar" });
     setConnectAttempt({ ownerId, accountId, capability });
-    void attempt.result.then(result => { if (controls.isCurrent()) { if (result === "connected") setRevision(value => value + 1); else if (result !== "stale") morphyToast.error("Access was not updated. You can try again."); } }).finally(() => { if (controls.isCurrent()) setConnectAttempt(null); });
+    void attempt.result.then(result => { if (controls.isCurrent()) { if (result === "connected") setRevision(value => value + 1); else if (result !== "stale") morphyToast.error("Access was not updated. You can try again.", { className: calendarPresentation.toast }); } }).finally(() => { if (controls.isCurrent()) setConnectAttempt(null); });
   };
-  if (selectedAccountId === null) return <div role="alert"><p>The Calendar account selection is invalid. Close this review and check the invitation again.</p><Button variant="ghost" size="compact" onClick={onClose}>Close invitations</Button></div>;
-  if (accountObservation?.ownerId !== applicationOwnerId || accountObservation.accountId !== accountId) return <div><p role="status">Checking Calendar connection…</p><Button variant="ghost" size="compact" className={calendarPresentation.utility} onClick={onClose}>Close invitations</Button></div>;
-  if (expectedAccountId !== undefined && expectedAccountId !== accountId) return <div role="alert"><p>The Calendar account selection changed. Close this review and check the invitation again.</p><Button variant="ghost" size="compact" onClick={onClose}>Close invitations</Button></div>;
-  if (!accountObservation.connected) return <div role="alert"><p>The selected Calendar account is unavailable. Reconnect it before checking this invitation.</p><Button disabled={busy} onClick={() => connect("calendar")}>Reconnect Calendar</Button><Button variant="ghost" size="compact" onClick={onClose}>Close invitations</Button></div>;
+  const scope = {
+    className: `${calendarPresentation.scope} space-y-3`,
+    "data-calendar-invitation-chat": true,
+    "data-calendar-presentation": true,
+    "data-connect-type-scale": "page",
+  };
+  const notice = (message: string, role: "alert" | "status" = "alert", reconnect = false) => (
+    <div {...scope}>
+      <p role={role} className={calendarPresentation.support}>{message}</p>
+      {reconnect ? <Button disabled={busy} onClick={() => connect("calendar")}>Reconnect Calendar</Button> : null}
+      <Button variant="ghost" size="compact" className={calendarPresentation.utility} onClick={onClose}>Close invitations</Button>
+    </div>
+  );
+  if (selectedAccountId === null) return notice("The Calendar account selection is invalid. Close this review and check the invitation again.");
+  if (accountObservation?.ownerId !== applicationOwnerId || accountObservation.accountId !== accountId) return notice("Checking Calendar connection…", "status");
+  if (expectedAccountId !== undefined && expectedAccountId !== accountId) return notice("The Calendar account selection changed. Close this review and check the invitation again.");
+  if (!accountObservation.connected) return notice("The selected Calendar account is unavailable. Reconnect it before checking this invitation.", "alert", true);
   const boundAccount = expectedAccountEmail || (typeof payload.accountEmail === "string" ? payload.accountEmail : account);
-  if (boundAccount && account && boundAccount.toLowerCase() !== account.toLowerCase()) return <div role="alert"><p>The connected Calendar account changed. Close this review and ask One to check the invitation again.</p><Button variant="ghost" size="compact" className={calendarPresentation.utility} onClick={onClose}>Close invitations</Button></div>;
+  if (boundAccount && account && boundAccount.toLowerCase() !== account.toLowerCase()) return notice("The connected Calendar account changed. Close this review and ask One to check the invitation again.");
   const rawTerms = payload.terms && typeof payload.terms === "object" ? payload.terms as Record<string, unknown> : {};
   const terms: InvitationTerms = {
     date: typeof rawTerms.date === "string" ? rawTerms.date : undefined,
@@ -78,7 +91,7 @@ export function CalendarInvitationChat({ owner, ownerId: applicationOwnerId, pay
     message: typeof rawTerms.message === "string" ? rawTerms.message : undefined,
   };
   const decision: InvitationDecision = payload.decision === "accepted" || payload.decision === "declined" || payload.decision === "offer_times" ? payload.decision : "view";
-  return <div className={`${calendarPresentation.scope} space-y-3`} data-calendar-invitation-chat data-calendar-presentation data-connect-type-scale="page">
+  return <div {...scope}>
     <CalendarInvitations key={`${applicationOwnerId}:${accountId}`} userId={applicationOwnerId} accountId={accountId} accountEmail={boundAccount} calendarPeople={calendarPeople} zone={typeof payload.timeZone === "string" ? payload.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"} getIdToken={() => owner.getIdToken()} initialFilter={String(payload.filter || "pending")} initialEventId={typeof payload.eventId === "string" ? payload.eventId : undefined} initialCalendarId={typeof payload.calendarId === "string" ? payload.calendarId : undefined} initialDecision={decision} initialTerms={terms} startAt={typeof payload.startAt === "string" ? payload.startAt : undefined} endAt={typeof payload.endAt === "string" ? payload.endAt : undefined} connectionRevision={revision} busy={busy} onConnect={(access, includeCalendarList) => connect("calendar", access, includeCalendarList)} onMailConnect={accountId === "default" ? () => connect("mail") : undefined} onBusyChange={value => { setActionBusy(value); onBusyChange?.(value); }} onResult={onResult} />
     <Button variant="ghost" size="compact" className={calendarPresentation.utility} disabled={actionBusy} onClick={onClose}>Close invitations</Button>
   </div>;

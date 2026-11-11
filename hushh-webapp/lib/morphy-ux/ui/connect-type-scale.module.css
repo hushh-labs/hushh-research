@@ -1,5 +1,8 @@
 /* Connect v14 type scale. Geometry remains with the consuming workspace. */
 .scale {
+  --connect-display-size: 28px;
+  --connect-display-line: 36px;
+  --connect-display-weight: 600;
   --type-row-label-size: 14px;
   --type-row-label-weight: 550;
   --type-row-label-line: 21px;

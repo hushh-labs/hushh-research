@@ -1,8 +1,7 @@
 "use client";
 
 import presentationStyles from "./calendar-presentation.module.css";
-import { useEffect, useId, useRef, useState, type ComponentProps } from "react";
-import { CaretDownIcon } from "@/components/icons";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,6 +16,7 @@ import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { GoogleCalendarService, type CalendarExecution, type GoogleCalendarAccount, type CalendarOpening } from "@/lib/services/google-calendar-service";
 import styles from "./calendar-booking-dialog.module.css";
+import { CalendarSelect } from "./calendar-select";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 
 export type BookingOpening = CalendarOpening & { accountId: string | null; scope: "account" | "all"; titleHint?: string; timeZoneHint?: string; followupRequest?: { id: string; revision: number } };
@@ -25,10 +25,6 @@ type Draft = {
   timeZone: string; guests: string[]; description: string;
   meetingType: "google_meet" | "external_link" | "in_person"; meetingLink: string; location: string;
 };
-
-function BookingSelect(props: ComponentProps<"select">) {
-  return <span className={styles.selectField}><select {...props} /><CaretDownIcon aria-hidden className={styles.selectChevron} /></span>;
-}
 
 function initialDraft(opening: BookingOpening, timeZone: string): Draft {
   const local = bookingLocalFields(opening.start_at, timeZone);
@@ -194,13 +190,13 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
       <div className={styles.body} data-calendar-booking-body aria-busy={busy}>
       <div className={styles.fields}>
         <label>Title<Input autoFocus required maxLength={512} value={draft.title} onChange={event => edit({ title: event.target.value })} placeholder="Project planning meeting" disabled={busy} /></label>
-        {opening.scope === "all" ? <label>Calendar account and destination<BookingSelect value={draft.accountId} onChange={event => edit({ accountId: event.target.value })} disabled={busy}>
+        {opening.scope === "all" ? <label>Calendar account and destination<CalendarSelect value={draft.accountId} onChange={event => edit({ accountId: event.target.value })} disabled={busy}>
           <option value="">Choose a writable account</option>
           {accounts.map(item => <option key={item.account_id} value={item.account_id}>{item.google_email || "Google account"}{item.access_level === "manage" ? "" : " · Allow scheduling"}</option>)}
-        </BookingSelect></label> : null}
+        </CalendarSelect></label> : null}
         {account ? <p className={styles.accountIdentity}><CalendarPersonAvatar name={accountEmail} photoUrl={accountPhoto} source="hussh" /><span>{accountEmail}</span></p> : null}
         {account && account.access_level !== "manage" ? <Button variant="outline" disabled={busy} onClick={() => onRequireWrite(account.account_id)}>Allow scheduling</Button> : null}
-        <div className={styles.timeGrid}><label>Date<Input type="date" value={draft.date} onChange={event => edit({ date: event.target.value })} disabled={busy} /></label><label>Start<Input type="time" value={draft.time} onChange={event => edit({ time: event.target.value })} disabled={busy} /></label><label>Duration<BookingSelect value={draft.duration} onChange={event => edit({ duration: Number(event.target.value) as Draft["duration"] })} disabled={busy}><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>60 min</option></BookingSelect></label></div>
+        <div className={styles.timeGrid}><label>Date<Input type="date" value={draft.date} onChange={event => edit({ date: event.target.value })} disabled={busy} /></label><label>Start<Input type="time" value={draft.time} onChange={event => edit({ time: event.target.value })} disabled={busy} /></label><label>Duration<CalendarSelect value={draft.duration} onChange={event => edit({ duration: Number(event.target.value) as Draft["duration"] })} disabled={busy}><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>60 min</option></CalendarSelect></label></div>
         <div className={styles.guestField}>
           <label htmlFor={`${contactsId}-guest`}>Guests</label>
           <div className={styles.guestEntry}><Input id={`${contactsId}-guest`} type="email" list={contactsId} value={guestInput} onChange={event => setGuestInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addGuest(); } }} placeholder="name@example.com" disabled={busy} /><Button type="button" variant="outline" onClick={addGuest} disabled={busy}>Add</Button></div>
@@ -208,7 +204,7 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
         <datalist id={contactsId}>{contacts.map(([email, person]) => <option key={email} value={email} label={person.displayName || email} />)}</datalist>
         {draft.guests.length ? <ul className={styles.guests}>{draft.guests.map(email => <li key={email}><span>{email}</span><button type="button" aria-label={`Remove ${email}`} disabled={busy} onClick={() => edit({ guests: draft.guests.filter(value => value !== email) })}>×</button></li>)}</ul> : null}
         {draft.guests.length > 0 || emailAddress(guestInput) ? <p className={presentationStyles.support}>Guests will receive an invitation.</p> : null}
-        <label>Where<BookingSelect value={draft.meetingType} onChange={event => edit({ meetingType: event.target.value as Draft["meetingType"] })} disabled={busy}><option value="google_meet">Google Meet</option><option value="external_link">Existing Meet, Zoom, or Teams link</option><option value="in_person">In person</option></BookingSelect></label>
+        <label>Where<CalendarSelect value={draft.meetingType} onChange={event => edit({ meetingType: event.target.value as Draft["meetingType"] })} disabled={busy}><option value="google_meet">Google Meet</option><option value="external_link">Existing Meet, Zoom, or Teams link</option><option value="in_person">In person</option></CalendarSelect></label>
         {draft.meetingType === "external_link" ? <label>Meeting link<Input type="url" value={draft.meetingLink} onChange={event => edit({ meetingLink: event.target.value })} placeholder="https://zoom.us/j/123456789" disabled={busy} /></label> : null}
         {draft.meetingType === "in_person" ? <label>Location<Input value={draft.location} onChange={event => edit({ location: event.target.value })} placeholder="Where to meet" disabled={busy} /></label> : null}
         <details className={styles.description}><summary>Description (optional)</summary><Textarea maxLength={8000} value={draft.description} onChange={event => edit({ description: event.target.value })} disabled={busy} /></details>

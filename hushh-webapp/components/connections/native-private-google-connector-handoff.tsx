@@ -25,6 +25,8 @@ export function NativePrivateGoogleConnectorHandoff() {
   const { vaultKey, vaultOwnerToken } = useVault();
   const { confirmTransition, transitionDialog, transitionPending, cancelTransition } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
   const [connector, setConnector] = useState<GoogleConnector | null>(null);
+  const [calendarOrigin, setCalendarOrigin] = useState(false);
+  const calendar = connector === 'calendar' || calendarOrigin;
   const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -34,8 +36,13 @@ export function NativePrivateGoogleConnectorHandoff() {
   useEffect(() => {
     const receive = (event: Event) => {
       const detail: unknown = (event as CustomEvent).detail;
-      const next = typeof detail === 'string' ? googleConnectorIntent(detail) : null;
-      if (next) { intentEpoch.current += 1; cancelTransition(); setConnector(next); setMessage(''); setPaused(false); setBusy(false); }
+      const tagged = detail !== null && typeof detail === 'object' && 'link' in detail ? detail : null;
+      const link = tagged ? tagged.link : detail;
+      const next = typeof link === 'string' ? googleConnectorIntent(link) : null;
+      if (next) {
+        intentEpoch.current += 1; cancelTransition(); setConnector(next); setMessage(''); setPaused(false); setBusy(false);
+        setCalendarOrigin(Boolean(tagged && 'presentation' in tagged && tagged.presentation === 'calendar'));
+      }
     };
     window.addEventListener(GOOGLE_CONNECTOR_HANDOFF_EVENT, receive);
     return () => window.removeEventListener(GOOGLE_CONNECTOR_HANDOFF_EVENT, receive);
@@ -49,7 +56,7 @@ export function NativePrivateGoogleConnectorHandoff() {
     let liveArrival = false;
     const consume = (raw: string) => {
       const next = googleConnectorIntent(raw);
-      if (next && !disposed) { intentEpoch.current += 1; cancelTransition(); setConnector(next); setMessage(''); setBusy(false); }
+      if (next && !disposed) { intentEpoch.current += 1; cancelTransition(); setConnector(next); setCalendarOrigin(false); setMessage(''); setBusy(false); }
     };
     void import('@capacitor/app').then(async ({ App }) => {
       const listener = await App.addListener('appUrlOpen', (event) => { liveArrival = true; consume(event.url); });
@@ -69,7 +76,7 @@ export function NativePrivateGoogleConnectorHandoff() {
     setBusy(true); setMessage('');
     try {
       const outcome = await connectGoogleConnector(connector, { isCurrent: current, vaultOwnerCapability: vaultOwnerToken,
-        confirmLegacyTransition: terms => confirmTransition(terms, connector === 'calendar' ? 'calendar' : undefined) });
+        confirmLegacyTransition: terms => confirmTransition(terms, calendar ? 'calendar' : undefined) });
       if (!current()) return;
       if (!outcome.ok) { setMessage(connectRefusalMessage(outcome.code, connector)); return; }
       const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
@@ -82,13 +89,13 @@ export function NativePrivateGoogleConnectorHandoff() {
     finally { if (current()) setBusy(false); }
   };
   return <><Dialog open={connector !== null && !paused && !transitionPending} onOpenChange={(open) => { if (!open && !busy) { intentEpoch.current += 1; setConnector(null); setMessage(''); } }}>
-    <DialogContent className={connector === 'calendar' ? calendarPresentation.portal : undefined} data-calendar-presentation={connector === 'calendar' || undefined}>
+    <DialogContent className={calendar ? calendarPresentation.portal : undefined} data-connect-type-scale={calendar ? "page" : undefined}>
       <DialogTitle>Connect {connector === 'gmail' ? 'Gmail' : `Google ${connector ?? ''}`}</DialogTitle>
       <DialogDescription>This phone connects to Agent One of the account signed in here. The scanned link carries only the connector name.</DialogDescription>
-      {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector)} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :
+      {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector)} calendar={calendar} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :
         !vaultKey || !vaultOwnerToken ? <Button disabled={loading} onClick={() => { setPaused(true); router.push(ROUTES.PROFILE_CONNECTORS); }}>Unlock your vault</Button> :
           <Button disabled={busy} onClick={() => void connect()}>{busy ? 'Connecting…' : 'Continue with Google'}</Button>}
-      {message && <p role="status" className="text-sm">{message}</p>}
+      {message && <p role="status" className={calendar ? calendarPresentation.support : "text-sm"}>{message}</p>}
     </DialogContent>
   </Dialog>{transitionDialog}</>;
 }
