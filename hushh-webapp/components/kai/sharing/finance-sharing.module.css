@@ -81,3 +81,4 @@
 .primaryAction:hover { background: var(--app-accent-hover) !important; }
 .recipientList::-webkit-scrollbar, .optionBody::-webkit-scrollbar { width: 6px; }
 .recipientList::-webkit-scrollbar-thumb, .optionBody::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--border); }
+.footnote { padding-inline: 19px; }

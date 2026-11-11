@@ -26,9 +26,9 @@ export function PortfolioBriefing({
   return (
     <SurfaceCard data-testid="portfolio-briefing">
       <SurfaceCardContent className={styles.insightCard}>
-        <div className="flex items-center justify-between gap-2">
+        <div className="relative">
           <h2 className="ui-text-section-label">Portfolio review</h2>
-          {needsAction ? <span className="ui-text-helper-text text-amber-600 dark:text-amber-400">Needs action</span> : null}
+          {needsAction ? <span className="ui-text-helper-text absolute right-0 top-1/2 -translate-y-1/2 whitespace-nowrap text-amber-600 dark:text-amber-400">Needs action</span> : null}
         </div>
         <dl className="flex items-baseline justify-between gap-3">
           <dt className="ui-text-row-description">Portfolio score</dt>
