@@ -2533,10 +2533,14 @@ test.describe("One profile artwork and animated presence", () => {
           const railBox = rail.getBoundingClientRect();
           const groupBox = group.getBoundingClientRect();
           const frameBox = element.getBoundingClientRect();
+          const scrollBox = element.querySelector('[data-one-profile-scroll]')!.getBoundingClientRect();
+          const gapTarget = document.elementFromPoint(railBox.x + railBox.width / 2, railBox.bottom + 6);
           return {
             left: Math.abs(railBox.left - groupBox.left),
             right: Math.abs(railBox.right - groupBox.right),
             centered: Math.abs((railBox.left - frameBox.left) - (frameBox.right - railBox.right)),
+            separation: scrollBox.top - railBox.bottom,
+            rowInGap: !!gapTarget?.closest('[data-testid="feed-row"]'),
             labelsFit: Array.from(rail.querySelectorAll('[role="tab"]')).every(tab => {
               const box = tab.getBoundingClientRect();
               const span = tab.querySelector('span')!;
@@ -2549,9 +2553,17 @@ test.describe("One profile artwork and animated presence", () => {
         expect(geometry.left).toBeLessThanOrEqual(1);
         expect(geometry.right).toBeLessThanOrEqual(1);
         expect(geometry.centered).toBeLessThanOrEqual(1);
+        expect(geometry.separation).toBeGreaterThanOrEqual(12);
+        expect(geometry.rowInGap).toBe(false);
         expect(geometry.labelsFit).toBe(true);
       };
       await expectAlignedProfileContent();
+      // A partial row must remain separated from the stationary tabs, including
+      // at an arbitrary middle position where scrolling padding has disappeared.
+      await panel.locator('[data-one-profile-scroll]').evaluate(element => { element.scrollTop = 137; });
+      await expectAlignedProfileContent();
+      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+      await page.screenshot({ path: test.info().outputPath("one-profile-mid-scroll.png") });
       const scroll = await panel.getByRole("tabpanel", { name: "Feed" }).evaluate(element => {
         let node = element.parentElement;
         while (node && !["auto", "scroll"].includes(getComputedStyle(node).overflowY)) node = node.parentElement;

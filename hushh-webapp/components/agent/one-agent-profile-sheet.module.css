@@ -32,7 +32,7 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
   container: one-profile-content / inline-size;
-  padding: 12px var(--page-inline-gutter-standard)
+  padding: 0 var(--page-inline-gutter-standard)
     max(24px, var(--app-safe-area-bottom-effective, 0px));
 }
 .hero {
@@ -71,7 +71,8 @@
   min-height: 0;
   min-width: 0;
   flex: 1;
-  gap: 0;
+  /* Keep scrolling rows separated from the stationary segmented controls. */
+  gap: 12px;
   overflow: hidden;
 }
 .modelControl {
