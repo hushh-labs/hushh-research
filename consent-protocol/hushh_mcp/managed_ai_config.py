@@ -106,6 +106,7 @@ def load_scoped_text_policy(
     if scope not in TEXT_POLICY_KEYS:
         raise ValueError("Unsupported managed text processing scope")
     document = json.loads(path.read_text()) if document is None else document
+    thinking_levels = ("low", "high") if scope == "drive_document_requests" else ("low",)
     value = document.get(TEXT_POLICY_KEYS[scope])
     if value is None:
         return None
@@ -123,7 +124,7 @@ def load_scoped_text_policy(
         or not re.fullmatch(r"[a-z0-9-]{1,64}", str(value["version"]))
         or value["provider"] != "vertex"
         or not re.fullmatch(r"gemini-[a-z0-9.-]{1,100}", str(value["model"]))
-        or value["thinking_level"] != ("high" if scope == "drive_document_requests" else "low")
+        or value["thinking_level"] not in thinking_levels
         or type(value["max_output_tokens"]) is not int
         or not 8192 <= value["max_output_tokens"] <= 32768
         or value["allow_cross_provider_fallback"] is not False
