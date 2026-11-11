@@ -1823,6 +1823,10 @@ jobs:
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true' && (env.PHONE_DEPLOY_PHASE != 'cold' || (steps.cold-lease.outcome == 'success' && steps.cold-lease-intent.outcome == 'success'))
+        env:
+          SHARED_FILES_ENABLED_VERSION: ${{ vars.HUSSH_SHARED_FILES_ENABLED_PROD_VERSION }}
+          SHARED_FILES_BUCKET_VERSION: ${{ vars.HUSSH_SHARED_FILES_BUCKET_PROD_VERSION }}
+          RESTORATION_VALIDATION_RUN: ${{ inputs.restoration_validation_run }}
         run: |
           if [ "${{ github.event.inputs.enable_one_email_kyc }}" = "true" ]; then
             echo "Production One Email KYC is blocked until mailbox-watch ownership, Scheduler renewal, and encrypted-at-rest draft storage are complete."
@@ -1839,6 +1843,16 @@ jobs:
           DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=${DRIVE_CANDIDATE_RUNTIME_SECRET}"
           if [[ "$PHONE_DEPLOY_PHASE" == cold ]]; then
             DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=BACKEND_RUNTIME_CONFIG_JSON"
+          fi
+          if [[ "$PHONE_DEPLOY_PHASE" == standard && -z "$RESTORATION_VALIDATION_RUN" &&
+                -n "${SHARED_FILES_ENABLED_VERSION}${SHARED_FILES_BUCKET_VERSION}" ]]; then
+            if [[ ! "$SHARED_FILES_ENABLED_VERSION" =~ ^[1-9][0-9]*$ ||
+                  ! "$SHARED_FILES_BUCKET_VERSION" =~ ^[1-9][0-9]*$ ]] ||
+                ! grep -Fq '_PROD_SHARED_FILES_VERSIONS:' deploy/backend.cloudbuild.yaml; then
+              echo "Shared Files needs both numeric secret versions and a compatible backend release." >&2
+              exit 1
+            fi
+            DRIVE_SUBSTITUTIONS+=",_PROD_SHARED_FILES_VERSIONS=${SHARED_FILES_ENABLED_VERSION}:${SHARED_FILES_BUCKET_VERSION}"
           fi
           DRIVE_SUBSTITUTIONS+="${readiness_substitution}"
           DRIVE_SUBSTITUTIONS+=",_PHONE_DEPLOY_PHASE=${PHONE_DEPLOY_PHASE},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"

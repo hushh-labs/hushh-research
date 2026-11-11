@@ -30,7 +30,7 @@ if ! command -v python3 >/dev/null && [[ -x /usr/lib/google-cloud-sdk/platform/b
 fi
 
 # Image selection travels together to remain within Cloud Build's env-entry cap.
-IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _PHONE_ROLLBACK_SHA _PHONE_ROLLBACK_IMAGE_REFERENCE _PHONE_DEPLOY_PHASE _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
+IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _PHONE_ROLLBACK_SHA _PHONE_ROLLBACK_IMAGE_REFERENCE _PHONE_DEPLOY_PHASE _PROD_SHARED_FILES_VERSIONS _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
 _PHONE_DEPLOY_PHASE="${_PHONE_DEPLOY_PHASE:-standard}"
 source scripts/deploy/backend-phone-rollback.sh
 if [[ "${_SKIP_IMAGE_BUILD}" != "true" && "${_SKIP_IMAGE_BUILD}" != "false" ]] ||
@@ -209,11 +209,18 @@ fi
 append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
 append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
 append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
-# Bind the qualified ciphertext pilot only on the new dev and UAT revisions.
-# Changing canonical :latest before rollout could enable an older one-shot
-# writer. Production stays off until UAT acceptance. The secrets are optional:
-# an environment without them deploys exactly as before.
-if [[ "${_DEPLOY_ENV}" == "dev" || "${_DEPLOY_ENV}" == "uat" ]]; then
+# Keep the Dev/UAT pilot bindings. Production opts in with a pair of immutable
+# versions on the candidate revision; never enable it through canonical :latest.
+if [[ -n "${_PROD_SHARED_FILES_VERSIONS}" ]]; then
+  if [[ "${_DEPLOY_ENV}" != "production" || "${PROJECT_ID}" != "hushh-pda" ||
+        "${_PHONE_DEPLOY_PHASE}" != "standard" || "${_CLOUD_RUN_NO_TRAFFIC}" != "true" ||
+        ! "${_PROD_SHARED_FILES_VERSIONS}" =~ ^[1-9][0-9]*:[1-9][0-9]*$ ]]; then
+    echo "Shared Files requires two pinned secret versions on a production candidate." >&2
+    exit 1
+  fi
+  secrets+=",HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED:${_PROD_SHARED_FILES_VERSIONS%%:*}"
+  secrets+=",HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET:${_PROD_SHARED_FILES_VERSIONS#*:}"
+elif [[ "${_DEPLOY_ENV}" == "dev" || "${_DEPLOY_ENV}" == "uat" ]]; then
   append_optional_secret "HUSSH_SHARED_FILES_ENABLED" "HUSSH_SHARED_FILES_ENABLED"
   append_optional_secret "HUSSH_SHARED_FILES_BUCKET" "HUSSH_SHARED_FILES_BUCKET"
 fi
