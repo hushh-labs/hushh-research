@@ -118,11 +118,11 @@ function OwnedFinanceImportSetup({
   }, [coordinator.isReady, coordinator.operationallyReady, sourceSettled, isCurrent, pathname]);
 
   const finish = coordinator.finish;
-  const openFinanceAfterPlaid = useCallback(async () => {
+  const openFinanceAfterPlaid = useCallback(async (recordAttempt = false) => {
     if (!isCurrent()) return;
     setPlaidHandoff("opening");
     try {
-      const result = await finish();
+      const result = await finish({ recordAttempt });
       if (result.status === "succeeded") return;
     } catch {
       // The linked account is already saved. Retry setup settlement only.
@@ -245,8 +245,8 @@ function OwnedFinanceImportSetup({
             plaidConnected={plaidFinanceHandoff}
             autoContinuing={autoContinuing}
             onFinish={() => {
-              if (plaidFinanceHandoff) void openFinanceAfterPlaid();
-              else void finish();
+              if (plaidFinanceHandoff) void openFinanceAfterPlaid(true);
+              else void finish({ recordAttempt: true });
             }}
           />
         ) : (
