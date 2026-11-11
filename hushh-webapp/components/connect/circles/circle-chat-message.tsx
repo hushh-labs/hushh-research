@@ -137,7 +137,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
               </button> : <div className={styles.quote}>Original message unavailable</div> : null}
               {image ? <ChatImage session={session} message={confirmed ? message : undefined} type={image.type} localImage={message.localImage} thumbnail={image.thumbnail} messagesLane={messagesLane}
                 visible={visible} layoutBlocked={layoutBlocked} scrollRoot={scrollRoot} onError={onMediaError} onViewerChange={(open) => onViewerChange(viewerId, open)} /> : null}
-              {file && confirmed ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
+              {file && confirmed && visible ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
               {message.content?.text ? <p dir="auto" className={`${styles.text} ${image || file ? styles.caption : ""}`}>{message.content.text}</p> : null}
             </>}
             <div className={styles.meta}>

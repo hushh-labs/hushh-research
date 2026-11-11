@@ -99,6 +99,23 @@ test("deleting or revoking a file while it downloads cancels it and discards lat
   allocate.mockRestore(); download.mockRestore();
 });
 
+test("switching away from a retained circle pauses its video and releases its bytes", async () => {
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private-video");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  api.image.mockResolvedValue(new Blob(["video bytes"]));
+  const videoMessage: OpenChatMessage = { ...message, content: { text: "", attachment: { kind: "video", type: "video/mp4", name: "clip.mp4" } } };
+  const props = { message: videoMessage, session, visible: true, layoutBlocked: false, scrollRoot: { current: null }, onMediaError: vi.fn(), onViewerChange: vi.fn() };
+  const view = render(<CircleChatMessage {...props} />);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Open video" })));
+  expect(view.container.querySelector("video")).toBeInTheDocument();
+  view.rerender(<CircleChatMessage {...props} visible={false} />);
+  expect(view.container.querySelector("video")).not.toBeInTheDocument();
+  expect(pause).toHaveBeenCalled();
+  expect(revoke).toHaveBeenCalledWith("blob:private-video");
+  pause.mockRestore(); allocate.mockRestore(); revoke.mockRestore();
+});
+
 test("Circle smiley opens the reaction picker, saves immediately, toggles a pill, and closes outside", async () => {
   let resolve!: (value: { messageId: string; reactions: NonNullable<OpenChatMessage["reactions"]> }) => void;
   api.react.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));

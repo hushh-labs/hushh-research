@@ -186,6 +186,11 @@ export function ChatSharedFile({ session, message, type, name, onError }: {
   const [error, setError] = useState(false);
   const request = useRef<AbortController | null>(null);
   const allocated = useRef<string | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const element = video.current;
+    return () => { element?.pause(); };
+  }, [url]);
   useEffect(() => () => { request.current?.abort(); if (allocated.current) URL.revokeObjectURL(allocated.current); allocated.current = null; }, []);
   const open = async () => {
     if (request.current && !request.current.signal.aborted) return;
@@ -209,7 +214,7 @@ export function ChatSharedFile({ session, message, type, name, onError }: {
   };
   return <div className="max-w-full rounded-xl bg-muted/70 p-3">
     <div className="flex min-w-0 items-center gap-2"><FileText aria-hidden="true" className="size-5 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm">{name}</span></div>
-    {type.startsWith("video/") && url ? <video controls preload="metadata" src={url} className="mt-2 max-h-64 w-full rounded-lg" /> : null}
+    {type.startsWith("video/") && url ? <video ref={video} controls preload="metadata" src={url} className="mt-2 max-h-64 w-full rounded-lg" /> : null}
     <button type="button" onClick={() => void open()} disabled={loading} className="mt-2 flex min-h-10 items-center gap-1 text-sm font-semibold text-[color:var(--chat-accent,var(--app-accent))]">
       {loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Download aria-hidden="true" className="size-4" />}
       {type.startsWith("video/") ? url ? "Reload video" : "Open video" : "Download document"}
