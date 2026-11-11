@@ -1056,7 +1056,7 @@ export function ConnectCirclesTab({
                   <div className={styles.circleHeading}>
                     <h3>{group.label} <span className={styles.count}>{group.circles.length}</span></h3>
                     {group.custom && customTypesSupported ? (
-                      <Button type="button" variant="none" effect="fade" size="icon-touch"
+                      <Button type="button" variant="plain" size="icon-touch"
                         aria-label={`Delete ${group.label} type`} disabled={busy}
                         onClick={() => setPendingTypeDraft({ session: listSession, label: group.label })}>
                         <Trash2 inheritColor aria-hidden="true" className="size-4" />
@@ -1246,10 +1246,9 @@ export function ConnectCirclesTab({
         <div className="flex justify-center py-2">
           <Button
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
-            className={`${styles.utilityAction} ${styles.joinAction}`}
+            className={styles.utilityAction}
             showRipple={false}
             onClick={() => go({ action: "join-circle" })}
             data-testid="connect-circle-join"

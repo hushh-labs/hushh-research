@@ -284,8 +284,7 @@ export function InsuranceAgentsNearby({
         >
           <Button
             type="button"
-            variant="none"
-            effect="fill"
+            variant="plain"
             size="sm"
             onClick={() => setQuery("")}
           >
@@ -356,8 +355,7 @@ export function InsuranceAgentsNearby({
           ) : null}
           <Button
             type="button"
-            variant="none"
-            effect="fill"
+            variant="plain"
             size="sm"
             disabled={loadingMore}
             onClick={() => {
