@@ -2,7 +2,8 @@ import { CalendarFollowupsService, type FollowupStatus } from "@/lib/services/ca
 
 /**
  * Re-point one account's monitor at the live Mail grant. It keeps the owner's
- * period, reminder timing, decisions and scan progress; only the grant changes.
+ * period, reminder timing, decisions and scan progress; only the grant changes,
+ * and reminders are switched on when background delivery is available.
  */
 export async function rebindFollowupMonitor(
   userId: string, accountId: string, current: FollowupStatus, zone: string,
@@ -10,7 +11,8 @@ export async function rebindFollowupMonitor(
 ): Promise<void> {
   await CalendarFollowupsService.post("preferences", {
     user_id: userId, account_id: accountId, enabled: true,
-    notifications_enabled: current.notifications_enabled,
+    // Reminders are automatic wherever background delivery exists.
+    notifications_enabled: current.notifications_enabled || Boolean(current.background_available),
     historical_start_at: current.historical_start_at,
     time_zone: current.time_zone || zone,
     reminder_lead_days: current.reminder_lead_days ?? 1,

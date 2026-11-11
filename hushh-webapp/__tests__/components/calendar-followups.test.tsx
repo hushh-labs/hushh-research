@@ -256,6 +256,18 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.scan).toHaveBeenCalledTimes(1);
   });
 
+  it("turns reminders on for a monitored account that had them off, without asking", async () => {
+    service.status.mockResolvedValue(status("account_quiet_off", { notifications_enabled: false }));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_quiet_off" });
+    service.post.mockResolvedValue({ account_id: "account_quiet_off" });
+    render(<CalendarFollowups {...props("account_quiet_off")} />);
+    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
+      account_id: "account_quiet_off", enabled: true, notifications_enabled: true,
+      historical_start_at: "2026-09-10T00:00:00Z",
+    }), "synthetic-id-token", "synthetic-owner-token", expect.anything()));
+    expect(screen.queryByText(/Remind me/)).not.toBeInTheDocument();
+  });
+
   it("rebinds a renewed Mail grant silently, keeping the approved period", async () => {
     service.status.mockResolvedValue(status("account_renewed", { monitor_current: false }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_renewed" });

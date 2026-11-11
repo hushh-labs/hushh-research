@@ -402,6 +402,11 @@ async def assess_section(
             "section_index": section.index,
             "section_text": section.text,
             "message_received_at_ms": message.internal_date_ms,
+            # The owner's local day and weekday, so "before the 20th" or "by Friday"
+            # is resolved from what the message says rather than from epoch maths.
+            "message_received_on": datetime.fromtimestamp(
+                message.internal_date_ms / 1000, tz=ZoneInfo(owner_time_zone)
+            ).strftime("%Y-%m-%d %A"),
             "subject": message.subject,
             "sender": message.sender,
             "automated_signals": list(message.signals),

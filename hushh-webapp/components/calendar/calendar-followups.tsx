@@ -76,7 +76,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [notify, setNotify] = useState<boolean | null>(null);
   const [reminderInput, setReminderInput] = useState("");
   const [reminderOpen, setReminderOpen] = useState<string | null>(null);
   const detailSeq = useRef(0);
@@ -98,7 +97,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const rebound = useRef(false);
   const progressChecks = useRef(0);
   const vaultAvailable = Boolean(getVaultOwnerToken());
-  const remind = notify ?? Boolean(status?.background_available);
 
   /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
   const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
@@ -184,9 +182,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     const ownerToken = ownerTokenGetter.current();
     const signal = lifetime.current?.signal;
     if (!ownerToken || signal?.aborted) return;
-    if (status.monitor_current === false) {
-      // The Mail grant was renewed elsewhere: rebind this account's monitor to
-      // it without asking again, keeping every decision and the scan progress.
+    if (status.monitor_current === false || (!status.notifications_enabled && status.background_available)) {
+      // The Mail grant was renewed elsewhere, or reminders were left off: rebind
+      // this account's monitor (reminders on) without asking again, keeping every
+      // decision and the scan progress.
       if (rebound.current) return;
       rebound.current = true;
       void (async () => {
@@ -321,7 +320,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       const historical = existing?.historical_start_at || new Date(Date.now() - FIRST_SCAN_DAYS * 86_400_000).toISOString();
       await CalendarFollowupsService.post("preferences", {
         user_id: userId, account_id: accountId, enabled: true,
-        notifications_enabled: existing ? existing.notifications_enabled : remind && Boolean(status?.background_available),
+        notifications_enabled: Boolean(status?.background_available),
         historical_start_at: historical,
         time_zone: existing?.time_zone || zone,
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
@@ -482,7 +481,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2"><input type="checkbox" checked={remind && Boolean(status?.background_available)} onChange={event => setNotify(event.target.checked)} disabled={busy || !status?.background_available} />Remind me</label>
           <Button size="compact" disabled={busy || (!status?.mail_connected && !onConnectMail)} onClick={() => void turnOn()}>{status?.mail_connected ? "Turn on" : "Allow email access"}</Button>
         </div>
         {status && !status.background_available ? <p className={styles.muted}>Background reminders are unavailable right now.</p> : null}
