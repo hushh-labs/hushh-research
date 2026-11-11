@@ -91,14 +91,15 @@ def require_request_semantics(store, job, row, private, evidence_manifest):
     claimed = job["checkpoint"]
     frozen = store._checkpoint(row)
     semantic = claimed.get("semantic_plan")
-    _semantic_binding_current(claimed)
     if claimed.get("provider_packet") is True:
         from hushh_mcp.services.drive_period_packet_page import (
             validate_buyer_checkpoint,
         )
 
         validate_buyer_checkpoint(evidence_manifest, private, claimed, frozen)
+        _semantic_binding_current(claimed)
     else:
+        _semantic_binding_current(claimed)
         from hushh_mcp.services.drive_request_discovery import (
             DISCOVERY_ACTIVITY_UNION_POLICY,
             DISCOVERY_DELIVERY_POLICY,

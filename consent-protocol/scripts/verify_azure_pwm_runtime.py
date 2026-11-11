@@ -401,10 +401,12 @@ async def _probe_managed_text() -> None:
         raise planner_trust_error(error) from error
     print(json.dumps({"drive_activity_planner_probe": receipt["activity_planner"]}), flush=True)
     print(json.dumps({"managed_text_provider_probe": receipt}), flush=True)
-    print(
-        json.dumps({"azure_managed_text_contract": "ok", "scopes": len(receipt["scopes"])}),
-        flush=True,
+    marker = (
+        "managed_text_scopes_contract"
+        if receipt["schema"] == "managed_text_probe.v2"
+        else "azure_managed_text_contract"
     )
+    print(json.dumps({marker: "ok", "scopes": len(receipt["scopes"])}), flush=True)
 
 
 async def probe() -> None:

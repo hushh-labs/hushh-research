@@ -45,7 +45,9 @@ logger = drive_logger(__name__)
 def assessment_policy_version(model_binding=None):
     """Legacy/package genes retain Gemini; explicit semantic bindings seal provenance."""
     manifest = Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml"
-    configured_model = resolve_fleet_model_name("gemini-default")
+    configured_model = resolve_fleet_model_name(
+        "gemini-default", processing_scope="drive_document_requests"
+    )
     binding = configured_model.encode()
     if model_binding is not None:
         from hushh_mcp.services.drive_request_package_assessment import (
