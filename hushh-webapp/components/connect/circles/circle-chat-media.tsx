@@ -133,10 +133,10 @@ export function ChatImage({ session, message, type, localImage, thumbnail, visib
       {error || decodingFailed ? <>
         <ImageIcon aria-hidden="true" className="size-6" />
         <p className="text-xs">Image couldn’t load</p>
-        <Button variant="ghost" size="sm" className={`min-h-11 ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry image</Button>
+        <Button variant="text" size="sm" className={`min-h-11 ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry image</Button>
       </> : <><Loader2 aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" /><span role="status" className="text-xs">Loading image…</span></>}
     </div>}
-    {displayUrl && (error || decodingFailed) ? <Button variant="ghost" size="sm" className={`min-h-11 w-full ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry full image</Button> : null}
+    {displayUrl && (error || decodingFailed) ? <Button variant="text" size="sm" className={`min-h-11 w-full ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry full image</Button> : null}
     {displayUrl ? <Dialog modal open={expanded} onOpenChange={setExpanded}>
       <DialogContent showCloseButton={false} className="sm:max-w-3xl" data-messages-type-scale={messagesLane || undefined} srDescription="Image shared in this circle">
         <div className="flex min-w-0 items-center justify-between gap-3">
@@ -186,6 +186,11 @@ export function ChatSharedFile({ session, message, type, name, onError }: {
   const [error, setError] = useState(false);
   const request = useRef<AbortController | null>(null);
   const allocated = useRef<string | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const element = video.current;
+    return () => { element?.pause(); };
+  }, [url]);
   useEffect(() => () => { request.current?.abort(); if (allocated.current) URL.revokeObjectURL(allocated.current); allocated.current = null; }, []);
   const open = async () => {
     if (request.current && !request.current.signal.aborted) return;
@@ -209,7 +214,7 @@ export function ChatSharedFile({ session, message, type, name, onError }: {
   };
   return <div className="max-w-full rounded-xl bg-muted/70 p-3">
     <div className="flex min-w-0 items-center gap-2"><FileText aria-hidden="true" className="size-5 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm">{name}</span></div>
-    {type.startsWith("video/") && url ? <video controls preload="metadata" src={url} className="mt-2 max-h-64 w-full rounded-lg" /> : null}
+    {type.startsWith("video/") && url ? <video ref={video} controls preload="metadata" src={url} className="mt-2 max-h-64 w-full rounded-lg" /> : null}
     <button type="button" onClick={() => void open()} disabled={loading} className="mt-2 flex min-h-10 items-center gap-1 text-sm font-semibold text-[color:var(--chat-accent,var(--app-accent))]">
       {loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Download aria-hidden="true" className="size-4" />}
       {type.startsWith("video/") ? url ? "Reload video" : "Open video" : "Download document"}

@@ -223,7 +223,9 @@ def prepare(path: Path, release_basis_path: Path | None = None) -> None:
         raise ValueError("worker_private_service_controls_mismatch")
     if value["spec"]["template"].get("metadata", {}).get("name") != prior[
         "serving"
-    ] or (value["spec"]["template"]["spec"] != old["spec"]):
+    ] or not VERIFIER["same_worker_spec"](
+        value["spec"]["template"]["spec"], old["spec"]
+    ):
         raise ValueError("worker_latest_template_is_not_serving_revision")
     verify(
         old,

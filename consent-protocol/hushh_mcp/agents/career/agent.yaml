@@ -34,7 +34,7 @@ pkm:
 surfaces:
   chat: false
   web: true
-  not_applicable_reason: Chat routing, voice, remote A2A and MCP arrive with the Career Agent chat change; this version is the Career screen only.
+  not_applicable_reason: No roster tile and no chat specialist. Agent One itself lists hussh roles and applies from chat (careers.list_roles, careers.apply); this agent only reads resumes. Voice, remote A2A and MCP are not offered.
 privacy:
   context_allowlist: [career.resume.document, career.resume.text]
   plaintext_telemetry: false
@@ -44,7 +44,7 @@ rollout:
   kill_switch: ONE_CAREER_ENABLED
   rollback: Turn off ONE_CAREER_ENABLED; resumes already saved stay in the owner's PKM and nothing else changes.
 availability:
-  environments: [development, uat]
+  environments: [development, uat, production]
 tools: []
 subagents:
   - id: agent_career_resume_extract
@@ -95,3 +95,4 @@ subagents:
       environments:
         - development
         - uat
+        - production

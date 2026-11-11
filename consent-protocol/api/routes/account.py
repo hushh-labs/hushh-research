@@ -60,6 +60,7 @@ from api.utils.firebase_auth import (
     current_auth_lane,
     refuse_foreign_review_mint,
     verify_account_cleanup_bearer,
+    verify_account_cleanup_status_bearer,
     verify_firebase_principal,
 )
 from hushh_mcp.services import account_firebase_mutations
@@ -140,7 +141,7 @@ async def account_deletion_cleanup_status(
     response.headers["Cache-Control"] = "private, no-store"
     selected = str(operation_id) if operation_id is not None else None
     identity = await run_in_threadpool(
-        verify_account_cleanup_bearer, authorization, operation_id=selected
+        verify_account_cleanup_status_bearer, authorization, operation_id=selected
     )
     operation = await run_in_threadpool(
         journal.inspect_for_identity, identity, operation_id=selected
@@ -1622,6 +1623,7 @@ class DeleteAccountRequest(BaseModel):
     )
     cleanup: AccountCloudCleanupRequest | None = None
     continuation_id: UUID | None = None
+    reviewed_cloud_plan_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class EmailAliasVerificationStartRequest(BaseModel):
@@ -1885,7 +1887,7 @@ async def claim_account_phone(
     payload: PhoneClaimRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Persist a Firebase phone-auth session as the app-level verified phone claim."""
+    """Finalize a phone already linked to the signed-in Firebase identity."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
     from hushh_mcp.services.phone_transfer_service import assert_claim_available, refuse
@@ -1926,12 +1928,37 @@ async def claim_account_phone(
             },
         )
 
+    if phone_session_uid != protected_identity:
+        if phone_session_cleanup == "pending" and phone_session_uid:
+            await _delete_firebase_auth_user(
+                phone_session_uid,
+                intent_kind="phone_orphan",
+                expected_phone_digest=account_deletion_phone_digest(phone_number),
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_CHANGED",
+                "message": "Link this phone to your signed-in account and verify it again.",
+            },
+        )
+
     try:
-        identity = await ActorIdentityService().claim_verified_phone(
-            user_id=firebase_uid, phone_number=phone_number
+        identity = await ActorIdentityService().finalize_verified_phone_from_firebase(
+            firebase_uid, phone_number
         )
     except ActorIdentityPhoneClaimConflictError:
         raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED") from None
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_CHANGED",
+                "message": "The linked phone changed. Please verify it again.",
+            },
+        ) from None
+    except ActorIdentitySyncUnavailableError:
+        identity = None
     if not identity:
         raise HTTPException(
             status_code=503,
@@ -1941,17 +1968,7 @@ async def claim_account_phone(
             },
         )
 
-    logger.info(
-        "Account phone claim persisted user=%s phone_session_uid_present=%s",
-        firebase_uid,
-        bool(phone_session_uid),
-    )
-    if phone_session_cleanup == "pending" and phone_session_uid:
-        phone_session_cleanup = await _delete_firebase_auth_user(
-            phone_session_uid,
-            intent_kind="phone_orphan",
-            expected_phone_digest=account_deletion_phone_digest(phone_number),
-        )
+    logger.info("Account phone claim persisted user=%s", firebase_uid)
     return {
         "success": True,
         "user_id": firebase_uid,
@@ -2232,6 +2249,12 @@ async def delete_account(
         if target != "both":
             raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
         return await account_cloud_cleanup(user_id, payload.cleanup)
+    if payload and payload.reviewed_cloud_plan_sha256:
+        if target != "both":
+            raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
+        return await _perform_account_deletion(
+            user_id, target=target, reviewed_cloud_plan_sha256=payload.reviewed_cloud_plan_sha256
+        )
     return await _perform_account_deletion(user_id, target=target)
 
 
@@ -2259,6 +2282,7 @@ async def _delete_account_result(
     target: str,
     reviewed_inventory_sha256: str | None = None,
     accept_local_erasure: bool = False,
+    reviewed_cloud_plan_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Preserve the erasure service's result, including a definite pre-transaction failure."""
     service = AccountService()
@@ -2271,6 +2295,8 @@ async def _delete_account_result(
             if reviewed_inventory_sha256 is not None or accept_local_erasure
             else {}
         )
+        if reviewed_cloud_plan_sha256 is not None:
+            review_kwargs["reviewed_cloud_plan_sha256"] = reviewed_cloud_plan_sha256
         return cast(
             dict[str, Any], await service.delete_account(user_id, target=target, **review_kwargs)
         )
@@ -2294,6 +2320,7 @@ async def _perform_account_deletion(
     target: str,
     reviewed_inventory_sha256: str | None = None,
     accept_local_erasure: bool = False,
+    reviewed_cloud_plan_sha256: str | None = None,
 ):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
@@ -2302,6 +2329,11 @@ async def _perform_account_deletion(
         target=target,
         reviewed_inventory_sha256=reviewed_inventory_sha256,
         accept_local_erasure=accept_local_erasure,
+        **(
+            {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+            if reviewed_cloud_plan_sha256 is not None
+            else {}
+        ),
     )
 
     if result.get("success") is True and result.get("cleanup_pending") is True:

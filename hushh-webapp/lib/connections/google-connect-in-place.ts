@@ -24,9 +24,11 @@ import {
   navigateGmailOAuthPopup,
   openGmailOAuthPopup,
   readGmailOAuthPopupSettlementFallback,
+  type GmailOAuthPopupSettlement,
 } from "@/lib/profile/gmail-oauth-popup";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GmailReceiptsService, type GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
+import { calendarAccountStatus } from "@/lib/calendar/calendar-account-status";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import type { GoogleConnectorConnectOptions } from '@/lib/one/google-native-connect';
 
@@ -39,9 +41,9 @@ import type { GoogleConnectorConnectOptions } from '@/lib/one/google-native-conn
  * SYNCHRONOUSLY when the start function is called, so call it directly inside
  * the click handler, before any await. The existing callback page settles to
  * this window, and the shared handler accepts only the exact origin, window
- * and attempt before expiry. That settlement is a hint: the outcome is decided
- * by an owner-authenticated status read. Native uses the platform Google
- * sign-in sheet, which never reloads the WebView.
+ * and attempt before expiry. That settlement is a hint: only an
+ * owner-authenticated status read confirms a connection. Native uses the
+ * platform Google sign-in sheet, which never reloads the WebView.
  */
 export type InPlaceConnectOutcome =
   /** The server confirms the requested permission. */
@@ -162,6 +164,24 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
 }
 
 /**
+ * Matches one Gmail attempt's callback and keeps the outcome it reported.
+ * Status cannot see a switched-off send: that row already reads as connected
+ * with the send scope, so only the callback says a send consent was
+ * cancelled or failed.
+ */
+function gmailSettlementMatcher(attemptId: string) {
+  let outcome: GmailOAuthPopupSettlement["outcome"] | null = null;
+  return {
+    matches: (value: unknown) => {
+      if (!isGmailOAuthPopupSettlement(value) || value.attemptId !== attemptId) return false;
+      outcome = value.outcome;
+      return true;
+    },
+    cancelledOrFailed: () => outcome === "cancelled" || outcome === "failed",
+  };
+}
+
+/**
  * Gmail sending (`send`) or mailbox organisation (`modify`) on top of the
  * existing grant. Shared uses the existing provider flow. Private native connections use
  * public-client PKCE and request management access for drafts and sending.
@@ -169,7 +189,7 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
 export function connectGmailInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
-    purpose: "send" | "modify";
+    purpose: "read" | "send" | "modify";
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -177,13 +197,22 @@ export function connectGmailInPlace(
   const { owner, purpose } = input;
   const granted = (status: {
     connected?: boolean;
+    scope_csv?: string;
     send_permission_granted?: boolean;
     modify_permission_granted?: boolean;
   }) =>
     status.connected === true &&
-    (purpose === "send"
-      ? status.send_permission_granted === true
-      : status.modify_permission_granted === true);
+    (purpose === "read"
+      ? typeof status.scope_csv === "string" &&
+        status.scope_csv.replaceAll(",", " ").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.readonly")
+      : purpose === "send" ? status.send_permission_granted === true
+        : status.modify_permission_granted === true);
+  // A confirmed connection reaches the shared connector status, which starts this device's receipt sync.
+  const settle = (status: GmailConnectionStatus, current: () => boolean): InPlaceConnectOutcome => {
+    if (status.connected === true && current()) void import("@/lib/profile/gmail-connector-store")
+      .then(store => { if (current()) store.primeConnectorStatus({ userId: input.applicationOwnerId, status }); }).catch(() => undefined);
+    return granted(status) ? "connected" : "not_connected";
+  };
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
@@ -196,7 +225,7 @@ export function connectGmailInPlace(
           if (!connection) return 'not_connected';
           if (!current()) return 'stale';
           const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: input.applicationOwnerId, force: true });
-          return granted(status) ? 'connected' : 'not_connected';
+          return settle(status, current);
         }
         if (purpose === 'modify') return 'not_connected';
         const idToken = await owner.getIdToken();
@@ -210,7 +239,7 @@ export function connectGmailInPlace(
         const start = await GmailReceiptsService.startNativeConnect({
           idToken,
           userId: input.applicationOwnerId,
-          purpose: "send",
+          purpose,
         });
         if (!current()) return "stale";
         if (!start.configured) return "failed";
@@ -232,7 +261,7 @@ export function connectGmailInPlace(
           userId: input.applicationOwnerId,
           serverAuthCode: result.serverAuthCode,
         });
-        return granted(status) ? "connected" : "not_connected";
+        return settle(status, current);
       }),
     );
   }
@@ -274,6 +303,7 @@ export function connectGmailInPlace(
         if (!start.configured || !isGoogleAuthorizeUrl(start.authorize_url))
           return "failed";
         navigateGmailOAuthPopup(popup, start.authorize_url);
+        const settlement = gmailSettlementMatcher(attempt.attemptId);
         await waitForOAuthPopup({
           popup,
           signal: input.signal ?? new AbortController().signal,
@@ -282,19 +312,18 @@ export function connectGmailInPlace(
             Date.parse(start.expires_at),
             attempt.startedAt + WINDOW_WAIT_LIMIT_MS,
           ),
-          matches: (value) =>
-            isGmailOAuthPopupSettlement(value) &&
-            value.attemptId === attempt.attemptId,
+          matches: settlement.matches,
           storageValue: readGmailOAuthPopupSettlementFallback,
         });
         if (!current()) return "stale";
         if (input.cancelSignal?.aborted) return "not_connected";
+        if (settlement.cancelledOrFailed()) return "not_connected";
         const status = await GmailReceiptsService.getStatus({
           idToken: await owner.getIdToken(),
           userId: input.applicationOwnerId,
           force: true,
         });
-        return granted(status) ? "connected" : "not_connected";
+        return settle(status, current);
       } finally {
         clearGmailOAuthPopupAttempt();
       }
@@ -307,28 +336,27 @@ export function connectCalendarInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
     accessLevel: "read" | "manage";
+    accountId?: string;
     includeCalendarList?: boolean;
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
   if (!input) return started("unsupported", async () => "stale");
   const { owner, accessLevel, includeCalendarList } = input;
-  const granted = (status: {
-    connected?: boolean;
-    status?: string;
-    access_level?: string | null;
-    calendar_list_access?: boolean;
-  }) =>
-    status.connected === true &&
-    status.status !== "needs_reauth" &&
-    (accessLevel !== "manage" || status.access_level === "manage") &&
-    (!includeCalendarList || status.calendar_list_access === true);
+  const accountId = input.accountId ?? "default";
+  const granted = (status: Awaited<ReturnType<typeof GoogleCalendarService.status>>) => {
+    const selected = calendarAccountStatus(status, accountId);
+    return selected?.connected === true && selected.status !== "needs_reauth" &&
+      (accessLevel !== "manage" || selected.access_level === "manage") &&
+      (!includeCalendarList || selected.calendar_list_access === true);
+  };
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
       fenced(input, () => undefined, async (current) => {
         const privateAgent = await ownerContentIsPrivate();
         if (!current()) return 'stale';
+        if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) {
           const connection = await connectPrivate('calendar', current, input);
           if (typeof connection === 'string') return connection;
@@ -341,6 +369,7 @@ export function connectCalendarInPlace(
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
+          ...(accountId !== "default" ? { accountId, additional: true } : {}),
           ...(includeCalendarList ? { includeCalendarList: true } : {}),
         });
         if (!current()) return "stale";
@@ -366,11 +395,13 @@ export function connectCalendarInPlace(
   const attempt = createGoogleOAuthPopupAttempt("calendar", {
     ownerId: input.applicationOwnerId,
     accessLevel,
+    ...(accountId !== "default" ? { calendarAdditional: true, targetAccountId: accountId } : {}),
   });
   const popup = openGoogleOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
     const privateAgent = await ownerContentIsPrivate();
     if (!current()) return 'stale';
+    if (privateAgent && accountId !== 'default') return 'not_connected';
     if (privateAgent) { const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
     return 'window_blocked';
   }));
@@ -379,6 +410,7 @@ export function connectCalendarInPlace(
       try {
         const privateAgent = await ownerContentIsPrivate();
         if (!current()) return 'stale';
+        if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) { popup.close(); const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
         // A popup callback settles to this window; it never routes to the
         // onboarding setup page.
@@ -389,6 +421,7 @@ export function connectCalendarInPlace(
           idToken,
           userId: input.applicationOwnerId,
           accessLevel,
+          ...(accountId !== "default" ? { accountId, additional: true } : {}),
         });
         if (!current()) return "stale";
         if (!isGoogleAuthorizeUrl(start.authorize_url)) return "failed";

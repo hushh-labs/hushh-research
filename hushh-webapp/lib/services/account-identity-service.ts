@@ -452,8 +452,7 @@ export class AccountIdentityService {
     return identity;
   }
 
-  /** Shared provider-linked finalization. Keep the native-named entrypoint for
-   * existing callers; web replacement uses the same exact-phone proof. */
+  /** Save an exact provider-linked phone for the admitted account on any platform. */
   static async finalizeNativePhoneVerification(
     user: User | null | undefined,
     requestedPhone: string | null | undefined,

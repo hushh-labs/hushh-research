@@ -117,7 +117,7 @@ export type CalendarBoardConflict = {
 };
 export type CalendarBoardDay = {
   date: string; time_zone: string; duration_minutes: 15 | 30 | 60;
-  accounts: CalendarBoardAccount[]; complete: boolean; conflicts_complete: boolean;
+  accounts: CalendarBoardAccount[]; people?: CalendarInvitationsResponse["people"]; complete: boolean; conflicts_complete: boolean;
   conflicts: CalendarBoardConflict[]; shared_free_windows: CalendarOpening[]; checked_at: string;
 };
 export type CalendarEventRef = { account_id: string; calendar_id: string; event_id: string };
@@ -137,7 +137,7 @@ export type CalendarConflictOutcome = {
 };
 export type CalendarConflictResult = { results: CalendarConflictOutcome[]; complete: boolean };
 export type CalendarInvitation = CalendarEventSummary & { id: string; calendar_id: string; response_status: "needsAction" | "accepted" | "declined" | "tentative"; can_respond: boolean; conflicts: CalendarEventSummary[] };
-export type CalendarInvitationsResponse = { account_email?: string; events: CalendarInvitation[]; pending_count: number; time_zone: string; start_at: string; end_at: string; complete: boolean; unreadable_calendars: CalendarSource[] };
+export type CalendarInvitationsResponse = { account_email?: string; events: CalendarInvitation[]; people?: Record<string, { userId: string; displayName: string | null; photoUrl: string | null }>; pending_count: number; time_zone: string; start_at: string; end_at: string; complete: boolean; unreadable_calendars: CalendarSource[] };
 export type CalendarAttendanceReview = { exact_time?: boolean; response_status?: "accepted" | "declined" | "tentative"; calendar_id?: string; conflicts?: CalendarEventSummary[]; unchecked_calendars?: string[]; openings?: CalendarOpening[]; review_id: string; review_token: string; title: string; start?: CalendarEventTime; end?: CalendarEventTime; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
 export type CalendarAttendanceResult = { calendar: "accepted" | "declined" | "tentative" | "failed" | "unknown"; email: "not_sent" | "sent" | "failed" | "unknown"; calendar_error: string | null; email_error: string | null };
 export type CalendarWindowParams = { vaultOwnerToken: string; date: string; timeZone: string; startTime: string; endTime: string; durationMinutes: 15 | 30 | 60 };

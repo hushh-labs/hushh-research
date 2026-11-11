@@ -164,11 +164,12 @@ test("Chrome autoplay blocking uses the system fallback, then a gesture primes l
     await evaluateWithoutGesture(`SmsSound.stopOneLocationNotificationSound("active")`);
     expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
     expect(await evaluateWithoutGesture(`SmsSound.playOneLocationNotificationSound("sos", "next")`)).toBe(true);
-    // Hiding the app must disconnect synchronously, even if both native audio
-    // time and JS timers freeze before the tone's scheduled end.
+    // Backgrounding is not recipient acknowledgement. Disposing the owning
+    // session still releases sound immediately.
     await evaluateWithoutGesture(`window.dispatchEvent(new Event("pagehide"))`);
-    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(1);
     await evaluateWithoutGesture("window.releaseSound()");
+    expect(await evaluateWithoutGesture("window.toneConnections")).toBe(0);
     await expect.poll(() => evaluateWithoutGesture("window.createdContexts[0].state")).toBe("closed");
   } finally {
     await browser.close();
@@ -183,8 +184,12 @@ test("pending recipient metadata keeps the mobile SMS composer usable without di
   await expect(page.getByText("8 contacts · Live location")).toBeVisible();
   await expect(page.locator("details")).toHaveCount(0);
   await expect(page.getByText(/needs? attention|contacts ready|account verification|unlock once|Roopmann Varadharaj/i)).toHaveCount(0);
+  await expect(page.getByText("0/140", { exact: true })).toBeVisible();
+  await expect(page.getByText("Alert your SMS Circle with live location", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Hold Send for 2 seconds/)).toHaveCount(0);
   const send = page.getByTestId("sos-send-custom-message");
   await page.getByRole("button", { name: "Come get me" }).click();
+  await expect(page.getByText("Alert your SMS Circle with your message and live location", { exact: true })).toBeVisible();
   await send.scrollIntoViewIfNeeded();
   await expect(send).toBeVisible();
   await expect(send).toBeEnabled();
@@ -277,11 +282,12 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await message.fill("Please come to the entrance");
   await send.click();
   await expect(send).toHaveText("Cancel");
+  await expect(page.getByText(/Sending in .* · Tap Cancel/)).toBeVisible();
   await expect(send.getByTestId("sos-send-progress")).toBeVisible();
   await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("sms-send-tap-countdown.png"), fullPage: true });
   await send.click();
-  await expect(send).toHaveText("Send");
+  await expect(send).toHaveText("Send · 2s");
   await page.waitForTimeout(2100);
   await expect(page.locator("body")).not.toHaveAttribute("data-sent-count");
   await page.getByRole("button", { name: "Come get me" }).click();
@@ -326,10 +332,10 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await expect(page.locator("body")).toHaveAttribute("data-sent-count", "1");
   await expect(page.locator("body")).toHaveAttribute("data-sent-note", "Come get me");
   await expect(page.getByRole("textbox")).toHaveCount(0);
-  await page.getByRole("button", { name: "Stop Save My Soul alert" }).click();
+  await page.getByRole("button", { name: "Stop SMS alert" }).click();
   const stopDialog = page.getByRole("alertdialog");
   await expect(stopDialog).toHaveAttribute("data-location-type-scale", "connect");
-  const stopTitle = await stopDialog.getByText("Stop Save My Soul alert?").evaluate((node) => {
+  const stopTitle = await stopDialog.getByText("Stop SMS alert?").evaluate((node) => {
     const style = getComputedStyle(node);
     return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
   });

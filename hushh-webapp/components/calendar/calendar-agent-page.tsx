@@ -15,6 +15,9 @@ import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { NativeCalendarRoute, NativeCalendarReactOnly, type CalendarNativeSection } from "./native-calendar-workspace";
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
 import { connectGmailInPlace } from "@/lib/connections/google-connect-in-place";
+import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
+import { connectNativeGoogleFollowupMail } from "@/lib/google/native-google-oauth";
+import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { AskOneButton } from "@/components/agent/ask-one-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,9 +57,12 @@ import {
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { trackEvent } from "@/lib/observability/client";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 import { openCalendarChat } from "@/lib/calendar/calendar-chat-handoff";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
+  acknowledgeGoogleOAuthSettlement,
+  clearGoogleOAuthAttempt,
   createGoogleOAuthPopupAttempt,
   hasCalendarMeetingFileGrant,
   consumeStoredGoogleOAuthPopupSettlement,
@@ -68,55 +74,9 @@ import {
   type GoogleOAuthPopupSettlement,
 } from "@/lib/google/google-oauth-popup";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
+import { CalendarConnectIcon } from "./calendar-connect-icon";
 
 const CALENDAR_OAUTH_POPUP_TIMEOUT_MS = 120_000;
-
-function CalendarConnectIcon({
-  className = "size-10 mb-2.5",
-  style = { color: "#FF3B30" },
-}: {
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <svg
-      viewBox="0 0 48 48"
-      fill="none"
-      aria-hidden="true"
-      className={className}
-      style={style}
-    >
-      <rect
-        x="8.5"
-        y="11.5"
-        width="31"
-        height="29"
-        rx="4.5"
-        stroke="currentColor"
-        strokeWidth="3"
-      />
-      <path
-        d="M9.5 20.5h29M16 7.5v8M32 7.5v8"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-      {[16, 24, 32].flatMap((x) =>
-        [27, 35].map((y) => (
-          <rect
-            key={`${x}-${y}`}
-            x={x - 2}
-            y={y - 2}
-            width="4"
-            height="4"
-            rx="1"
-            fill="currentColor"
-          />
-        )),
-      )}
-    </svg>
-  );
-}
 
 type CalendarAgentPageProps = {
   journeyVariant?: "workspace" | "onboarding";
@@ -272,7 +232,8 @@ export function CalendarAgentPage({
 
   /** The callback verified the connection before settling; keep it authoritative. */
   const applyVerifiedSuccess = (accessLevel: "read" | "manage", additional = false, targetAccountId?: string,
-    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string) => {
+    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string,
+    onSettled?: () => void, onVerified?: () => void) => {
     const priorAccountIds = new Set(status?.accounts?.map(account => account.account_id) || []);
     const operationOwnerId = activeOwnerIdRef.current;
     if (meetingFiles && targetAccountId) {
@@ -284,7 +245,8 @@ export function CalendarAgentPage({
         isCurrent: () => !lifetime?.signal.aborted && identityRef.current === identity &&
           activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId &&
           statusRequestRef.current === settlementRequest,
-        onVerified: setStatus,
+        onVerified: (verified) => { setStatus(verified); onVerified?.(); },
+        onSettled,
       });
       return;
     }
@@ -327,6 +289,8 @@ export function CalendarAgentPage({
     if (additional) void reconcile(2);
     else window.setTimeout(() => { void reconcile(2); }, 1500);
     morphyToast.success("Google Calendar connected.");
+    onVerified?.();
+    onSettled?.();
   };
 
   const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false,
@@ -353,27 +317,37 @@ export function CalendarAgentPage({
         });
     const popup = attempt ? openGoogleOAuthPopup(attempt) : null;
     setBusy(true);
+    const activity = captureProductAttempt("calendar.connection.connect", operationOwnerId);
+    activity.started();
     try {
       const privateAgent = await ownerContentIsPrivate();
       if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
       if (privateAgent) {
         popup?.close();
         if (strictMeetingUpgrade) {
+          activity.settled("blocked");
           toast.error("Meeting file access is not available for private Google connections yet.");
           return;
         }
-        if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
+        if (!vaultKey || !vaultOwnerToken) {
+          activity.settled("blocked");
+          toast.error('Unlock your vault to connect Google.');
+          return;
+        }
         const outcome = await connectGoogleConnector('calendar', {
           vaultOwnerCapability: vaultOwnerToken,
           confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
           isCurrent: () => activeOwnerIdRef.current === operationOwnerId,
         });
-        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         if (!outcome.ok) {
           if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('calendar');
           else toast.error(connectRefusalMessage(outcome.code, 'Calendar'));
+          if (outcome.code === 'SIGN_IN_CANCELLED') activity.settled("cancelled");
           return;
         }
+        // The owner-authenticated connector save already acknowledged the connection.
+        activity.settled("returned");
         const current = await GoogleCalendarService.status(await user.getIdToken(), operationOwnerId);
         if (activeOwnerIdRef.current === operationOwnerId) setStatus(current);
         return;
@@ -404,6 +378,12 @@ export function CalendarAgentPage({
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
           ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
           ...(start.include_meeting_files ? { includeMeetingFiles: true } : {}),
+        }).catch((error: unknown) => {
+          if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId &&
+            error && typeof error === "object" && "code" in error && error.code === "USER_CANCELLED") {
+            activity.settled("cancelled");
+          }
+          throw error;
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
@@ -431,6 +411,7 @@ export function CalendarAgentPage({
               : "Calendar authorization did not create an active connection.",
           );
         }
+        activity.settled("returned");
         setStatus(completed);
         setBusy(false);
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
@@ -511,9 +492,19 @@ export function CalendarAgentPage({
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       const settled = settlement;
       if (finished === "settled" && settled) {
-        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined, includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation);
-        else if (settled.outcome === "failed")
-          morphyToast.error(settled.message || "Google Calendar could not be connected.");
+        // Tell a popup that cannot close itself (Google's opener policy) that
+        // this page has taken over, so it can say so instead of looking stuck.
+        const acknowledge = () => acknowledgeGoogleOAuthSettlement(attempt.attemptId, popup);
+        if (settled.outcome === "succeeded") {
+          applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined,
+            includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation,
+            acknowledge, () => activity.settled("returned"));
+        } else {
+          if (settled.outcome === "cancelled") activity.settled("cancelled");
+          if (settled.outcome === "failed")
+            morphyToast.error(settled.message || "Google Calendar could not be connected.");
+          acknowledge();
+        }
       } else {
         await reconcileUnsettledCalendarPopup({
           operationOwnerId,
@@ -553,6 +544,8 @@ export function CalendarAgentPage({
     const operationOwnerId = userId;
     statusRequestRef.current += 1;
     setBusy(true);
+    const activity = captureProductAttempt("calendar.connection.disconnect", operationOwnerId);
+    activity.started();
     const operation = user
       .getIdToken()
       .then((idToken) => {
@@ -572,6 +565,12 @@ export function CalendarAgentPage({
     try {
       const next = await operation;
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
+      const matchingAccount = next.accounts?.find((account) => account.account_id === accountId);
+      const stillLinked = matchingAccount && (matchingAccount.connected || matchingAccount.status !== "disconnected");
+      const confirmed = accountId === "default"
+        ? next.connected === false && next.status === "disconnected" && !stillLinked
+        : Array.isArray(next.accounts) && !stillLinked;
+      if (confirmed) activity.settled("returned");
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
@@ -700,6 +699,99 @@ export function CalendarAgentPage({
       confirm: { key: "confirm-disconnect", label: "Disconnect", destructive: true, enabled: !busy, pending: busy, run: () => disconnect(disconnectAccountId) },
       cancelLabel: "Cancel", cancel: () => setDisconnectConfirmOpen(false),
     } : undefined };
+  const connectSelectedFollowupMail = async (accountId: string) => {
+    if (!user || !userId || busyRef.current) return false;
+    const operationOwnerId = userId;
+    const operationIdentity = identity;
+    if (accountId === "default") {
+      const cancel = new AbortController();
+      popupCancelRef.current = cancel;
+      const started = connectGmailInPlace({
+        owner: user, purpose: "read", signal: popupLifetimeRef.current?.signal,
+        cancelSignal: cancel.signal,
+        isCurrent: () => identityRef.current === operationIdentity && activeOwnerIdRef.current === operationOwnerId,
+      });
+      setBusy(true); setPopupWaiting(started.surface === "window");
+      try {
+        const outcome = await started.result;
+        if (identityRef.current !== operationIdentity || outcome !== "connected") return false;
+        const status = await CalendarFollowupsService.status(operationOwnerId, accountId, await user.getIdToken());
+        return status.mail_connected;
+      } finally {
+        if (identityRef.current === operationIdentity) { setBusy(false); setPopupWaiting(false); }
+      }
+    }
+    if (Capacitor.isNativePlatform()) {
+      const redirectUri = new URL(ROUTES.PROFILE_GOOGLE_OAUTH_RETURN, resolveRuntimeFrontendUrl()).toString();
+      setBusy(true);
+      try {
+        const start = await CalendarFollowupsService.post<{
+          configured: boolean; authorize_url: string; expires_at: string;
+        }>("mail/connect/start", {
+          user_id: operationOwnerId, account_id: accountId, redirect_uri: redirectUri,
+        }, await user.getIdToken());
+        if (!start.configured || identityRef.current !== operationIdentity || activeOwnerIdRef.current !== operationOwnerId) return false;
+        await connectNativeGoogleFollowupMail({
+          ownerUid: user.uid, accountId, authorizeUrl: start.authorize_url,
+          redirectUri, expiresAt: start.expires_at,
+        });
+        if (identityRef.current !== operationIdentity || activeOwnerIdRef.current !== operationOwnerId) return false;
+        return (await CalendarFollowupsService.status(operationOwnerId, accountId, await user.getIdToken())).mail_connected;
+      } catch (error) {
+        if (identityRef.current === operationIdentity) morphyToast.error(error instanceof Error ? error.message : "Mail connection could not be completed.");
+        return false;
+      } finally {
+        if (identityRef.current === operationIdentity) setBusy(false);
+      }
+    }
+    const attempt = createGoogleOAuthPopupAttempt("gmail_read", {
+      ownerId: operationOwnerId, calendarAdditional: true, targetAccountId: accountId,
+    });
+    const popup = openGoogleOAuthPopup(attempt);
+    if (!popup) { morphyToast.error("Allow a Google sign-in window to connect this Mail account."); return false; }
+    const cancel = new AbortController();
+    popupCancelRef.current = cancel;
+    setBusy(true); setPopupWaiting(true);
+    try {
+      const idToken = await user.getIdToken();
+      if (identityRef.current !== operationIdentity || activeOwnerIdRef.current !== operationOwnerId) return false;
+      const start = await CalendarFollowupsService.post<{
+        configured: boolean; authorize_url: string; expires_at: string;
+      }>("mail/connect/start", {
+        user_id: operationOwnerId, account_id: accountId,
+        redirect_uri: `${window.location.origin}/one/profile/google/oauth/return`,
+      }, idToken);
+      const authorize = new URL(start.authorize_url);
+      if (!start.configured || authorize.origin !== "https://accounts.google.com" || authorize.pathname !== "/o/oauth2/v2/auth")
+        throw new Error("Google Mail sign-in could not be started.");
+      navigateGoogleOAuthPopup(popup, start.authorize_url);
+      const followupSettlement = { current: null as GoogleOAuthPopupSettlement | null };
+      await waitForOAuthPopup({
+        popup, signal: popupLifetimeRef.current?.signal ?? new AbortController().signal,
+        cancelSignal: cancel.signal,
+        expiresAt: Math.min(Date.parse(start.expires_at), Date.now() + CALENDAR_OAUTH_POPUP_TIMEOUT_MS),
+        matches: value => {
+          if (!isGoogleOAuthPopupSettlement(value) || value.service !== "gmail_read" || value.attemptId !== attempt.attemptId) return false;
+          followupSettlement.current = value; return true;
+        },
+        storageValue: readGoogleOAuthPopupSettlement,
+      });
+      if (identityRef.current !== operationIdentity || activeOwnerIdRef.current !== operationOwnerId) return false;
+      if (followupSettlement.current) acknowledgeGoogleOAuthSettlement(attempt.attemptId, popup);
+      if (followupSettlement.current?.outcome !== "succeeded") return false;
+      const verified = await CalendarFollowupsService.status(operationOwnerId, accountId, await user.getIdToken());
+      return verified.mail_connected;
+    } catch (error) {
+      if (identityRef.current === operationIdentity) morphyToast.error(error instanceof Error ? error.message : "Mail connection could not be completed.");
+      return false;
+    } finally {
+      popup.close();
+      clearGoogleOAuthAttempt(attempt.attemptId);
+      if (identityRef.current === operationIdentity) { setBusy(false); setPopupWaiting(false); }
+      if (popupCancelRef.current === cancel) popupCancelRef.current = null;
+    }
+  };
+
   if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
     return <NativeCalendarRoute frame={nativeFrame} model={nativeModel}>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
@@ -710,7 +802,8 @@ export function CalendarAgentPage({
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
-        onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
+        onMailConnect={connectMail} onFollowupMailConnect={connectSelectedFollowupMail}
+        connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
       {transitionDialog}
     </NativeCalendarRoute>;

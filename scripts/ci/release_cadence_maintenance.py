@@ -37,15 +37,15 @@ def replayed_receipt(repository: str, run_id: int, prefix: str) -> dict:
     environment = "uat" if prefix == "uat" else "production"
     lane = {"prefix": prefix, "deploy_job": "Deploy UAT Scope" if prefix == "uat" else "Deploy Production Scope",
             "upload_step": "Upload UAT deploy artifacts" if prefix == "uat" else "Upload production deploy artifacts"}
-    _, governance = github.configuration()
+    from release_acceptance_provenance import historical_human_dispatch
 
     def governed(run, repo, surface):
-        actor = (run.get("actor") or {}).get("login")
-        retry = (run.get("triggering_actor") or {}).get("login")
-        allowed = governance[surface]["manual_dispatch_users"]
-        return (trusted_run(run, repo, "deploy-uat.yml" if prefix == "uat" else "deploy-production.yml")
-                and run.get("event") == "workflow_dispatch" and run.get("status") == "completed"
-                and (actor in allowed or surface == "production" and actor == "github-actions[bot]") and retry in allowed)
+        if historical_human_dispatch(run):
+            return trusted_run(run, repo, "deploy-uat.yml" if prefix == "uat" else "deploy-production.yml")
+        if surface == "production" and run.get("actor", {}).get("login") == "github-actions[bot]":
+            import importlib
+            return importlib.import_module("uat-retention-maintenance").governed_dispatch(run, repo, surface)
+        return False
 
     def timestamp(value):
         try:
@@ -92,12 +92,10 @@ def production_baseline(state: dict, policy: dict, repository: str, *, revalidat
         if not revalidate:
             return existing
     run = github.run_info(repository, identity)
-    _, governance = github.configuration()
-    allowed = governance["production"]["manual_dispatch_users"]
+    from release_acceptance_provenance import historical_human_dispatch
     require(run.get("id") == identity and trusted_run(run, repository, "deploy-production.yml") and run.get("event") == "workflow_dispatch"
             and run.get("status") == "completed" and run.get("conclusion") == "success"
-            and (run.get("actor") or {}).get("login") in allowed
-            and (run.get("triggering_actor") or run.get("actor") or {}).get("login") in allowed,
+            and historical_human_dispatch(run),
             "Production baseline needs a successful governed manual deployment")
     require(type(run.get("run_attempt")) is int and run["run_attempt"] > 0, "Invalid production baseline attempt")
     value = github.receipt(repository, identity, "prod")

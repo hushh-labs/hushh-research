@@ -3,20 +3,18 @@
 
 from __future__ import annotations
 
+import runpy
+
 import argparse
 import json
 import re
 import sys
 from pathlib import Path
 
-try:
-    import tomllib
-except ModuleNotFoundError as exc:  # pragma: no cover
-    raise SystemExit(f"tomllib is required: {exc}") from exc
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
-CONFIG_RELATIVE_PATH = Path(".agents/config.toml")
+CONFIG_RELATIVE_PATH = Path(".agents/config.json")
 AGENTS_RELATIVE_PATH = Path(".agents/subagents")
 SKILLS_RELATIVE_PATH = Path(".agents/skills")
 WORKFLOWS_RELATIVE_PATH = Path(".agents/workflows")
@@ -56,7 +54,7 @@ EXPECTED_AGENTS = {
     "voice_systems_architect",
     # Wave 2 -- the per-domain principal lanes for the Private Agent platform,
     # added alongside the north star. Same contract as wave 1: read-only,
-    # advisory-only, thin TOML with shared craft left in AGENTS.md.
+    # advisory-only, thin Markdown with shared craft left in AGENTS.md.
     "chief_systems_architect",
     "ai_platform_engineer",
     "cloud_platform_engineer",
@@ -122,11 +120,11 @@ def missing_markers(text: str, markers: list[str]) -> list[str]:
     return [marker for marker in markers if marker not in text]
 
 
-def load_toml(path: Path) -> dict:
+def load_source(path: Path) -> dict:
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        return runpy.run_path(str(Path(__file__).resolve().parents[4] / ".agents/skills/agent-orchestration-governance/scripts/framework_source_boundary.py"))["read_framework_source"](path)
     except Exception as exc:  # pragma: no cover - surfaced directly to CLI
-        raise ValueError(f"{path}: failed to parse TOML: {exc}") from exc
+        raise ValueError(f"{path}: failed to parse framework source: {exc}") from exc
 
 
 def load_skill_ids(root: Path) -> set[str]:
@@ -147,7 +145,7 @@ def validate_config(root: Path, errors: list[str]) -> None:
     if not config_path.exists():
         errors.append(f"missing config file: {config_path}")
         return
-    config = load_toml(config_path)
+    config = load_source(config_path)
     agents = config.get("agents")
     if not isinstance(agents, dict):
         errors.append(f"{config_path}: missing [agents] table")
@@ -255,7 +253,7 @@ def parse_skill_block(path: Path, instructions: str, errors: list[str]) -> list[
 
 
 def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], errors: list[str]) -> None:
-    agent = load_toml(path)
+    agent = load_source(path)
     missing = sorted(REQUIRED_KEYS - agent.keys())
     if missing:
         errors.append(f"{path}: missing required keys: {', '.join(missing)}")
@@ -275,12 +273,12 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
     instruction_lines = len(instructions.splitlines())
     if instruction_lines > DEVELOPER_INSTRUCTIONS_MAX_LINES:
         errors.append(
-            f"{path}: developer_instructions too long: {instruction_lines} lines > {DEVELOPER_INSTRUCTIONS_MAX_LINES}; keep agent TOML thin and move shared craft to AGENTS.md"
+            f"{path}: developer_instructions too long: {instruction_lines} lines > {DEVELOPER_INSTRUCTIONS_MAX_LINES}; keep agent Markdown thin and move shared craft to AGENTS.md"
         )
     instruction_chars = len(instructions)
     if instruction_chars > DEVELOPER_INSTRUCTIONS_MAX_CHARS:
         errors.append(
-            f"{path}: developer_instructions too long: {instruction_chars} chars > {DEVELOPER_INSTRUCTIONS_MAX_CHARS}; keep agent TOML thin and move shared craft to AGENTS.md"
+            f"{path}: developer_instructions too long: {instruction_chars} chars > {DEVELOPER_INSTRUCTIONS_MAX_CHARS}; keep agent Markdown thin and move shared craft to AGENTS.md"
         )
     for token in DISALLOWED_CRAFT_DUPLICATION_TOKENS:
         if token in instructions:
@@ -367,7 +365,7 @@ def validate_agents(root: Path, errors: list[str]) -> None:
     if not agents_dir.exists():
         errors.append(f"missing agents directory: {agents_dir}")
         return
-    files = sorted(agents_dir.glob("*.toml"))
+    files = sorted(agents_dir.glob("*.md"))
     if not files:
         errors.append(f"{agents_dir}: no custom agent files found")
         return
@@ -473,6 +471,29 @@ def run_self_test() -> list[str]:
         if len(errors) != 2:
             failures.append("vendor roots must be rejected even when they contain only discovery entries")
     boundary = runpy.run_path(str(Path(__file__).with_name("framework_source_boundary.py")))
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        (root / ".agents").mkdir()
+        external = root / "external.json"
+        external.write_text('{"agents": {"max_threads": 6, "max_depth": 1}}')
+        (root / ".agents/config.json").symlink_to(external)
+        errors = []
+        boundary["validate_source_confinement"](root, errors)
+        if not any("config.json" in error for error in errors):
+            failures.append("canonical JSON configuration must not escape .agents")
+        role = root / "role.md"
+        role.write_text('---\n{"name": "fixture"}\n---\nRole instructions.\n')
+        if boundary["read_framework_source"](role) != {"name": "fixture", "developer_instructions": "Role instructions.\n"}:
+            failures.append("Markdown role metadata and exact instruction body must be preserved")
+        for text in ('---\n{"name":"a","name":"b"}\n---\nbody',
+                     '---\n{"developer_instructions":"hidden"}\n---\nbody',
+                     '---\n[]\n---\nbody', 'name = "legacy"'):
+            role.write_text(text)
+            try:
+                boundary["read_framework_source"](role)
+            except ValueError:
+                continue
+            failures.append("malformed or ambiguous role metadata must be refused")
     paths = ["app/CLAUDE.md", "pkg/.codex/agents/a.toml", "pkg/AGENTS.md", ".agents/README.md"]
     if boundary["nested_vendor_sources"](paths) != ["app/CLAUDE.md", "pkg/.codex/agents/a.toml"]:
         failures.append("nested tracked vendor sources must be rejected without rejecting canonical instructions")
@@ -644,7 +665,7 @@ def main() -> int:
         return 1
 
     config_path = root / CONFIG_RELATIVE_PATH
-    agent_files = sorted(p.name for p in (root / AGENTS_RELATIVE_PATH).glob("*.toml"))
+    agent_files = sorted(p.name for p in (root / AGENTS_RELATIVE_PATH).glob("*.md"))
     print("Agent orchestration surfaces valid.")
     print(f"Config: {config_path.relative_to(root)}")
     print(f"Agents: {', '.join(agent_files)}")

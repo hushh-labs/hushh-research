@@ -15,6 +15,7 @@ import { MailActionButton as Button } from "./mail-action-button";
 import mailStyles from "./mail-workspace.module.css";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 const EXTERNAL_AGENT_PROMPT =
   "Summarize my personal and KYC details as simple Markdown bullet points under Facts, Preferences, and Commitments. Note anything uncertain or missing. Do not include passwords, PINs, security codes, or authentication keys.";
@@ -93,11 +94,14 @@ function GmailVerificationOnboardingSession({
 
     saveStartedRef.current = true;
     setSaving(true);
+    const attempt = captureProductAttempt("kyc.save_profile", userId);
+    attempt.started();
     const saveTask = withDeadline(KycIdentityProfilePkmService.saveProfile({
       userId,
       vaultKey,
       vaultOwnerToken,
       profile: { aboutMe },
+      onOutcome: attempt.settled,
     }), Date.now() + 120_000);
 
     // The person has explicitly approved this import. Continue into the KYC

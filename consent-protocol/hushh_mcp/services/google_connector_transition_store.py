@@ -304,7 +304,14 @@ def finish_legacy_revocation(
         )
 
 
-def begin_gmail_disconnect(db: Any, sql: str, params: dict, row: dict) -> dict | None:
+def begin_gmail_disconnect(
+    db: Any,
+    sql: str,
+    params: dict,
+    row: dict,
+    *,
+    cleanup_sql: str | None = None,
+) -> dict | None:
     from hushh_mcp.services.google_connection_service import (
         GoogleConnectionService,  # noqa: PLC0415
     )
@@ -326,6 +333,15 @@ def begin_gmail_disconnect(db: Any, sql: str, params: dict, row: dict) -> dict |
             connection, owner=owner, family=_FAMILIES[1], row=dict(current)
         )
         connection.execute(text(sql), params)
+        # Keep owner-scoped operational cleanup in the credential fence
+        # transaction. A crash after this commit cannot leave pending work.
+        if (
+            cleanup_sql
+            and connection.execute(
+                text("SELECT to_regclass('calendar_email_followup_monitors')"), {}
+            ).scalar_one()
+        ):
+            connection.execute(text(cleanup_sql), params)
         return claim
 
 

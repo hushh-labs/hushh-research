@@ -1,6 +1,7 @@
 "use client";
 
-import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { CircleChatSession } from "@/lib/services/circle-chat-service";
 import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/hooks/use-auth";
@@ -20,8 +21,8 @@ import styles from "./circle-messages-pane.module.css";
 import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
 import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 
-function GroupAvatar({ photoUrl }: { photoUrl?: string | null }) {
-  return <span className={styles.groupAvatar} aria-hidden="true">
+function GroupAvatar({ photoUrl, header = false }: { photoUrl?: string | null; header?: boolean }) {
+  return <span className={`${styles.groupAvatar} ${header ? styles.headerAvatar : ""}`} aria-hidden="true">
     <span className={styles.groupAvatarFront}>{photoUrl ? <Image src={photoUrl} alt="" width={33} height={33} unoptimized /> : <UsersRound className="size-5" />}</span>
   </span>;
 }
@@ -93,7 +94,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
     return () => { active = false; window.removeEventListener("focus", refresh); };
   }, [token, ownerId, refreshRevision]);
 
-  const circles = loaded?.token === token && loaded.ownerId === ownerId ? loaded.circles : [];
+  const circles = useMemo(() => loaded?.token === token && loaded.ownerId === ownerId ? loaded.circles : [], [loaded, token, ownerId]);
   useEffect(() => { onCircleCountChange?.(circles.length); }, [circles.length, onCircleCountChange]);
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const visibleCircles = circles.filter(circle => circle.name.toLocaleLowerCase().includes(normalizedSearch));
@@ -102,12 +103,30 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
   const vaultKey = vault?.vaultKey ?? null;
   // Keep the encrypted session stable while shell/header state rerenders.
   // A new object restarts chat initialization and its long-poll connection.
-  const session = useMemo(() => selectedCircleId && ownerId && token && vaultKey ? {
+  const candidateSession = useMemo(() => selectedCircleId && ownerId && token && vaultKey ? {
     circleId: selectedCircleId,
     userId: ownerId,
     vaultOwnerToken: token,
     vaultKey,
   } : null, [selectedCircleId, ownerId, token, vaultKey]);
+  // Keep a bounded working set in React memory, including each thread's
+  // sequence/version and uncertain-send state. Credentials never persist.
+  const scope = useMemo(() => ({ ownerId, token, vaultKey, retired: new WeakSet<CircleChatSession>() }), [ownerId, token, vaultKey]);
+  const epoch = useRef({ scope, value: 0 });
+  if (epoch.current.scope !== scope) epoch.current = { scope, value: epoch.current.value + 1 };
+  const [retained, setRetained] = useState<{ scope: typeof scope; sessions: CircleChatSession[] }>({ scope, sessions: [] });
+  const sessions = useMemo(() => {
+    const current = retained.scope === scope ? retained.sessions.filter(session => circles.some(circle => circle.id === session.circleId) &&
+      (session.circleId === candidateSession?.circleId || !scope.retired.has(session))) : [];
+    if (!candidateSession) return current;
+    const selected = current.find(session => session.circleId === candidateSession.circleId) ?? candidateSession;
+    return [...current.filter(session => session.circleId !== selected.circleId), selected].slice(-4);
+  }, [retained, scope, circles, candidateSession]);
+  useEffect(() => {
+    setRetained(current => current.scope === scope && current.sessions.length === sessions.length &&
+      current.sessions.every((session, index) => session === sessions[index]) ? current : { scope, sessions });
+  }, [scope, sessions]);
+  const session = sessions.find(session => session.circleId === selectedCircleId) ?? null;
   const sessionCircleId = session?.circleId ?? null;
 
   useEffect(() => {
@@ -167,6 +186,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
         <p>No matching circles</p><p>Try another name.</p>
       </div> : null}
       {visibleCircles.map((circle) => <button key={circle.id} type="button" className={styles.row}
+        aria-current={selectedId === circle.id ? "true" : undefined}
         data-selected={selectedId === circle.id || undefined} onClick={() => {
           setSelectedId(circle.id);
           writeLastMessagesSelection(ownerId, { lane: "circles", circleId: circle.id });
@@ -181,16 +201,27 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
       {selected && session ? <>
         <header className={peopleStyles.threadHeader}>
           <div className={peopleStyles.threadHeaderContent}>
-          <ShellActionSurface className={`${styles.back} !size-11`} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></ShellActionSurface>
+          <ShellActionSurface className={`${peopleStyles.backButton} ${styles.back} !size-11`} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></ShellActionSurface>
           <div className={peopleStyles.threadIdentity}>
-          <GroupAvatar photoUrl={selected.photoUrl} />
+          <GroupAvatar photoUrl={selected.photoUrl} header />
           <div className={peopleStyles.threadTitle}><h2>{selected.name}</h2><p>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</p></div>
           </div>
           <div className={peopleStyles.threadHeaderActions}>{profileAction}</div>
           </div>
         </header>
-        <CircleChat key={`${session.userId}:${session.circleId}:${session.vaultOwnerToken}`} session={session} circleName={selected.name} initialOpen active={active} collapsible={false} chatLane chatLaneTheme={theme} />
       </> : <div className={styles.placeholder}><UsersRound aria-hidden="true" className="size-8" /><p>Select a circle to start chatting.</p></div>}
+      {sessions.map(session => {
+        const visible = active && session.circleId === selectedCircleId;
+        const circle = circles.find(circle => circle.id === session.circleId)!;
+        return <div key={`${epoch.current.value}:${session.circleId}`} hidden={!visible} inert={!visible} aria-hidden={!visible}
+          className={visible ? "min-h-0 flex-1" : "hidden"}>
+          <CircleChat session={session} circleName={circle.name} initialOpen active={visible} onAccessLost={() => {
+            if (scope.retired.has(session)) return;
+            scope.retired.add(session);
+            setRetained(current => current.scope === scope ? { ...current } : current);
+          }} collapsible={false} chatLane chatLaneTheme={theme} />
+        </div>;
+      })}
     </section>
   </div>;
 }

@@ -251,6 +251,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
                 "profilePortrait": self?.supported == true,
+                "profileNetWorthScore": self?.supported == true,
                 "profileContentHandoff": self?.supported == true,
                 "profileNavigationStack": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "compatibleBackRefreshes": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,

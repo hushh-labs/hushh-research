@@ -351,7 +351,7 @@ export function SmsContactsFlow({
                   renderItem={(recipient) => {
                     const label = recipientLabel(recipient);
                     return (
-                      <ContactRow
+                      <ContactRow userId={recipient.userId}
                         label={label}
                         photoUrl={recipient.photoUrl}
                         verified={Boolean(recipient.isRia)}
@@ -413,7 +413,7 @@ export function SmsContactsFlow({
                 orange well read as "attention" on a face, and white on
                 --app-warning measures ~2.2:1. The danger in this dialog is
                 carried by the red Remove button and the title copy. */}
-            <ContactAvatar
+            <ContactAvatar userId={pendingRemoval?.userId}
               label={pendingRemoval ? recipientLabel(pendingRemoval) : "?"}
               photoUrl={pendingRemoval?.photoUrl}
               verified={Boolean(pendingRemoval?.isRia)}

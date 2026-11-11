@@ -142,6 +142,7 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 
@@ -155,6 +156,8 @@ import {
 import {
   LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
   LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+  LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME,
+  LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME,
 } from "./location-action-styles";
 import {
   ShareReplacementConfirmDialog,
@@ -194,7 +197,7 @@ import {
   ShareCountdownText,
   type LiveShareStatus,
 } from "@/components/one-location/redesign/live-share-status-card";
-import { SosPanel } from "@/components/one-location/redesign/sos-panel";
+import { SosPanel, type SosDispatchStatus } from "@/components/one-location/redesign/sos-panel";
 import { FeedPushPromptView, useFeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
@@ -737,6 +740,7 @@ export type LocationHubViewModel = {
   smsContactsLoading: boolean;
   onRefreshSmsContacts: () => Promise<string[] | null>;
   sosActive: boolean;
+  sosDispatchStatus?: SosDispatchStatus;
   sosBusy: boolean;
   sosStartedAtLabel: string | null;
   sosEmergency: EmergencyInfo | null;
@@ -746,6 +750,7 @@ export type LocationHubViewModel = {
   // an early bail-out, so narrowing it back to `void` here would strip the
   // signal the panel needs to release its fired latch.
   onTriggerSos: (message?: string | null) => void | Promise<void>;
+  onPrepareSosSend?: (signal: AbortSignal) => void;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
   /**
@@ -804,6 +809,7 @@ export type LocationHubViewModel = {
     staleAction?: ReactNode,
     /** True when the caller already draws the card around the preview. */
     nested?: boolean,
+    markerIdentity?: { avatarUrl?: string | null; displayName: string },
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
@@ -2324,13 +2330,13 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
+      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
         <RowLabel
           as="span"
-          className="min-w-0"
+          className="min-w-0 group-hover:text-[color:var(--app-accent)]"
         >
           {title}
         </RowLabel>
@@ -2856,7 +2862,7 @@ function LocationDetailFlow({
             groups={ownerGrantGroups}
             recipientName={vm.grantRecipientLabel}
             renderAvatar={(group, name) => (
-              <ActiveShareAvatar name={name} photoUrl={group.primaryGrant.recipientPhotoUrl} />
+              <ActiveShareAvatar userId={group.counterpartUserId} name={name} photoUrl={group.primaryGrant.recipientPhotoUrl} />
             )}
             onStopGrant={vm.onStopGrant}
             revokingGrantId={vm.revokingGrantId}
@@ -2910,7 +2916,7 @@ function LocationDetailFlow({
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
                 <div key={group.counterpartUserId} data-grant-id={grant.id}>
-                  <SharedWithMeCard
+                  <SharedWithMeCard userId={group.counterpartUserId}
                     isSmsTriggered={Boolean(group.smsGrant)}
                     name={ownerName}
                     photoUrl={grant.ownerPhotoUrl}
@@ -3018,6 +3024,7 @@ function LocationDetailFlow({
                           // SharedWithMeCard already draws and clips the card
                           // around this preview.
                           true,
+                          { avatarUrl: grant.ownerPhotoUrl, displayName: ownerName },
                         )
                       : null}
                   </SharedWithMeCard>
@@ -3049,7 +3056,7 @@ function LocationDetailFlow({
           <div className="space-y-3">
             {vm.pendingOwnerRequests.map((request) => (
               <div key={request.id} data-request-id={request.id}>
-                <RequestCard
+                <RequestCard userId={request.requesterUserId}
                   name={vm.requesterLabel(request)}
                   photoUrl={request.requesterPhotoUrl}
                   // The amount, and whether it is extra time on a share already
@@ -3463,6 +3470,7 @@ function LocationSettingsFlow({
           <DialogFooter>
             <FlowActionGroup
               stacked
+              separateSecondary={false}
               measure="decision"
               className="max-w-[244px]"
               primary={
@@ -3478,7 +3486,7 @@ function LocationSettingsFlow({
               secondary={
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="text"
                   size="standard"
                   onClick={() => setScopeSheetOpen(false)}
                 >
@@ -3585,15 +3593,17 @@ function personInitials(name: string): string {
 }
 
 function ActiveShareAvatar({
+  userId,
   name,
   photoUrl,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
 }) {
   return (
     <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
-      <Avatar initials={personInitials(name)} imageUrl={photoUrl} size={40} />
+      <Avatar userId={userId} initials={personInitials(name)} imageUrl={photoUrl} size={40} />
       <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[#34C759]" />
     </span>
   );
@@ -3633,6 +3643,7 @@ function ActiveShareMetadata({
 
 /** One person in the People list: avatar (+ live dot) · name · status · chevron. */
 export function PersonRow({
+  userId,
   name,
   photoUrl,
   verified,
@@ -3645,6 +3656,7 @@ export function PersonRow({
   onShareUnavailable,
   shareReady = true,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   verified?: boolean;
@@ -3673,7 +3685,7 @@ export function PersonRow({
           "before:absolute before:left-16 before:right-4 before:top-0 before:h-px before:bg-[color:var(--app-separator)] before:content-['']",
       )}
     >
-      <button
+      <PersonSelectionSurface
         type="button"
         onClick={onOpen}
         aria-label={ariaLabel}
@@ -3683,11 +3695,11 @@ export function PersonRow({
             ? "grid-cols-[auto_minmax(0,1fr)] gap-2 sm:gap-3"
             : "grid-cols-[auto_minmax(0,1fr)_auto] gap-3",
           "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-          "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+          "hover:[&_[data-location-row-title]]:text-[color:var(--app-accent)]",
         )}
       >
         <div className="relative shrink-0">
-          <ConnectionPersonAvatar
+          <ConnectionPersonAvatar userId={userId}
             label={name}
             photoUrl={photoUrl}
             verified={verified}
@@ -3729,7 +3741,7 @@ export function PersonRow({
             aria-hidden="true"
           />
         ) : null}
-      </button>
+      </PersonSelectionSurface>
       {hasQuickActions ? (
         <div
           className="flex w-auto items-center justify-end gap-2 [--type-compact-button-label-size:13px] [--type-compact-button-label-weight:500] sm:[--type-compact-button-label-size:15px]"
@@ -3739,18 +3751,18 @@ export function PersonRow({
           {onShare ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={shareReady ? onShare : onShareUnavailable}
+              disableHoverRipple
               disabled={!shareReady && !onShareUnavailable}
               aria-haspopup={!shareReady && onShareUnavailable ? "dialog" : undefined}
-              className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
+              className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
               aria-label={`Share your location with ${name}`}
             >
               <span data-location-type-role="compact-action"
                 data-location-action-surface
-                className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}
+                className={LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME}
               >
                 Share
               </span>
@@ -3759,16 +3771,16 @@ export function PersonRow({
           {onAsk ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onAsk}
-              className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
+              className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
+              disableHoverRipple
               aria-label={`Ask ${name} for their location`}
             >
               <span data-location-type-role="compact-action"
                 data-location-action-surface
-                className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}
+                className={LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME}
               >
                 Ask
               </span>
@@ -3923,7 +3935,7 @@ export function CircleSummaryGroup({
         className={cn(
           "grid min-h-[68px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left outline-none transition-colors motion-reduce:transition-none",
           "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-          "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+          "hover:[&_[data-location-row-title]]:text-[color:var(--app-accent)]",
         )}
       >
         <span className="min-w-0">
@@ -3948,7 +3960,7 @@ export function CircleSummaryGroup({
             "relative grid min-h-[56px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5 text-left outline-none transition-colors motion-reduce:transition-none",
             "before:absolute before:left-4 before:right-4 before:top-0 before:h-px before:bg-[color:var(--app-separator)] before:content-['']",
             "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-            "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+            "hover:[&_[data-location-row-title]]:text-[color:var(--app-accent)]",
           )}
           data-testid="one-location-circle-invitations-summary"
         >
@@ -4105,11 +4117,12 @@ function CircleInvitationsDialog({
                   <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-1">
                     <Button data-location-type-role="utility-action"
                       type="button"
-                      variant="ghost"
+                      variant="link"
+                      disableHoverRipple
                       size="compact"
                       disabled={responding || inviteBusy}
                       onClick={() => void respondToInvite(invite.id, "decline")}
-                      className="h-11 rounded-full px-3 text-[15px] text-[color:var(--app-secondary-label)] hover:bg-transparent"
+                      className="h-11 rounded-full px-3 text-[15px] text-[color:var(--app-secondary-label)]"
                     >
                       {responding && inviteBusy ? "Declining…" : "Decline"}
                     </Button>
@@ -4134,6 +4147,7 @@ function CircleInvitationsDialog({
 }
 
 function PersonActionsDialog({
+  userId,
   open,
   name,
   photoUrl,
@@ -4150,6 +4164,7 @@ function PersonActionsDialog({
   onManageConnection,
   onCancelRequest,
 }: {
+  userId?: string;
   open: boolean;
   name: string;
   photoUrl?: string | null;
@@ -4241,7 +4256,7 @@ function PersonActionsDialog({
       >
         <DialogHeader className="pb-3 pl-5 pr-16 pt-5 text-left">
           <div className="flex items-center gap-3">
-            <ConnectionPersonAvatar
+            <ConnectionPersonAvatar userId={userId}
               label={name}
               photoUrl={photoUrl}
               verified={verified}
@@ -4595,7 +4610,7 @@ export function PeopleHub({
                   countdownLabel: vm.expiresCountdownLabel,
                 });
                 return (
-                  <PersonRow
+                  <PersonRow userId={recipient.userId}
                     key={recipient.userId}
                     name={name}
                     photoUrl={recipient.photoUrl}
@@ -4658,7 +4673,7 @@ export function PeopleHub({
       />
 
       {selectedPerson && selectedPersonStatus ? (
-        <PersonActionsDialog
+        <PersonActionsDialog userId={selectedPerson.userId}
           open={Boolean(selectedPerson)}
           name={selectedPersonName}
           photoUrl={selectedPerson.photoUrl}
@@ -4787,8 +4802,7 @@ export function PublicLinkActionRows({
       <div className="flex flex-wrap items-center gap-2" data-testid="public-link-actions">
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onShare}
           size="compact"
           className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
@@ -4800,8 +4814,7 @@ export function PublicLinkActionRows({
         </MorphyButton>
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={handleCopy}
           disabled={copyBusy}
           aria-busy={copyBusy || undefined}
@@ -4849,8 +4862,7 @@ function ActiveLinkRow({
       trailing={
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onCopy}
           size="compact"
           className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "shrink-0")}
@@ -5085,8 +5097,10 @@ function SosFlow({
         contactCount={vm.smsContactCount}
         recipientsLoading={vm.smsContactsLoading}
         active={vm.sosActive}
+        dispatchStatus={vm.sosDispatchStatus}
         busy={vm.sosBusy}
         onTrigger={vm.onTriggerSos}
+        onPrepareSend={vm.onPrepareSosSend}
         onStopSos={vm.onStopSos}
         stopBusy={vm.sosBusy}
         onClose={onClose}
@@ -5242,7 +5256,7 @@ function ShareFlow({
     const alreadyHasLocationShare = Boolean(activeGrant);
     const label = vm.recipientLabel(r);
     return (
-      <SettingsRow
+      <SettingsRow leadingInteractive
         key={r.userId}
         density="compact"
         textOverflow="truncate"
@@ -5269,7 +5283,7 @@ function ShareFlow({
             : undefined
         }
         leading={
-          <ConnectionPersonAvatar
+          <ConnectionPersonAvatar userId={r.userId}
             label={label}
             photoUrl={r.photoUrl}
             verified={Boolean(r.isRia)}
@@ -5573,7 +5587,6 @@ function ShareFlow({
         </SectionCard>
 
         <SelectedRecipientsRail
-          title="Can see you"
           ariaLabel="People who can see your location"
           recipients={selectedReady}
           recipientLabel={vm.recipientLabel}
@@ -5582,7 +5595,7 @@ function ShareFlow({
               type="button"
               onClick={backToPeople}
               aria-label="Change who can see you"
-              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+              className="flex min-h-11 min-w-11 shrink-0 items-center rounded-full pe-3 text-sm font-semibold text-[color:var(--app-accent)]"
             >
               Edit
             </button>
@@ -5623,7 +5636,7 @@ function ShareFlow({
             }
             secondary={
               <Button
-                variant="ghost"
+                variant="text"
                 size="standard"
                 onClick={() => onClose()}
                 className="bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
@@ -5914,7 +5927,7 @@ function LiveShareDurationEditor({
         }
         secondary={
           <Button
-            variant="ghost"
+            variant="text"
             size="standard"
             onClick={onCancel}
             disabled={saving}
@@ -6000,6 +6013,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 }
 
 function RequestRecipientListRow({
+  userId,
   name,
   photoUrl,
   verified,
@@ -6018,6 +6032,7 @@ function RequestRecipientListRow({
   removeBusy,
   expandedContent,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   verified?: boolean;
@@ -6036,8 +6051,8 @@ function RequestRecipientListRow({
   removeBusy?: boolean;
   expandedContent?: ReactNode;
 }) {
-  const Row = selectable && onSelect ? "button" : "div";
-  const rowSelectable = Row === "button";
+  const Row = selectable && onSelect ? PersonSelectionSurface : "div";
+  const rowSelectable = Row === PersonSelectionSurface;
   const pillTone =
     statusLabel === "Live"
       ? "live"
@@ -6059,7 +6074,7 @@ function RequestRecipientListRow({
         aria-pressed={rowSelectable ? selected : undefined}
         className="grid w-full min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
       >
-        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
+        <ContactAvatar userId={userId} label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
         <span className="min-w-0 flex-1">
           <span data-location-type-role="row-title" className="flex min-w-0 items-center gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
             <span className="min-w-0 truncate">{name}</span>
@@ -6195,8 +6210,7 @@ function AskFlow({
   // rather than a trip back through the hub.
   //
   // There is no `justSent` banner any more. `handleRequestAccess` already
-  // raises a Sonner toast on a resolved success ("Request sent. We'll notify
-  // you here when they respond."), and every person asked already carries the
+  // raises a Sonner toast after a successful send, and every person asked carries the
   // outcome durably in their own row -- an "Asked" pill and "Asked just now for
   // 1 hour, waiting on them". So the banner was the third telling of the same
   // fact, and the only one that took permanent layout at the top of the screen
@@ -6538,7 +6552,7 @@ function AskFlow({
               }
               secondary={
                 <Button
-                  variant="ghost"
+                  variant="text"
                   size="standard"
                   onClick={() => onClose()}
                   className="h-[50px] min-h-[50px] bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
@@ -6614,7 +6628,7 @@ function AskFlow({
                   .includes(normalizedRecipientSearch);
               const showStateActions = !status.selectable && exactStatusSearch;
               return (
-                <RequestRecipientListRow
+                <RequestRecipientListRow userId={r.userId}
                   key={r.userId}
                   name={recipientLabel}
                   photoUrl={r.photoUrl}
@@ -6745,8 +6759,8 @@ function SelectedRecipientsRail({
   recipientLabel,
   trailing,
 }: {
-  title: string;
-  ariaLabel?: string;
+  title?: string;
+  ariaLabel: string;
   recipients: OneLocationRecipient[];
   recipientLabel: (recipient: OneLocationRecipient) => string;
   trailing?: ReactNode;
@@ -6758,23 +6772,25 @@ function SelectedRecipientsRail({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 px-1">
-        <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
-          {title}
-        </p>
+        {title ? (
+          <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
+            {title}
+          </p>
+        ) : null}
         {trailing}
       </div>
       {compact ? (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
-          <div className="flex shrink-0 -space-x-2" aria-hidden="true">
+          <div className="flex shrink-0 -space-x-2">
             {recipients.slice(0, 3).map((recipient) => {
               const label = recipientLabel(recipient);
               return (
-                <ContactAvatar
+                <ContactAvatar userId={recipient.userId}
                   key={recipient.userId}
                   label={label}
                   photoUrl={recipient.photoUrl}
@@ -6798,7 +6814,7 @@ function SelectedRecipientsRail({
         </div>
       ) : (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
@@ -6811,7 +6827,7 @@ function SelectedRecipientsRail({
                 role="listitem"
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
-                <ContactAvatar
+                <ContactAvatar userId={recipient.userId}
                   label={label}
                   photoUrl={recipient.photoUrl}
                   verified={Boolean(recipient.isRia)}
@@ -6878,8 +6894,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
         <div className="grid grid-cols-2 gap-2.5" data-testid="circle-invite-actions">
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onShareCircleInvite}
@@ -6891,8 +6906,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
           </MorphyButton>
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onCopyCircleInvite}
@@ -6904,7 +6918,8 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
         </div>
         {invite ? (
           <Button
-            variant="ghost"
+            variant="link"
+            disableHoverRipple
             onClick={() => vm.onRevokeCircleInvite(invite)}
             isLoading={vm.busy === "circleRevoke"}
             className="h-11 w-full rounded-full text-sm text-red-600 hover:text-red-700 dark:text-red-300"
@@ -6917,50 +6932,48 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
   }
 
   return renderNative(
-    <div className="space-y-5">
-      <TaskFlowHeader
-        eyebrow="Invite to One / Circle"
-        title="Invite before sharing"
-      />
-      <SettingsGroup
-        title="Invite"
-        description="They sign in, verify phone, and approve."
-        separatorInset
-      >
-        <SettingsRow
-          title="Expires after"
-          description="How long the link stays usable."
-          stackTrailingOnMobile
-          className="[&_[data-slot=settings-row-trailing]]:justify-end [&_[data-slot=settings-row-trailing]]:pl-0 [&_[role=radiogroup]]:justify-end"
-          trailing={
-            <DurationSelector
-              value={vm.durationHours}
-              onChange={vm.setDurationHours}
-              label=""
-              maxWidthClassName="w-max max-w-full"
-              // 24 hours is the ceiling, not a preference. The API rejects
-              // anything above it (`duration_hours … le=24` on
-              // CreateCircleInviteRequest) and `normalize_duration_hours` raises
-              // "between 15 minutes and 24 hours", so the "7 days" option that
-              // used to sit here could only ever return HTTP 422 — an invite the
-              // owner watched fail with no idea why.
-              options={[
-                { value: "1", label: "1 hour" },
-                { value: "24", label: "24 hours" },
-              ]}
-            />
-          }
-        />
-      </SettingsGroup>
-      <Button
-        size="prominent"
-        onClick={vm.onCreateCircleInvite}
-        isLoading={vm.busy === "circleInvite"}
-        className="w-full text-[color:var(--app-accent-fg)]"
-      >
-        Create invite
-      </Button>
-    </div>
+    <>
+      <h1 className="sr-only">Invite to Circle</h1>
+      <div className="space-y-5">
+        <SettingsGroup
+          description="They sign in, verify phone, and approve."
+          headingClassName="mt-0"
+          separatorInset
+        >
+          <SettingsRow
+            title="Expires after"
+            stackTrailingOnMobile
+            className="[&_[data-slot=settings-row-trailing]]:justify-end [&_[data-slot=settings-row-trailing]]:pl-0 [&_[role=radiogroup]]:justify-end"
+            trailing={
+              <DurationSelector
+                value={vm.durationHours}
+                onChange={vm.setDurationHours}
+                label=""
+                maxWidthClassName="w-max max-w-full"
+                // 24 hours is the ceiling, not a preference. The API rejects
+                // anything above it (`duration_hours … le=24` on
+                // CreateCircleInviteRequest) and `normalize_duration_hours` raises
+                // "between 15 minutes and 24 hours", so the "7 days" option that
+                // used to sit here could only ever return HTTP 422 — an invite the
+                // owner watched fail with no idea why.
+                options={[
+                  { value: "1", label: "1 hour" },
+                  { value: "24", label: "24 hours" },
+                ]}
+              />
+            }
+          />
+        </SettingsGroup>
+        <Button
+          size="prominent"
+          onClick={vm.onCreateCircleInvite}
+          isLoading={vm.busy === "circleInvite"}
+          className="w-full text-[color:var(--app-accent-fg)]"
+        >
+          Create invite
+        </Button>
+      </div>
+    </>
   );
 }
 

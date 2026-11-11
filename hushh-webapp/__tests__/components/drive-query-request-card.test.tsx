@@ -117,7 +117,7 @@ describe("Drive question card", () => {
     expect(screen.getByText("“potential bank statement”")).toBeVisible();
     expect(
       screen.getByText(
-        "If you allow, your private agent searches your Drive once and shares the answer and file names. Your files aren't shared.",
+        "If you allow, Agent One searches your Drive once and shares the answer and file names. Your files aren't shared.",
       ),
     ).toBeVisible();
     expect(screen.queryByText(/with Bea/)).toBeNull();

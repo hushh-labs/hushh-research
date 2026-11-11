@@ -460,6 +460,7 @@ export function SettingsRow({
   children,
   icon,
   leading,
+  leadingInteractive = false,
   title,
   description,
   trailing,
@@ -487,6 +488,8 @@ export function SettingsRow({
   children?: ReactNode;
   icon?: React.ComponentType<any>;
   leading?: ReactNode;
+  /** The leading avatar owns profile access independently of the row action. */
+  leadingInteractive?: boolean;
   title: ReactNode;
   description?: ReactNode;
   trailing?: ReactNode;
@@ -541,7 +544,7 @@ export function SettingsRow({
   const hasInteractiveTrailing =
     trailingInteractive || containsInteractiveNode(trailing);
   const splitPrimaryAction = Boolean(
-    !asChild && onClick && hasInteractiveTrailing,
+    !asChild && onClick && (hasInteractiveTrailing || leadingInteractive),
   );
   const Comp = resolvedAsChild
     ? Slot.Root
@@ -595,6 +598,7 @@ export function SettingsRow({
   // stays exposed.
   const hideSplitContent =
     splitPrimaryAction &&
+    !leadingInteractive &&
     !containsInteractiveNode(title) &&
     !containsInteractiveNode(description) &&
     !containsInteractiveNode(leading);
@@ -888,7 +892,7 @@ export function SettingsRow({
       <div className={rowShellClassName} {...rowDataProps}>
         <Comp
           {...(!resolvedAsChild
-            ? { "aria-disabled": disabled || undefined }
+            ? { "aria-disabled": (disabled && !leadingInteractive) || undefined }
             : {})}
           className={sharedClassName}
           {...voiceProps}
@@ -920,7 +924,7 @@ export function SettingsRow({
               "aria-label": ariaLabel,
               "aria-describedby": descriptionId,
             }
-          : { "aria-disabled": disabled || undefined })}
+          : { "aria-disabled": (disabled && !leadingInteractive) || undefined })}
         className={sharedClassName}
         {...voiceProps}
       >
@@ -958,6 +962,8 @@ export type AdaptiveDetailSurfaceProps = {
   surfaceClassName?: string;
   contentClassName?: string;
   mobilePresentation?: "fullscreen" | "sheet";
+  /** Guided tasks retain one bottom sheet across responsive breakpoints. */
+  presentation?: "adaptive" | "sheet";
   /** Direct-decision sheets may omit a redundant visual X. */
   showCloseButton?: boolean;
   /** Draggable mobile sheets can use the handle as their only close affordance. */
@@ -983,6 +989,7 @@ export function AdaptiveDetailSurface({
   surfaceClassName,
   contentClassName,
   mobilePresentation = "fullscreen",
+  presentation = "adaptive",
   showCloseButton = true,
   showMobileCloseButton = showCloseButton,
   desktopMaxWidthClassName,
@@ -990,11 +997,8 @@ export function AdaptiveDetailSurface({
   headerTextOverflow = "truncate",
 }: AdaptiveDetailSurfaceProps) {
   const isMobile = useIsMobile();
-  // A query-backed selection can mount this surface before the mobile media
-  // query effect has resolved. Rendering the desktop Dialog for that one
-  // frame and then replacing it with the mobile Drawer leaves two portals
-  // briefly visible on iOS. Wait for the client presentation decision before
-  // mounting an open detail surface so every record opens through one owner.
+  // Wait for the media-query decision: switching Dialog to Drawer mid-open
+  // briefly creates two iOS portals for query-backed selections.
   const [presentationReady, setPresentationReady] = useState(false);
 
   useEffect(() => {
@@ -1031,8 +1035,8 @@ export function AdaptiveDetailSurface({
     </button>
   );
 
-  if (isMobile) {
-    if (mobilePresentation === "sheet") {
+  if (isMobile || presentation === "sheet") {
+    if (mobilePresentation === "sheet" || presentation === "sheet") {
       return (
         <Sheet open={open} onOpenChange={onOpenChange} modal>
           <TaskSheetContent

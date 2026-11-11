@@ -13,6 +13,7 @@ import pytest
 
 from tests.helpers.deploy_gate import (
     ACCEPTED,
+    BRANCH,
     GATE,
     MAX_ARG_STRLEN,
     PRODUCERS,
@@ -37,7 +38,11 @@ def test_the_fixture_actually_exceeds_the_single_argument_limit() -> None:
     )
 
 
-def test_gate_passes_a_green_sha_whose_check_payload_exceeds_argv(tmp_path: Path) -> None:
+def test_gate_passes_a_green_sha_whose_check_payload_exceeds_argv(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = tmp_path / "qualification.json"
+    monkeypatch.setenv("DEPLOY_SHA_EVIDENCE_OUTPUT", str(output))
     result = _run_gate(tmp_path, _payload_over_the_arg_limit())
 
     # Exit 126 with this message is the exact signature of the 2026-08-07 failure.
@@ -45,6 +50,11 @@ def test_gate_passes_a_green_sha_whose_check_payload_exceeds_argv(tmp_path: Path
     assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
     assert "Deploy SHA preflight passed" in result.stdout
     assert "CI Status Gate" in result.stdout
+    proof = json.loads(output.read_text())
+    assert proof["repository"] == "hushh-labs/hushh-research"
+    assert proof["source_branch"] == BRANCH
+    assert proof["checks"][0]["run_attempt"] == 1
+    assert proof["checks"][0]["workflow"] == ".github/workflows/ci.yml"
 
 
 @pytest.mark.parametrize(
@@ -135,6 +145,41 @@ def test_dev_explicitly_accepts_authenticated_full_branch_verdict(tmp_path: Path
     )
     assert result.returncode == 0, result.stderr
     assert "Branch Validation Gate" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("head_branch", "repository", "guard", "passes"),
+    [
+        (BRANCH, "hushh-labs/hushh-research", "success", True),
+        ("another-branch", "hushh-labs/hushh-research", "success", False),
+        (BRANCH, "different-owner/hushh-research", "success", False),
+        (BRANCH, "hushh-labs/hushh-research", "skipped", False),
+        (BRANCH, "hushh-labs/hushh-research", None, False),
+    ],
+)
+def test_sandbox_requires_branch_validation_from_the_exact_repository_and_ref(
+    tmp_path: Path,
+    monkeypatch,
+    head_branch: str,
+    repository: str,
+    guard: str | None,
+    passes: bool,
+) -> None:
+    check, workflow = _branch_receipt()
+    workflow["head_branch"] = head_branch
+    workflow["head_repository"] = {"full_name": repository}
+    step = "Verify Akshat sandbox CI inputs"
+    if guard:
+        workflow["jobs"][0]["steps"].append({"name": step, "conclusion": guard})
+    monkeypatch.setenv("REQUIRE_CI_HEAD_BRANCH", "1")
+    monkeypatch.setenv("REQUIRED_CI_JOB_STEP", step)
+    result = _run_gate(
+        tmp_path,
+        {"check_runs": [check]},
+        accepted="Branch Validation Gate",
+        workflow_runs=[workflow],
+    )
+    assert (result.returncode == 0) is passes, result.stderr
 
 
 @pytest.mark.parametrize(
@@ -235,9 +280,10 @@ def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
                     consumers.setdefault(path.name, []).append(accepted)
     # Dev accepts a dispatched branch gate outright. Production accepts it only
     # for the explicit manual incident route, always paired with CI Status Gate.
-    assert sorted(consumers) == ["deploy-dev.yml", "deploy-production.yml"]
+    assert sorted(consumers) == ["deploy-dev-implementation.yml", "deploy-production.yml"]
     assert all(
-        "Branch Validation Gate" in accepted.split(",") for accepted in consumers["deploy-dev.yml"]
+        "Branch Validation Gate" in accepted.split(",")
+        for accepted in consumers["deploy-dev-implementation.yml"]
     )
     for accepted in consumers["deploy-production.yml"]:
         assert "CI Status Gate,Branch Validation Gate" in accepted
@@ -249,12 +295,16 @@ def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
         "manual-emergency" in accepted or accepted == "CI Status Gate,Branch Validation Gate"
         for accepted in consumers["deploy-production.yml"]
     )
-    uat = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    uat = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     steps = uat["jobs"]["deploy"]["steps"]
     selector = next(step for step in steps if step.get("id") == "application-authority")
     assert "promotion_approval.py uat" in selector["run"]
     admission = next(
-        step for step in steps if step.get("name") == "Validate deployment SHA against main"
+        step
+        for step in steps
+        if step.get("name") == "Validate deployment SHA in selected protected history"
     )
     assert (
         admission["env"]["REQUIRED_CHECK_NAME"]
@@ -391,3 +441,28 @@ def test_competing_release_attempt_appearing_during_admission_refuses(tmp_path):
         later_workflow_runs=[green, failure],
     )
     assert result.returncode != 0, result.stdout
+
+
+def test_main_functional_evidence_refuses_newer_failure_from_another_producer(
+    tmp_path, monkeypatch
+):
+    from tests.helpers.deploy_gate import _workflow_for
+
+    monkeypatch.setenv("REQUIRE_LATEST_FUNCTIONAL_CI", "1")
+    monkeypatch.setenv("DEPLOY_SHA_EVIDENCE_OUTPUT", str(tmp_path / "proof.json"))
+    green = _check_run("Queue Validation", "success", 1)
+    old = _workflow_for(green)
+    failed = _workflow_for(_check_run("Branch Validation Gate", "failure", 2))
+    failed.update(
+        conclusion="failure",
+        run_started_at="2026-10-26T11:00:00Z",
+        updated_at="2026-10-26T11:01:00Z",
+    )
+    result = _run_gate(
+        tmp_path,
+        {"check_runs": [green]},
+        accepted="Queue Validation,Branch Validation Gate",
+        workflow_runs=[old, failed],
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / "proof.json").exists()

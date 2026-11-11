@@ -150,7 +150,7 @@ def test_production_backend_config_stays_on_candidate_and_frontend_scope_skips_p
     )
     assert (
         frontend_sync["if"]
-        == "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true')"
+        == "env.PHONE_DEPLOY_PHASE != 'cold' && steps.scope.outputs.deploy_frontend == 'true' && !inputs.frontend_auth_domain_refresh"
     )
     assert backend_sync["run"] == "bash deploy/drive/sync_runtime_config_prod.sh"
     common_sync = (ROOT / "deploy/drive/sync_runtime_config_prod.sh").read_text()
@@ -466,9 +466,11 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     for companion in (
         "resolve-deploy-scope.py",
+        "production_recovery_ci.py",
         "release_acceptance_provenance.py",
         "production_emergency.py",
         "require-deploy-sha-on-main.sh",
+        "promotion_approval.py",
         "resolve-cloud-run-serving-state.py",
     ):
         assert (runner / "release-tools" / companion).read_text() == (
@@ -486,6 +488,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
                 "resolve-deploy-scope.py",
                 "production_emergency.py",
                 "require-deploy-sha-on-main.sh",
+                "promotion_approval.py",
                 "resolve-cloud-run-serving-state.py",
                 "verify-prod-places-readiness.py",
                 "passkey-domain-aliases.json",

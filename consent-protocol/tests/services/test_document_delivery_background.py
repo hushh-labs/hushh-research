@@ -64,7 +64,7 @@ class Original:
 
 
 @pytest.fixture
-async def copies(flow, monkeypatch):
+async def copies(flow, monkeypatch, request):
     with flow.db.engine.connect() as connection:
         apply_drive_fixture_migration(connection, "432_document_delivery_background.sql")
         # Repeatability must not loosen receipt or consent constraints.
@@ -87,6 +87,7 @@ async def copies(flow, monkeypatch):
 
     monkeypatch.setattr(flow.sharing, "create_request", create_copy)
     original = Original()
+    original.legacy_identity = getattr(request, "param", False)
     seal = flow.bulk._seal
 
     def provider_metadata(value, **kwargs):
@@ -106,11 +107,18 @@ async def copies(flow, monkeypatch):
                 )
             from hushh_mcp.services.document_delivery.background_source import content_evidence
 
+            captured = {**original.facts_value, "mimeType": mime}
+            if getattr(original, "legacy_identity", False):
+                captured = {
+                    key: value
+                    for key, value in captured.items()
+                    if key not in {"sha256Checksum", "headRevisionId"}
+                }
             value = {
                 **value,
                 "mimeType": mime,
                 "sourceVersion": "1",
-                **content_evidence({**original.facts_value, "mimeType": mime}),
+                **content_evidence(captured),
             }
         return seal(value, **kwargs)
 
@@ -163,6 +171,9 @@ async def sale(flow, *, accept=True, paid=True):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "copies", [False, True], indirect=True, ids=["current_identity", "legacy_md5_identity"]
+)
 async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, monkeypatch):
     from contextlib import closing
 
@@ -172,6 +183,9 @@ async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, m
     policy, schema = reader_inventory(flow)
     await sale(flow)
     original_order, original_effect_count = flow.order(), flow.effect_count()
+    # Recorded incident pattern: fresh metadata has a different modification time.
+    # Captured content identity and copied bytes must remain authoritative.
+    original.facts_value["modifiedTime"] = "2026-10-28T16:36:19.171Z"
     assert len(original.data) > 4 * 1024 * 1024
     assert (await service.run())["outcomes"] == {"released": 1}
     assert (await service.run())["outcomes"] == {}
@@ -180,6 +194,7 @@ async def test_same_paid_sale_generic_original_stream_and_revoke(flow, copies, m
     )
     assert projection["status"] == "ready"
     file = projection["files"][0]
+    assert file["sourceMetadataTimeChanged"] is True
     assert file["mimeType"] == "application/javascript" and not file["previewAvailable"]
     assert file["sha256"] == hashlib.sha256(original.data).hexdigest()
     assert flow.order() == original_order and flow.effect_count() == original_effect_count
@@ -354,6 +369,12 @@ async def test_no_authority_or_changed_source_never_publishes(flow, copies, boun
         if boundary in {"no_copy_consent", "unpaid"}:
             assert original.reads == 0 and projection["files"] == []
         else:
+            if boundary == "changed_content":
+                assert projection["files"][0]["reason"] == "source_changed"
+                assert projection["files"][0]["copyDiagnostics"] == {
+                    "stage": "source_before",
+                    "mismatches": ["md5"],
+                }
             with flow.db.engine.connect() as connection:
                 assert (
                     connection.execute(
@@ -368,32 +389,10 @@ async def test_no_authority_or_changed_source_never_publishes(flow, copies, boun
     assert flow.effect_count() == (0 if boundary in {"unpaid", "no_copy_consent"} else 1)
 
 
-def test_explicit_disclosures_and_source_identity_not_global_file_version():
+def test_explicit_copy_disclosures_are_required():
     with pytest.raises(DriveSharingError):
         request_terms(True, False, ACTIVITY)
     assert request_terms(False, False, None) == {}
-    facts = {
-        "id": "file",
-        "title": "code.js",
-        "mimeType": "application/javascript",
-        "size": "5",
-        "modifiedTime": "2026-10-27T00:00:00Z",
-        "md5Checksum": "a" * 32,
-        "version": "9",
-        "capabilities": {"canDownload": True},
-    }
-    source = {
-        "id": "file",
-        "name": "code.js",
-        "mimeType": "application/javascript",
-        "sourceVersion": "1",
-        "sourceContentIdentity": content_identity(facts),
-    }
-    assert require_original(source, facts) == source["sourceContentIdentity"]
-    with pytest.raises(DeliveryError, match="download_restricted"):
-        require_original(source, dict(facts, capabilities={"canDownload": False}))
-    with pytest.raises(DeliveryError, match="source_identity_unavailable"):
-        require_original({**source, "sourceContentIdentity": None}, facts)
 
 
 @pytest.mark.asyncio

@@ -81,7 +81,7 @@ def verify_producer(api: GitHub, run: dict, workflow: dict, repo_id: int) -> Non
     )
 
 
-def unpack(raw: bytes, digest: str) -> dict:
+def unpack(raw: bytes, digest: str, *, filename: str = "ci-security.json") -> dict:
     require(0 < len(raw) <= MAX_BYTES, "Security artifact exceeds its bound")
     require(
         digest == "sha256:" + hashlib.sha256(raw).hexdigest(),
@@ -91,7 +91,7 @@ def unpack(raw: bytes, digest: str) -> dict:
         entries = archive.infolist()
         require(
             len(entries) == 1
-            and entries[0].filename == "ci-security.json"
+            and entries[0].filename == filename
             and not entries[0].is_dir()
             and entries[0].file_size <= MAX_BYTES
             and ((entries[0].external_attr >> 16) & 0o170000) != 0o120000,
@@ -326,7 +326,7 @@ def await_receipt(environment: dict) -> dict:
             "While this attempt is running, a governed operator can request its exact worker:\n"
             f"gh workflow run ci-security.yml --ref main -f source_run_id={expected['run_id']} "
             f"-f source_attempt={expected['attempt']} -f source_sha={expected['head_sha']}\n"
-            "For future retries use ./bin/hushh codex ci-rerun to coordinate both requests.",
+            "For future retries use ./bin/hushh agents ci-rerun to coordinate both requests.",
             flush=True,
         )
     print(

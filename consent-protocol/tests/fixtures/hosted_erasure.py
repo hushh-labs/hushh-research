@@ -252,6 +252,10 @@ class HostedErasure(HostedErasureCleanup, HostedErasureFacts):
 
 
 async def admitted_erasure(pg, *, reserve=True):
+    # Create production-like roles before migration ACL blocks are exercised.
+    for role_name in ("anon", "authenticated", "service_role"):
+        if not pg.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role_name,)):
+            pg.execute(f"CREATE ROLE {role_name} NOLOGIN")
     for number in (956, 957, 960, 961, 962, 963, 964, 972):
         pg.apply_file(next((ROOT / "db/migrations/parked").glob(f"{number}_*.sql")))
     pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")

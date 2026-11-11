@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ROUTES } from "@/lib/navigation/routes";
 import { SettingsDetailPanel, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Footnote, Headline, RowDescription, SectionLabel } from "@/components/app-ui/typography";
+import { LiveActivityToday, useLiveActivityTodayCount } from "@/components/profile/live-activity-today";
 import { LiveMirrorClaimLines } from "@/components/profile/live-mirror-preview";
 import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import { Button } from "@/components/ui/button";
@@ -160,6 +161,7 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
   const living = view.sources.filter(source => source.group === "living");
   const saved = view.sources.filter(source => source.group === "saved");
   const entries = view.history.entries;
+  const todayCount = useLiveActivityTodayCount();
   const sourceRow = (source: LiveMirrorSource) => {
     const description = liveMirrorSourceDescription(source, view.evaluatedAt);
     const state = liveMirrorSourceStateLabel(source.state);
@@ -226,11 +228,14 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
           {saved.length ? <SettingsGroup title="Saved details" embedded separatorInset>{saved.map(sourceRow)}</SettingsGroup> : null}
         </TabsContent>
         <TabsContent value="history" className="min-w-0 space-y-3">
-          <SettingsGroup embedded separatorInset>
-            {entries.length === 0
-              ? <SettingsRow title="No changes yet" />
-              : entries.slice(0, historyLimit).map(entry => <HistoryRow key={entry.sequence} entry={entry} facts={view.facts} />)}
-          </SettingsGroup>
+          <LiveActivityToday />
+          {entries.length > 0 || todayCount === 0 ? (
+            <SettingsGroup embedded separatorInset>
+              {entries.length === 0
+                ? <SettingsRow title="No changes yet" />
+                : entries.slice(0, historyLimit).map(entry => <HistoryRow key={entry.sequence} entry={entry} facts={view.facts} />)}
+            </SettingsGroup>
+          ) : null}
           {entries.length > historyLimit
             ? <ShowMore label="Show more changes" onClick={() => setHistoryLimit(limit => limit + PAGE_SIZE)} />
             : null}

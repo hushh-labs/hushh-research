@@ -22,6 +22,8 @@ import json
 import os
 import re
 import subprocess
+import traceback
+import sys
 import textwrap
 from pathlib import Path
 
@@ -58,7 +60,7 @@ def _policy(module) -> dict:
         },
         "production": {
             "owner_environment": "production",
-            "manual_dispatch_users": list(module.PRODUCTION_MANUAL_DISPATCH_USERS),
+            "manual_dispatch_users": ["synthetic-deployer"],
             "required_environment_variables": [
                 "GCP_WORKLOAD_IDENTITY_PROVIDER",
                 "GCP_DEPLOY_SERVICE_ACCOUNT",
@@ -85,11 +87,40 @@ def _stub_gh_json(module, *, variables: list[str]) -> None:
     """
 
     def fake_gh_json(path: str) -> dict:
-        if path.endswith("/variables"):
-            return {"variables": [{"name": name} for name in variables]}
+        if "/variables?per_page=100" in path:
+            return {"total_count": len(variables), "variables": [{"name": name} for name in variables]}
+        if path.startswith("orgs/hushh-labs/teams/"):
+            from github_team_authority import TEAM_IDS
+            slug = path.rsplit("/", 1)[1]
+            return {"id": TEAM_IDS[slug], "slug": slug}
         return _environment_payload()
 
     module._gh_json = fake_gh_json
+
+
+def test_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> None:
+    module = _module()
+    policy = _policy(module)
+    policy["dev"] = {**policy["uat"], "environment": "dev", "deployment_branches": ["main"]}
+    rows = [{"type": "branch", "name": name} for name in policy["dev"]["deployment_branches"]]
+    inventory = {"total_count": len(rows), "branch_policies": rows}
+    def read(path):
+        if path.startswith("orgs/"):
+            from github_team_authority import TEAM_IDS
+            return {"id": TEAM_IDS["deploy-dev"], "slug": "deploy-dev"}
+        if "deployment-branch-policies" in path:
+            return inventory
+        if "/variables?per_page=100" in path:
+            names = policy["dev"]["required_environment_variables"]
+            return {"total_count": len(names), "variables": [{"name": name} for name in names]}
+        return {**_environment_payload(), "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
+    module._gh_json = read
+    assert module._assert_surface("dev", "owner/repo", policy) == []
+    inventory["total_count"] += 1
+    assert any("incomplete" in error for error in module._assert_surface("dev", "owner/repo", policy))
+    inventory["total_count"] -= 1
+    rows[0]["name"] = "*"
+    assert any("exactly" in error for error in module._assert_surface("dev", "owner/repo", policy))
 
 
 def test_required_environment_variables_are_enforced() -> None:
@@ -100,6 +131,21 @@ def test_required_environment_variables_are_enforced() -> None:
     )
 
     assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    original_reader = module._gh_json
+    def paginated(path):
+        if "/variables?" in path:
+            names = ["GCP_DEPLOY_SERVICE_ACCOUNT"] if "page=2" in path else ["GCP_WORKLOAD_IDENTITY_PROVIDER"]
+            return {"total_count": 2, "variables": [{"name": name} for name in names]}
+        return original_reader(path)
+    module._gh_json = paginated
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    module._gh_json = original_reader
+    reader = module._gh_json
+    module._gh_json = lambda path: ({**reader(path), "total_count": 31}
+                                  if "/variables?" in path else reader(path))
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == [
+        "production environment variable inventory is incomplete"
+    ]
 
 
 def test_missing_environment_variable_fails_verification() -> None:
@@ -115,55 +161,74 @@ def test_missing_environment_variable_fails_verification() -> None:
 
 
 def test_production_cohort_drift_is_reported() -> None:
-    """The tripwire must fire when the JSON widens past the constant.
-
-    This is the regression that went unnoticed twice: production dispatch
-    authority was widened in config/ci-governance.json without mirroring the
-    change into the constant, and nothing failed loudly enough to be acted on.
-    """
     module = _module()
-    _stub_gh_json(
-        module,
-        variables=["GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"],
-    )
+    _stub_gh_json(module, variables=["GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"])
+    original = module._gh_json
+    module._gh_json = lambda path: {"id": 1, "slug": "deploy-production"} if path.startswith("orgs/") else original(path)
+    assert any("team identity changed" in error for error in module._assert_surface("production", "owner/repo", _policy(module)))
 
-    policy = _policy(module)
-    policy["production"]["manual_dispatch_users"] = [
-        *module.PRODUCTION_MANUAL_DISPATCH_USERS,
-        "unauthorized-newcomer",
-    ]
 
-    errors = module._assert_surface("production", "owner/repo", policy)
+def test_a_trusted_readiness_exam_environment_must_admit_only_main() -> None:
+    """A loosened or recreated exam environment would hand the probe subject to any branch."""
+    module = _module()
+    policy = {"readiness_exam": {"environment": "readiness-exam"}}
+    trusted = {"azure-trial": {"readiness_exam_client_id": "probe-app"}}
+    main_only = {"branch_policies": [{"type": "branch", "name": "main"}]}
 
-    assert len(errors) == 1, errors
-    assert "production manual dispatch policy drifted" in errors[0]
-    assert "unauthorized-newcomer" in errors[0]
+    def stub(environment: dict, branches: dict, secrets: int = 0) -> list[str]:
+        def fake_gh_json(path: str) -> dict:
+            if path.endswith("/deployment-branch-policies"):
+                return branches
+            if path.endswith("/secrets"):
+                return {"total_count": secrets}
+            return environment
+
+        module._gh_json = fake_gh_json
+        return module._assert_readiness_exam("owner/repo", policy, trusted)
+
+    custom = {
+        "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}
+    }
+    assert stub(custom, main_only) == []
+    widened = {"branch_policies": [*main_only["branch_policies"], {"type": "branch", "name": "*"}]}
+    assert "must admit exactly the main branch" in stub(custom, widened)[0]
+    # GitHub recreates a deleted environment with no deployment branch policy.
+    assert "must admit exactly the main branch" in stub({"deployment_branch_policy": None}, {})[0]
+    assert "must hold no secrets" in stub(custom, main_only, secrets=1)[0]
+
+    def unreachable(path: str) -> dict:
+        raise AssertionError(f"no probe identity, yet {path} was read")
+
+    module._gh_json = unreachable
+    assert module._assert_readiness_exam(
+        "owner/repo", policy, {"azure-trial": {"readiness_exam_client_id": None}}
+    ) == []
 
 
 def test_production_tripwire_matches_committed_policy() -> None:
-    """The constant must equal the live committed policy.
+    root = Path(__file__).resolve().parents[2]
+    policy = json.loads((root / "config/ci-governance.json").read_text())
+    assert policy["authorization"]["native_teams"] is True
+    assert not policy["production"]["manual_dispatch_users"]
+    assert all(policy[surface]["deployment_branches"] == ["main"] for surface in ("dev", "uat", "production"))
 
-    Fails the moment someone edits production.manual_dispatch_users in
-    config/ci-governance.json without mirroring it into the tripwire — exactly
-    how this drifted on 2026-08-07 and again on 2026-08-28. Unlike
-    _assert_surface, this needs no GitHub API access, so it runs in the ordinary
-    blocking Governance gate rather than only in the advisory stage.
-    """
-    module = _module()
-    policy = json.loads(module.POLICY_PATH.read_text(encoding="utf-8"))
 
-    assert policy["production"]["manual_dispatch_users"] == (
-        module.PRODUCTION_MANUAL_DISPATCH_USERS
-    ), (
-        "config/ci-governance.json -> production.manual_dispatch_users and "
-        "PRODUCTION_MANUAL_DISPATCH_USERS in "
-        "scripts/ci/verify-deployment-environment-governance.py must be updated "
-        "in the same PR"
-    )
+def test_production_dispatch_accepts_only_the_approved_operators() -> None:
+    from github_team_authority import project_policy, TEAM_IDS
+    root = Path(__file__).resolve().parents[2]
+    saved = json.loads((root / "config/ci-governance.json").read_text())
+    members = {slug: ["synthetic-editor"] for slug in TEAM_IDS}
+    for operator in ("synthetic-deployer", "replacement-deployer"):
+        members["deploy-production"] = [operator]
+        current = project_policy(saved, members)
+        assert current["main"]["merge_users"] == [operator]
+        assert current["production"]["manual_dispatch_users"] == [operator]
+        assert saved["production"]["manual_dispatch_users"] == []
 
 
 def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "",
                                workflow: str = "capacity-maintenance.yml",
+                               run_attempt: int = 1, triggering_actor: str | None = None,
                                step: str = "Require main and governed manual actor") -> subprocess.CompletedProcess[str]:
     """Execute the actual shell authority gate, including the real actor policy."""
     root = Path(__file__).resolve().parents[2]
@@ -174,16 +239,71 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     )
     assert match is not None, f"{workflow} authority gate is missing"
     inputs = event.get("inputs") or {}
-    return subprocess.run(
-        ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
-        env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
-             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
-             "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
-             "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
-             "APPLY": inputs.get("apply", ""),
-             "CLOCK_EVENT_TYPE": action},
-        capture_output=True, text=True, check=False,
-    )
+    # Model the test event, not the CI job that happens to run this fixture.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+    import tempfile
+    # Supply a deterministic transport to the real team reader and actor checker.
+    # A unit test must not query the developer's live GitHub memberships.
+    with tempfile.TemporaryDirectory(prefix="hussh-team-fixture-") as folder:
+        wrapper = Path(folder, "python3")
+        wrapper.write_text("#!" + sys.executable + "\n" + """import os, runpy, sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd() / 'scripts/ci'))
+import github_team_authority as team
+real = team.local_policy
+operator = os.environ['GITHUB_ACTOR']
+def read(path):
+    if path == 'user': return {'login': operator, 'type': 'User', 'id': 10}
+    slug = path.split('/')[3]
+    if '/members?' not in path: return {'id': team.TEAM_IDS[slug], 'slug': slug, 'parent': None}
+    users = ['kushaltrivedi5'] + (['azfx'] if slug in {'allowed-maintainers-to-approve', 'deploy-uat'} else [])
+    return [{'login': user, 'type': 'User', 'id': 100+i} for i,user in enumerate(users)]
+team.local_policy = lambda policy, actor=None: real(policy, actor=actor, read=read)
+script = sys.argv.pop(1)
+sys.argv[0] = script
+runpy.run_path(script, run_name='__main__')
+""")
+        wrapper.chmod(0o700)
+        env['PATH'] = folder + os.pathsep + env['PATH']
+        return subprocess.run(
+            ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
+            env={**env, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
+                 "GITHUB_RUN_ATTEMPT": str(run_attempt),
+                 "GITHUB_TRIGGERING_ACTOR": actor if triggering_actor is None else triggering_actor,
+                 "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
+                 "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
+                 "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
+                 "APPLY": inputs.get("apply", ""),
+                 "CLOCK_EVENT_TYPE": action},
+            capture_output=True, text=True, check=False,
+        )
+
+def test_capacity_fixture_ignores_parent_retry_identity() -> None:
+    from unittest.mock import patch
+
+    event = {"inputs": {"environment": "production", "healthy_release_run_id": "43"}}
+    with patch.dict(os.environ, {
+        "GITHUB_RUN_ATTEMPT": "2",
+        "GITHUB_TRIGGERING_ACTOR": "unapproved-contributor",
+        "GITHUB_EVENT_PATH": "/nonexistent/parent-ci-event.json",
+    }):
+        accepted = _validate_capacity_trigger("workflow_dispatch", event)
+        assert accepted.returncode == 0, accepted.stderr
+        refused = _validate_capacity_trigger("workflow_dispatch", event, actor="unapproved-contributor")
+        assert refused.returncode != 0, "Fixture isolation must not grant actor authority"
+
+
+def test_capacity_rerun_requires_its_own_authorized_triggering_actor() -> None:
+    for environment in ("uat", "production"):
+        event = {"inputs": {"environment": environment, "healthy_release_run_id": "43"}}
+        accepted = _validate_capacity_trigger("workflow_dispatch", event, run_attempt=2,
+                                              triggering_actor="kushaltrivedi5")
+        assert accepted.returncode == 0, accepted.stderr
+        for actor in ("unapproved-contributor", ""):
+            refused = _validate_capacity_trigger("workflow_dispatch", event, run_attempt=2,
+                                                 triggering_actor=actor)
+            assert refused.returncode != 0, "An unauthorized rerun was accepted"
+            assert "authorized triggering actor" in refused.stderr
 
 
 def test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes() -> None:
@@ -307,7 +427,81 @@ def test_capacity_clock_wakes_maintenance_scoped_to_due_environments() -> None:
         assert recorded == [post + tick for tick in expected], (uat, production, recorded)
 
 
-def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def _run_clock_summary(values: dict[str, str]) -> str:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
+    match = re.search(
+        r"      - name: Summarize capacity clock checks\n.*?"
+        r"        run: \|\n(.*?)(?=\n  [\w-]+:\n|\n      - name:|\Z)",
+        source,
+        re.DOTALL,
+    )
+    assert match is not None, "Capacity clock summary step is missing"
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temporary:
+        summary = Path(temporary) / "summary.md"
+        result = subprocess.run(
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-eo",
+                "pipefail",
+                "-c",
+                textwrap.dedent(match.group(1)),
+            ],
+            cwd=root,
+            env={**os.environ, **values, "GITHUB_STEP_SUMMARY": str(summary)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        return summary.read_text()
+
+
+def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / ".github/workflows/capacity-maintenance-clock.yml"
+    ).read_text()
+    assert 'run-name: "Capacity clock"' in source
+    assert "github.run_number" not in source
+    uat_only = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "true",
+            "UAT_DUE": "true",
+            "UAT_CHECK": "success",
+            "PRODUCTION_DUE": "false",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "| UAT | due | success | uat-only | 60-minute environment wait" in uat_only
+    assert "| Production | not due | success | none | 60-minute environment wait" in uat_only
+    both_due = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "true",
+            "UAT_DUE": "true",
+            "UAT_CHECK": "success",
+            "PRODUCTION_DUE": "true",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "all (UAT + production)" in both_due
+    failed = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "false",
+            "UAT_DUE": "unknown",
+            "UAT_CHECK": "failure",
+            "PRODUCTION_DUE": "false",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "| UAT | unknown | failure | unknown | not armed |" in failed
+
+
+def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real `next-check` step with a fake gh that records dispatches."""
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
@@ -324,10 +518,11 @@ def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProce
         calls = bin_dir / "calls"
         started = (datetime.now(timezone.utc) - timedelta(seconds=started_seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
         fake_gh = bin_dir / "gh"
+        waiting = json.dumps({"total_count": int(successor is not None), "workflow_runs": [successor] if successor else []})
         fake_gh.write_text(
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{calls}'\n"
-            f"case \"$*\" in *--method\\ POST*) exit 0 ;; *) echo '{started}' ;; esac\n"
+            f"case \"$*\" in *--method\\ POST*) exit 0 ;; *--jq*) echo '{started}' ;; *status=waiting*) echo '{waiting}' ;; *'/runs?'*) echo '{{\"total_count\":0,\"workflow_runs\":[]}}' ;; *) echo '{{\"id\":42}}' ;; esac\n"
         )
         fake_gh.chmod(0o755)
         result = subprocess.run(
@@ -351,26 +546,49 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
     late, late_posts = _run_clock_step(started_seconds_ago=3700)
     assert late.returncode == 0, late.stderr
     assert late_posts == ["api --method POST repos/org/repo/dispatches -f event_type=capacity-maintenance-clock"], late_posts
+    successor = {"id": 88, "workflow_id": 42, "path": ".github/workflows/capacity-maintenance-clock.yml",
+                 "head_branch": "main", "status": "waiting", "event": "schedule",
+                 "repository": {"full_name": "org/repo"}, "head_repository": {"full_name": "org/repo"}}
+    waiting, waiting_posts = _run_clock_step(3700, successor=successor)
+    assert waiting.returncode == 0 and waiting_posts == [], waiting.stderr
+    foreign = {**successor, "head_repository": {"full_name": "foreign/repo"}}
+    refused, refused_posts = _run_clock_step(3700, successor=foreign)
+    assert refused.returncode != 0 and refused_posts == []
+
 
 
 def main() -> int:
     tests = [
+        test_exact_branch_inventory_refuses_wildcards_and_incomplete_reads,
         test_required_environment_variables_are_enforced,
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,
+        test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
+        test_production_dispatch_accepts_only_the_approved_operators,
+        test_capacity_fixture_ignores_parent_retry_identity,
+        test_capacity_rerun_requires_its_own_authorized_triggering_actor,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
         test_fixed_bridge_requires_governed_manual_production_apply,
         test_capacity_clock_tick_carries_only_scheduled_authority,
         test_capacity_clock_accepts_only_its_own_trigger,
         test_capacity_clock_wakes_maintenance_scoped_to_due_environments,
+        test_capacity_clock_summary_reports_due_checks_scope_and_next_wait,
         test_capacity_clock_refuses_to_queue_before_its_wait,
     ]
+    failures = []
     for test in tests:
-        test()
-        print(f"ok {test.__name__}")
-    return 0
+        try:
+            test()
+        except Exception:
+            traceback.print_exc()
+            failures.append(test.__name__)
+        else:
+            print(f"ok {test.__name__}")
+    if failures:
+        print("Failed environment checks: " + ", ".join(failures), file=sys.stderr)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

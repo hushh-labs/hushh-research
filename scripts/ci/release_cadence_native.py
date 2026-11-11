@@ -10,6 +10,8 @@ from release_cadence import UnsafeRelease, require, trusted_run
 
 UPLOAD_FIELDS = ("source_sha", "build_number", "marketing_version", "bundle_id")
 RESUME = "resume-ios-testflight.yml"
+RECOVERY_WORKFLOWS = ("ship-ios-testflight.yml", RESUME)
+RETIRED_RECOVERY = ("hushh-labs/hushh-research", "355112139")
 
 
 def bind_recovery(upload_run: dict, upload: dict, run_id: int, attempt: int, distribution: dict) -> dict:
@@ -39,30 +41,38 @@ def completed_steps(repository: str, run: dict, name: str, steps: set[str]) -> b
 
 def completion(repository: str, run: dict, sha: str) -> dict:
     """Read only; never replace the recorded child or grant dispatch authority."""
-    from release_cadence_github import api, artifact_json, configuration
+    from release_cadence_github import api, artifact_json
     require(run.get("status") == "completed", "TestFlight upload workflow is not terminal")
     upload = artifact_json(repository, run["id"], "testflight-upload-receipt", "testflight-upload-receipt.json")
     require(valid_upload(upload, sha), "TestFlight upload source or build identity mismatch")
-    if run.get("conclusion") == "success" and completed_steps(repository, run,
+    # Preserve older accepted receipts while current releases distribute only
+    # internally. Display-name changes must not erase historical evidence.
+    if run.get("conclusion") == "success" and any(completed_steps(repository, run,
             "Process and distribute uploaded TestFlight build", {
-                "Wait for valid TestFlight processing", "Attach the same valid build to both TestFlight groups"}):
+                "Wait for valid TestFlight processing", distribution_step})
+            for distribution_step in (
+                "Attach the valid build to internal TestFlight testers",
+                "Attach the same valid build to both TestFlight groups",
+            )):
         distribution = artifact_json(repository, run["id"], f"one-voice-testflight-evidence-{sha}", "testflight-distribution.json", optional=True)
         if isinstance(distribution, dict) and distribution.get("internal") == "active" and distribution.get("build_id"):
             return {}
     # Recovery is uncommon: cap the single read instead of walking arbitrary
     # history in the short controller. A truncated inventory never proves delivery.
     query = urlencode({"branch": "main", "event": "workflow_dispatch", "created": ">=" + run["created_at"], "per_page": 20})
-    inventory = api(f"repos/{repository}/actions/workflows/{RESUME}/runs?{query}")
-    require(isinstance(inventory, dict) and type(inventory.get("total_count")) is int
-            and isinstance(inventory.get("workflow_runs"), list) and 0 <= inventory["total_count"] <= 20
-            and inventory["total_count"] == len(inventory["workflow_runs"]), "TestFlight recovery inventory is truncated")
-    _, governance = configuration()
-    allowed = governance["uat"]["manual_dispatch_users"]
-    for recovery in inventory["workflow_runs"]:
-        if not (trusted_run(recovery, repository, RESUME) and recovery.get("event") == "workflow_dispatch"
+    recoveries = []
+    for workflow in RECOVERY_WORKFLOWS:
+        identity = RETIRED_RECOVERY[1] if repository == RETIRED_RECOVERY[0] and workflow == RESUME else workflow
+        inventory = api(f"repos/{repository}/actions/workflows/{identity}/runs?{query}")
+        require(isinstance(inventory, dict) and type(inventory.get("total_count")) is int
+                and isinstance(inventory.get("workflow_runs"), list) and inventory["total_count"] >= 0
+                and min(inventory["total_count"], 20) == len(inventory["workflow_runs"]), "TestFlight recovery inventory is malformed")
+        recoveries.extend((workflow, row) for row in inventory["workflow_runs"])
+    from release_acceptance_provenance import historical_human_dispatch
+    for workflow, recovery in recoveries:
+        if not (trusted_run(recovery, repository, workflow) and recovery.get("event") == "workflow_dispatch"
                 and recovery.get("status") == "completed" and recovery.get("conclusion") == "success"
-                and (recovery.get("actor") or {}).get("login") in allowed
-                and (recovery.get("triggering_actor") or (recovery.get("actor") if recovery.get("run_attempt", 1) == 1 else {}) or {}).get("login") in allowed):
+                and historical_human_dispatch(recovery)):
             continue
         value = artifact_json(repository, recovery["id"], "testflight-resumed-distribution", "testflight-distribution.json", optional=True)
         if not isinstance(value, dict) or value.get("upload_run_id") != run["id"]:
@@ -118,7 +128,8 @@ def settle_child(repository: str, request: dict, lane: str, child: dict, run: di
 def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600) -> dict:
     import time
     from release_cadence import WORKFLOWS, trusted_run
-    from release_cadence_github import configuration, receipt, recorded_authority, run_info
+    from release_cadence_github import receipt, recorded_authority, run_info
+    from release_acceptance_provenance import historical_human_dispatch
     deadline = time.monotonic() + timeout
     while True:
         run = run_info(repository, run_id)
@@ -128,8 +139,9 @@ def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600)
             break
         require(time.monotonic() < deadline, "Timed out waiting for production; upload remains blocked")
         time.sleep(15)
-    _, governance = configuration()
-    if (run.get("actor") or {}).get("login") not in governance["production"]["manual_dispatch_users"]:
+    if not historical_human_dispatch(run):
+        require((run.get("actor") or {}).get("login") == "github-actions[bot]",
+                "Production source has no historical human or controller identity")
         authority_deadline = min(deadline, time.monotonic() + 180)
         while True:
             try:

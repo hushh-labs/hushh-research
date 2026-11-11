@@ -36,6 +36,8 @@ vi.mock("@/lib/calendar/calendar-oauth-journey", () => ({
 vi.mock("@/lib/google/google-oauth-popup", () => ({
   readGoogleOAuthPopupAttempt: mocks.readAttempt,
   settleGoogleOAuthPopup: mocks.settle,
+  // The page listens for the original page's acknowledgement after settling.
+  watchGoogleOAuthSettlementAck: () => () => undefined,
 }));
 vi.mock("@/lib/services/google-connection-service", () => ({
   GoogleConnectionService: { completeConnect: mocks.completeConnect },

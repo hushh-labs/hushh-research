@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarHusshPeople, calendarHusshPerson } from "@/lib/calendar/calendar-hussh-people";
+import { calendarEventPeople, calendarHusshPeople, calendarHusshPerson } from "@/lib/calendar/calendar-hussh-people";
 import type { AccountEmailAlias } from "@/lib/services/account-service";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
 
@@ -59,5 +59,40 @@ describe("Calendar HUSSH identity resolution", () => {
     expect(calendarHusshPerson(resolve([connection("peer", "peer@example.test", googlePhoto)]), "peer@example.test")?.photoUrl).toBe(googlePhoto);
     expect(calendarHusshPerson(resolve([connection("peer", "peer@example.test", husshPhoto)]), "peer@example.test")?.photoUrl).toBe(husshPhoto);
     expect(calendarHusshPerson(resolve([connection("peer", "peer@example.test", null)]), "peer@example.test")?.photoUrl).toBeNull();
+  });
+
+  it("keeps a valid uploaded JPG portrait visible in Calendar", () => {
+    const jpgPhoto = "data:image/jpg;base64,aGVsbG8=";
+    const people = calendarEventPeople(resolve([]), {
+      "manish@example.test": { userId: "manish", photoUrl: jpgPhoto },
+    }, "owner");
+    expect(calendarHusshPerson(people, "manish@example.test")?.photoUrl).toBe(jpgPhoto);
+  });
+
+  it("keeps the Connect name for a match without an admitted photo and drops matches with neither", () => {
+    const people = calendarEventPeople(resolve([]), {
+      "priya@example.test": { userId: "priya", displayName: " Priya Shah ", photoUrl: null },
+      "bad-photo@example.test": { userId: "bad-photo", displayName: "Bad Photo", photoUrl: "https://images.example.test/photo.png" },
+      "empty@example.test": { userId: "empty", displayName: null, photoUrl: null },
+    }, "owner");
+    expect(calendarHusshPerson(people, "priya@example.test")).toEqual({ userId: "priya", displayName: "Priya Shah", photoUrl: null });
+    expect(calendarHusshPerson(people, "bad-photo@example.test")).toEqual({ userId: "bad-photo", displayName: "Bad Photo", photoUrl: null });
+    expect(calendarHusshPerson(people, "empty@example.test")).toBeNull();
+  });
+
+  it("uses the current verified event match over stale connection email and rejects unsafe media", () => {
+    const known = resolve([connection("peer", "peer@example.test", husshPhoto)]);
+    const people = calendarEventPeople(known, {
+      "manish@example.test": { userId: "manish", photoUrl: googlePhoto },
+      "peer@example.test": { userId: "current-owner", photoUrl: googlePhoto },
+      "unknown@example.test": { userId: "unknown", photoUrl: "https://images.example.test/photo.png" },
+    }, "owner");
+    expect(calendarHusshPerson(known, "manish@example.test")).toBeNull();
+    expect(calendarHusshPerson(people, "manish@example.test")?.photoUrl).toBe(googlePhoto);
+    expect(calendarHusshPerson(people, "peer@example.test")?.userId).toBe("current-owner");
+    expect(calendarHusshPerson(people, "peer@example.test")?.photoUrl).toBe(googlePhoto);
+    expect(calendarHusshPerson(people, "unknown@example.test")).toBeNull();
+    expect(calendarHusshPerson(calendarEventPeople(known, undefined, "owner"), "peer@example.test")).toBeNull();
+    expect(calendarHusshPerson(calendarEventPeople(known, {}, "owner"), "owner@example.test")?.photoUrl).toBe(husshPhoto);
   });
 });

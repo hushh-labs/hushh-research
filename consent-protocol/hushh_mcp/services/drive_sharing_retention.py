@@ -80,6 +80,10 @@ def _erase_private_connector_settings(connection, *, user_id, permanent):
 def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher=None):
     """No network I/O. Any failure rolls back the surrounding account cleanup."""
     params = {"user": user_id}
+    upgraded_claims = connection.execute(
+        text("""SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema=current_schema() AND table_name='drive_share_file_claims' AND column_name='bulk_share_id')""")
+    ).scalar_one()
     has_requests = _exists(connection, "drive_share_requests")
     if has_requests and not _exists(connection, "drive_share_management_contexts"):
         raise RuntimeError("drive_retention_migration_required")
@@ -108,6 +112,33 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                 params,
             ).mappings()
         )
+        if upgraded_claims:
+            # Match the existing connector -> share -> effect lock order before
+            # adopting pre-upgrade uncertain writes or deleting their manifests.
+            owners = {context["user_id"] for context in contexts}
+            owners.update(
+                connection.execute(
+                    text("""SELECT DISTINCT b.user_id FROM drive_bulk_shares b
+                WHERE b.user_id=:user OR EXISTS(SELECT 1 FROM drive_bulk_share_effects e WHERE e.share_id=b.share_id AND e.recipient_user_id=:user)"""),
+                    params,
+                ).scalars()
+            )
+            for owner in sorted(owners):
+                connection.execute(
+                    text(
+                        "SELECT user_id FROM user_external_connector_connections WHERE user_id=:owner AND connector_id='google_drive' FOR UPDATE"
+                    ),
+                    {"owner": owner},
+                )
+            connection.execute(
+                text("""SELECT b.share_id FROM drive_bulk_shares b WHERE b.user_id=:user
+                OR EXISTS(SELECT 1 FROM drive_bulk_share_effects e WHERE e.share_id=b.share_id AND e.recipient_user_id=:user)
+                ORDER BY b.share_id FOR UPDATE"""),
+                params,
+            )
+            from hushh_mcp.services.drive_permission_file_claims import seed_uncertain_claims
+
+            seed_uncertain_claims(connection, cipher or DriveSharingCipher(), participant=user_id)
         if _exists(connection, "drive_request_payment_obligations"):
             # Bulk writers take the owner's connector row before a share,
             # request, or payment order. Lock existing rows in stable order;

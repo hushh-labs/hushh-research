@@ -110,6 +110,8 @@
     "agent_chat_product_default_auto_save": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["product_default_auto_save_policy"]},
     "$comment_kyc_auto_save": "Declared in the PkmProductDefaultAutoSaveAuthorization type; no runtime caller uses it today.",
     "kyc_identity_product_default_auto_save": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat", "web"], "authorization_modes": ["product_default_auto_save_policy"]},
+    "$comment_app_activity_auto_save": "Background consolidation of the owner's in-app activity on this device into memory.md (one_memory); the memory agents decide what is durable.",
+    "app_activity_product_default_auto_save": {"feature": "memory", "class": "memory_agent", "surfaces": ["web"], "authorization_modes": ["product_default_auto_save_policy"]},
     "memory_workspace_add": {"feature": "memory", "class": "memory_agent", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "pkm_agent_lab_save_button": {"feature": "memory", "class": "memory_agent", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "first_connect_insights": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},

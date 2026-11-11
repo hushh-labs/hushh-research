@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ConnectionPersonAvatar,
@@ -38,8 +38,8 @@ describe("canonical person avatar", () => {
     expect(connectionAvatarInitials(name)).toBe(initials);
   });
 
-  it("keeps contact and verification badges on separate visible avatar corners", () => {
-    const { container } = render(<ConnectionPersonAvatar label="Aadhi" fromContacts verified />);
+  it("explains both badges on hover within a profile avatar", async () => {
+    const { container } = render(<ConnectionPersonAvatar label="Aadhi" userId="aadhi" fromContacts verified />);
     const avatar = container.querySelector('[data-slot="avatar"]');
     const contact = screen.getByLabelText("Connected from your contacts");
     const verification = screen.getByLabelText("Verified advisor");
@@ -48,6 +48,36 @@ describe("canonical person avatar", () => {
     expect(avatar).toHaveClass("overflow-visible");
     expect(contact).toHaveClass("-bottom-0.5", "-right-0.5", "size-3");
     expect(verification).toHaveClass("-top-0.5");
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "View Aadhi's profile" })).toHaveAccessibleDescription(
+      "Hussh verified this person's advisor profile. You connected with this person through a match from your synced contacts.",
+    );
+
+    fireEvent.pointerMove(contact, { pointerType: "mouse" });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "You connected with this person through a match from your synced contacts.",
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+    fireEvent.pointerMove(verification, { pointerType: "mouse" });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hussh verified this person's advisor profile.");
+  });
+
+  it("opens a compact profile from its larger target without activating the parent row", () => {
+    const onRow = vi.fn();
+    const onProfile = vi.fn();
+    window.addEventListener("hussh:person-profile-preview", onProfile);
+    try {
+      render(<div onClick={onRow}><ConnectionPersonAvatar label="Aadhi" userId="aadhi" size="compact" minimumHitArea /></div>);
+      const button = screen.getByRole("button", { name: "View Aadhi's profile" });
+      expect(button).toHaveClass("size-11");
+      fireEvent.click(button);
+      expect(onProfile).toHaveBeenCalledOnce();
+      expect((onProfile.mock.calls[0][0] as CustomEvent).detail.userId).toBe("aadhi");
+      expect(onRow).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("hussh:person-profile-preview", onProfile);
+    }
   });
 
   it("preserves a complete uploaded image, and shows initials after an image error", async () => {

@@ -11,11 +11,41 @@ finds and manages relationships. Circles groups people, manages membership,
 and hosts eligible group conversations. The six optional circle ideas are templates;
 saved circles and joined memberships come from the current account.
 
+Tab presses and horizontal swipes share the same route-backed selection. The
+latest choice survives a pager resize while navigation is pending. Completing
+a tab animation or repairing layout does not create another navigation; a
+settled user swipe commits its destination once.
+
 Mail reuses this product's shared header, 728px reading frame, compact semantic
 roles and neutral accent-pill action treatment. The current mounted Mail
 state/action and optimized-cascade evidence lives in the
 [Mail contract](./mail.md#connect-alignment-and-mounted-presentation-audit--24-october-2026);
 Connect's own routes and controls remain owned here.
+
+## Connected-person profile access
+
+Person portraits open the existing person profile through the shell's shared
+`PersonProfilePreview`. The source stays mounted: Back dismisses the profile
+and restores its opener, search, scroll, selected people and any open sheet.
+Profile controls are siblings of selection and mutation controls; viewing a
+profile does not add a person, start a chat or change a sharing decision.
+Direct profile URLs and modified-click links retain their normal behavior.
+
+| Source surfaces | Identity owner |
+| --- | --- |
+| Connect directory, connections, mutual people, batch selection, circle orbits and rosters | Connection/directory public reference or authenticated user ID |
+| Circle create, add, invitation, member actions and onboarding lists | Eligible connection, member or invite identity |
+| Location people, requests, shares, check-in, SMS, contact review and map people lists | Recipient, grant owner/recipient or requester identity |
+| Direct messages, circle messages and New chat | Peer public reference or sender identity |
+| Mail recipient autocomplete and Wallet/Finance sharing | Connected recipient identity |
+| Calendar invitation organisers and guests | Unique connected-person email mapping; external guests remain decorative |
+| Consent, Feed, shared-information agent cards, voice people results and PKM access | Authenticated counterpart identity; ambiguous PKM name groups remain decorative |
+
+UID-only sources resolve their public reference through the existing authenticated
+connection-context service. Feed resolves a public reference from its retained
+viewer-scoped counterpart mapping; internal user IDs never enter its public DTO.
+No names, photos or grouped display keys are used to infer identity. The profile
+retains its existing relationship, vault and consent checks.
 
 ## Visual Map
 
@@ -104,7 +134,8 @@ The action opens the existing picker; its final confirmation retains its primary
 
 | Control or state | Result and product boundary |
 | --- | --- |
-| **My connections N / Find people** | Tabs appear in that order; discovery remains selected by default. My connections shows accepted relationships, grouped From contacts / Other connections, with its own paged search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **My connections N / Find people** | Tabs appear in that order with discovery selected by default. My connections shows one paged list of accepted relationships in server order with its own search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **Connection source icons** | My connections and My RIAs put **Verified Advisor** and **Via contacts** on the avatar. Hovering either icon explains how the status was earned. Advisor verification describes the person's verified advisor profile. Contacts describes a connection made through a match from the viewer's synced contacts. The Connect icons also show the explanation on focus or tap. A connection can show both. Escape dismisses the tooltip. |
 | **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |
@@ -119,7 +150,8 @@ The action opens the existing picker; its final confirmation retains its primary
 | **Cancel** on outgoing request | Withdraws the still-pending request; busy feedback remains in the same action slot. |
 | **Respond** on incoming request | Opens pending Consent Center review; does not accept merely by navigating. |
 | **Connected** | Relationship status, not a second connection mutation. |
-| Mutual connection preview | Opens that mutual person's profile when a public reference exists; otherwise informational. |
+| **Explore your network** | Appears below directory search in **Find people** and opens the **Your network** dialog. Closing the dialog returns focus to the trigger without switching connection views. |
+| Mutual connections | One mutual opens its public profile directly. More than one opens the paginated shared-connections list through `?mutuals=<public person reference>`, including when the preview is unavailable. Every visible mutual has an independent profile control. Back from that profile restores the same mutual list, loaded pages and scroll; Back again restores Find people with its query, directory filter, loaded rows and scroll. Memory is scoped to the signed-in account and authentication session, expires after 15 minutes, and is never persisted. Refresh rechecks current graph and identity eligibility; a visited list remains a list if relationships change, and failed refreshes retain useful rows with Retry. Graph totals can include identities unavailable to view; the list explains that difference. |
 | **Load more people / Retry loading people** | Automatic scroll loading with manual fallback, 20 per page; preserves rows during retry. |
 | **Invite them to One** | Empty People search only, with a usable invite URL: native/Web Share or clipboard fallback. Cancellation is silent. Not offered in RIAs; an empty search does not prove someone lacks an account. |
 | Loading, empty and unavailable directory | Finding people, no people/RIAs yet, or no query matches. A genuine unavailable state offers **Try again**; rate-limit copy explains the delay without a retry button. |
@@ -187,7 +219,6 @@ prior disconnects remain protected. It does not send invitation messages.
 | Matched person **Request** | Eligible request-required match only; closes results and sends the ordinary no-scope connection request. |
 | **Show more (N)** | Expands results locally. **Check Google Contacts** is a provider link when applicable. |
 | **Choose Google account / Check more / Sync again** | Outcome-dependent retry or continuation, rather than asserting a full successful scan. |
-| **Proceed to connections** | Closes results and enters Connections. |
 | **Invite contacts** | Opens invitation selection for eligible candidates; disabled during sync or with none. Feature-flag-off fallback uses the prepared share invitation. |
 | Results Close / outside / Escape | Dismisses results; no drag dismissal. Completed matching is not undone. |
 
@@ -537,7 +568,7 @@ selection and relationship projection. Backend owners are
 | Row/control | Wire and response fields feeding the UI | Commit, failure and negative branch |
 | --- | --- | --- |
 | People/RIAs search/list | F GET `/api/one/connections/directory?page=1&limit=20`, optional `query` trimmed and `audience=ria`; `items[]:{userId,publicPersonRef,displayName,photoUrl,relationship,isRia,mutualConnectionCount,mutualConnectionPreview}`, `page,hasMore,totalCount` |300ms search; query-scoped session restoration. Identity/photo/relationship/mutual preview project these exact fields. Next page dedupes `userId`; sentinel root margin240px plus manual fallback. Opening mode menu alone no call; selecting a mode changes its reader. |
-| My connections/My RIAs | F GET `/api/one/connections?page=1&limit=50&audience=all\|ria`, optional `query`; items `connectionId,userId,publicPersonRef,displayName,photoUrl,createdAt,isRia,connectedFromContacts`; `page,hasMore,totalCount,audience` | Separate search snapshot; browse cache retained (search rows are not written into it); dedupe `connectionId`. `connectedFromContacts` groups From contacts / Other connections; `createdAt` supplies local connected date. Refresh retries this resource, not contact sync. |
+| My connections/My RIAs | F GET `/api/one/connections?page=1&limit=50&audience=all\|ria` accepts an optional `query`. Each item has `connectionId,userId,publicPersonRef,displayName,photoUrl,createdAt,isRia,connectedFromContacts`. The response includes `page,hasMore,totalCount,audience`. | Search uses a separate snapshot and the browse cache retains the browse results. Rows are deduplicated by `connectionId`. `connectedFromContacts` supplies the Via contacts icon and `createdAt` supplies the local connected date. Refresh retries the connection list. |
 | Outgoing cancel map | F GET `/api/one/connections/requests?direction=outgoing` | `items[].counterpartUserId,id` resolve the exact pending request; failure does not block directory/roster. |
 | Identity/avatar/mutual person | No API on click; authored public-person route | Requires `publicPersonRef`; absent reference is inert. Person page starts its own documented reads. |
 | Message | F POST `/api/one/messages/route-token`, `{personRef}`→`token` | Navigate `/one/messages?token=<opaque>` through route builder. Failure `This conversation could not be opened. Try again.` Never put a real token in documentation. |
@@ -553,7 +584,7 @@ selection and relationship projection. Backend owners are
 
 | People surface | Exact authored copy |
 | --- | --- |
-| Search/modes | `Name, email or phone`; `People`; `RIAs`; `Around you`; `Find people`; `My connections {N}`; `My RIAs {N}`; `{N} connections`; `{N} RIAs`; `From contacts`; `Other connections`; `Connected {D Mon}` |
+| Search/modes | `Name, email or phone`, `People`, `RIAs`, `Around you`, `Find people`, `My connections {N}`, `My RIAs {N}`, `{N} connections`, `{N} RIAs`, `Via contacts`, `Verified Advisor`, `Connected {D Mon}` |
 | Discovery loading/rate delay | `Finding people…`; `People are taking a moment` / `Advisors are taking a moment`; `We'll keep trying and show everyone here as soon as they're ready.` No Retry in that delay state. |
 | Unavailable | `People are unavailable` / `Advisors are unavailable`; fallback `Failed to load people`; `Try again` |
 | Empty/query | `No one matches "{query}"`; `Try their full name.` / `Try People, or their full name.`; `No people yet` / `No advisors yet`; `Find by name, email or phone.`; `Invite them to One`; `Share an invite link with them.` |
@@ -631,7 +662,7 @@ sync contract.
 | Google contact selection | Google OAuth contacts-only token, then GET `https://people.googleapis.com/v1/people/me/connections` | `personFields` names/phone numbers and conditional email addresses, pageSize1000, `sources=READ_SOURCE_TYPE_CONTACT`, optional `pageToken`. `connections[].resourceName,names[].displayName,phoneNumbers[].canonicalForm/value,emailAddresses[].value,nextPageToken,totalPeople`. Max10pages/10,000. No persistent cache/sync token. Native/Google account screens have platform-owned copy. |
 | Match batches | F POST `/api/one/connections/contact-sync`, `{lookups:[{lookup_id,hash,last4}]}` | Max1000/batch,10,000 total; **no raw names, phone or email; Connect sends no context field**. Response `matches/items` entries `lookupId,userId,displayName,photoUrl,outcome`; `checkedLookupCount` must equal submitted; `indeterminateLookupIds`, optional outcome counts. May auto-create eligible connections through backend verified IAM matching. |
 | Match interruption/lost response | At most2 attempts (one retry); owner/session/abort fences | Unknown/unsubmitted people are not treated as unmatched/inviteable. Reconcile connections after uncertain outcome; local abort does not roll back completed batches. |
-| Results Show more | No API | Reveal100 more already matched local rows. Proceed to connections closes and selects accepted-roster view. |
+| Results Show more | No API | Reveal up to 100 more matched rows. |
 | Legacy revoked match without a disconnect actor | Existing **Request** action, then the existing recipient acceptance flow | Sync returns `request_required` and leaves the graph inactive. No request or reconnection happens automatically. Known peer, stale-episode and concurrent disconnects remain suppressed; hidden/opted-out accounts remain undisclosed. |
 | Prepare invitation | F GET `/api/one/referrals/summary`→`link` | No recipient-send endpoint. Invitation selection is local; max15 destinations, native SMS phones or web email BCC. Reveal/search recipients locally. |
 | Review / Back / remove recipient | No API | Keeps local selection; duplicate destination rejected. Queue→review→selection Back; explicit X clears session. Busy external handoff blocks outside/Escape; explicit Close still calls finish and can close. |
@@ -647,8 +678,8 @@ sync contract.
 | OAuth/reading | `Connect Google Contacts`; `Choose the Google account where your contacts are saved. Keep One open; your results will appear here when you return.`; `Waiting for Google…`; `Checking your Google contacts`; `Reading saved contacts and checking phone numbers for matches.`; `Syncing contacts…` |
 | Cancel/failure | `Contact sync cancelled`; `No contacts were read. You can choose a Google account and try again.`; `Could not sync Google contacts`; `Choose Google account`; busy `Cancel`, idle `Close`. Retry label does not promise Google always forces its chooser. |
 | Partial/unknown | `A sync request may have completed even though its response was lost. We refreshed your connections; run contact sync again to confirm these results.`; `Sync paused before the next contact batch was checked.`; `{error} Remaining contacts were not checked.` |
-| Results | `Contact sync results`; `Contact details stay on your device.` / `Only eligible Hushh accounts are shown.`; `Read {N} saved Google contacts.`; `Check Google Contacts`; `Checked`; `Matched`; `Connected`; `No match`. Matched and Connected count unique people in the list; Checked and No match count address-book entries. Own-number entries remain excluded without a self-skip notice. Unknown/unchecked/overflow outcomes remain distinct. |
-| Result person | `Connected now`; `Already connected`; `Connection request required`; `Kept disconnected`; `Request sent`; `Showing {visible} of {total} matched people`; `Show more ({N})`; `Choose Google account`; `Check more`; `Sync again`; `Proceed to connections`; `Invite contacts` |
+| Results | `Contact sync results`; `Read {N} saved Google contacts.`; `Checked`; `Matched`; `Connected`; `No match`. Matched and Connected count unique people in the list. Checked and No match count address-book entries. Unknown, unchecked, overflow and unusable outcomes remain distinct. |
+| Result person | `Connected now`, `Already connected`, `Connection request required`, `Kept disconnected`, `Request sent`, `Showing {visible} of {total} matched people`, `Show more ({N})`, `Choose Google account`, `Check more`, `Sync again`, `Invite contacts` |
 | No eligible match | `No eligible contacts matched. ONE users need an exact verified phone match and must remain visible in the Connect directory. Explicit opt-outs and previous disconnects stay protected.` |
 | Empty Google book | `No saved Google contacts found`; `This Google account returned no saved contacts. Choose the account where your contacts are saved, or check Google Contacts. Contacts saved only on your phone are not included.` |
 | No usable phone | `No phone numbers to match`; `Your Google contacts were read, but none had a usable phone number. One matches verified phone numbers. You can still invite contacts with a mail address, or choose another Google account.` |
@@ -860,6 +891,41 @@ clears that quote without inferring deletion merely from an unloaded history pag
 Source: [Messages](../../components/direct-messages/direct-messages-page.tsx),
 [voice recorder](../../components/direct-messages/direct-message-voice-recorder.tsx),
 [layout](../../components/direct-messages/direct-messages-page.module.css).
+
+## Network discovery and profile journeys
+
+In Find people, **Explore your network** is a separate text action below the
+directory search. It opens a shared list with exact viewer-relative 1st, 2nd and
+3rd degree filters and paginated name search. A missing degree is not
+proof that someone is outside the network. Mutuals always mean active direct
+neighbors shared by the viewer and the target: zero has no control, one opens the
+available profile (resolving a missing preview through one mutual page), and more
+than one opens a list. An unavailable single profile explains that state.
+
+Signed-in profiles show network details beside the profile hero. **View connections**
+appears only after the server confirms that the target opted in and the viewer is
+an active direct connection. The privacy setting **Share my connection list** starts
+off, discloses anonymous extended-network degree contribution, and confirms only
+server-acknowledged changes. It grants no access to private contacts or information.
+Anonymous public profile projections do not fetch network information.
+
+Every profile or list may open the next profile or list inside the same shared
+preview dialog. Back first dismisses a request overlay, then unwinds one visited
+network view. The same callback serves Escape, shell, iOS gesture and Android Back.
+Browser Forward restores known visits without adding identities to URLs. Final
+dismissal restores the original control and preserves the mounted source picker.
+
+The existing history owner stores opaque counters only. Visit identities and list
+query/filter/page/scroll/focus snapshots are bounded to 64 memory entries and are
+cleared by owner/authentication-generation changes. List snapshots expire after
+15 minutes; list people are re-fetched before display on return, focus, visibility
+or graph changes. Denied lists clear people immediately. Cold reload or evicted
+visit memory returns to the authored route, without reconstructing private history.
+
+Behavioral evidence: `person-profile-preview.test.tsx`, `network-people-list.test.tsx`
+and `connections-service.test.ts` in the nearest frontend suites. These prove the
+shared callbacks in jsdom; shipped browser/native gesture acceptance remains a
+separate runtime check.
 
 ## Experimental native presentation
 

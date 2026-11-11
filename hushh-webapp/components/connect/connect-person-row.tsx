@@ -1,10 +1,12 @@
 "use client";
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import type { ComponentProps, ReactNode } from "react";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ConnectionStatusBadges } from "@/components/connections/connection-status-badges";
 import { connectPersonName, type ConnectPersonIdentity } from "@/lib/connections/person-label";
-import type { DirectoryPerson } from "@/lib/services/connections-service";
+import type { DirectoryPerson, MutualConnectionMetadata } from "@/lib/services/connections-service";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +24,7 @@ import { cn } from "@/lib/utils";
  */
 export function ConnectPersonRow({
   leading,
+  leadingInteractive = false,
   title,
   description,
   supplement,
@@ -34,6 +37,7 @@ export function ConnectPersonRow({
 }: {
   /** The avatar, already sized to fit the 30px well. */
   leading: ReactNode;
+  leadingInteractive?: boolean;
   title: ReactNode;
   /** Relationship context, such as a connected date. Omitted when empty. */
   description?: ReactNode;
@@ -47,24 +51,28 @@ export function ConnectPersonRow({
   testId?: string;
   className?: string;
 }) {
+  const IdentityControl = leadingInteractive || supplement ? PersonSelectionSurface : "button";
   const identity = (
     <>
       {/* Centered on the text block, as in Feed's rows: pinned to the top it sat above
           a one-line name and half a line above a name with a second line. */}
-      <span className="grid w-[30px] place-items-center self-center">{leading}</span>
-      <span className="min-w-0">
-        <span
-          data-slot="settings-row-title"
-          className="block [overflow-wrap:anywhere]"
-        >
-          {title}
+      <span data-slot="settings-row-leading" className="grid w-[30px] place-items-center self-center">
+        {leading}
+      </span>
+      <span data-slot="settings-row-identity" className="min-w-0">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+          <span data-slot="settings-row-title" className="min-w-0 group-hover/connect-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere]">
+            {title}
+          </span>
         </span>
-        {description ? (
-          <span
-            data-slot="settings-row-description"
-            className="mt-px block [overflow-wrap:anywhere]"
-          >
-            {description}
+        {description || supplement ? (
+          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+            {description ? (
+              <span data-slot="settings-row-description" className="[overflow-wrap:anywhere]">
+                {description}
+              </span>
+            ) : null}
+            {supplement}
           </span>
         ) : null}
       </span>
@@ -85,21 +93,20 @@ export function ConnectPersonRow({
     >
       <div className="min-w-0">
         {onOpen ? (
-          <button
+          <IdentityControl
             type="button"
             onClick={onOpen}
             aria-label={openLabel}
             className={cn(
               identityClassName,
-              "rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:bg-foreground/[0.065] motion-reduce:transition-none [@media(hover:hover)]:hover:bg-foreground/[0.04]",
+              "group/connect-person rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:opacity-80",
             )}
           >
             {identity}
-          </button>
+          </IdentityControl>
         ) : (
           <div className={identityClassName}>{identity}</div>
         )}
-        {supplement ? <div className="-mt-1 pb-1.5 pl-[38px]">{supplement}</div> : null}
       </div>
       {trailing ? (
         <div
@@ -116,9 +123,10 @@ export function ConnectPersonRow({
 /** Discovery shows a name, never contact identifiers or masked contact captions. */
 export function ConnectDirectoryPersonRow({
   person,
+  supplement,
   ...props
 }: Omit<ComponentProps<typeof ConnectPersonRow>, "title" | "description"> & {
-  person: ConnectPersonIdentity & Partial<Pick<DirectoryPerson, "relationship">>;
+  person: ConnectPersonIdentity & Partial<Pick<DirectoryPerson, "relationship" | "isRia">>;
 }) {
   return (
     <ConnectPersonRow
@@ -127,6 +135,12 @@ export function ConnectDirectoryPersonRow({
       description={person.relationship === "pending_outgoing"
         ? "Request sent"
         : person.relationship === "pending_incoming" ? "Wants to connect" : undefined}
+      supplement={person.isRia === true ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+          <ConnectionStatusBadges riaVerified />
+          {supplement}
+        </div>
+      ) : supplement}
     />
   );
 }
@@ -135,52 +149,61 @@ export function ConnectDirectoryPersonRow({
  * The server-backed mutual-connection count under a directory row's text, with
  * the named preview only as an avatar and an accessible name. Renders nothing
  * when there are no mutual connections. The profile-opening control is a
- * button only when the preview carries a profile to open.
+ * button when the caller can open the list or the single mutual profile.
  */
 export function DirectoryMutualLine({
   person,
   onOpenMutual,
+  networkPersonRef,
+  className,
 }: {
-  person: DirectoryPerson;
-  onOpenMutual?: () => void;
+  person: ConnectPersonIdentity & MutualConnectionMetadata;
+  onOpenMutual?: (element: HTMLButtonElement) => void;
+  networkPersonRef?: string;
+  className?: string;
 }) {
   const count = person.mutualConnectionCount ?? 0;
   if (count <= 0) return null;
-  const preview = person.mutualConnectionPreview;
+  const previews = (person.mutualConnectionPreviews ?? (person.mutualConnectionPreview ? [person.mutualConnectionPreview] : [])).slice(0, Math.min(2, count));
+  const preview = previews[0];
   const previewName = preview ? connectPersonName(preview) : "Hussh member";
   const label = count === 1 ? "Mutual connection" : `${count} mutual connections`;
   const content = (
     <>
-      {preview ? (
-        <ConnectionPersonAvatar
+      {previews.length ? <span className="isolate inline-flex min-w-9 shrink-0 items-center -space-x-1" data-testid="mutual-avatar-stack" aria-hidden="true">
+        {previews.map((peer, index) => <ConnectionPersonAvatar
+          key={peer.publicPersonRef ?? index}
           size="compact"
-          className="!size-4 shrink-0"
-          fallbackClassName="bg-foreground/10 text-[8px]"
-          photoUrl={preview.photoUrl}
-          label={previewName}
-        />
-      ) : null}
+          className="!size-5 shrink-0 ring-1 ring-card"
+          fallbackClassName="bg-foreground/10 text-[9px]"
+          photoUrl={peer.photoUrl}
+          label={connectPersonName(peer)}
+        />)}
+      </span> : null}
       <span data-slot="settings-row-description" className="min-w-0 [overflow-wrap:anywhere]">
         {label}
       </span>
     </>
   );
-  const lineClassName = "flex min-w-0 items-center gap-1.5 text-left";
-  return onOpenMutual && preview ? (
+  const lineClassName = "flex min-w-0 items-center gap-2 text-left";
+  return onOpenMutual ? (
     <button
       type="button"
-      onClick={onOpenMutual}
-      aria-label={`Open mutual connection ${previewName}'s profile`}
+      onClick={event => onOpenMutual(event.currentTarget)}
+      aria-label={count > 1 ? `View all ${count} mutual connections with ${connectPersonName(person)}` : `Open mutual connection ${previewName}'s profile`}
       data-testid="mutual-connection"
+      data-network-person={networkPersonRef}
+      data-network-focus="mutual"
       className={cn(
         lineClassName,
-        "relative rounded-md before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+        "min-h-9 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] [@media(pointer:fine)]:min-h-7",
+        className,
       )}
     >
       {content}
     </button>
   ) : (
-    <div data-testid="mutual-connection" className={lineClassName}>
+    <div data-testid="mutual-connection" className={cn(lineClassName, className)}>
       {content}
     </div>
   );

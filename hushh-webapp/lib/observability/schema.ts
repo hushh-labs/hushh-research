@@ -166,6 +166,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     ...BASE_ALLOWED_KEYS,
     "route_id",
     "result",
+    "duration_ms_bucket",
     "selected_count",
     "reached_count",
     "unreachable_count",
@@ -263,6 +264,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "pending_bucket",
     "retry_bucket",
   ],
+  live_activity_consolidation_completed: [...BASE_ALLOWED_KEYS, "outcome", "saved_bucket"],
   one_location_foreground_retry: [
     ...BASE_ALLOWED_KEYS,
     "operation",

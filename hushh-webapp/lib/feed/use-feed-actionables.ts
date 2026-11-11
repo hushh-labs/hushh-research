@@ -197,6 +197,8 @@ export interface FeedActionable {
   iconTone: FeedIconTone;
   /** Person identity to render before falling back to the domain icon. */
   person?: {
+    userId?: string | null;
+    personRef?: string | null;
     displayName: string;
     photoUrl: string | null;
   } | null;
@@ -428,6 +430,7 @@ export function ownerConsentRequestActionable(
     person: request.isPerson
       ? {
           displayName: request.requesterLabel,
+          userId: request.members[0]?.counterpart_id,
           photoUrl: request.requesterPhotoUrl,
         }
       : null,
@@ -1862,6 +1865,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
             (entry.counterpart_id || entry.counterpart_image_url)
               ? {
                   displayName: requesterLabel,
+                  userId: entry.counterpart_id,
                   photoUrl: entry.counterpart_image_url ?? null,
                 }
               : null,
@@ -1976,6 +1980,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
           label !== "A contact"
             ? {
                 displayName: label,
+                userId: grant.ownerUserId,
                 photoUrl: grant.ownerPhotoUrl ?? null,
               }
             : null,
@@ -2020,6 +2025,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
           label !== "Someone"
             ? {
                 displayName: label,
+                userId: request.requesterUserId,
                 photoUrl: request.requesterPhotoUrl ?? null,
               }
             : null,
@@ -2101,6 +2107,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
           label !== "Someone"
             ? {
                 displayName: label,
+                userId: invite.inviterUserId,
                 photoUrl: invite.inviterPhotoUrl ?? null,
               }
             : null,
@@ -2174,6 +2181,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
           label !== "Someone"
             ? {
                 displayName: label,
+                userId: request.counterpartUserId,
                 photoUrl: request.counterpartPhotoUrl ?? null,
               }
             : null,

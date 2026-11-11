@@ -33,8 +33,9 @@ type Props = {
   userId: string;
   token: string | null;
   onUnlock: () => void;
-  onFinish: () => Promise<unknown>;
+  onFinish: (reviewedCloudPlanSha256?: string) => Promise<unknown>;
   onCancel?: () => void;
+  onLeave?: () => Promise<void>;
   purpose?: CloudCleanupPurpose;
   provider?: "gcp" | "azure";
   continueAccountDeletion?: boolean;
@@ -147,53 +148,84 @@ function CleanupTerms({ view, busy, approve }: { view: CloudCleanupView; busy: b
 export function AccountCloudCleanup(props: Props) {
   const { view, busy, run, capture } = useCloudCleanup(props);
   const [finishing, setFinishing] = useState(false);
+  const [retirementAccepted, setRetirementAccepted] = useState(false);
+  useEffect(() => setRetirementAccepted(false), [view?.operationId, view?.retirementReview?.plan_sha256]);
   const finishingRef = useRef(false);
-  const finish = async () => {
+  const finish = async (reviewedCloudPlanSha256?: string) => {
     if (finishingRef.current) return;
+    if (reviewedCloudPlanSha256 && (!props.continueAccountDeletion || !retirementAccepted ||
+        reviewedCloudPlanSha256 !== view?.retirementReview?.plan_sha256)) return;
     finishingRef.current = true; setFinishing(true);
     const isCurrent = capture();
     try {
       if (!isCurrent()) return;
-      if (props.purpose === "remove_cloud") {
+      if (reviewedCloudPlanSha256 || props.purpose === "remove_cloud") {
         const auth = await resolveDeleteAccountAuth({ userId: props.userId, existingVaultOwnerToken: props.token });
         if (!isCurrent()) return;
         if (auth.kind === "needs_unlock") { props.onUnlock(); return; }
         if (!view) return;
+        if (reviewedCloudPlanSha256) {
+          if (isCurrent()) await props.onFinish(reviewedCloudPlanSha256);
+          return;
+        }
         await morphyToast.promise(finishCloudRemoval(auth.token, view), {
           loading: "Finishing cloud removal…", success: () => isCurrent() ? props.continueAccountDeletion ? "Cloud removed. Continuing account deletion…" : "Cloud removed. Your Hussh account is kept." : null,
           error: (error) => isCurrent() ? cloudCleanupErrorMessage(error) : null,
         }).unwrap();
       }
       if (isCurrent()) await props.onFinish();
-    } catch { /* The operation toast owns failure; its recovery state is retained. */ }
+    } catch (error) {
+      if (reviewedCloudPlanSha256 && isCurrent()) morphyToast.error(cloudCleanupErrorMessage(error));
+      // The existing cloud-operation toast owns non-retirement failures.
+    }
     finally { finishingRef.current = false; setFinishing(false); }
   };
   if (!isAzureSignInAvailable()) return <p className="text-sm text-muted-foreground">Continue cloud cleanup on the Hussh website.</p>;
   const keepAccount = props.purpose === "remove_cloud" && !props.continueAccountDeletion;
   const gcp = props.provider === "gcp" || view?.provider === "gcp";
   const executing = !!view?.inProgress && !view.needsAttention && !view.canFinalize;
+  const retentionPending = view?.attentionCode === "CLOUD_REMOVAL_PROVIDER_RETENTION_PENDING";
+  const nextEligibleAt = view?.nextEligibleAt ? new Date(view.nextEligibleAt) : null;
+  const waitingForRetention = retentionPending && !view?.canFinalize && view?.executionStarted === true &&
+    nextEligibleAt !== null && nextEligibleAt.getTime() > Date.now();
   return <div className="space-y-4" data-testid="account-cloud-cleanup" aria-busy={busy || finishing || executing}>
     <div role="status" aria-live="polite" className="space-y-1 rounded-xl bg-muted/50 p-3">
-      <p className="text-sm font-medium">{finishing ? "Finishing removal" : busy ? "Checking your cloud" : view?.canFinalize ? "Cloud cleanup verified" : executing ? "Removing approved resources" : view?.needsAttention ? "Cleanup needs your attention" : view?.approvalRequired ? "Review before removing" : "Prepare cloud cleanup"}</p>
+      <p className="text-sm font-medium">{finishing ? "Finishing removal" : busy ? "Checking your cloud" : view?.canFinalize ? "Cloud cleanup verified" : retentionPending ? "Waiting for your cloud provider" : executing ? "Removing approved resources" : view?.needsAttention ? "Cleanup needs your attention" : view?.approvalRequired ? "Review before removing" : "Prepare cloud cleanup"}</p>
       <p className="text-sm text-muted-foreground">{executing
-        ? "Cloud providers can take several minutes. You can refresh or close this view and return to check; completed removals cannot be undone."
+        ? "Your cloud provider has not confirmed removal yet. You can close this view or sign out and return to check; completed removals cannot be undone."
+        : retentionPending ? "Cloud cleanup is waiting on protected copies. You can close this view and return later."
         : view?.needsAttention ? "Your account is kept. Review the issue below, then resume the same cleanup request."
         : "We check your resources, ask for approval, remove only what you approved, then verify the result."}</p>
     </div>
     <p className="text-sm text-muted-foreground">{keepAccount ? "Your Hussh account and vault stay. Files and agent history stored only in this cloud are removed. You’ll choose Shared or a new cloud afterward." : `Review your agent’s ${gcp ? "Google Cloud" : "Azure"} resources before deleting your account.`} Inspection pauses new agent work; it does not delete files or keys.</p>
     {view?.canFinalize ? <p role="status" className="text-sm">{keepAccount ? "Cloud cleanup is verified. Finish removal to choose hosting again." : "Cloud cleanup is verified. You can now finish deleting your account."}</p>
       : view?.planDigest ? <>
-        <p role="status" className="text-sm">{view.needsAttention ? cloudCleanupAttentionMessage(view.attentionCode) : view.progressKnown === false ? "Cleanup is not yet verified. Refresh status or resume the reviewed request." : `${view.removed} of ${view.total} cloud resources verified removed.`}</p>
+        {view.progressKnown !== false ? <p role="status" className="text-sm">{view.removed} of {view.total} cleanup checks verified.</p> : null}
+        {view.needsAttention ? <p role="status" className="text-sm">{cloudCleanupAttentionMessage(view.attentionCode)}</p>
+          : view.progressKnown === false ? <p role="status" className="text-sm">Cleanup is not yet verified. Refresh status or resume the reviewed request.</p> : null}
+        {retentionPending && nextEligibleAt && Number.isFinite(nextEligibleAt.getTime()) ? <p className="text-sm">
+          Check again after <time dateTime={view.nextEligibleAt ?? undefined}>{nextEligibleAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time>. Cleanup still needs provider verification.
+        </p> : null}
         <details className="text-sm"><summary className="min-h-11 cursor-pointer content-center">Review affected resources</summary>
           <ul className="max-h-40 space-y-1 overflow-auto break-words text-muted-foreground">{view.resources.map((resource) => <li key={resource.id}>{resource.id.split("/").slice(-2).join(" / ")}</li>)}</ul>
         </details>
-        {view.approvalRequired ? <CleanupTerms key={`${view.operationId}:${view.planDigest}`} view={view} busy={busy} approve={(group) => void run("approve", group)} />
-          : <p className="text-sm text-muted-foreground">{gcp ? "Your reviewed request can be performed or resumed." : "Your exact cleanup plan is approved. Continue with Microsoft to perform or resume it."}</p>}
+        {waitingForRetention || executing ? null : view.approvalRequired ? <CleanupTerms key={`${view.operationId}:${view.planDigest}`} view={view} busy={busy} approve={(group) => void run("approve", group)} />
+          : <p className="text-sm text-muted-foreground">{view.legacyRecovery ? "Your approval is saved. Cleanup progress will appear here; you can close this view or sign out." : gcp ? "Your reviewed request can be performed or resumed." : "Your exact cleanup plan is approved. Continue with Microsoft to perform or resume it."}</p>}
       </> : <p className="text-sm text-muted-foreground">{gcp ? "Inspect the resources recorded for your agent, then review what will be removed." : "Sign in to Microsoft for a read-only inspection, then return here to review."}</p>}
+    {props.continueAccountDeletion && view?.retirementReview ? <div className="space-y-2">
+      <p className="text-sm">You can delete your account while cloud cleanup continues.</p>
+      <label className="flex min-h-11 items-center gap-3 text-sm"><Checkbox checked={retirementAccepted}
+        onCheckedChange={(checked) => setRetirementAccepted(checked === true)} />I understand protected cloud copies are still awaiting permanent deletion.</label>
+      <Button variant="destructive" className="min-h-11" disabled={!retirementAccepted || busy || finishing || executing}
+        data-testid="cloud-cleanup-retire-account" onClick={() => { if (view.retirementReview) void finish(view.retirementReview.plan_sha256); }}>
+        Delete account now
+      </Button>
+    </div> : null}
     <AlertDialogFooter className="flex-wrap gap-2">
+      {props.onLeave ? <Button className="min-h-11" variant="outline" onClick={() => void props.onLeave?.()}>Sign out</Button> : null}
       {keepAccount && view?.canCancel && props.onCancel ? <Button className="min-h-11" variant="outline" disabled={busy || finishing} onClick={() => void run("cancel")}>Cancel removal and resume agent</Button> : null}
       <Button className="min-h-11" variant="outline" disabled={busy || finishing} onClick={() => void run("refresh")} data-testid="cloud-cleanup-refresh">Refresh status</Button>
-      {!view?.planDigest || !view.approvalRequired || view.canFinalize ? <AlertDialogAction className="min-h-11" variant={view?.planDigest ? "destructive" : "default"}
+      {!waitingForRetention && (!view?.planDigest || !view.approvalRequired || view.canFinalize) && (!view?.legacyRecovery || view.canFinalize) ? <AlertDialogAction className="min-h-11" variant={view?.planDigest ? "destructive" : "default"}
         disabled={busy || finishing || executing} data-testid="cloud-cleanup-continue" onClick={(event) => {
           event.preventDefault();
           if (executing) return;

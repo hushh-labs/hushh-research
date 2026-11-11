@@ -141,7 +141,13 @@ the model meant (`source_text`) instead of the whole turn.
 
 One may automatically capture eligible facts that an owner intentionally types
 in One Chat or the Gmail KYC import/chat flow. A vault with no saved preference
-uses the product default, while an explicit owner opt-out remains authoritative.
+uses the product default. Since 2026-10-29 a stored auto-save choice
+(`loadAgentPkmAutoSavePolicy`) gates in-app activity capture and its
+consolidation, and an unreadable choice fails closed. No owner-facing control
+writes that choice today: the settings toggle was removed in 0d28e4ccea
+(2026-10-12), so only a choice stored before then can opt out. That missing
+control is a recorded gap, as is One Chat ambient capture into `one_memory`,
+which still reads only the vault unlock state, not the stored choice.
 The write receipt records the distinction: a default write uses
 `product_default_auto_save_policy` with a policy version/effective time; a
 setting chosen by the owner continues to use `owner_auto_save_policy`. The PKM
@@ -157,9 +163,12 @@ upgrade from the background. Until 2026-09-23 this refresh was stamped
 `confirmedByUser: true`, which misstated consent.
 
 This does not turn every message into memory. Secrets, ambiguous or
-low-confidence claims, corrections/deletions, and facts with active sharing
-recipients remain review-first. Failed background writes do not change the
-conversation result and surface an explicit failure notification.
+low-confidence claims, and facts with active sharing recipients remain
+review-first. A correction or removal the owner states in chat is applied by
+the memory agents through the same writer; in-app activity consolidation never
+removes a bullet, and such a decision fails its cycle closed. Failed background writes do not change the
+conversation result. An explicit save surfaces its failure; an ambient capture
+failure stays a quiet pending state and never interrupts chat.
 
 `kyc_identity_v1` is a profile of the existing `/api/pkm/memory/proposals`
 contract, not another memory system. It uses one constrained extraction pass
@@ -211,3 +220,54 @@ deployment mismatch instead of retrying the generic profile. Unit/contract
 tests do not substitute for an authenticated, unlocked model-backed UAT
 review/save rehearsal. Frozen pending-save payloads are preserved on listing
 changes; automatically replacing such a job remains outside this demo scope.
+
+## Decision: in-app activity reaches PKM only through consolidation (2026-10-29)
+
+Founder decision of record. One's in-app activity (the closed event kinds in
+`hushh-webapp/lib/pkm/live-activity/live-activity-types.ts`) never enters PKM
+as raw events. While the owner is signed in and the vault is unlocked, the
+client keeps an encrypted, owner-scoped log on the device through
+`SecureResourceCacheService` with the vault key: at most 7 days and 2,048
+events, enforced when the log is next opened on the device, fenced by owner,
+reset generation and vault session epoch, and purged with the account. It holds
+allowlisted kinds, subject ids, bounded counts, timestamps and place labels:
+the owner's own name for a saved place (their text, up to 40 characters, which
+may name a person) or a Google venue's public name (a check-in, or a place saved
+from one). A label that
+repeats the place's own street address is dropped on a best-effort basis. It
+never holds contents, coordinates, counterpart identity, URLs or tokens.
+
+The only PKM writer is consolidation. A dated digest goes through the existing
+`/api/pkm/memory/proposals` preparation (`soul_markdown_v1`, `one_memory`), the
+existing memory agents decide what is durable, and usable facts are staged
+into `one_memory.markdown` through the existing writer with the product-default
+authorization record. Each cycle makes at most one commit, reads memory.md from
+the server first (and waits while a local memory save is still pending),
+refuses to write on incomplete or fallback preparation and never removes a
+bullet: a delete decision, or a correction that would save as nothing or as
+another existing bullet, fails the cycle closed. Each cycle covers the
+not-yet-consolidated events of one local day (a day can arrive in several
+cycles), and its outcome (saved, nothing durable, host skipped, failed, memory
+full) is recorded through the dedicated `live_activity_consolidation_completed`
+event. A stored auto-save choice gates capture and consolidation (see the
+control gap above). Each chat turn also sends a short "recent activity today"
+packet in `pkm_context`, so the request carries today's activity the same way
+it carries memory.md. Place labels in the digest and the packet are quoted
+names, because they are third-party or free text.
+
+Known gap, cross-device Reset: Reset purges the log only on the device where it
+runs (the reset notice is a same-browser broadcast, and `reset_account` keeps
+vault keys and sessions). Another unlocked device keeps its log for up to 7
+days, shows it in Today, sends it with chat turns and can consolidate it into
+the reset memory.md; Privacy 2.12 says so. Account deletion reaches other
+devices through departure codes. Closing the gap needs a server reset
+generation that only `reset_account` bumps, captured at attach and re-checked
+before staging and before building `pkm_context`.
+
+Why: every PKM commit archives the full previous revision in
+`pkm_domain_revision_segments` for 90 days and adds `pkm_events` rows. Writing
+each event, or flushing the log every minute, would multiply that archive per
+active owner and give the server a plaintext timeline of when the owner acted.
+A device log with bounded consolidation keeps the stored timeline encrypted on
+the device and keeps PKM growth at durable facts only; the per-turn packet is
+request data, held in memory for that request like memory.md.

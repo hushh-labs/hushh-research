@@ -3,6 +3,7 @@
 from sqlalchemy import text
 
 from hushh_mcp.services.document_delivery.background_consent import requested
+from hushh_mcp.services.document_delivery.background_diagnostics import safe_detail
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import FILE_ID
@@ -55,6 +56,16 @@ def file_projection(store, row):
             ready.get("mimeType", source["mimeType"]) == "application/pdf"
             and ready["bytes"] <= 4 * 1024 * 1024
         )
+        if type(ready.get("sourceMetadataTimeChanged")) is bool:
+            entry["sourceMetadataTimeChanged"] = ready["sourceMetadataTimeChanged"]
+    elif row["state"] == "unavailable" and row.get("result_envelope"):
+        try:
+            detail = store.open(row, "result_envelope", "background-copy-result-v2")
+            projected = safe_detail(detail.get("copyDiagnostics"))
+            if projected:
+                entry["copyDiagnostics"] = projected
+        except DriveSharingError:
+            pass
     if row["reason"]:
         entry["reason"] = row["reason"]
     return entry

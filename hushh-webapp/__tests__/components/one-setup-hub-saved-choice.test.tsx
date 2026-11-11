@@ -195,7 +195,7 @@ describe("Setup saved AI choice", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.queryByText("Set up the rest later.")).toBeNull();
     expect(screen.queryByRole("button", { name: /Choose your AI/ })).toBeNull();
-    expect(screen.getByRole("button", { name: "Set up your private agent: Continue" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Set up Agent One: Continue" })).toBeVisible();
     fireEvent.click(finish);
     expect(screen.queryByRole("dialog")).toBeNull();
     // Pending or rejected saves do not publish a successful cache write.

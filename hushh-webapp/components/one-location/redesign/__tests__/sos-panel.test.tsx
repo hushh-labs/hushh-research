@@ -62,7 +62,7 @@ describe("SosPanel", () => {
 
   it("keeps Stop available if the circle becomes empty during an active alert", () => {
     render(<SosPanel {...baseProps} active recipients={[]} />);
-    expect(screen.getByRole("button", { name: "Stop Save My Soul alert" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop SMS alert" })).toBeEnabled();
   });
 
   it("keeps a known selected Circle sendable while the recipient projection is loading", () => {
@@ -85,7 +85,8 @@ describe("SosPanel", () => {
   });
   it.each(["pointer", "keyboard"])("sends a preset through a two-second %s Send hold exactly once even after late release", async (mode) => {
     const onTrigger = vi.fn().mockResolvedValue(undefined);
-    render(<SosPanel {...baseProps} contactCount={8} onTrigger={onTrigger} />);
+    const onPrepareSend = vi.fn<(signal: AbortSignal) => void>();
+    render(<SosPanel {...baseProps} contactCount={8} onTrigger={onTrigger} onPrepareSend={onPrepareSend} />);
     expect(screen.getByText("8 contacts · Live location")).toBeInTheDocument();
     expect(screen.getByText("Choose or type a message")).toBeInTheDocument();
     expect(screen.queryByText("Pick a quick message.")).toBeNull();
@@ -93,6 +94,8 @@ describe("SosPanel", () => {
     const send = screen.getByTestId("sos-send-custom-message");
     if (mode === "pointer") fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
     else fireEvent.keyDown(send, { key: " " });
+    expect(onPrepareSend).toHaveBeenCalledTimes(1);
+    expect(onPrepareSend.mock.calls[0][0].aborted).toBe(false);
     act(() => vi.advanceTimersByTime(1_999));
     expect(onTrigger).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTime(1));
@@ -122,9 +125,10 @@ describe("SosPanel", () => {
     expect(send).toHaveTextContent("Send");
   });
 
-  it("cancels an interrupted Send hold including its synthesized click", () => {
+  it("cancels preparation and sending when a pointer hold is interrupted", () => {
     const onTrigger = vi.fn();
-    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    const onPrepareSend = vi.fn<(signal: AbortSignal) => void>();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} onPrepareSend={onPrepareSend} />);
     fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
     const send = screen.getByTestId("sos-send-custom-message");
     fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
@@ -132,6 +136,8 @@ describe("SosPanel", () => {
     fireEvent.pointerUp(send, { pointerId: 1 });
     fireEvent.click(send);
     act(() => vi.advanceTimersByTime(3_000));
+    expect(onPrepareSend).toHaveBeenCalledTimes(1);
+    expect(onPrepareSend.mock.calls[0][0].aborted).toBe(true);
     expect(onTrigger).not.toHaveBeenCalled();
   });
 
@@ -563,25 +569,25 @@ describe("SosPanel", () => {
     // Idle: no stop affordance, the core is the pressable SOS control.
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
     expect(screen.getByText("SMS")).toBeInTheDocument();
-    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
 
     // Live: the core becomes a receipt and the stop button appears.
     rerender(<SosPanel {...baseProps} active onStopSos={onStopSos} />);
-    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
-    expect(screen.getByText("SENT")).toBeInTheDocument();
+    expect(screen.getByText("Alert active", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Alert active",
     );
-    expect(screen.getAllByText("Live location sharing is active")).toHaveLength(1);
+    expect(screen.getAllByText("You can stop this alert.")).toHaveLength(1);
     const cancel = screen.getByRole("button", {
-      name: "Stop Save My Soul alert",
+      name: "Stop SMS alert",
     });
     expect(cancel).toHaveTextContent("Stop alert");
     fireEvent.click(cancel);
     const dialog = screen.getByRole("alertdialog");
     expect(
       within(dialog).getByRole("heading", {
-        name: "Stop Save My Soul alert?",
+        name: "Stop SMS alert?",
       }),
     ).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Stop alert" }));
@@ -600,12 +606,12 @@ describe("SosPanel", () => {
 
   it("returns the core to SMS once the session is no longer active (external revoke sync)", () => {
     const { rerender } = render(<SosPanel {...baseProps} active />);
-    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
+    expect(screen.getByText("Alert active", { exact: true })).toBeInTheDocument();
     // Simulate the incident being cleared elsewhere (e.g. Active shares → Stop),
     // which flips `active` back to false and must reset the SMS screen.
     rerender(<SosPanel {...baseProps} active={false} />);
     expect(screen.getByText("SMS")).toBeInTheDocument();
-    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Hold 2 seconds",
     );

@@ -23,6 +23,7 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { trackEvent } from "@/lib/observability/client";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { pkmCaptureSectionKey } from "@/lib/pkm/pkm-capture-sections";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -103,6 +104,17 @@ const RECENT_MEMORIES_LIMIT = 50;
 // reviewed write twice while the first request is still settling.
 const pkmCaptureSaveInFlight = new Map<string, symbol>();
 const pkmCaptureReconciliationNeeded = new Set<string>();
+
+function hasKnownMemoryFailure(error: unknown): boolean {
+  return !((error instanceof Error || error instanceof DOMException) &&
+    ["AbortError", "TimeoutError"].includes(error.name));
+}
+
+function isKnownMemoryRejection(result: { saveState?: string; httpStatus?: number }): boolean {
+  return result.saveState?.startsWith("blocked_") === true ||
+    (typeof result.httpStatus === "number" && result.httpStatus >= 400 &&
+      result.httpStatus < 500 && ![408, 499].includes(result.httpStatus));
+}
 
 function cardScopePath(card: PkmMemoryCard): string {
   return String(
@@ -469,6 +481,8 @@ export function usePkmNaturalModel({
       memoryReadSessionRef.current === memoryReadSession &&
       isAgentPkmProcessingReady(captureReadinessRef.current, vaultOwnerToken);
     if (!isEffectCurrent()) return;
+    const attempt = captureProductAttempt("pkm.export_memory", operationOwnerId);
+    attempt.started();
     setExportState({
       session: memoryReadSession,
       busy: true,
@@ -483,6 +497,9 @@ export function usePkmNaturalModel({
         isEffectCurrent,
       });
       if (!isEffectCurrent()) return;
+      // The download helper's false result includes cancellation AND uncertain
+      // platform errors. Only its acknowledged handoff can settle this attempt.
+      if (result.saved) attempt.settled("returned");
       trackMemoryOutcome(
         operationOwnerId,
         "export_saved",
@@ -500,8 +517,9 @@ export function usePkmNaturalModel({
             } of what One remembers.${result.backupIncluded === false ? " The encrypted backup could not be included." : ""}`
           : "Nothing was saved. You can try again whenever you like.",
       });
-    } catch {
+    } catch (error) {
       if (!isEffectCurrent()) return;
+      if (hasKnownMemoryFailure(error)) attempt.settled("failed");
       trackMemoryOutcome(operationOwnerId, "export_saved", "error");
       setExportState({
         session: memoryReadSession,
@@ -1237,6 +1255,11 @@ export function usePkmNaturalModel({
       );
       return;
     }
+    const attempt = captureProductAttempt(
+      params.action === "edited" ? "pkm.edit_memory" : "pkm.delete_memory",
+      operationOwnerId,
+    );
+    attempt.started();
     setMemoryActionId(`${params.card.id}:${params.action}`);
     setMemoryActionError(null);
     let persistedDomainData: Record<string, unknown> | null = null;
@@ -1312,6 +1335,7 @@ export function usePkmNaturalModel({
         },
       });
       if (!result.success || !persistedDomainData) {
+        if (operationIsCurrent() && isKnownMemoryRejection(result)) attempt.settled("blocked");
         throw new Error(
           result.message || "This saved detail couldn’t be updated.",
         );
@@ -1320,6 +1344,7 @@ export function usePkmNaturalModel({
       // The encrypted write is the mutation boundary. Record it before the
       // best-effort metadata refresh so a transient read failure cannot turn
       // one confirmed write into contradictory success + error outcomes.
+      attempt.settled("returned");
       trackMemoryOutcome(
         operationOwnerId,
         params.action === "edited" ? "detail_edited" : "detail_deleted",
@@ -1353,6 +1378,8 @@ export function usePkmNaturalModel({
       setMemoryCardsNonce((value) => value + 1);
     } catch (error) {
       if (!operationIsCurrent()) return;
+      // The coordinator folds lost responses into success=false as well. No
+      // acknowledgement means an unknown write, not proof that nothing changed.
       trackMemoryOutcome(
         operationOwnerId,
         params.action === "edited" ? "detail_edited" : "detail_deleted",
@@ -1398,6 +1425,8 @@ export function usePkmNaturalModel({
     });
     if (!guard.isCurrent()) return;
     captureReviewRevision.current = revision;
+    const attempt = captureProductAttempt("pkm.prepare_capture", operationOwnerId);
+    attempt.started();
     setCaptureCards([]);
     setCaptureSharingImpactAcknowledged(false);
     setCaptureLoading(true);
@@ -1410,6 +1439,7 @@ export function usePkmNaturalModel({
         candidate: captureText.trim(),
       });
       if (localDuplicate?.kind === "exact") {
+        attempt.settled("blocked");
         trackMemoryOutcome(
           operationOwnerId,
           "capture_prepared",
@@ -1461,6 +1491,8 @@ export function usePkmNaturalModel({
             block.preparationIssue !== "degraded_preview"),
       );
       const hasUnresolvedSource = unresolvedSections.length > 0;
+      attempt.settled(hasFailedSource ? "failed"
+        : prepared.cards.length > 0 && !hasUnresolvedSource ? "returned" : "blocked");
       trackMemoryOutcome(
         operationOwnerId,
         "capture_prepared",
@@ -1484,8 +1516,9 @@ export function usePkmNaturalModel({
               ? "Review the proposed details before adding them."
               : "Nothing new needs to be saved from that note.",
       );
-    } catch {
+    } catch (error) {
       if (!guard.isCurrent()) return;
+      if (hasKnownMemoryFailure(error)) attempt.settled("failed");
       trackMemoryOutcome(operationOwnerId, "capture_prepared", "error");
       setCaptureMessage(
         "That note couldn’t be prepared. Nothing was saved. Please try again.",
@@ -1520,6 +1553,8 @@ export function usePkmNaturalModel({
         revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
     });
     if (!guard.isCurrent()) return;
+    const attempt = captureProductAttempt("pkm.retry_capture_section", operationOwnerId);
+    attempt.started();
     setCaptureRetryingSectionKey(sectionKey);
     try {
       const prepared = await prepareNaturalLanguagePkm({
@@ -1546,6 +1581,7 @@ export function usePkmNaturalModel({
       const stillUnresolved = prepared.sourceCoverage.filter(
         isUnresolvedSourceBlock,
       );
+      attempt.settled(stillUnresolved.length === 0 ? "returned" : "blocked");
       const remaining =
         captureUnresolvedSections.length - 1 + stillUnresolved.length;
       setCaptureUnresolvedSections((current) =>
@@ -1580,8 +1616,9 @@ export function usePkmNaturalModel({
             ? "Every section is prepared. Review the proposed details before adding them."
             : "Nothing new needs to be saved from that note.",
       );
-    } catch {
+    } catch (error) {
       if (!guard.isCurrent()) return;
+      if (hasKnownMemoryFailure(error)) attempt.settled("failed");
       trackMemoryOutcome(operationOwnerId, "capture_prepared", "error");
       setCaptureMessage(
         "That section couldn’t be prepared. Nothing from it was saved. Please try again.",
@@ -1626,6 +1663,8 @@ export function usePkmNaturalModel({
       }
       return;
     }
+    const attempt = captureProductAttempt("pkm.save_capture", operationOwnerId);
+    attempt.started();
     setCaptureSaving(true);
     try {
       const operation = addToPKM({
@@ -1658,6 +1697,16 @@ export function usePkmNaturalModel({
           "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
+      // A partial or retired result cannot certify the whole reviewed save.
+      // Keep it unknown; never turn a timeout or a partial write into success.
+      if (guard.isCurrent()) {
+        if (result.saved > 0 && result.failed === 0 && result.saved === result.attempted)
+          attempt.settled("returned");
+        else if (result.saved === 0 && result.results.length === result.attempted &&
+          result.results.length > 0 && result.results.every(item => !item.success &&
+            item.result && isKnownMemoryRejection(item.result)))
+          attempt.settled("blocked");
+      }
       if (
         receiptGuard.isCurrent() &&
         memoryOwnerIdRef.current === operationOwnerId
@@ -1736,6 +1785,8 @@ export function usePkmNaturalModel({
         }
         return;
       }
+      // A rejected promise does not distinguish a lost acknowledgement from
+      // an uncommitted write. The existing UI error does not grant that proof.
       trackMemoryOutcome(operationOwnerId, "capture_saved", "error");
       setCaptureMessage(
         "Memory couldn’t be saved. Your note is still here; please try again.",

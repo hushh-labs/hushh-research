@@ -53,7 +53,7 @@ def _vertex_search_model(monkeypatch, finish):
                     ],
                 ),
                 partial=False,
-                turn_complete=True,
+                finish_reason=types.FinishReason.STOP,
             )
         elif len(requests) == 2:
             assert any(tool.google_search is not None for tool in req.config.tools)
@@ -65,7 +65,7 @@ def _vertex_search_model(monkeypatch, finish):
             yield LlmResponse(
                 content=types.Content(role="model", parts=[types.Part(text=ANSWER)]),
                 partial=False,
-                turn_complete=True,
+                finish_reason=types.FinishReason.STOP,
                 grounding_metadata=types.GroundingMetadata(
                     grounding_chunks=[
                         types.GroundingChunk(
@@ -80,7 +80,7 @@ def _vertex_search_model(monkeypatch, finish):
             yield LlmResponse(
                 content=types.Content(role="model", parts=[types.Part(text="Normal synthesis.")]),
                 partial=False,
-                turn_complete=True,
+                finish_reason=types.FinishReason.STOP,
             )
 
     native = SimpleNamespace(
@@ -112,5 +112,7 @@ async def test_configured_vertex_search_preserves_native_grounding_and_chat_comp
     ] == [expected]
     assert len(requests) == (2 if finish else 3)
     assert all(req.model == native.model for req in requests)
+    assert requests[1].config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    assert child.model._primary_timeout(requests[1]) == 60
     assert sum(event.type == EventType.RUN_FINISHED for event in events) == 1
     assert not any(event.type == EventType.RUN_ERROR for event in events)

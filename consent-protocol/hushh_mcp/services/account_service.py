@@ -77,6 +77,25 @@ from hushh_mcp.services.hushh_tech_uat_database_attestation import (
 
 logger = logging.getLogger(__name__)
 
+# Spent occupied-number deletion proofs outlive either account's erasure; see
+# AccountService._retain_spent_phone_deletion_proofs. Static SQL only.
+_PHONE_DELETION_RECEIPTS_LOCK_SQL = """SELECT 1 FROM account_phone_linked_deletions
+    WHERE requester_user_id=:user_id OR target_user_id=:user_id FOR UPDATE"""
+# An erased requester can never read its receipts again. Configured test-code
+# proofs are scoped to one operation, and an SMS event authorizes for at most
+# 300 s, so only recently dispatched SMS receipts still guard against replay.
+_PHONE_DELETION_REQUESTER_DROP_SQL = """DELETE FROM account_phone_linked_deletions
+    WHERE requester_user_id=:user_id AND proof_event_digest IS NOT NULL
+      AND (transport='configured_test' OR dispatched_at<clock_timestamp()-INTERVAL '10 minutes')"""
+_PHONE_DELETION_REQUESTER_DETACH_SQL = """UPDATE account_phone_linked_deletions
+    SET requester_user_id=NULL
+    WHERE requester_user_id=:user_id AND proof_event_digest IS NOT NULL"""
+# The live requester still reads this receipt; the erased holder keeps no raw
+# UID and no phone pseudonym in it.
+_PHONE_DELETION_TARGET_DETACH_SQL = """UPDATE account_phone_linked_deletions
+    SET target_user_id=NULL, phone_digest='hmac-sha256:'||repeat('0',64)
+    WHERE target_user_id=:user_id AND proof_event_digest IS NOT NULL"""
+
 DeleteAccountTarget = Literal["investor", "ria", "both"]
 # Emitted when the erasure transaction raised and was rolled back. A commit that
 # fails on a dropped connection can still be ambiguous, so clients confirm the
@@ -1081,7 +1100,12 @@ class AccountService:
         table_presence = self._assert_personal_agent_external_resources_absent(
             conn, params=params, finalize_erasure=True
         )
-        results["personal_agent_external_resources_absent"] = True
+        from hushh_mcp.services.account_cloud_retirement import local_erasure_ready
+
+        deferred = local_erasure_ready(conn, params["user_id"])
+        results["personal_agent_external_resources_absent"] = not deferred
+        if deferred:
+            results["personal_agent_cloud_cleanup_deferred"] = True
         for table_name, present in table_presence.items():
             if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)
@@ -1420,6 +1444,7 @@ class AccountService:
         *,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Delete either the whole account or one persona.
@@ -1451,6 +1476,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
 
@@ -1879,6 +1909,7 @@ class AccountService:
                             last_active_persona = 'investor',
                             investor_marketplace_opt_in = FALSE,
                             contact_discoverable = FALSE,
+                            connection_list_shared = FALSE,
                             contact_sync_consent_enabled_at = NULL,
                             contact_sync_consent_rule_version =
                                 contact_sync_consent_rule_version + 1,
@@ -1968,6 +1999,7 @@ class AccountService:
         backend_only: bool = False,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Prepare durable cleanup, or execute the attested UAT-only local reset."""
@@ -1983,6 +2015,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         if admission_check is not None:
@@ -2001,13 +2038,21 @@ class AccountService:
         requested_target: DeleteAccountTarget,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Persist approval and custody before returning; the existing worker continues."""
 
+        from hushh_mcp.services.account_cloud_retirement import CloudRetirementReviewRequired
         from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
 
         try:
+            if reviewed_cloud_plan_sha256 is not None:
+                from hushh_mcp.services.account_cloud_retirement import verify_reviewed_authority
+
+                await settle_cleanup_database_call(
+                    verify_reviewed_authority, user_id, reviewed_cloud_plan_sha256
+                )
             prepared = await settle_cleanup_database_call(
                 prepare_full_account_cleanup_transaction,
                 self,
@@ -2016,6 +2061,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         except AccountDeletionAdmissionRefused as refused:
@@ -2027,7 +2077,7 @@ class AccountService:
                 "error_code": "PHONE_TRANSFER_IN_PROGRESS",
                 "error": "PHONE_TRANSFER_IN_PROGRESS",
             }
-        except ProviderCleanupReviewChanged as changed:
+        except (ProviderCleanupReviewChanged, CloudRetirementReviewRequired) as changed:
             return changed.result()
         except PersonalAgentDeprovisioningRequiredError:
             from hushh_mcp.services.account_personal_agent_erasure import (
@@ -2049,6 +2099,12 @@ class AccountService:
             "success": True,
             "account_deleted": False,
             "cleanup_pending": True,
+            "ready_to_start_fresh": False,
+            **(
+                {"cloud_cleanup": prepared.cloud_cleanup}
+                if prepared.cloud_cleanup is not None
+                else {}
+            ),
             "requested_target": requested_target,
             "cleanup_operation": {
                 "id": prepared.cleanup_id,
@@ -2118,11 +2174,38 @@ class AccountService:
         cleanup = await self._erase_shared_files_if_present(claim.owner_id, backend_only=False)
         if cleanup is not None:
             return cleanup
+        from hushh_mcp.services.account_deletion_firebase_erasure import ensure_identity_absent
+
+        await ensure_identity_absent(claim)
         return await self._settle_full_account_transaction(
             claim.owner_id,
             requested_target=self._normalized_target(claim.requested_target),
             provider_cleanup=claim,
         )
+
+    def _retain_spent_phone_deletion_proofs(self, conn, params: Dict[str, Any]) -> None:
+        """Keep every spent linked-deletion proof single-use through erasure.
+
+        Migration 436 cascades a linked-deletion receipt with either account, but
+        a consumed receipt holds the only record of its spent SMS event (the
+        UNIQUE proof_event_digest) and the requester's read-back of the outcome.
+        Detach it instead: clear this owner's raw reference, which the identity
+        write guard allows only after this owner's tombstone exists, and blank an
+        erased holder's phone digest. Receipts that can no longer be replayed or
+        read are deleted, unconsumed rows still cascade, and the shared bounded
+        prune ages retained receipts out without waiting for a new prepare().
+        """
+        if not self._table_exists(conn, "account_phone_linked_deletions"):
+            return
+        from hushh_mcp.services.phone_linked_deletion import RECEIPT_PRUNE_SQL
+
+        # Lock this owner's receipts first: an in-flight admission either commits
+        # its spent-proof digest before the detach reads it, or finds the row gone.
+        conn.execute(text(_PHONE_DELETION_RECEIPTS_LOCK_SQL), params)
+        conn.execute(text(RECEIPT_PRUNE_SQL))
+        conn.execute(text(_PHONE_DELETION_REQUESTER_DROP_SQL), params)
+        conn.execute(text(_PHONE_DELETION_REQUESTER_DETACH_SQL), params)
+        conn.execute(text(_PHONE_DELETION_TARGET_DETACH_SQL), params)
 
     def _delete_full_account_transaction(
         self,
@@ -2133,6 +2216,7 @@ class AccountService:
         provider_cleanup: ProviderCleanupClaim | None = None,
     ) -> tuple[Dict[str, Any], ProviderCredentialSnapshot]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
+        cloud_cleanup = None
         results = {
             "actor_identity_cache": False,
             "actor_verified_email_aliases": False,
@@ -2319,6 +2403,9 @@ class AccountService:
                     params=params,
                     results=results,
                 )
+                # After the erasure guards, before actor_profiles cascades: the
+                # tombstone above permits detaching this owner's references.
+                self._retain_spent_phone_deletion_proofs(conn, params)
                 # Copy encrypted provider credentials before their rows go, so
                 # the grants can be released at the provider after commit.
                 if not backend_only and provider_cleanup is None:
@@ -2665,6 +2752,10 @@ class AccountService:
                     from hushh_mcp.services import account_deletion_provider_journal as journal
 
                     journal.settle_local_erasure(conn, backend_cleanup)
+                if results.get("personal_agent_cloud_cleanup_deferred"):
+                    from hushh_mcp.services.account_cloud_retirement import summary_in_transaction
+
+                    cloud_cleanup = summary_in_transaction(conn, user_id)
 
             logger.info("✅ FULL ACCOUNT DELETION completed for %s", user_id)
         except PersonalAgentDeprovisioningRequiredError:
@@ -2712,6 +2803,11 @@ class AccountService:
             "requested_target": requested_target,
             "deleted_target": "both",
             "account_deleted": True,
+            **(
+                {"cloud_cleanup": cloud_cleanup, "ready_to_start_fresh": True}
+                if cloud_cleanup is not None
+                else {}
+            ),
             "remaining_personas": [],
             "details": results,
         }, provider_credentials

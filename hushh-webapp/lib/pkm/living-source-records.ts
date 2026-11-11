@@ -296,6 +296,48 @@ export function incompleteLivingSourceKinds(
   }
   return [...kinds].sort();
 }
+/** A renewed verification is stored once it is this far from the stored time.
+ * The profile is checked every 60 s wake, so its stored time stays inside the
+ * fact index's five-minute window (no session overlay) with one wake and a build
+ * within the two-minute read grace; scan sources renew on their own five-minute
+ * rescans. It is also the clock tolerance: readers accept a stored time this far
+ * ahead of their clock, so ordinary skew between devices is neither stale nor
+ * rewritten, and only a pair skewed further rewrites, as every pass did before. */
+export const LIVING_VERIFICATION_PERSIST_MS = 2 * 60_000;
+/** Every writer of the living domain builds the whole domain from the fresh read
+ * it holds the revision for, so it replaces the stored domain. A deep merge kept
+ * keys a writer had cleared, such as a verified pending hint, and rewrote them. */
+export const LIVING_DOMAIN_REPLACE = { merge_mode: "replace_domain" } as const;
+export interface LivingSourceWriteView {
+  inventory: LivingSourceInventory | undefined;
+  history: unknown;
+  journalCursors: unknown;
+  journalPending: unknown;
+  sourceHealth: unknown;
+}
+/** Whether a build must be written. Records, history, completeness, journal
+ * replay state and unreadable stored health are content, always written.
+ * Verification times and health samples are bookkeeping: they ride with the
+ * next write, which a renewal forces once it is LIVING_VERIFICATION_PERSIST_MS
+ * from the stored time in either direction, or that time is missing. */
+export function livingSourceWriteDue(stored: LivingSourceWriteView, next: LivingSourceWriteView): boolean {
+  const before = stored.inventory;
+  const after = next.inventory;
+  if (!before || !after) return true;
+  const content = (view: LivingSourceWriteView) => JSON.stringify([view.inventory?.records,
+    view.inventory?.complete, view.inventory?.unavailable, view.history, view.journalCursors, view.journalPending]);
+  if (content(stored) !== content(next) ||
+      JSON.stringify(stored.sourceHealth) !== JSON.stringify(parseLivingSourceHealth(stored.sourceHealth)))
+    return true;
+  const renewals: [string | undefined, string | undefined][] = [[before.observedAt, after.observedAt],
+    ...VERIFICATION_WINDOWS.map(([kind]): [string | undefined, string | undefined] =>
+      [before.verifiedAt?.[kind], after.verifiedAt?.[kind]])];
+  return renewals.some(([was, now]) => {
+    if (was === now) return false;
+    const gap = Date.parse(now ?? "") - Date.parse(was ?? "");
+    return !Number.isFinite(gap) || Math.abs(gap) >= LIVING_VERIFICATION_PERSIST_MS;
+  });
+}
 export function reconcileLivingSources(
   previous: LivingSourceInventory | null,
   inputs: LivingSourceInput[],
@@ -330,10 +372,12 @@ export function reconcileLivingSources(
       JSON.stringify(prior.value) === JSON.stringify(input.value)
     ) {
       // Provenance backfill is retained without inventing a payload revision.
+      // A source time that moves with an unchanged value is not a change:
+      // identity refresh restamps updated_at on every forced read.
       records.set(key, {
         ...prior,
         createdAt: prior.createdAt ?? input.createdAt,
-        updatedAt: input.updatedAt ?? prior.updatedAt,
+        updatedAt: prior.updatedAt ?? input.updatedAt,
       });
       continue;
     }

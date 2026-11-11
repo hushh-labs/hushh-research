@@ -178,6 +178,34 @@ def classify_provider_error(error: BaseException) -> str:
     return APPLICATION_BROKEN
 
 
+# A timeout, 429 or 5xx may clear on one repeat. Billing or account enforcement,
+# permission and configuration faults, and ABORTED conflicts never qualify.
+_TRANSIENT_STATUS_NAMES = {"INTERNAL", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED"}
+
+
+def is_transient_transport(error: BaseException) -> bool:
+    """Whether a provider outage is a timeout, 429 or 5xx that one repeat may clear.
+
+    Only an outage by classify_provider_error qualifies, under the same cause-chain
+    rules, so a sanitized timeout wrapping an application fault never does.
+    """
+    if classify_provider_error(error) != PROVIDER_UNAVAILABLE:
+        return False
+    for current in _iter_causes(error):
+        if isinstance(current, (asyncio.TimeoutError, TimeoutError)):
+            cause = current.__cause__ or current.__context__
+            if cause is None or isinstance(cause, asyncio.CancelledError):
+                return True
+            continue
+        if isinstance(current, TimeoutException):
+            return True
+        if isinstance(current, Exception) and _status_code(current) in _PROVIDER_STATUS_CODES:
+            return True
+        if str(getattr(current, "status", "") or "").strip().upper() in _TRANSIENT_STATUS_NAMES:
+            return True
+    return False
+
+
 def is_advisory(classification: str) -> bool:
     """Whether a classification should be reported without failing the release."""
     return classification in ADVISORY_CLASSIFICATIONS

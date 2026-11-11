@@ -16,6 +16,7 @@ from helpers.phone_rollback_release import (
     ROOT,
     _revision,
     _verify_args,
+    cleanup_upgrade_source,
 )
 from helpers.phone_rollback_release import (
     closed_workos as closed_workos,
@@ -247,6 +248,54 @@ def test_cleanup_reporting_pair_is_exact(release_plan, monkeypatch, changed, mut
     assert all(
         proof["source_sha256"][path] == hashlib.sha256(b"new reporting file").hexdigest()
         for path in paths
+    )
+
+
+_CLEANUP_UPGRADE_PATHS = (
+    "api/routes/account.py",
+    "db/contracts/prod_core_schema.json",
+    "hushh_mcp/services/account_cleanup_runtime.py",
+    "hushh_mcp/services/support_email_service.py",
+    "hushh_mcp/services/account_deletion_lifecycle_service.py",
+    "uv.lock",
+)
+_SETTLEMENT_MIGRATION = "db/migrations/437_account_legacy_generation_settlement.sql"
+
+
+@pytest.mark.parametrize(
+    ("changed", "mutation"),
+    [
+        (None, None),
+        *(
+            (path, mutation)
+            for path in _CLEANUP_UPGRADE_PATHS
+            for mutation in ("wrong_old", "wrong_new", "reversed", "partial")
+        ),
+        (_SETTLEMENT_MIGRATION, "wrong_new"),
+    ],
+)
+def test_cleanup_upgrade_requires_the_whole_reviewed_change(
+    release_plan, monkeypatch, changed, mutation
+):
+    compat = release_plan.compat
+    fallback, primary = "a" * 40, "e" * 40
+    monkeypatch.setattr(
+        compat,
+        "_source",
+        cleanup_upgrade_source(
+            release_plan, _CLEANUP_UPGRADE_PATHS, _SETTLEMENT_MIGRATION, changed, mutation
+        ),
+    )
+    if mutation is not None:
+        with pytest.raises(ValueError, match="consumer_change_unqualified"):
+            compat.qualify_consumers(fallback, primary)
+        return
+    proof = compat.qualify_consumers(fallback, primary)
+    assert set(proof["source_sha256"]) == {*compat.UNCHANGED, *compat.REVIEWED_EXCEPTIONS}
+    assert all(
+        proof["source_sha256"][path]
+        == hashlib.sha256(b"complete reviewed file:" + path.encode()).hexdigest()
+        for path in _CLEANUP_UPGRADE_PATHS
     )
 
 

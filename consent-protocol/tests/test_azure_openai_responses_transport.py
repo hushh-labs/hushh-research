@@ -460,3 +460,16 @@ async def test_owner_azure_key_never_follows_a_credential_bearing_redirect():
         assert server.requests[0].url.host == HOST
     finally:
         await client.aclose()
+
+
+async def test_drive_plan_v2_schema_reaches_azure_with_bounded_entity_fallback():
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json", response_schema=SemanticLiveSearchModelPlan
+    )
+    wire = (await _send(config)).body()["text"]["format"]["schema"]
+    Draft202012Validator.check_schema(wire)
+    assert "sparse_fallback_any_token" in json.dumps(wire)
+    assert "activity_union" in json.dumps(wire)
+    assert "SemanticDrivePlan" in wire["$defs"] and "SemanticDrivePlanV2" in wire["$defs"]

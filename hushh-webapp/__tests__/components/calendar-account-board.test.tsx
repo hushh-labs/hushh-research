@@ -2,6 +2,7 @@ import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
+import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { calendarDate } from "@/components/calendar/calendar-schedule-presentation";
 
 const mocks = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
   },
 }));
 vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: vi.fn(), useCoarseClock: () => Date.now() }));
+vi.mock("@/components/calendar/calendar-invitations", () => ({ CalendarInvitations: () => <div /> }));
 vi.mock("@/components/calendar/calendar-insights", () => ({
   CalendarInsights: ({ account, initialLibrary }: { account: { account_id: string }; initialLibrary?: { day: string } | null }) => {
     const [initial] = useState(initialLibrary);
@@ -125,19 +127,67 @@ describe("three-account Calendar board", () => {
     expect(mocks.onChat).not.toHaveBeenCalled();
   });
 
-  it("selects each of the three accounts in Insights without the Board summary", () => {
-    render(page());
+  it("selects each of the three accounts in Insights without the Board summary", async () => {
+    const husshPhoto = "data:image/png;base64,aGVsbG8=";
+    const verifiedStatus = { ...status, accounts: status.accounts.map(account => ({ ...account, google_email_verified: account.account_id !== "third" })) };
+    const people = new Map([
+      ["default@example.com", { userId: "owner", displayName: null, photoUrl: husshPhoto }],
+      ["second@example.com", { userId: "peer", displayName: null, photoUrl: husshPhoto }],
+    ]);
+    mocks.boardDay.mockResolvedValue({ ...board, people: { "second@example.com": { userId: "peer", photoUrl: husshPhoto } } });
+    render(page(verifiedStatus, people));
+    await screen.findByRole("group", { name: "Calendar account default@example.com" });
     fireEvent.click(screen.getByRole("tab", { name: "Insights" }));
     const insights = screen.getByRole("region", { name: "Calendar insights" });
     const selector = () => within(insights).getByRole("button", { name: /^Calendar account:/ });
     expect(within(insights).getByTestId("insights-account")).toHaveTextContent("default");
+    expect(selector().querySelector("[data-photo-source]")).toHaveAttribute("data-photo-source", "hussh");
     fireEvent.keyDown(selector(), { key: "Enter" });
     fireEvent.click(screen.getByRole("menuitemradio", { name: /second@example.com/ }));
     expect(within(insights).getByTestId("insights-account")).toHaveTextContent("second");
+    expect(selector().querySelector("[data-photo-source]")).toHaveAttribute("data-photo-source", "hussh");
     fireEvent.keyDown(selector(), { key: "Enter" });
     fireEvent.click(screen.getByRole("menuitemradio", { name: /third@example.com/ }));
     expect(within(insights).getByTestId("insights-account")).toHaveTextContent("third");
+    expect(selector().querySelector("[data-photo-url]")).toBeNull();
+    expect(selector().querySelector("[data-slot=avatar-fallback]")).toHaveTextContent("T");
     expect(within(insights).queryByText("Across your connected accounts today")).toBeNull();
+  });
+
+  it("uses each account's current Hussh profile across cards, pickers and booking, including empty accounts", async () => {
+    const ownerPhoto = "data:image/png;base64,b3duZXI=";
+    const secondPhoto = "data:image/png;base64,c2Vjb25k";
+    const thirdPhoto = "data:image/png;base64,dGhpcmQ=";
+    const verifiedStatus = { ...status, accounts: status.accounts.map(account => ({ ...account, google_email_verified: true })) };
+    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone, conflicts: [], people: {
+      "second@example.com": { userId: "second-user", photoUrl: secondPhoto },
+      "third@example.com": { userId: "third-user", photoUrl: thirdPhoto },
+    }, accounts: board.accounts.map(account => ({ ...account, free_windows: board.shared_free_windows })) }));
+    render(page(verifiedStatus, new Map([
+      ["default@example.com", { userId: "owner", displayName: null, photoUrl: ownerPhoto }],
+      ["second@example.com", { userId: "stale-connection", displayName: null, photoUrl: ownerPhoto }],
+      ["guest@example.com", { userId: "guest", displayName: "Known Guest", photoUrl: null }],
+    ])));
+    for (const [email, photo] of [["default@example.com", ownerPhoto], ["second@example.com", secondPhoto], ["third@example.com", thirdPhoto]]) {
+      const card = await screen.findByRole("group", { name: `Calendar account ${email}` });
+      expect(card.querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", photo);
+    }
+    fireEvent.click(screen.getByRole("tab", { name: "Insights" }));
+    const insightsPicker = screen.getByRole("button", { name: "Calendar account: default@example.com" });
+    fireEvent.keyDown(insightsPicker, { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /third@example.com/ }));
+    expect(screen.getByRole("button", { name: "Calendar account: third@example.com" }).querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", thirdPhoto);
+    fireEvent.click(screen.getByRole("tab", { name: "Invitations" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Calendar account: default@example.com" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /second@example.com/ }));
+    expect(screen.getByRole("button", { name: "Calendar account: second@example.com" }).querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", secondPhoto);
+    fireEvent.click(screen.getByRole("tab", { name: "Board" }));
+    const third = screen.getByRole("group", { name: "Calendar account third@example.com" });
+    fireEvent.click(within(third).getByRole("tab", { name: "Free time" }));
+    fireEvent.click(within(third).getByRole("button", { name: /Schedule from free time/ }));
+    const booking = screen.getByRole("dialog", { name: "Schedule meeting" });
+    expect(booking.querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", thirdPhoto);
+    expect(booking.querySelector('datalist option[value="guest@example.com"]')).toHaveAttribute("label", "Known Guest");
   });
 
   it("returns to the exact account's library once after OAuth without replaying its old day", () => {
@@ -152,12 +202,24 @@ describe("three-account Calendar board", () => {
     expect(screen.getByTestId("insights-restored-day")).toHaveTextContent("none");
   });
 
-  it("reviews a 60-minute booking within a single-account opening before creating it", async () => {
-    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone, accounts: [board.accounts[0]], conflicts: [] }));
-    render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
-    fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
+  it("books an account's free time into that account without asking for an account", async () => {
+    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone, accounts: [{ ...board.accounts[0], free_windows: board.shared_free_windows }], conflicts: [] }));
+    const husshPhoto = "data:image/png;base64,aGVsbG8=";
+    render(page({ ...status, accounts: status.accounts.slice(0, 1) }, new Map([["default@example.com", { userId: "owner", displayName: null, photoUrl: husshPhoto }]])));
+    const account = await screen.findByRole("group", { name: "Calendar account default@example.com" });
+    fireEvent.click(within(account).getByRole("tab", { name: "Free time" }));
+    fireEvent.click(await within(account).findByRole("button", { name: /Schedule from free time/ }));
     const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
-    fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "default" } });
+    expect(within(dialog).queryByRole("combobox", { name: "Calendar account and destination" })).toBeNull();
+    expect(within(dialog).queryByRole("combobox", { name: "Time zone" })).toBeNull();
+    expect(dialog.querySelector("[data-photo-source]")).toHaveAttribute("data-photo-source", "hussh");
+    expect(within(dialog).getByPlaceholderText("Project planning meeting")).toBeTruthy();
+    const where = within(dialog).getByRole("combobox", { name: "Where" });
+    expect(within(where).getByRole("option", { name: "Existing Meet, Zoom, or Teams link" })).toBeTruthy();
+    fireEvent.change(where, { target: { value: "external_link" } });
+    expect(within(dialog).getByPlaceholderText("https://zoom.us/j/123456789")).toBeTruthy();
+    fireEvent.change(where, { target: { value: "google_meet" } });
+    expect(within(dialog).queryByText("Your calendar updates after Google confirms the event.")).toBeNull();
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
     expect(within(dialog).getByRole("combobox", { name: "Duration" })).toHaveValue("60");
     fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
@@ -199,18 +261,20 @@ describe("three-account Calendar board", () => {
     expect(mocks.executeProposal).not.toHaveBeenCalled();
   });
 
-  it("returns to the event's actual Board date after booking in UTC", async () => {
+  it("returns to the event's Board date after booking in the detected time zone", async () => {
     const boardZone = calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-    const boardDate = calendarDate(Date.parse("2026-10-21T23:30:00.000Z"), boardZone);
+    const startAt = bookingInstant(date, "23:30", boardZone);
+    const boardDate = calendarDate(Date.parse(startAt), boardZone);
     render(page());
     fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
     const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "second" } });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Midnight planning" } });
-    fireEvent.change(within(dialog).getByRole("combobox", { name: "Time zone" }), { target: { value: "UTC" } });
+    expect(within(dialog).queryByRole("combobox", { name: "Time zone" })).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: date } });
     fireEvent.change(within(dialog).getByLabelText("Start"), { target: { value: "23:30" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
-    await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ startAt: "2026-10-21T23:30:00.000Z", selectedDate: "2026-10-21" })));
+    await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ startAt, selectedDate: date, timeZone: boardZone })));
     const callsBeforeConfirmation = mocks.boardDay.mock.calls.length;
     fireEvent.click(await within(dialog).findByRole("button", { name: "Schedule personal block" }));
     await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledOnce());
@@ -298,11 +362,11 @@ describe("three-account Calendar board", () => {
     expect(mocks.boardDay).toHaveBeenCalledWith(expect.objectContaining({ durationMinutes: 15 }));
   });
 
-  it("shows a direct Join link and provider on an event without nesting the link in the details button", async () => {
+  it("binds a standalone Meet Join link to the event's calendar account", async () => {
     mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], checked_at: board.checked_at, events: [{ ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }] }] });
     render(page());
     const join = await screen.findByRole("link", { name: "Join meeting: Planning review" });
-    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
     expect(join.closest("button")).toBeNull();
     expect(screen.getByText("Google Meet")).toBeInTheDocument();
     expect(screen.getByText("Connected", { exact: true })).toBeInTheDocument();
@@ -390,7 +454,7 @@ describe("three-account Calendar board", () => {
     expect(within(dialog).getByRole("heading", { name: "Planning review" })).toBeInTheDocument();
     expect(within(dialog).getAllByText(/default@example\.com/)).toHaveLength(1);
     expect(within(dialog).getByText("Organized by organizer-one@example.com")).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(within(dialog).getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
     expect(within(dialog).queryByRole("link", { name: "Open in Google Calendar" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Accept" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Decline", exact: true })).toBeInTheDocument();

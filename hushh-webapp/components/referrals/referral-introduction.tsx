@@ -73,7 +73,7 @@ export function ReferralIntroduction({ onContinue, onBack, busy }: ReferralIntro
               Stay organised with One.{" "}<br /><span>Make time for what matters.</span>
             </h1>
             <p className={styles.description}>
-              Share your private agent with someone you care about.<br className={styles.desktopBreak} />
+              Share Agent One with someone you care about.<br className={styles.desktopBreak} />
               {" "}Earn rewards when they qualify.
             </p>
             <Button

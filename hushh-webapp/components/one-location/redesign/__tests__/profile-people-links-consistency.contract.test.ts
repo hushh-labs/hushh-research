@@ -60,29 +60,6 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(hubSource).not.toContain('<SectionTitle as="h2">Temporary link');
   });
 
-  it("keeps the Location hub content aligned with its shared tab shell", () => {
-    const source = readSource(
-      "components/one-location/redesign/location-redesign-hub.tsx",
-    );
-    const ctaLayout = readSource(
-      "components/one-location/redesign/location-cta-layout.ts",
-    );
-
-    // The People tab used to introduce a private 640px reading column inside
-    // the agent shell, leaving its search/list surface visibly narrower than
-    // the Now | People | Links tabs on desktop. Hub panels already own the
-    // canonical page gutters, so the tab content should fill that same shell.
-    expect(source).toContain('<div className="w-full space-y-4 sm:space-y-5">');
-    expect(source).toContain("PUBLIC_LINK_CONTROLS_CLASSNAME");
-    expect(ctaLayout).toContain("DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME");
-    expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[320px]");
-    expect(ctaLayout).toContain(
-      "flex w-full max-w-[420px] flex-col items-stretch gap-4 px-4",
-    );
-    expect(ctaLayout).toContain("h-12 min-h-12 w-auto max-w-full self-start rounded-full");
-    expect(ctaLayout).not.toContain("min-[380px]:pl-16");
-  });
-
   it("keeps Location Links concise without duplicate active-card title or live pill copy", () => {
     const source = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",

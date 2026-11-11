@@ -113,11 +113,21 @@ async def test_a_refusal_or_a_missing_url_never_fails_provisioning():
 
 
 def test_provision_and_upgrade_arm_the_doorbell_once_the_url_is_known():
-    for method in (
-        user_gcp_backend.UserGcpBackend._execute_live,
-        user_gcp_backend.UserGcpBackend.upgrade,
+    from hushh_mcp.services import user_gcp_upgrade
+
+    for method, url_expression, arm_expression in (
+        (
+            user_gcp_backend.UserGcpBackend._execute_live,
+            "url = client.service_url(svc)",
+            "await self._configure_gmail_delivery",
+        ),
+        (
+            user_gcp_upgrade._finish_upgrade,
+            "outcome.service_url = GcpRunClient.service_url(outcome.service)",
+            "await backend._configure_gmail_delivery",
+        ),
     ):
         source = inspect.getsource(method)
-        url_at = source.index("url = client.service_url(svc)")
-        arm_at = source.index("await self._configure_gmail_delivery")
+        url_at = source.index(url_expression)
+        arm_at = source.index(arm_expression)
         assert arm_at > url_at, f"{method.__name__} arms before the URL exists"

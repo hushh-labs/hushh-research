@@ -44,14 +44,8 @@ def dispatch(event: dict, environment: dict, policy: dict) -> dict:
         and SHA.fullmatch(environment.get("GITHUB_SHA", "")),
         "Emergency production requires the trusted Main manual workflow",
     )
-    actors = {
-        environment.get("GITHUB_ACTOR"),
-        environment.get("GITHUB_TRIGGERING_ACTOR"),
-    }
-    require(
-        actors.issubset(set(policy["production"]["manual_dispatch_users"])),
-        "Emergency production requires governed original and triggering operators",
-    )
+    from github_team_authority import request_operation_authority
+    request_operation_authority(environment, "production", environment.get("GITHUB_ACTOR"), protected=True)
     require(
         isinstance(source_ref, str)
         and 1 <= len(source_ref) <= 160

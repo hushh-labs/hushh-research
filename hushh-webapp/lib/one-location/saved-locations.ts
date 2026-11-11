@@ -14,6 +14,8 @@ import type { OneLocationPreVaultDraft } from "@/lib/services/one-location-pre-v
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
+import { recordSavedPlaceChanges } from "@/lib/one-location/saved-place-activity";
+import { snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
 import {
   normalizeSavedLocationAddressDetails,
   type SavedLocationAddressDetails,
@@ -247,6 +249,8 @@ async function mutateSavedLocations(params: {
   mutate: (locations: SavedLocation[]) => SavedLocation[];
 }): Promise<SavedLocation[]> {
   requireUnlockedVault(params.context);
+  const activityOwner = snapshotLiveActivityOwner();
+  let previousLocations: SavedLocation[] = [];
   let persistedLocations: SavedLocation[] = [];
 
   const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -262,9 +266,8 @@ async function mutateSavedLocations(params: {
     beforeEffect: params.context.beforeEffect,
     build: (writeContext) => {
       const updatedAt = new Date().toISOString();
-      persistedLocations = params.mutate(
-        locationsFromDomain(writeContext.currentDomainData),
-      );
+      previousLocations = locationsFromDomain(writeContext.currentDomainData);
+      persistedLocations = params.mutate(previousLocations);
       return savedPlacesWrite(
         writeContext.currentDomainData,
         writeContext.currentManifest,
@@ -274,11 +277,8 @@ async function mutateSavedLocations(params: {
     },
   });
 
-  if (!result.success) {
-    throw new Error(
-      result.message || "Could not save locations to your vault.",
-    );
-  }
+  if (!result.success) throw new Error(result.message || "Could not save locations to your vault.");
+  if (params.source !== "one_location_saved_place_edit_confirm") recordSavedPlaceChanges(previousLocations, persistedLocations, activityOwner);
   return persistedLocations;
 }
 

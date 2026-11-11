@@ -243,7 +243,7 @@ export function AgentPkmReviewPanel({
                           {cleanText(card.sharing_impact.summary, 160)}
                         </p>
                       ) : multiGroup || compact ? null : (
-                        <p className="leading-5 text-muted-foreground">Private to your private agent. Consent required to share.</p>
+                        <p className="leading-5 text-muted-foreground">Private to Agent One. Consent required to share.</p>
                       )}
                     </div>
                   </div>

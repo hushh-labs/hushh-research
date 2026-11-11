@@ -10,13 +10,15 @@ import asyncio
 import base64
 import io
 import json
+import re
 import secrets
 import time
 import wave
 
 from google.genai import types
 
-from scripts.capability_probe_failure import failure_reason, settle_recording
+from scripts.capability_check import run_capability
+from scripts.capability_probe_failure import settle_recording
 from scripts.managed_probe_media import _pdf, _png, _wav16
 from scripts.probe_vertex_research import probe_vertex_research as _probe_vertex_research
 
@@ -86,6 +88,7 @@ async def _probe_public_search(*, compact: bool = False):
     # provider/tool pairing while this readiness probe stayed green.
     root = build_one_text_agent()
     agent = _synthetic_public_search_agent(root, compact=compact)
+    native_compact = compact and getattr(agent.model, "primary_provider", None) == "vertex"
 
     async def observe(callback_context, llm_response):
         if not llm_response.partial and llm_response.grounding_metadata:
@@ -102,7 +105,13 @@ async def _probe_public_search(*, compact: bool = False):
         user_id="synthetic-public-reader",
         consent_token="",
         message=(
-            "Search IANA's example domains documentation. Name both example.net and example.org, "
+            "Search IANA's official public documentation about example.com, example.net and "
+            "example.org. Are example.net and example.org available for registration? "
+            "Put only registration_available=true or registration_available=false on the first line. "
+            "On subsequent lines give a short cited explanation naming both domains. "
+            "Do not use JSON."
+            if native_compact
+            else "Search IANA's example domains documentation. Name both example.net and example.org, "
             "state whether they are available for registration, and cite IANA. "
             "Return one JSON object with domains (an array of those two names), "
             "registration_available (a boolean), and explanation (a short string with the citation). "
@@ -119,9 +128,27 @@ async def _probe_public_search(*, compact: bool = False):
         raise ValueError("The actual Search child returned no received citations")
     proof = {"cited_sources": len(set(received)), "fresh_page_retrieval_claimed": False}
     if compact:
+        _verify_compact_search_fact(result.final_text, native=native_compact)
+        proof["synthetic_content_verified"] = True
+    return proof
+
+
+def _verify_compact_search_fact(text: str, *, native: bool) -> None:
+    if native:
+        # Native Search publishes cited text. A fixed answer field retains the
+        # same known-fact negative control without demanding a JSON response.
+        answer, _, explanation = text.strip().partition("\n")
+        domains = set(re.findall(r"(?<![\w.-])example\.(?:net|org)(?![\w-]|\.[\w-])", explanation))
+        valid = answer == "registration_available=false" and domains == {
+            "example.net",
+            "example.org",
+        }
+        if not valid:
+            raise ValueError("Compact Search failed a requested synthetic public fact")
+    else:
         # This is a fixed public known-answer evaluation, never product routing.
         # Mentioning both entities alone must not admit the opposite factual answer.
-        answer = json.loads(result.final_text)
+        answer = json.loads(text)
         if (
             not isinstance(answer, dict)
             or set(answer) != {"domains", "registration_available", "explanation"}
@@ -135,15 +162,12 @@ async def _probe_public_search(*, compact: bool = False):
             or not answer["explanation"].strip()
         ):
             raise ValueError("Compact Search failed a requested synthetic public fact")
-        proof["synthetic_content_verified"] = True
-    return proof
 
 
 async def probe_managed_capabilities(provider: str, *, deadline: float | None = None) -> dict:
     from hushh_mcp.constants import GEMINI_MODEL
     from hushh_mcp.managed_ai_config import PROFILE_PATH, load_managed_runtime_policy, profile_hash
     from hushh_mcp.runtime_providers import build_managed_runtime_client
-    from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 
     policy = load_managed_runtime_policy()
     if policy is None or policy["provider"] != provider:
@@ -162,33 +186,7 @@ async def probe_managed_capabilities(provider: str, *, deadline: float | None = 
     audio: dict[str, bytes] = {}
 
     async def check(name, operation):
-        at = time.monotonic()
-        dispatched = False
-        try:
-            remaining = 65 if deadline is None else min(65, max(0, deadline - at))
-            if remaining <= 0:
-                raise TimeoutError("Capability was not dispatched before the probe deadline")
-            dispatched = True
-            async with asyncio.timeout(remaining):
-                result = await operation()
-            report["capabilities"][name] = {
-                "ready": True,
-                "elapsed_ms": round((time.monotonic() - at) * 1000),
-                **(result or {}),
-            }
-        except Exception as error:
-            report["capabilities"][name] = {
-                "ready": False,
-                "elapsed_ms": round((time.monotonic() - at) * 1000),
-                "error_type": type(error).__name__,
-                "classification": classify_provider_error(error),
-                "failure_reason": failure_reason(name, error),
-                "dispatched": dispatched,
-            }
-        print(
-            json.dumps({"managed_capability_check": name, **report["capabilities"][name]}),
-            flush=True,
-        )
+        await run_capability(report, name, operation, deadline=deadline)
 
     async def generated(parts, field, expected, allowed):
         response = await client.aio.models.generate_content(

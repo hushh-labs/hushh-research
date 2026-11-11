@@ -52,6 +52,27 @@ def test_current_receipt_uses_application_identity_not_main_workflow_sha(monkeyp
     assert module.choose(other, result, True, ancestor=lambda *_: False)["decision"] == "BLOCKED"
 
 
+def test_old_protected_list_monitoring_record_does_not_block_application_noop(monkeypatch):
+    module, repository, acceptance, responses, documents = fixture(monkeypatch)
+    documents["deployments?environment=uat&per_page=100&page=1"].insert(0, {"id": 51})
+    documents["deployments/51/statuses?per_page=1"] = [
+        {
+            "state": "success",
+            "log_url": f"https://github.com/{module.REPOSITORY}/actions/runs/30",
+        }
+    ]
+    responses["runs/30"] = {
+        **responses["runs/20"],
+        "id": 30,
+        "path": ".github/workflows/verify-protected-lists.yml",
+    }
+
+    result = module.current_application(repository, acceptance, SHA, "all")
+
+    assert result["noop"] and set(result["services"]) == {"frontend", "backend"}
+    assert module.choose(SHA, result, True, ancestor=lambda *_: False)["decision"] == "NO_OP"
+
+
 @pytest.mark.parametrize(
     "inventory",
     [
@@ -84,6 +105,8 @@ def test_current_failure_never_reuses_an_older_green_receipt(monkeypatch, case):
         responses["runs/20/artifacts?per_page=100"] = {"total_count": 0, "artifacts": []}
     else:
         responses["runs/10/attempts/2"]["conclusion"] = "failure"
+    responses.setdefault("runs/20/attempts/3/jobs?per_page=100", {})
+    responses.setdefault("runs/20/attempts/2/jobs?per_page=100", {})
     result = module.current_application(repository, acceptance, SHA, "all")
     assert not result["noop"]
     assert result["waiting"] == (case == "pending_rerun")
@@ -215,3 +238,160 @@ def test_bounded_pagination_never_changes_page_size_or_skips_records(monkeypatch
     }
     assert not module.current_application(repository, acceptance, SHA, "all", limit=100)["noop"]
     assert module.current_application(repository, acceptance, SHA, "all", limit=101)["noop"]
+
+
+def failed_preflight(responses, module):
+    run = {**responses["runs/20"], "id": 30, "run_attempt": 1, "conclusion": "failure"}
+    responses["runs/30"] = run
+    steps = [
+        {"name": name, "status": "completed", "conclusion": conclusion}
+        for name, conclusion in [
+            ("Set up job", "success"),
+            ("Require exact-SHA predecessor acceptance", "failure"),
+            (module.MUTATION_BOUNDARY, "skipped"),
+            ("Sync canonical hosted runtime secrets", "skipped"),
+            ("Classify UAT release outcome", "success"),
+            ("Complete job", "success"),
+        ]
+    ]
+    for number, step in enumerate(steps, 1):
+        step["number"] = number if number < len(steps) else 235
+    job = {
+        "name": "Deploy UAT Scope",
+        "run_id": 30,
+        "head_sha": run["head_sha"],
+        "status": "completed",
+        "conclusion": "failure",
+        "steps": steps,
+    }
+    inventory = {"total_count": 1, "jobs": [job]}
+    responses["runs/30/attempts/1/jobs?per_page=100"] = inventory
+    return run, inventory, steps
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "safe",
+        "rerun",
+        "marker_entered",
+        "marker_failed",
+        "marker_cancelled",
+        "marker_missing",
+        "marker_duplicate",
+        "sync_entered",
+        "unknown_prefix",
+        "unknown_suffix",
+        "unknown_job",
+        "incomplete",
+        "pending_step",
+        "malformed_step",
+        "pending_job",
+        "other_source",
+        "other_workflow_branch",
+        "number_gap_order",
+        "missing_end",
+    ],
+)
+def test_failed_preflight_can_only_reuse_independently_qualified_older_receipt(monkeypatch, case):
+    module, repository, acceptance, responses, documents = fixture(monkeypatch)
+    run, inventory, steps = failed_preflight(responses, module)
+    documents["deployments?environment=uat&per_page=100&page=1"].insert(0, {"id": 51})
+    documents["deployments/51/statuses?per_page=1"] = [
+        {"state": "failure", "log_url": f"https://github.com/{module.REPOSITORY}/actions/runs/30"}
+    ]
+    if case == "rerun":
+        run["run_attempt"] = 2  # Attempt one might already have mutated UAT.
+    elif case.startswith("marker_"):
+        if case == "marker_missing":
+            del steps[2]
+        elif case == "marker_duplicate":
+            steps.insert(-1, deepcopy(steps[2]))
+        else:
+            steps[2]["conclusion"] = {
+                "marker_entered": "success",
+                "marker_failed": "failure",
+                "marker_cancelled": "cancelled",
+            }[case]
+    elif case == "sync_entered":
+        steps[3]["conclusion"] = "success"
+    elif case in {"unknown_prefix", "unknown_suffix"}:
+        steps.insert(
+            1 if case == "unknown_prefix" else 4,
+            {"name": "Unexpected mutation", "status": "completed", "conclusion": "success"},
+        )
+    elif case == "unknown_job":
+        inventory["jobs"].append({**inventory["jobs"][0], "name": "Unexpected job"})
+        inventory["total_count"] += 1
+    elif case == "incomplete":
+        inventory["total_count"] += 1
+    elif case == "pending_step":
+        steps[4]["conclusion"] = None
+    elif case == "malformed_step":
+        steps.append(None)
+    elif case == "pending_job":
+        inventory["jobs"][0]["status"] = "in_progress"
+    elif case == "other_source":
+        inventory["jobs"][0]["head_sha"] = "d" * 40
+    elif case == "other_workflow_branch":
+        run["head_branch"] = "uat"
+    if case == "number_gap_order":
+        steps[3]["number"] = steps[2]["number"]
+    elif case == "missing_end":
+        steps.pop()
+    if case in {"unknown_prefix", "unknown_suffix", "marker_duplicate"}:
+        for number, step in enumerate(steps, 1):
+            step["number"] = number
+    result = module.current_application(repository, acceptance, SHA, "all")
+    assert result["noop"] == (case == "safe")
+    if case != "safe":
+        assert result["reason_code"] == "mutation_phase_unknown"
+
+
+@pytest.mark.parametrize("changed", ["attempt", "jobs"])
+def test_preflight_safety_proof_is_rechecked_before_selecting_older_receipt(monkeypatch, changed):
+    module, repository, acceptance, responses, documents = fixture(monkeypatch)
+    run, inventory, _ = failed_preflight(responses, module)
+    documents["deployments?environment=uat&per_page=100&page=1"].insert(0, {"id": 51})
+    documents["deployments/51/statuses?per_page=1"] = [
+        {"state": "failure", "log_url": f"https://github.com/{module.REPOSITORY}/actions/runs/30"}
+    ]
+    read, count = acceptance.read, 0
+    path = "runs/30" if changed == "attempt" else "runs/30/attempts/1/jobs?per_page=100"
+
+    def racing_read(key, **kwargs):
+        nonlocal count
+        value = deepcopy(read(key, **kwargs))
+        if key == path:
+            count += 1
+            if count > 1:
+                if changed == "attempt":
+                    value["run_attempt"] = 2
+                else:
+                    value["jobs"][0]["steps"][2]["conclusion"] = "success"
+        return value
+
+    acceptance.read = racing_read
+    result = module.current_application(repository, acceptance, SHA, "all")
+    assert not result["noop"]
+    assert result["reason_code"] == "selection_evidence_changed"
+
+
+def test_checkpoint_precedes_first_runtime_write_and_guards_exceptional_mutators(monkeypatch):
+    import yaml
+
+    module, *_ = fixture(monkeypatch)
+    root = Path(__file__).resolve().parents[2]
+    steps = yaml.safe_load((root / ".github/workflows/deploy-uat-implementation.yml").read_text())[
+        "jobs"
+    ]["deploy"]["steps"]
+    boundary = next(i for i, step in enumerate(steps) if step["name"] == module.MUTATION_BOUNDARY)
+    assert steps[boundary + 1]["name"] == "Sync canonical hosted runtime secrets"
+    assert all(step["name"] in module.PRE_MUTATION_STEPS for step in steps[:boundary])
+    for step in steps[boundary + 1 :]:
+        condition = step.get("if", "")
+        if any(marker in condition for marker in ("always()", "failure()", "cancelled()")):
+            assert (
+                step["name"] in module.PRE_MUTATION_REPORTING
+                or "steps.begin-uat-mutation.outcome != 'skipped'" in condition
+            ), step["name"]

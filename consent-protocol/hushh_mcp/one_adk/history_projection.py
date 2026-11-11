@@ -246,6 +246,9 @@ _READ_STATUSES = frozenset(
         "response_too_large",
         "invalid_argument",
         "unavailable",
+        # Mail only: the Email specialist read no mail and handed a receipts
+        # question back to One. It restores as itself, not as a failed read.
+        "receipt_functions_required",
     }
 )
 _MAX_ACTIVITY_STEPS = 10

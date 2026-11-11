@@ -263,11 +263,35 @@ class ProductionPhoneSkippedLeaseCases:
             case, environment = self.restoration_lease(
                 conclusion, active=conclusion is None
             )
+            restoration_job_index = 0
             if historical:
+                from production_phone_job_name_cases import legacy_workflow
+
+                legacy = legacy_workflow().encode()
+                case.sources["e" * 40] = legacy
+                case.sources["origin/main"] = legacy
                 case.sources[case.runs[0]["head_sha"]] = historical_restoration_source(
-                    case.sources["e" * 40]
+                    legacy
                 )
-            case.jobs[(300, 2)]["jobs"][0]["steps"][0]["conclusion"] = admission
+                case.use_legacy_job_names()
+                jobs = case.jobs[(300, 2)]["jobs"]
+                restoration = jobs[2]
+                restoration.update(
+                    name="Deploy Production Scope",
+                    status=jobs[0]["status"],
+                    conclusion=jobs[0]["conclusion"],
+                    steps=copy.deepcopy(jobs[0]["steps"]),
+                )
+                jobs[0].update(
+                    name=lease.nonproducer.LEGACY_PRODUCTION_JOB_EXPRESSIONS["deploy"],
+                    status="completed",
+                    conclusion="skipped",
+                    steps=[],
+                )
+                restoration_job_index = 2
+            case.jobs[(300, 2)]["jobs"][restoration_job_index]["steps"][0][
+                "conclusion"
+            ] = admission
             with (
                 self.subTest(conclusion=conclusion, historical=historical),
                 mock.patch.dict("os.environ", environment),

@@ -14,7 +14,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "deploy" / "drive" / "attest_paused_maintenance.py"
-WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml"
 PREFIX = "projects/hushh-pda-uat/locations/us-central1/jobs/"
 ACCOUNT = "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 ORIGIN = "https://consent-protocol-drive-worker-abc.a.run.app"
@@ -201,5 +201,8 @@ def test_workflow_skips_worker_mutations_only_with_verified_opt_in() -> None:
     assert (
         "steps.scope.outputs.deploy_backend == 'true'" in by_id["activate-account-deletion"]["if"]
     )
-    assert "verify_release_boundary.sql" in by_id["activate-account-deletion"]["run"]
+    assert (
+        "python3 deploy/account-deletion/activate_release.py"
+        in by_id["activate-account-deletion"]["run"]
+    )
     assert "steps.scope.outputs.deploy_backend == 'true'" in by_id["postdeploy-db-gate"]["if"]

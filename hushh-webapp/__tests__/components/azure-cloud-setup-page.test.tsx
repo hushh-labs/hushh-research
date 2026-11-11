@@ -299,7 +299,7 @@ describe("Connect Azure on the cloud step", () => {
     render(<ByocCloudSetupPage />);
     const connected = await screen.findByTestId("byoc-cloud-connected");
     expect(connected).toHaveTextContent("Connected: Microsoft Azure");
-    expect(connected).toHaveTextContent("Your private agent runs in your own Azure subscription.");
+    expect(connected).toHaveTextContent("Agent One runs in your own Azure subscription.");
     expect(screen.queryByTestId("byoc-cloud-card")).toBeNull();
     expect(ApiService.suggestByocProject).not.toHaveBeenCalled();
   });

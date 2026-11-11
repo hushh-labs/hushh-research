@@ -73,7 +73,7 @@ from hushh_mcp.services.compute_backend import (
 )
 from hushh_mcp.services.hosted_erasure_execution import ManagedErasureOperator
 from hushh_mcp.services.orphan_erase_backoff import error_fields
-from hushh_mcp.services.owner_direct_ingress import ingress_for_provision, ingress_for_update
+from hushh_mcp.services.owner_direct_ingress import ingress_for_provision
 from hushh_mcp.services.personal_agent_feed import (
     _FEED_EVENT_TYPES as _FEED_EVENT_TYPES,
 )
@@ -158,7 +158,6 @@ from hushh_mcp.services.pod_update_identity import (
     approved_browser_plan,
     configuration_approval_pending,
     merged_upgrade_metadata,
-    retained_upgrade_idle_evidence,
     verified_image_changed,
     verified_upgrade_approval,
 )
@@ -1387,6 +1386,15 @@ class PersonalAgentProvisioningService:
             "image": running_image(row),
             "previousImage": running_image(row),
         }
+        from hushh_mcp.services.compute_backend import SessionBoundUpgradeRecovery
+
+        if isinstance(
+            backend, SessionBoundUpgradeRecovery
+        ) and backend.recovery_requires_original_session(spec):
+            # A new process cannot impersonate the original session or certify
+            # that its provider worker joined. Only an explicit queue retry may
+            # acquire a new executor after the SQL retry predicate permits it.
+            return unresolved
         observe = getattr(backend, "observe_upgrade", None)
         if (
             not isinstance(lease, str)
@@ -1542,666 +1550,501 @@ class PersonalAgentProvisioningService:
         A failure is recorded on the row as an ``upgrade`` marker and re-raised
         unchanged; the marker is what bounds retries per image.
         """
-        if not personal_agent_enabled():
-            raise PersonalAgentDisabledError(
-                "upgrade requested while PERSONAL_AGENT_ENABLED is off"
-            )
-        row = await self._registry.get(user_id)
-        if row is None:
-            raise ValueError("no personal agent is registered for this person")
-        if str(row.get("status") or "") != "provisioned":
-            raise ValueError(
-                f"only a provisioned pod can be upgraded (status is {row.get('status')!r})"
-            )
-        hushh_id = str(row.get("hushh_id") or "").strip()
-        phone_hash = str(row.get("phone_e164_hash") or "").strip()
-        if not hushh_id or not phone_hash:
-            raise ValueError("registry row is missing its identity; refusing to upgrade")
+        from hushh_mcp.services.personal_agent_upgrade_orchestration import prepare_upgrade
 
-        metadata = row.get("backend_metadata") or {}
-        if not isinstance(metadata, dict):
-            raise ValueError("registry row metadata is invalid; refusing to upgrade")
-        held = metadata.get("upgradeLease")
-        requires_approval = (
-            personal_agent_upgrade_approval_required()
-            or configuration_approval_pending(metadata.get("upgradeApproval"))
+        admission = await prepare_upgrade(
+            self,
+            user_id=user_id,
+            current_image=current_image,
+            resume_files_queue_operation=resume_files_queue_operation,
+            resume_files_job=resume_files_job,
+            resolve_cloud=resolve_user_cloud,
         )
-        approval_matches = upgrade_approval_matches(row, current_image)
-        recoverable_operation = upgrade_operation_is_recoverable(row)
-        if requires_approval and not (
-            approval_matches or (held is not None and recoverable_operation)
-        ):
-            raise PersonalAgentUpgradeNotApprovedError(
-                "owner approval for this release and pod incarnation is required"
-            )
+        hushh_id = admission.hushh_id
+        files_capability = admission.files_capability
+        from hushh_mcp.services.personal_agent_upgrade_claim import claim_upgrade
 
-        if requires_approval and held is None:
-            release_metadata = approved_release(metadata.get("upgradeApproval"), current_image)
-            if not upgrade_is_supported(
-                release_metadata, metadata.get("image_digest") or running_image(row)
-            ) and not (
-                release_metadata is not None
-                and configuration_approval_pending(metadata.get("upgradeApproval"))
-                and image_digest(metadata.get("image_digest") or running_image(row))
-                == image_digest(current_image)
-            ):
-                raise PersonalAgentUpgradeNotApprovedError(
-                    "verified compatibility metadata for this installed image is required"
-                )
-
-        cloud = await resolve_user_cloud(user_id, repo=self._registry)
-        if cloud is not None and cloud.blocks_provisioning:
-            raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
-        approval_metadata = metadata.get("upgradeApproval")
-        from hushh_mcp.services.pod_update_capabilities import (
-            admit_capabilities,
-            approved_update_browser_qualification,
-            await_update_publication,
-            retain_late_update,
-        )
-
-        files_capability, browser_capability = await admit_capabilities(
-            self._registry,
-            row,
-            approval_matches=approval_matches,
-            recoverable_operation=recoverable_operation,
-        )
-        approval_is_valid = _approval_is_well_formed(row, approval_metadata) or (
-            held is not None
-            and _approval_is_well_formed(row, approval_metadata, allow_unresolved=True)
-        )
-        upgrade_operation_id = (
-            str(approval_metadata.get("operationId") or "").strip()
-            if approval_is_valid and isinstance(approval_metadata, dict)
-            else ""
-        ) or None
-        spec = PodSpec(
-            hushh_id=hushh_id,
-            phone_e164_hash=phone_hash,
-            billing_space_id=row.get("billing_space_id"),
-            pod_pubkey=str(row.get("pod_pubkey") or ""),
-            **adoption_expectations(metadata),
-            deployment_target=row.get("deployment_target")
-            or (cloud.deployment_target if cloud else None),
-            model_credential_mode=row.get("model_credential_mode")
-            or (cloud.model_credential_mode if cloud else None),
-            **spec_coordinates(cloud),
-            files_library_enabled=bool(cloud and cloud.files_library_enabled),
-            upgrade_operation_id=upgrade_operation_id,
-            files_upgrade_plan=files_capability.model_dump() if files_capability else None,
-            browser_upgrade_plan=browser_capability.model_dump(mode="json")
-            if browser_capability
-            else None,
-            files_upgrade_recovery_job=resume_files_job,
-            upgrade_target_image=(
-                str(approval_metadata.get("targetImage") or "").strip() or None
-                if approval_is_valid and isinstance(approval_metadata, dict)
-                else None
-            ),
-            browser_qualification=approved_update_browser_qualification(
-                row, approved=approval_is_valid
-            ),
-            # Retain the owner's recorded warm floor. Re-deriving it from the
-            # deployment default silently demoted warm pods during upgrades and
-            # then misclassified their silence as healthy scale-to-zero behavior.
-            resource_tier=row.get("liveness_mode"),
-            # Ingress is an owner-pod property: an approved update retains it.
-            ingress=ingress_for_update(metadata),
-        )
-        from hushh_mcp.services.compute_backend_resolution import bind_private_upgrade
-
-        spec = await bind_private_upgrade(spec, row, registry=self._registry, lease=held)
-        backend = self._backend_for(spec)
-        if resume_files_queue_operation is not None:
-            if held is None or set_by_newer_hub(row) or current_image != spec.upgrade_target_image:
-                raise ValueError("Files continuation requires its current held operation")
-            if row.get("deployment_target") == "gcp":
-                from hushh_mcp.services.pod_files.capability_contract import hosted_schema_ready
-
-                if not await hosted_schema_ready(self._registry):
-                    raise PersonalAgentUpgradeUnsupportedError(
-                        "Managed Files recovery schema is not ready"
-                    )
-            from hushh_mcp.services.pod_files.queue_recovery import claim_queue_retry
-
-            row, prefix = await claim_queue_retry(
-                registry=self._registry,
-                row=row,
-                spec=spec,
-                backend=backend,
-                operation=resume_files_queue_operation,
-            )
-            spec = replace(spec, files_upgrade_completed_steps=prefix)
-        elif held is not None:
-            return await self._reconcile_image_upgrade(
-                user_id=user_id, row=row, spec=spec, backend=backend, lease=held
-            )
-        upgrade = getattr(backend, "upgrade", None)
-        if upgrade is None:
-            raise PersonalAgentUpgradeUnsupportedError(
-                f"backend {getattr(backend, 'backend_id', '?')!r} cannot upgrade a pod in place"
-            )
-        # A PLAN IS NOT AN UPGRADE, and recording one corrupts the row.
-        #
-        # A backend without live credentials renders a deployment, calls nothing,
-        # and returns a handle it marks as planned with placeholder metadata. The
-        # success path below merges that over the real row and publishes it, and
-        # it also drops `observed` -- correct after a REAL replacement,
-        # destructive after an imagined one.
-        #
-        # Measured 2026-09-11 on a user-owned pod: an operator run against a
-        # backend in plan mode reported "already current" and exited 0, then left
-        # `source_image` null, `observed` deleted and the recorded image pointing
-        # at a week-old digest, while the pod carried on running what it always
-        # had. Every layer read success. The same failure is in the 2026-08-06
-        # execution-log entry for provisioning; the upgrade path never learned it.
-        #
-        # `live` is a TYPED fact on the backend, so the orchestrator reads it
-        # without knowing which provider produced it or which credential it
-        # wanted -- each adapter names its own. Refuse HERE, before the lease is
-        # claimed, so a refusal changes nothing: a lease is released only by a
-        # terminal result, and one left behind strands the pod permanently.
-        # `getattr(..., True)` keeps test doubles, which declare no mode, live.
-        if getattr(backend, "live", True) is False:
-            raise PersonalAgentUpgradeUnsupportedError(
-                f"backend {getattr(backend, 'backend_id', '?')!r} is in plan mode: it renders a "
-                "deployment without calling its provider. Refusing rather than recording an "
-                "upgrade that never happened; give the backend its live credentials first."
-            )
-        if set_by_newer_hub(row):
-            logger.info(
-                "personal_agent.upgrade_skipped hushh_id=%s reason=set_by_newer_hub", hushh_id
-            )
-            return {
-                "hushhId": hushh_id,
-                "status": "provisioned",
-                "upgraded": False,
-                "skipped": "set_by_newer_hub",
-                "image": running_image(row),
-                "previousImage": running_image(row),
-            }
-        # Single-flight across hub workers: the lease is one conditional write on
-        # the row, and losing it means another worker is already moving this pod.
+        outcome = await claim_upgrade(self, admission)
+        if outcome.result is not None:
+            return outcome.result
+        claim = outcome.claim
+        if claim is None:
+            raise RuntimeError("image upgrade claim outcome is incomplete")
+        row = claim.row
+        spec = claim.spec
+        backend = claim.backend
+        upgrade = claim.upgrade
+        files_executor = claim.files_executor
+        lease = claim.lease
+        requested_binding = claim.requested_binding
         from hushh_mcp.services.personal_agent_registry_repo import upgrade_host_snapshot
 
-        requested_binding = upgrade_host_snapshot(row)
-        claim = getattr(self._registry, "claim_image_upgrade", None)
-        if not callable(claim):
-            raise PersonalAgentUpgradeUnsupportedError("registry cannot fence image upgrades")
-        lease = (
-            held
-            if resume_files_queue_operation is not None
-            else await claim(user_id=user_id, target_image=current_image, observed=row)
-        )
-        if not isinstance(lease, str) or not lease:
-            return {
-                "hushhId": hushh_id,
-                "status": "provisioned",
-                "upgraded": False,
-                "skipped": "in_progress",
-                "image": running_image(row),
-                "previousImage": running_image(row),
-            }
-        row = await self._registry.get(user_id)
-        if (
-            row is None
-            or row.get("status") != "provisioned"
-            or (row.get("backend_metadata") or {}).get("upgradeLease") != lease
-        ):
-            raise RuntimeError("image upgrade authority changed before execution")
-        claimed_binding = upgrade_host_snapshot(row)
-        if resume_files_queue_operation is not None and (
-            (row.get("backend_metadata") or {}).get("upgradeApproval", {}).get("operationId")
-            != resume_files_queue_operation
-            or not upgrade_approval_matches(row, spec.upgrade_target_image)
-        ):
-            raise RuntimeError("Files recovery approval changed before execution")
-        if (
-            requested_binding is None
-            or claimed_binding is None
-            or any(
-                claimed_binding[key] != value
-                for key, value in requested_binding.items()
-                if key not in {"updated_at", "backend_metadata"}
-            )
-        ):
-            raise RuntimeError("image upgrade host binding changed before execution")
-        spec = replace(spec, upgrade_attempt_id=hashlib.sha256(lease.encode()).hexdigest())
-        spec = await bind_private_upgrade(spec, row, registry=self._registry, lease=lease)
-        backend = self._backend_for(spec)
-        claimed_metadata = dict(row.get("backend_metadata") or {})
-        claimed_row = row
-        approval_metadata = claimed_metadata.get("upgradeApproval")
-        approval_is_valid = _approval_is_well_formed(claimed_row, approval_metadata)
-        approval_operation_id = (
-            _approval_operation_id(approval_metadata)
-            if approval_is_valid and isinstance(approval_metadata, dict)
-            else None
-        )
-        approval_release_id = (
-            str(approval_metadata.get("releaseId") or "").strip()
-            if approval_is_valid and isinstance(approval_metadata, dict)
-            else ""
-        )
-        approval_incarnation = pod_incarnation(row)
-
-        async def publish_upgrade(**fields: Any) -> None:
-            nonlocal claimed_metadata, claimed_row
-            if not fields.get("retain_lease"):
-                fields["backend_metadata"] = dict(fields["backend_metadata"])
-                fields["backend_metadata"].pop("upgradeLease", None)
-            published = await self._registry.record_image_upgrade(
-                user_id=user_id,
-                expected_lease=lease,
-                previous_metadata=claimed_metadata,
-                observed=claimed_row,
-                **fields,
-            )
-            if published is not True:
-                raise RuntimeError("image upgrade result publication lost authority")
-            # Advance only our acknowledged write. Re-reading and adopting an
-            # arbitrary newer host snapshot could turn a failed CAS into a new
-            # authority grant; keeping the original snapshot instead prevents
-            # our own approved substrate receipt from being published twice.
-            claimed_metadata = dict(fields["backend_metadata"])
-            if fields.get("retain_lease"):
-                claimed_metadata["upgradeLease"] = lease
-            else:
-                claimed_metadata.pop("upgradeLease", None)
-            claimed_row = {**claimed_row, "backend_metadata": dict(claimed_metadata)}
-            if fields.get("liveness_mode") is not None:
-                claimed_row["liveness_mode"] = fields["liveness_mode"]
-
-        owner_loop = asyncio.get_running_loop()
-        persisted_acknowledgement: dict[str, Any] | None = None
-
-        renderer = getattr(backend, "render_bootstrap_plan", None)
-        notification_ready = getattr(
-            self._registry, "notification_checkpoint_admission_ready", None
-        )
-        if (
-            callable(renderer)
-            and approval_operation_id
-            and notification_ready is not None
-            and await notification_ready()
-        ):
-            from hushh_mcp.services.pod_notification_checkpoint import bind_notification_checkpoint
-
-            def acknowledge_notification(result: dict) -> None:
-                nonlocal claimed_metadata, claimed_row
-                # Called on the owner loop by the port below. Only this admitted
-                # checkpoint/inventory can advance our existing upgrade snapshot.
-                claimed_metadata = {
-                    **claimed_metadata,
-                    "notificationCheckpoint": result["checkpoint"],
-                    "substrateReceipt": result["inventory"],
-                }
-                claimed_row = {**claimed_row, "backend_metadata": dict(claimed_metadata)}
-
-            spec = replace(
-                spec,
-                on_notification_checkpoint=bind_notification_checkpoint(
-                    registry=self._registry,
-                    owner_loop=owner_loop,
-                    user_id=user_id,
-                    spec=spec,
-                    renderer=renderer,
-                    service=row["external_agent_id"],
-                    kind="upgrade",
-                    attempt_id=spec.upgrade_attempt_id or "",
-                    operation_id=approval_operation_id,
-                    previous=claimed_metadata.get("notificationCheckpoint"),
-                    acknowledge=acknowledge_notification,
-                ),
-            )
-
-        if files_capability is not None:
-            from hushh_mcp.services.pod_files.capability_contract import checkpoint_for
-
-            files_checkpoint = checkpoint_for(
-                plan=files_capability,
-                operation_id=approval_operation_id or "",
-                attempt_id=spec.upgrade_attempt_id or "",
-                metadata=claimed_metadata,
-            )
-
-            from hushh_mcp.services.pod_files.capability_checkpoint import (
-                bind_checkpoint_persistence,
-            )
-
-            async def publish_files(checkpoint: dict, inventory: dict) -> None:
-                await publish_upgrade(
-                    backend_metadata={
-                        **claimed_metadata,
-                        "filesUpgradeCheckpoint": checkpoint,
-                        files_checkpoint.inventory_key: inventory,
-                    },
-                    retain_lease=True,
-                )
-
-            async def retain_files(checkpoint: dict) -> None:
-                await retain_late_update(
-                    self._registry, spec, user_id, lease, checkpoint, files=True
-                )
-
-            spec = replace(
-                spec,
-                on_files_upgrade_checkpoint=bind_checkpoint_persistence(
-                    files_checkpoint,
-                    owner_loop=owner_loop,
-                    publish=publish_files,
-                    retain_late=retain_files,
-                    join_on_timeout=spec.deployment_target == "gcp",
-                ),
-            )
-
-        def persist_handoff_idle(receipt: dict[str, Any]) -> None:
-            evidence = retained_upgrade_idle_evidence(
-                receipt,
-                operation_id=approval_operation_id or "",
-                spec=spec,
-            )
-
-            async def persist() -> None:
-                approval = claimed_metadata.get("upgradeApproval")
-                if (
-                    not isinstance(approval, dict)
-                    or approval.get("operationId") != approval_operation_id
-                ):
-                    raise RuntimeError("upgrade handoff approval changed")
-                await publish_upgrade(
-                    backend_metadata={
-                        **claimed_metadata,
-                        "upgradeApproval": {
-                            **approval,
-                            "presentationPhase": "installing",
-                            "handoffIdleAt": datetime.now(timezone.utc).isoformat(),
-                            **evidence,
-                        },
-                    },
-                    retain_lease=True,
-                )
-
-            await_update_publication(persist(), owner_loop, spec)
-
-        if approval_operation_id:
-            spec = replace(spec, on_upgrade_idle=persist_handoff_idle)
-
-        def persist_acknowledgement(receipt: dict[str, Any]) -> None:
-            # Called off-loop. A late receipt may survive erasure admission, but
-            # that path never authorizes continued upgrade execution.
-            if receipt.get("attemptId") != spec.upgrade_attempt_id:
-                raise RuntimeError("upgrade acknowledgement attempt mismatch")
-            bound = {**receipt, "targetImage": current_image, "hubRevision": hub_revision()}
-            # The provider receipts predate owner approval and intentionally remain
-            # provider-neutral. Add the owner operation binding only when one exists;
-            # this keeps old no-approval receipts readable while making an approved
-            # replacement recoverable only for the exact operation and incarnation.
-            if approval_operation_id:
-                bound.update(
-                    {
-                        "operationId": approval_operation_id,
-                        "releaseId": approval_release_id,
-                        "podIncarnation": approval_incarnation,
-                        "targetDigest": image_digest(current_image),
-                    }
-                )
-
-            async def persist() -> None:
-                nonlocal persisted_acknowledgement
-                try:
-                    current_approval = claimed_metadata.get("upgradeApproval")
-                    next_metadata = {**claimed_metadata, "upgradeAcknowledgement": bound}
-                    if isinstance(current_approval, dict) and approval_operation_id:
-                        next_metadata["upgradeApproval"] = {
-                            **current_approval,
-                            "presentationPhase": "verifying",
-                            "providerAcknowledgedAt": datetime.now(timezone.utc).isoformat(),
-                        }
-                    await publish_upgrade(
-                        backend_metadata=next_metadata,
-                        retain_lease=True,
-                    )
-                    persisted_acknowledgement = dict(bound)
-                except RuntimeError:
-                    if await retain_late_update(
-                        self._registry, spec, user_id, lease, bound, files=False
-                    ):
-                        raise RuntimeError("upgrade acknowledgement retained for erasure") from None
-                    raise
-
-            await_update_publication(persist(), owner_loop, spec)
-
-        spec = replace(spec, on_upgrade_ack=persist_acknowledgement)
-        old_meta = dict(row.get("backend_metadata") or {})
-        old_meta.pop("upgradeLease", None)
-        previous = running_image(row)
-        if set_by_newer_hub(row):
-            if resume_files_queue_operation is not None:
-                raise RuntimeError("Files recovery executor was superseded; reservation retained")
-            # Re-judged on the row AS IT IS AFTER THE CLAIM, for the same reason the
-            # cooldown is. `list_upgrade_candidates` checked this against a row read
-            # before `resolve_user_cloud` and before the lease; a newer hub revision
-            # can finish its own upgrade and release the lease inside that window,
-            # which is exactly what 0ba8c6b49 measured happening forty seconds apart.
-            # Winning the free lease then rolls the pod BACK to this draining
-            # revision's older target -- a ~90s PUT and a restart on a live person's
-            # agent, repeating every sweep.
-            await publish_upgrade(backend_metadata=old_meta)
-            logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=superseded", hushh_id)
-            return {
-                "hushhId": hushh_id,
-                "status": "provisioned",
-                "upgraded": False,
-                "skipped": "superseded",
-                "image": previous,
-                "previousImage": previous,
-            }
-        if resume_files_queue_operation is None and _attempted_recently(old_meta.get("upgrade")):
-            # Listed before another worker's attempt failed; do not stack a second
-            # attempt on the same failure within the cooldown.
-            await publish_upgrade(backend_metadata=old_meta)
-            logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=cooldown", hushh_id)
-            return {
-                "hushhId": hushh_id,
-                "status": "provisioned",
-                "upgraded": False,
-                "skipped": "cooldown",
-                "image": previous,
-                "previousImage": previous,
-            }
-        approval = old_meta.get("upgradeApproval")
-        if isinstance(approval, dict) and approval.get("operationId"):
-            # Persist the external phase immediately before provider work. A worker
-            # restart can then report an update in progress instead of inferring
-            # success from a lease disappearing. This follows supersession and
-            # cooldown checks so a skipped operation remains merely approved.
-            old_meta["upgradeApproval"] = {
-                **approval,
-                "status": "updating",
-                "operationState": "installing",
-                "presentationPhase": "preparing",
-                "startedAt": datetime.now(timezone.utc).isoformat(),
-            }
-            await publish_upgrade(backend_metadata=old_meta, retain_lease=True)
-        # Narrated as its own stage so the status stream can say "Updating your
-        # agent" instead of a spinner. The previous revision serves throughout.
-        await pod_lifecycle_append(
-            user_id,
-            stage="updating",
-            registry_status="provisioned",
-            event="started",
-            hushh_id=hushh_id,
-            reason=f"{previous or '-'} -> {current_image}",
-        )
-        from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
-
         try:
-            handle = await self._upgrade_healing_the_substrate_once(
-                upgrade, spec, user_id=user_id, hushh_id=hushh_id
-            )
-        except FilesCapabilityChanged:
-            # This exception is emitted only before image copy, handoff or Files
-            # mutation. It is proof of no attempt, unlike a provider timeout.
-            if files_capability is None:
-                raise
-            recovering = resume_files_queue_operation is not None
-            state = "blocked" if recovering else "failed"
-            rejected = {
-                **claimed_metadata,
-                "upgradeApproval": {
-                    **claimed_metadata["upgradeApproval"],
-                    "status": state,
-                    "operationState": state,
-                    "presentationPhase": "blocked",
-                    "failureCode": "FILES_PLAN_CHANGED",
-                },
-            }
-            await publish_upgrade(backend_metadata=rejected, retain_lease=recovering)
-            if recovering:
-                raise RuntimeError(
-                    "Files recovery configuration changed; reservation retained"
-                ) from None
-            raise
+            current_row = await self._registry.get(user_id)
+            if (
+                current_row is None
+                or current_row.get("status") != "provisioned"
+                or (current_row.get("backend_metadata") or {}).get("upgradeLease") != lease
+            ):
+                raise RuntimeError("image upgrade authority changed before execution")
+            row = current_row
+            claimed_binding = upgrade_host_snapshot(row)
+            if resume_files_queue_operation is not None and (
+                (row.get("backend_metadata") or {}).get("upgradeApproval", {}).get("operationId")
+                != resume_files_queue_operation
+                or not upgrade_approval_matches(row, spec.upgrade_target_image)
+            ):
+                raise RuntimeError("Files recovery approval changed before execution")
+            if (
+                requested_binding is None
+                or claimed_binding is None
+                or any(
+                    claimed_binding[key] != value
+                    for key, value in requested_binding.items()
+                    if key not in {"updated_at", "backend_metadata"}
+                )
+            ):
+                raise RuntimeError("image upgrade host binding changed before execution")
+            spec = replace(spec, upgrade_attempt_id=hashlib.sha256(lease.encode()).hexdigest())
+            from hushh_mcp.services.compute_backend_resolution import bind_private_upgrade
 
-        except Exception as exc:
-            marker = old_meta.get("upgrade") or {}
-            attempts = (
-                int(marker.get("attempts") or 0) + 1
-                if str(marker.get("failedImage") or "") == current_image
-                else 1
+            spec = await bind_private_upgrade(spec, row, registry=self._registry, lease=lease)
+            backend = self._backend_for(spec)
+            claimed_metadata = dict(row.get("backend_metadata") or {})
+            claimed_row = row
+            approval_metadata = claimed_metadata.get("upgradeApproval")
+            approval_is_valid = _approval_is_well_formed(claimed_row, approval_metadata)
+            approval_operation_id = (
+                _approval_operation_id(approval_metadata)
+                if approval_is_valid and isinstance(approval_metadata, dict)
+                else None
             )
-            reason = user_safe_failure_reason(exc)
+            approval_release_id = (
+                str(approval_metadata.get("releaseId") or "").strip()
+                if approval_is_valid and isinstance(approval_metadata, dict)
+                else ""
+            )
+            approval_incarnation = pod_incarnation(row)
+
+            from hushh_mcp.services.personal_agent_upgrade_callbacks import (
+                bind_upgrade_callbacks,
+            )
+            from hushh_mcp.services.personal_agent_upgrade_publication import (
+                UpgradePublication,
+            )
+            from hushh_mcp.services.personal_agent_upgrade_publication import (
+                publish_hosted_files_terminal as publish_files_terminal,
+            )
+            from hushh_mcp.services.personal_agent_upgrade_publication import (
+                publish_upgrade as publish_upgrade_snapshot,
+            )
+
+            publication = UpgradePublication(
+                registry=self._registry,
+                user_id=user_id,
+                hushh_id=hushh_id,
+                current_image=current_image,
+                lease=lease,
+                spec=spec,
+                backend=backend,
+                claimed_metadata=claimed_metadata,
+                claimed_row=claimed_row,
+                files_executor=files_executor,
+                files_capability=files_capability,
+                approval_operation_id=approval_operation_id,
+                approval_release_id=approval_release_id,
+                approval_incarnation=approval_incarnation,
+            )
+
+            async def publish_upgrade(
+                *,
+                backend_metadata: dict[str, Any],
+                liveness_mode: str | None = None,
+                retain_lease: bool = False,
+            ) -> None:
+                await publish_upgrade_snapshot(
+                    publication,
+                    backend_metadata=backend_metadata,
+                    liveness_mode=liveness_mode,
+                    retain_lease=retain_lease,
+                )
+
+            async def publish_hosted_files_terminal(
+                metadata_to_publish: dict[str, Any], *, no_dispatch: bool = False
+            ) -> dict[str, Any]:
+                return await publish_files_terminal(
+                    publication, metadata_to_publish, no_dispatch=no_dispatch
+                )
+
+            files_checkpoint = await bind_upgrade_callbacks(publication)
+            spec = publication.spec
+            old_meta = dict(row.get("backend_metadata") or {})
+            old_meta.pop("upgradeLease", None)
+            previous = running_image(row)
+            if set_by_newer_hub(row):
+                if resume_files_queue_operation is not None:
+                    raise RuntimeError(
+                        "Files recovery executor was superseded; reservation retained"
+                    )
+                # Re-judged on the row AS IT IS AFTER THE CLAIM, for the same reason the
+                # cooldown is. `list_upgrade_candidates` checked this against a row read
+                # before `resolve_user_cloud` and before the lease; a newer hub revision
+                # can finish its own upgrade and release the lease inside that window,
+                # which is exactly what 0ba8c6b49 measured happening forty seconds apart.
+                # Winning the free lease then rolls the pod BACK to this draining
+                # revision's older target -- a ~90s PUT and a restart on a live person's
+                # agent, repeating every sweep.
+                if files_executor is None:
+                    await publish_upgrade(backend_metadata=old_meta)
+                else:
+                    skipped_approval = publication.claimed_metadata.get("upgradeApproval")
+                    await publish_hosted_files_terminal(
+                        {
+                            **publication.claimed_metadata,
+                            "upgradeApproval": {
+                                **(skipped_approval if isinstance(skipped_approval, dict) else {}),
+                                "status": "blocked",
+                                "operationState": "blocked",
+                                "presentationPhase": "blocked",
+                                "failureCode": "SUPERSEDED_BEFORE_SUBMISSION",
+                            },
+                        },
+                        no_dispatch=True,
+                    )
+                logger.info(
+                    "personal_agent.upgrade_skipped hushh_id=%s reason=superseded", hushh_id
+                )
+                return {
+                    "hushhId": hushh_id,
+                    "status": "provisioned",
+                    "upgraded": False,
+                    "skipped": "superseded",
+                    "image": previous,
+                    "previousImage": previous,
+                }
+            if resume_files_queue_operation is None and _attempted_recently(
+                old_meta.get("upgrade")
+            ):
+                # Listed before another worker's attempt failed; do not stack a second
+                # attempt on the same failure within the cooldown.
+                if files_executor is None:
+                    await publish_upgrade(backend_metadata=old_meta)
+                else:
+                    skipped_approval = publication.claimed_metadata.get("upgradeApproval")
+                    await publish_hosted_files_terminal(
+                        {
+                            **publication.claimed_metadata,
+                            "upgradeApproval": {
+                                **(skipped_approval if isinstance(skipped_approval, dict) else {}),
+                                "status": "blocked",
+                                "operationState": "blocked",
+                                "presentationPhase": "blocked",
+                                "failureCode": "COOLDOWN_BEFORE_SUBMISSION",
+                            },
+                        },
+                        no_dispatch=True,
+                    )
+                logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=cooldown", hushh_id)
+                return {
+                    "hushhId": hushh_id,
+                    "status": "provisioned",
+                    "upgraded": False,
+                    "skipped": "cooldown",
+                    "image": previous,
+                    "previousImage": previous,
+                }
             approval = old_meta.get("upgradeApproval")
             if isinstance(approval, dict) and approval.get("operationId"):
-                # A provider exception is not proof that replacement stopped. Keep
-                # the operation visibly unresolved until reconciliation can classify
-                # the external outcome.
+                # Persist the external phase immediately before provider work. A worker
+                # restart can then report an update in progress instead of inferring
+                # success from a lease disappearing. This follows supersession and
+                # cooldown checks so a skipped operation remains merely approved.
                 old_meta["upgradeApproval"] = {
                     **approval,
-                    "status": "blocked",
-                    "operationState": "blocked",
-                    "presentationPhase": "blocked",
+                    "status": "updating",
+                    "operationState": "installing",
+                    "presentationPhase": "preparing",
+                    "startedAt": datetime.now(timezone.utc).isoformat(),
                 }
-            failure_recorded = False
+                await publish_upgrade(backend_metadata=old_meta, retain_lease=True)
+            # Narrated as its own stage so the status stream can say "Updating your
+            # agent" instead of a spinner. The previous revision serves throughout.
+            await pod_lifecycle_append(
+                user_id,
+                stage="updating",
+                registry_status="provisioned",
+                event="started",
+                hushh_id=hushh_id,
+                reason=f"{previous or '-'} -> {current_image}",
+            )
+            from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+
             try:
-                await publish_upgrade(
-                    # An exception/timeout is not proof that external work stopped.
-                    retain_lease=True,
-                    backend_metadata={
-                        **claimed_metadata,
-                        "upgradeApproval": old_meta.get("upgradeApproval"),
+                handle = await self._upgrade_healing_the_substrate_once(
+                    upgrade, spec, user_id=user_id, hushh_id=hushh_id
+                )
+            except FilesCapabilityChanged:
+                # This exception is emitted only before image copy, handoff or Files
+                # mutation. It is proof of no attempt, unlike a provider timeout.
+                if files_capability is None:
+                    raise
+                recovering = resume_files_queue_operation is not None
+                state = "blocked" if recovering else "failed"
+                rejected = {
+                    **publication.claimed_metadata,
+                    "upgradeApproval": {
+                        **publication.claimed_metadata["upgradeApproval"],
+                        "status": state,
+                        "operationState": state,
+                        "presentationPhase": "blocked",
+                        "failureCode": "FILES_PLAN_CHANGED",
+                    },
+                }
+                if recovering:
+                    await publish_upgrade(backend_metadata=rejected, retain_lease=True)
+                    raise RuntimeError(
+                        "Files recovery configuration changed; reservation retained"
+                    ) from None
+                if files_executor is not None:
+                    await publish_hosted_files_terminal(rejected, no_dispatch=True)
+                else:
+                    await publish_upgrade(backend_metadata=rejected)
+                raise
+
+            except Exception as exc:
+                marker = old_meta.get("upgrade") or {}
+                attempts = (
+                    int(marker.get("attempts") or 0) + 1
+                    if str(marker.get("failedImage") or "") == current_image
+                    else 1
+                )
+                reason = user_safe_failure_reason(exc)
+                approval = old_meta.get("upgradeApproval")
+                if isinstance(approval, dict) and approval.get("operationId"):
+                    # A provider exception is not proof that replacement stopped. Keep
+                    # the operation visibly unresolved until reconciliation can classify
+                    # the external outcome.
+                    old_meta["upgradeApproval"] = {
+                        **approval,
+                        "status": "blocked",
+                        "operationState": "blocked",
+                        "presentationPhase": "blocked",
+                    }
+                failure_recorded = False
+                try:
+                    await publish_upgrade(
+                        # An exception/timeout is not proof that external work stopped.
+                        retain_lease=True,
+                        backend_metadata={
+                            **publication.claimed_metadata,
+                            "upgradeApproval": old_meta.get("upgradeApproval"),
+                            "upgrade": {
+                                "outcome": "unresolved",
+                                "failedImage": current_image,
+                                "attempts": attempts,
+                                "lastError": reason,
+                                "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
+                            },
+                        },
+                    )
+                    failure_recorded = True
+                except Exception:
+                    logger.exception("personal_agent.upgrade_marker_write_failed")
+                if failure_recorded:
+                    await pod_lifecycle_append(
+                        user_id,
+                        stage="authority_live",
+                        registry_status="provisioned",
+                        event="upgrade_failed",
+                        hushh_id=hushh_id,
+                        attempt=attempts,
+                        reason=reason,
+                    )
+                logger.warning(
+                    "personal_agent.upgrade_failed hushh_id=%s attempt=%s reason=%s",
+                    hushh_id,
+                    attempts,
+                    reason,
+                )
+                raise
+
+            if getattr(handle, "status", None) != "live":
+                if getattr(handle, "status", None) == "failed":
+                    handle_metadata = handle.backend_metadata or {}
+                    failure = (
+                        handle_metadata.get("terminalFailure")
+                        if isinstance(handle_metadata, dict)
+                        else None
+                    )
+                    attempt_id = hashlib.sha256(lease.encode()).hexdigest()
+                    if (
+                        handle.external_agent_id != row.get("external_agent_id")
+                        or not isinstance(failure, dict)
+                        or failure.get("outcome") != "failed"
+                        or failure.get("ready") is not False
+                        or failure.get("attemptId") != attempt_id
+                        or failure.get("serviceUid") != spec.expected_service_uid
+                        or failure.get("targetImage") != current_image
+                        or failure.get("sourceImage") != current_image
+                        or failure.get("sourceDigest") != image_digest(current_image)
+                        or not isinstance(publication.persisted_acknowledgement, dict)
+                        or failure.get("deployedImage")
+                        != publication.persisted_acknowledgement.get("deployedImage")
+                        or failure.get("image")
+                        != publication.persisted_acknowledgement.get("image")
+                        or image_digest(failure.get("deployedImage")) != image_digest(current_image)
+                        or not isinstance(failure.get("predecessor"), dict)
+                        or publication.persisted_acknowledgement.get("attemptId") != attempt_id
+                        or publication.persisted_acknowledgement.get("predecessor")
+                        != failure.get("predecessor")
+                    ):
+                        raise RuntimeError(
+                            "upgrade provider failure has no exact acknowledged terminal proof"
+                        )
+                    failed_acknowledgement = {
+                        **publication.persisted_acknowledgement,
+                        "outcome": "failed",
+                        "ready": False,
+                        "observedGeneration": failure.get("observedGeneration"),
+                        "revision": failure.get("revision"),
+                        "terminalFailure": failure,
+                    }
+                    approval = publication.claimed_metadata.get("upgradeApproval")
+                    failed_approval = (
+                        {
+                            **approval,
+                            "status": "failed",
+                            "operationState": "failed",
+                            "presentationPhase": "blocked",
+                            "failureCode": "PROVIDER_REVISION_FAILED",
+                        }
+                        if isinstance(approval, dict) and approval.get("operationId")
+                        else approval
+                    )
+                    marker = old_meta.get("upgrade") or {}
+                    attempts = (
+                        int(marker.get("attempts") or 0) + 1
+                        if str(marker.get("failedImage") or "") == current_image
+                        else 1
+                    )
+                    failed_metadata = {
+                        **publication.claimed_metadata,
+                        "upgradeApproval": failed_approval,
+                        "upgradeAcknowledgement": failed_acknowledgement,
                         "upgrade": {
-                            "outcome": "unresolved",
+                            "outcome": "failed",
                             "failedImage": current_image,
                             "attempts": attempts,
-                            "lastError": reason,
+                            "lastError": "Upgrade revision did not become ready",
                             "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
                         },
-                    },
+                    }
+                    if files_executor is not None:
+                        failed_metadata = await publish_hosted_files_terminal(failed_metadata)
+                    else:
+                        failed_metadata.pop("upgradeLease", None)
+                        failed_metadata.pop("upgradeLeaseHost", None)
+                        await publish_upgrade(backend_metadata=failed_metadata)
+                    await pod_lifecycle_append(
+                        user_id,
+                        stage="authority_live",
+                        registry_status="provisioned",
+                        event="upgrade_failed",
+                        hushh_id=hushh_id,
+                        attempt=attempts,
+                        reason="Upgrade revision did not become ready",
+                    )
+                    return {
+                        "hushhId": hushh_id,
+                        "status": "provisioned",
+                        "upgraded": False,
+                        "failed": True,
+                        "image": previous,
+                        "previousImage": previous,
+                    }
+                # A provider's planned/unknown response is not a terminal upgrade
+                # outcome. Keep the lease so a later read-only reconciliation can
+                # establish what happened instead of recording a success that never
+                # reached the host.
+                raise RuntimeError("upgrade provider did not return a live terminal outcome")
+            handle_metadata = handle.backend_metadata or {}
+            if not isinstance(handle_metadata, dict):
+                raise RuntimeError("upgrade provider returned invalid terminal metadata")
+            if is_immutable_image_reference(current_image):
+                observed_digest = image_digest(
+                    handle_metadata.get("image_digest") or handle_metadata.get("image")
                 )
-                failure_recorded = True
-            except Exception:
-                logger.exception("personal_agent.upgrade_marker_write_failed")
-            if failure_recorded:
-                await pod_lifecycle_append(
-                    user_id,
-                    stage="authority_live",
-                    registry_status="provisioned",
-                    event="upgrade_failed",
-                    hushh_id=hushh_id,
-                    attempt=attempts,
-                    reason=reason,
-                )
-            logger.warning(
-                "personal_agent.upgrade_failed hushh_id=%s attempt=%s reason=%s",
+                if observed_digest != image_digest(current_image):
+                    raise RuntimeError("upgrade provider returned a different image digest")
+
+            if files_capability is not None and (
+                files_checkpoint is None
+                or not files_checkpoint.complete
+                or handle_metadata.get("filesCapability")
+                != {"planDigest": files_capability.digest, "status": "enabled"}
+            ):
+                raise RuntimeError("Files installation has not been verified")
+            new_meta = merged_upgrade_metadata(
+                publication.claimed_metadata, handle_metadata, spec=spec
+            )
+            if publication.persisted_acknowledgement is not None:
+                # Preserve the exact operation receipt already durably published by
+                # this attempt; old_meta predates the provider callback.
+                new_meta["upgradeAcknowledgement"] = {
+                    **publication.persisted_acknowledgement,
+                    "outcome": "ready",
+                }
+            approval = new_meta.get("upgradeApproval")
+            verified_approval = verified_upgrade_approval(approval)
+            if verified_approval is not None:
+                new_meta["upgradeApproval"] = verified_approval
+            release_metadata = approved_release(approval, current_image)
+            if release_metadata is not None:
+                new_meta["installedRelease"] = release_metadata
+            new_meta.pop("upgrade", None)
+            # `observed` is the OLD pod's report of what it was running, and that pod has
+            # just been replaced. Carrying it through leaves source_image=new beside
+            # observed.imageTag=old, and describe_pod_update resolves running from
+            # `observed_tag or deployed_tag` -- so a pod that just updated successfully
+            # reports updateAvailable forever. An economy pod scales to zero and its
+            # heartbeat loop never runs, so nothing corrects it: the person sees a
+            # permanent "update available" for an already-current agent. 1cd8d272a fixed
+            # the mirror case (a bodyless beat dropping a stale report); this is the same
+            # staleness arriving from the other side.
+            new_meta.pop("observed", None)
+            changed = bool(new_meta.get("upgraded", True))
+            # Who set it, so a draining older hub revision refuses to move it back.
+            if hub_revision():
+                new_meta["imageSetByRevision"] = hub_revision()
+            new_meta = await publish_hosted_files_terminal(new_meta)
+            await pod_lifecycle_append(
+                user_id,
+                stage="authority_live",
+                registry_status="provisioned",
+                event="upgraded" if changed else "upgrade_noop",
+                hushh_id=hushh_id,
+                reason=f"{previous or '-'} -> {running_image({'backend_metadata': new_meta}) or '-'}",
+            )
+            logger.info(
+                "personal_agent.upgraded hushh_id=%s service=%s changed=%s",
                 hushh_id,
-                attempts,
-                reason,
+                handle.external_agent_id or "<none>",
+                changed,
             )
-            raise
-
-        if getattr(handle, "status", None) != "live":
-            # A provider's planned/unknown response is not a terminal upgrade
-            # outcome. Keep the lease so a later read-only reconciliation can
-            # establish what happened instead of recording a success that never
-            # reached the host.
-            raise RuntimeError("upgrade provider did not return a live terminal outcome")
-        handle_metadata = handle.backend_metadata or {}
-        if not isinstance(handle_metadata, dict):
-            raise RuntimeError("upgrade provider returned invalid terminal metadata")
-        if is_immutable_image_reference(current_image):
-            observed_digest = image_digest(
-                handle_metadata.get("image_digest") or handle_metadata.get("image")
-            )
-            if observed_digest != image_digest(current_image):
-                raise RuntimeError("upgrade provider returned a different image digest")
-
-        if files_capability is not None and (
-            not files_checkpoint.complete
-            or handle_metadata.get("filesCapability")
-            != {"planDigest": files_capability.digest, "status": "enabled"}
-        ):
-            raise RuntimeError("Files installation has not been verified")
-        new_meta = merged_upgrade_metadata(claimed_metadata, handle_metadata, spec=spec)
-        if persisted_acknowledgement is not None:
-            # Preserve the exact operation receipt already durably published by
-            # this attempt; old_meta predates the provider callback.
-            new_meta["upgradeAcknowledgement"] = {
-                **persisted_acknowledgement,
-                "outcome": "ready",
+            if changed:
+                await record_update_completion_safe(
+                    user_id=user_id, operation_id=_approval_operation_id(approval)
+                )
+            return {
+                "hushhId": hushh_id,
+                "status": "provisioned",
+                "upgraded": changed,
+                "image": running_image({"backend_metadata": new_meta}),
+                "previousImage": previous,
             }
-        approval = new_meta.get("upgradeApproval")
-        verified_approval = verified_upgrade_approval(approval)
-        if verified_approval is not None:
-            new_meta["upgradeApproval"] = verified_approval
-        release_metadata = approved_release(approval, current_image)
-        if release_metadata is not None:
-            new_meta["installedRelease"] = release_metadata
-        new_meta.pop("upgrade", None)
-        # `observed` is the OLD pod's report of what it was running, and that pod has
-        # just been replaced. Carrying it through leaves source_image=new beside
-        # observed.imageTag=old, and describe_pod_update resolves running from
-        # `observed_tag or deployed_tag` -- so a pod that just updated successfully
-        # reports updateAvailable forever. An economy pod scales to zero and its
-        # heartbeat loop never runs, so nothing corrects it: the person sees a
-        # permanent "update available" for an already-current agent. 1cd8d272a fixed
-        # the mirror case (a bodyless beat dropping a stale report); this is the same
-        # staleness arriving from the other side.
-        new_meta.pop("observed", None)
-        changed = bool(new_meta.get("upgraded", True))
-        # Who set it, so a draining older hub revision refuses to move it back.
-        if hub_revision():
-            new_meta["imageSetByRevision"] = hub_revision()
-        await publish_upgrade(
-            backend_metadata=new_meta,
-            liveness_mode=new_meta.get("livenessMode"),
-        )
-        await pod_lifecycle_append(
-            user_id,
-            stage="authority_live",
-            registry_status="provisioned",
-            event="upgraded" if changed else "upgrade_noop",
-            hushh_id=hushh_id,
-            reason=f"{previous or '-'} -> {running_image({'backend_metadata': new_meta}) or '-'}",
-        )
-        logger.info(
-            "personal_agent.upgraded hushh_id=%s service=%s changed=%s",
-            hushh_id,
-            handle.external_agent_id or "<none>",
-            changed,
-        )
-        if changed:
-            await record_update_completion_safe(
-                user_id=user_id, operation_id=_approval_operation_id(approval)
-            )
-        return {
-            "hushhId": hushh_id,
-            "status": "provisioned",
-            "upgraded": changed,
-            "image": running_image({"backend_metadata": new_meta}),
-            "previousImage": previous,
-        }
+        finally:
+            if files_executor is not None and not files_executor.closed:
+                await files_executor.finish()
 
     async def adopt_orphan(self, *, user_id: str) -> Optional[dict[str, Any]]:
         """Reconnect to a pod that ALREADY exists in the user's project, not rebuild it.
@@ -2367,106 +2210,9 @@ class PersonalAgentProvisioningService:
 
     async def _fence_reserved_erasure(self, *, user_id: str, reservation: dict) -> dict:
         """Fence one observed pod under its immutable registry reservation."""
-        from hushh_mcp.services.pod_migration_transport import (
-            fence_for_erasure,
-            observe_memory_for_erasure,
-        )
+        from hushh_mcp.services.personal_agent_erasure_fence import fence_reserved_erasure
 
-        if (
-            not isinstance(reservation, dict)
-            or reservation.get("ownerId") != user_id
-            or reservation.get("version") != 1
-            or reservation.get("phase") != "reserved"
-            or not isinstance(reservation.get("attemptId"), str)
-            or not reservation["attemptId"]
-        ):
-            raise RuntimeError("erasure reservation unavailable")
-        row = reservation.get("registrySnapshot")
-        if (
-            not isinstance(row, dict)
-            or row.get("user_id") != user_id
-            or row.get("status") != "provisioned"
-        ):
-            raise RuntimeError("erasure host snapshot unavailable")
-        metadata = row.get("backend_metadata") or {}
-        if metadata.get("upgradeLease") is not None or not metadata.get("serviceUid"):
-            raise RuntimeError("erasure compute attempt unresolved")
-        hushh_id = row.get("hushh_id")
-        if not hushh_id or hushh_id != reservation.get("hushhId"):
-            raise RuntimeError("erasure owner identity unavailable")
-        from hushh_mcp.services.compute_backend_resolution import cleanup_spec
-
-        spec = cleanup_spec(row, registry=self._registry)
-        backend = self._backend_for(spec)
-        observe = getattr(backend, "observe_erasure_target", None)
-        if observe is None or getattr(backend, "backend_id", None) != row.get("backend"):
-            raise RuntimeError("erasure backend observation unavailable")
-        target = await observe(spec)
-        if (
-            target.get("serviceUid") != metadata["serviceUid"]
-            or target.get("service") != (metadata.get("service") or row.get("external_agent_id"))
-            or target.get("podUrl") != str(metadata.get("url") or "").rstrip("/")
-        ):
-            raise RuntimeError("erasure compute observation mismatch")
-        current = await self._registry.get(user_id)
-        if (
-            not current
-            or current.get("status") != "suspended"
-            or (current.get("backend_metadata") or {}).get("erasure") != reservation
-        ):
-            raise RuntimeError("erasure reservation changed")
-        payload = {
-            "hushhId": hushh_id,
-            "attemptId": reservation["attemptId"],
-            "service": target["service"],
-            "serviceUid": target["serviceUid"],
-            "revision": target["revision"],
-        }
-        await asyncio.to_thread(fence_for_erasure, pod_url=target["podUrl"], payload=payload)
-        receipt = await asyncio.to_thread(
-            observe_memory_for_erasure, pod_url=target["podUrl"], payload=payload
-        )
-        retain = getattr(self._registry, "retain_erasure_memory_binding", None)
-        if retain is None or not await retain(
-            user_id=user_id, reservation=reservation, receipt=receipt
-        ):
-            raise RuntimeError("erasure memory binding retention unconfirmed")
-        observed = await self._registry.get(user_id)
-        saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
-        if (
-            not observed
-            or observed.get("status") != "suspended"
-            or saved.get("ownerId") != user_id
-            or saved.get("attemptId") != reservation["attemptId"]
-            or saved.get("memoryBinding") != receipt
-        ):
-            raise RuntimeError("erasure memory binding readback unconfirmed")
-        attempt = metadata.get("provisionAttempt") or {}
-        creation = ((attempt.get("evidence") or {}).get("host_requested") or {}).get(
-            "creationAcknowledgement"
-        ) or {}
-        if (
-            attempt.get("version") != 1
-            or attempt.get("ownerId") != user_id
-            or attempt.get("phase") != "provisioned"
-            or type(creation.get("initialGeneration")) is not int
-            or creation["initialGeneration"] != 1
-            or not isinstance(creation.get("initialImage"), str)
-            or not receipt["memoryBinding"].get("creationProvenance")
-            or creation.get("serviceUid") != target["serviceUid"]
-        ):
-            raise RuntimeError("erasure runtime creation provenance unavailable")
-        expected_target = backend.provision_target_for(spec)
-        if any(creation.get(key) != value for key, value in expected_target.items()):
-            raise RuntimeError("erasure creation target changed")
-        runtime = await backend.observe_erasure_runtime(spec)
-        if (
-            any(runtime.get(key) != value for key, value in target.items())
-            or runtime.get("generation") != creation["initialGeneration"]
-            or runtime.get("image") != creation["initialImage"]
-        ):
-            raise RuntimeError("erasure runtime creation identity changed")
-        return {**receipt, "runtime": runtime}
+        return await fence_reserved_erasure(self, user_id=user_id, reservation=reservation)
 
     async def _erase_reserved_memory(self, *, user_id: str, qualified: dict) -> None:
         """Persist pod-held provider erasure before any later resource teardown."""

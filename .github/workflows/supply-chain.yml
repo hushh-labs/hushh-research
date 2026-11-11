@@ -56,7 +56,7 @@ jobs:
           upload-artifact: false
 
       - name: Attest build provenance for the SBOM (keyless, Sigstore)
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: sbom.cyclonedx.json
 

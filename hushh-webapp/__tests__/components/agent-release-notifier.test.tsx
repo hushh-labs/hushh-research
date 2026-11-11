@@ -115,7 +115,7 @@ describe("Release notices", () => {
     state.bootstrap.mockResolvedValue({ userId: "owner-a", setupCompleted: true, firstLoginAt: null });
     state.status.mockResolvedValue({ ...receipt, updateAvailable: true, updateVerified: false });
     render(<AgentReleaseNotifier />);
-    await screen.findByRole("button", { name: "Your private agent is updated" });
+    await screen.findByRole("button", { name: "Agent One is updated" });
     const notice = completedPodNotice(receipt)!;
     await waitFor(() => expect(state.seen.has(`owner-a:${notice.id}`)).toBe(true));
     fireEvent.click(screen.getByRole("button"));
@@ -130,7 +130,7 @@ describe("Release notices", () => {
     state.bootstrap.mockResolvedValue({ userId: "owner-a", setupCompleted: true, firstLoginAt: null });
     state.status.mockResolvedValue(receipt);
     render(<AgentReleaseNotifier />);
-    fireEvent.click(await screen.findByRole("button", { name: "Your private agent is updated" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Agent One is updated" }));
     await waitFor(() => expect(screen.queryByRole("button")).toBeNull());
     await act(async () => publishPodUpdateObservation("owner-a", receipt));
     expect(state.seen.has(`owner-a:${completedPodNotice(receipt)!.id}`)).toBe(true);
@@ -144,7 +144,7 @@ describe("Release notices", () => {
     view.unmount();
     state.bootstrap.mockResolvedValue({ userId: "owner-a", setupCompleted: true, firstLoginAt: null });
     render(<AgentReleaseNotifier />);
-    await screen.findByRole("button", { name: "Your private agent is updated" });
+    await screen.findByRole("button", { name: "Agent One is updated" });
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 

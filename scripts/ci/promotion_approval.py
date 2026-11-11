@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hussh
-"""Bind a UAT-tested application to its distinct, validated Main approval.
+"""Bind a qualified application to its distinct, validated Main approval.
 
-This content proof cannot replace the existing exact-SHA UAT acceptance gate.
-It neither deploys nor provides an emergency predecessor bypass.
+This content proof does not replace functional qualification or Main smoke.
+It neither deploys nor provides an emergency source bypass.
 """
 
 from __future__ import annotations
@@ -30,8 +30,6 @@ def verify(application: str, approval: str, *, resolve=git) -> dict:
         raise ValueError("Use ordinary Main admission when application and approval are identical")
     if resolve("merge-base", approval, "origin/main") != approval:
         raise ValueError("Approval is not on Main")
-    if resolve("merge-base", application, "origin/uat") != application:
-        raise ValueError("Application is not in the curated UAT history")
     if resolve("merge-base", application, approval) != application:
         raise ValueError("Main approval does not incorporate the tested application")
     if len(resolve("show", "-s", "--format=%P", approval).split()) != 2:
@@ -39,7 +37,7 @@ def verify(application: str, approval: str, *, resolve=git) -> dict:
     application_tree = resolve("rev-parse", f"{application}^{{tree}}")
     approval_tree = resolve("rev-parse", f"{approval}^{{tree}}")
     if not SHA.fullmatch(application_tree) or application_tree != approval_tree:
-        raise ValueError("Main approval changes the UAT-tested application content")
+        raise ValueError("Main approval changes the qualified application content")
     return {
         "schema_version": 1,
         "kind": "main-application-approval",
@@ -47,18 +45,23 @@ def verify(application: str, approval: str, *, resolve=git) -> dict:
         "main_approval_sha": approval,
         "application_tree": application_tree,
         "equivalence": "exact-git-tree",
-        "predecessor_acceptance_required": "uat-exact-application-sha",
+        "predecessor_acceptance_required": "main-qualified-source",
     }
 
 
-def uat_source(application: str, *, resolve=git) -> tuple[str, str]:
+def uat_source(application: str, *, resolve=git, branch="uat") -> tuple[str, str]:
+    """Require new UAT selections to belong to protected UAT history.
+
+    Historical Main-backed receipts remain readable by the acceptance verifier;
+    they do not authorize a new Main-only dispatch.
+    """
     if not SHA.fullmatch(application):
         raise ValueError("A full application SHA is required")
-    if resolve("merge-base", application, "origin/main") == application:
-        return "main", "Main Post-Merge Smoke Gate"
-    if resolve("merge-base", application, "origin/uat") == application:
-        return "uat", "CI Status Gate,Queue Validation,Branch Validation Gate"
-    raise ValueError("Application is neither curated UAT nor an approved Main baseline")
+    if branch not in ("uat", "uat-isolated"):
+        raise ValueError("Unrecognized protected UAT branch")
+    if resolve("merge-base", application, f"origin/{branch}") == application:
+        return branch, "CI Status Gate,Queue Validation,Branch Validation Gate"
+    raise ValueError("Application is not in protected UAT history")
 
 
 def main() -> int:
@@ -66,6 +69,7 @@ def main() -> int:
     parser.add_argument("mode", nargs="?", choices=("main", "uat"), default="main")
     parser.add_argument("--application-sha", required=True)
     parser.add_argument("--approval-sha", default="")
+    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"), default="uat")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
@@ -78,15 +82,19 @@ def main() -> int:
         )
         if not all(SHA.fullmatch(v) for v in values):
             raise ValueError("Full immutable SHAs are required")
-        subprocess.run(["git", "fetch", "--no-tags", "origin", "main", "uat"], check=True)
+        refs = ["+refs/heads/main:refs/remotes/origin/main"]
         if args.mode == "uat":
-            branch, checks = uat_source(args.application_sha)
+            refs.append(f"+refs/heads/{args.source_branch}:refs/remotes/origin/{args.source_branch}")
+        subprocess.run(["git", "fetch", "--no-tags", "origin", *refs], check=True)
+        if args.mode == "uat":
+            branch, checks = uat_source(args.application_sha, branch=args.source_branch)
             if args.github_output is None:
                 raise ValueError("UAT selection requires the workflow output port")
             with args.github_output.open("a", encoding="utf-8") as output:
                 output.write(f"branch={branch}\nchecks={checks}\n")
             print(
-                f"Selected {branch} source authority; canonical CI and Dev acceptance remain required."
+                f"Selected {branch} source authority; exact branch CI and "
+                "Main-owned UAT admission remain required."
             )
             return 0
         if args.output is None:
@@ -95,7 +103,7 @@ def main() -> int:
         with args.output.open("x", encoding="utf-8") as output:
             json.dump(record, output, indent=2)
         print(
-            "Exact UAT application content is incorporated by the Main approval; UAT acceptance remains required."
+            "Exact application content is incorporated by the Main approval; functional CI and Main smoke remain required."
         )
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:

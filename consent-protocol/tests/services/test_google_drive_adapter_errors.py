@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from hushh_mcp.services import google_drive_adapter as drive
+from hushh_mcp.services.google_provider_errors import classify_google_forbidden_response
 
 
 @pytest.fixture
@@ -77,3 +78,27 @@ async def test_mixed_or_oversized_drive_403_never_becomes_retryable(adapter, mon
     assert str(caught.value) == "source_unavailable"
     assert caught.value.status_code == 403
     assert caught.value.retryable is False
+
+
+@pytest.mark.parametrize("detail_type", ["Help", "RequestInfo"])
+async def test_google_error_info_survives_non_reason_detail_without_widening_drive_retry(
+    detail_type,
+):
+    body = {
+        "error": {
+            "code": 403,
+            "details": [
+                {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "SERVICE_DISABLED"},
+                {"@type": f"type.googleapis.com/google.rpc.{detail_type}"},
+            ],
+        }
+    }
+
+    def response():
+        return httpx.Response(403, stream=httpx.ByteStream(json.dumps(body).encode()))
+
+    assert await classify_google_forbidden_response(response()) == "provider_configuration"
+    assert (
+        await classify_google_forbidden_response(response(), strict_drive_retry=True)
+        == "provider_configuration"
+    )

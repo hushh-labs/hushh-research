@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import runpy
+
 import argparse
 import json
 import re
@@ -10,10 +12,6 @@ from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any
 
-try:
-    import tomllib
-except ModuleNotFoundError as exc:  # pragma: no cover
-    raise SystemExit(f"tomllib is required: {exc}") from exc
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -32,8 +30,8 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _read_toml(path: Path) -> dict[str, Any]:
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+def _read_source(path: Path) -> dict[str, Any]:
+    return runpy.run_path(str(Path(__file__).resolve().parents[4] / ".agents/skills/agent-orchestration-governance/scripts/framework_source_boundary.py"))["read_framework_source"](path)
 
 
 def _line_count(path: Path) -> int:
@@ -52,8 +50,8 @@ def _parse_skill_block(text: str) -> list[str]:
 
 def _load_agent_skill_map() -> dict[str, list[str]]:
     agent_map: dict[str, list[str]] = OrderedDict()
-    for path in sorted(AGENTS_ROOT.glob("*.toml")):
-        data = _read_toml(path)
+    for path in sorted(AGENTS_ROOT.glob("*.md")):
+        data = _read_source(path)
         agent_name = str(data.get("name") or path.stem)
         instructions = str(data.get("developer_instructions") or "")
         agent_map[agent_name] = _parse_skill_block(instructions)

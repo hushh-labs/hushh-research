@@ -13,6 +13,8 @@ export class HushhNotificationsWeb extends WebPlugin implements HushhNotificatio
     throw this.unavailable("Detailed device notification settings are only available on native apps.");
   }
   async playEmergencySmsCue(): Promise<{ played: boolean }> { return { played: false }; }
+  async requestEmergencySmsAlarmPermission(): Promise<{ supported: boolean; authorized: boolean }> { return { supported: false, authorized: false }; }
+  async getPendingEmergencySmsAlarms(): Promise<{ grantIds: string[]; acknowledgedGrantIds: string[] }> { return { grantIds: [], acknowledgedGrantIds: [] }; }
   async stopEmergencySmsCue(): Promise<void> {}
   async setActiveChat(): Promise<void> {}
   async deletePushToken(): Promise<void> {

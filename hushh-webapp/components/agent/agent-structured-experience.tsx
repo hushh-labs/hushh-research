@@ -1,4 +1,5 @@
 "use client";
+import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -30,10 +31,8 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DEFAULT_REQUEST_DURATION_HOURS, requestDurationLabel } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type InformationRequestBundle, type RequestablePersonScope, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
-import {
-  ConnectorReadReceipt,
-  WorkspaceConnectorSetupCard,
-} from "@/components/agent/connector-read-receipt";
+import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
+import { MailChatCard } from "@/components/agent/mail-chat-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
@@ -46,7 +45,6 @@ import {
   domainLabelFor,
   scopeItemsFromRequestable,
 } from "@/lib/consent/consent-scope-items";
-import Link from "next/link";
 import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { EditRowIcon } from "@/components/icons/agents";
 import { describeOwnerStyleProposal, stageOwnerStyleProposal } from "@/lib/agent/owner-style-settings";
@@ -141,6 +139,7 @@ export function AgentStructuredExperienceView({
         driveCompilation={driveCompilation} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+    case "one.mail_brief.v1": case "one.receipt_setup.v1": return <MailChatCard experience={experience} />;
     case "one.custom_connector_probe.v1":
       return <CustomConnectorProbeCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":
@@ -155,8 +154,8 @@ export function AgentStructuredExperienceView({
             {candidate.detail ? <span className="block text-sm text-muted-foreground">{candidate.detail}</span> : null}
             <MaterialRipple variant="none" effect="glass" disabled={!selectPerson} />
           </button>
-          <Link className="ml-auto inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline"
-            href={candidate.profilePath} aria-label={`View ${candidate.displayName}'s profile`}>View profile</Link>
+          <PersonProfileLink className="ml-auto inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline"
+            href={candidate.profilePath} aria-label={`View ${candidate.displayName}'s profile`}>View profile</PersonProfileLink>
           </div>)}
           {experience.candidatesIncomplete ? (
             <p className="px-3 text-sm text-muted-foreground">
@@ -568,8 +567,8 @@ function ScopeDiscoveryView({
       {!reviewing ? <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1">
         {items.length ? <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={!selectedScopes.length || loading}
           onClick={() => setReviewing(true)}>Review request</MorphyButton> : null}
-        <Link href={experience.person.profilePath} className="inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>
-      </div> : <Link href={experience.person.profilePath} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>}
+        <PersonProfileLink href={experience.person.profilePath} className="inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</PersonProfileLink>
+      </div> : <PersonProfileLink href={experience.person.profilePath} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</PersonProfileLink>}
       {sent ? <p role="status" className="text-sm">Request sent. They can now review your choices; access is not granted yet.</p> : null}
     </section>
   );

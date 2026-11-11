@@ -76,15 +76,15 @@ export function NativePrivateGoogleConnectorHandoff() {
       const confirmed = await response.json() as { connectorId?: string; status?: string };
       if (!current()) return;
       setMessage(response.ok && confirmed.connectorId === connector && confirmed.status === 'connected'
-        ? outcome.legacyCleanup === 'unconfirmed' ? 'Google connected. The previous connection still needs verification.' : 'Google is connected to your private agent.'
+        ? outcome.legacyCleanup === 'unconfirmed' ? 'Google connected. The previous connection still needs verification.' : 'Google is connected to Agent One.'
         : 'Your agent could not confirm the connection. Try again.');
-    } catch { if (current()) setMessage('Your private agent could not be reached. Try again.'); }
+    } catch { if (current()) setMessage('Agent One could not be reached. Try again.'); }
     finally { if (current()) setBusy(false); }
   };
   return <><Dialog open={connector !== null && !paused && !transitionPending} onOpenChange={(open) => { if (!open && !busy) { intentEpoch.current += 1; setConnector(null); setMessage(''); } }}>
     <DialogContent className={connector === 'calendar' ? calendarPresentation.portal : undefined} data-calendar-presentation={connector === 'calendar' || undefined}>
       <DialogTitle>Connect {connector === 'gmail' ? 'Gmail' : `Google ${connector ?? ''}`}</DialogTitle>
-      <DialogDescription>This phone connects to the private agent of the account signed in here. The scanned link carries only the connector name.</DialogDescription>
+      <DialogDescription>This phone connects to Agent One of the account signed in here. The scanned link carries only the connector name.</DialogDescription>
       {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector)} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :
         !vaultKey || !vaultOwnerToken ? <Button disabled={loading} onClick={() => { setPaused(true); router.push(ROUTES.PROFILE_CONNECTORS); }}>Unlock your vault</Button> :
           <Button disabled={busy} onClick={() => void connect()}>{busy ? 'Connecting…' : 'Continue with Google'}</Button>}

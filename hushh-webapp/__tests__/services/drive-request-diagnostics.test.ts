@@ -121,4 +121,75 @@ describe("@feature_drive_request @trace_loop console diagnostics", () => {
       await expect(traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, "POST", async () => { throw failure; })).rejects.toBe(failure);
     } finally { vi.unstubAllGlobals(); }
   });
+
+  it("reports copy stage, mismatch and result counts without names or unknown reasons", async () => {
+    const { observeDriveRequestState } = await import("@/lib/consent/drive-request-diagnostics");
+    const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+    const secret = "private-query-email-file-token";
+    try {
+      const path = `/api/connectors/google_drive/sharing/requests/${requestId}/one-copy`;
+      const failed = Array.from({ length: 12 }, () => ({ status: "unavailable", name: secret, reason: "source_changed", copyDiagnostics: { stage: "source_before", mismatches: ["modified_time"] } }));
+      observeDriveRequestState(path, { actorRole: "recipient", status: "unavailable", files: failed }, guard);
+      await vi.waitFor(() => expect(logs).toHaveBeenCalledWith("[DRIVE_REQUEST][ONE-COPY]", expect.objectContaining({
+        copy_unavailable_count: 12, copy_ready_count: 0, copy_reason_source_changed_count: 12,
+        copy_failed_stage_source_before_count: 12, copy_mismatch_modified_time_count: 12,
+      })));
+      observeDriveRequestState(path, { actorRole: "recipient", status: "ready", files: failed.map(file => ({ ...file, status: "ready", reason: secret, copyDiagnostics: { stage: secret, mismatches: [secret] }, sourceMetadataTimeChanged: true })) }, guard);
+      await vi.waitFor(() => expect(logs).toHaveBeenCalledWith("[DRIVE_REQUEST][ONE-COPY]", expect.objectContaining({ copy_ready_count: 12, copy_metadata_time_changed_count: 12 })));
+      expect(JSON.stringify(logs.mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(logs.mock.calls)).not.toContain(requestId);
+      observeDriveRequestState(`/api/connectors/google_drive/searches/${documentId}`, { status: "completed", matched: 25, unshareableCount: 13, coverage: { providerRowsScanned: 25, providerFilePages: 8, dateBasis: "provider_query", datePushdown: "not_expressed", query: secret } }, guard);
+      await vi.waitFor(() => expect(logs).toHaveBeenCalledWith("[DRIVE_REQUEST][SEARCH_STATUS]", expect.objectContaining({ retained_count: 25, unshareable_count: 13, provider_rows: 25, provider_file_pages: 8, date_basis: "provider_query", date_pushdown: "not_expressed" })));
+      expect(JSON.stringify(logs.mock.calls)).not.toContain(secret);
+    } finally { logs.mockRestore(); }
+  });
+});
+
+it("@feature_drive_request @trace_loop separates native rows, retained files, date exclusions and fallback", async () => {
+  const { observeDriveRequestState } = await import("@/lib/consent/drive-request-diagnostics");
+  const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    observeDriveRequestState(`/api/connectors/google_drive/searches/${documentId}`, {
+      status: "queued", matched: 5001, nextRetryAt: "2026-09-27T00:05:00Z", retryReason: "provider_unavailable",
+      diagnostics: { queries: [{ query: "private-frozen-query" }], fallbackDecision: { privateKey: "private-decision" } },
+      coverage: { dateBasis: "activity_union", datePolicy: "drive_activity_union_v1", dateGateApplied: true,
+        fallbackActivated: true, providerRowsScanned: 25001, providerFilePages: 251, excludedByDateCount: 20000,
+        query: "private-query", name: "private-name" },
+    }, guard);
+    await vi.waitFor(() => expect(logs).toHaveBeenCalled());
+    expect(logs.mock.calls[0][1]).toMatchObject({ retained_count: 5001, provider_rows: 25001, provider_file_pages: 251,
+      excluded_by_date_count: 20000, date_policy: "drive_activity_union_v1", date_gate_applied: true, fallback_activated: true,
+      retry_reason: "provider_unavailable", next_retry_at: "2026-09-27T00:05:00.000Z" });
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("private-");
+  } finally { logs.mockRestore(); }
+});
+
+
+it.each([
+  ["uat", "uat", true], ["development", "development", true],
+  ["production", "production", false], ["uat", "production", false],
+  ["unknown", "", false], ["__proto__", "", false], ["", "", false],
+])("@trace_loop allows verbose logs only for verified deployment %s/%s", async (app, telemetry, enabled) => {
+  const { traceDriveRequest, observeDriveRequestState } = await import("@/lib/consent/drive-request-diagnostics");
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", app);
+  vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENV", telemetry);
+  vi.stubEnv("NEXT_PUBLIC_ENVIRONMENT_MODE", "");
+  vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_DEBUG", "true");
+  const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+  const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await expect(traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, "POST", async (headers, observe) => {
+      expect(headers["x-request-id"]).toBeTruthy();
+      observe(Response.json({ status: "queued" }, { status: 202 }), { status: "queued", purpose: "private-input" });
+      return "accepted";
+    })).resolves.toBe("accepted");
+    observeDriveRequestState(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, { status: "queued", purpose: "private-input" }, guard);
+    const failure = Object.assign(new Error("private-provider-text"), { code: "provider_unavailable" });
+    await expect(traceDriveRequest(`/api/connectors/google_drive/sharing/requests/${documentId}/allow`, "POST", async () => { throw failure; })).rejects.toBe(failure);
+    if (enabled) await vi.waitFor(() => expect(warnings).toHaveBeenCalled());
+    if (enabled) await vi.waitFor(() => expect(logs).toHaveBeenCalled());
+    else { await new Promise(resolve => setTimeout(resolve, 20)); expect(logs).not.toHaveBeenCalled(); expect(warnings).not.toHaveBeenCalled(); }
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("private-input");
+  } finally { logs.mockRestore(); warnings.mockRestore(); vi.unstubAllEnvs(); }
 });

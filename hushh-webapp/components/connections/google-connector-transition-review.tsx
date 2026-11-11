@@ -48,7 +48,7 @@ export function useGoogleConnectorTransitionReview(ownerId: string | undefined, 
     <DialogContent className={terms?.presentation === 'calendar' ? calendarPresentation.portal : undefined} data-calendar-presentation={terms?.presentation === 'calendar' || undefined}>
       <DialogHeader className="pr-8 text-left">
         <DialogTitle>Replace Google access?</DialogTitle>
-        <DialogDescription>This replaces all Google grants in the affected Google projects. Existing Google connections, including your private agent, will need sign-in again.</DialogDescription>
+        <DialogDescription>This replaces all Google grants in the affected Google projects. Existing Google connections, including Agent One, will need sign-in again.</DialogDescription>
       </DialogHeader>
       {terms && <p className="text-sm">{terms.review.services.map((service) => LABELS[service]).join(', ')}</p>}
       <DialogFooter>

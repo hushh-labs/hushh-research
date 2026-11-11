@@ -10,6 +10,7 @@
 // with a press scale added. It is the negative control: the spec runs the
 // same measurements against it and requires them to FAIL.
 import { createRoot } from "react-dom/client";
+import { useState } from "react";
 import { ArrowRight, Send } from "../../components/icons";
 import { AgentFollowUpSuggestions, AgentSuggestionList } from "../../components/agent/agent-follow-up-suggestions";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
@@ -19,6 +20,10 @@ import authStyles from "../../components/onboarding/AuthStepLight.module.css";
 import { AppleIcon, GoogleIcon } from "../../lib/morphy-ux/social-icons";
 import { Button as StockButton } from "../../components/ui/button";
 import { Button as MorphyButton } from "../../lib/morphy-ux/button";
+import {
+  LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME,
+  LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME,
+} from "../../components/one-location/redesign/location-action-styles";
 
 const ignoreEmailState = () => {};
 const rejectEmailAuthentication = async () => { throw new Error("Layout fixture cannot authenticate"); };
@@ -35,6 +40,7 @@ function LegacyChip() {
 }
 
 function Fixture() {
+  const [locationActionCount, setLocationActionCount] = useState(0);
   return (
     <main className="flex flex-col items-start gap-4 p-4" data-testid="press-ripple">
       <StockButton>Stock action</StockButton>
@@ -66,6 +72,17 @@ function Fixture() {
       >
         <Send className="h-4 w-4" />
       </ShellActionSurface>
+      <div className="flex gap-2" data-testid="location-people-actions">
+        {["Share", "Ask"].map((label) => (
+          <MorphyButton key={label} type="button" variant="none" effect="fade" size="compact"
+            disableHoverRipple className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
+            onClick={() => setLocationActionCount((count) => count + 1)}>
+            <span className={LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME}>{label}</span>
+          </MorphyButton>
+        ))}
+      </div>
+      <output data-testid="location-action-count">{locationActionCount}</output>
+      <StockButton variant="text" size="compact">Refresh results</StockButton>
       <LegacyChip />
     </main>
   );

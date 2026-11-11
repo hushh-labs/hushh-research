@@ -30,29 +30,73 @@ receipts are part of the release contract.
 
 ## Normal UAT dispatch
 
-After the exact landed `main` SHA passes `Main Post-Merge Smoke Gate`, dispatch
-UAT with automatic scope resolution:
+The workflow runs from reviewed `main`; the application comes from protected
+`uat` history. Direct UAT does not require a preceding Dev deployment. Qualify
+the exact protected UAT tip against the actual accepted serving base. Main smoke
+alone cannot qualify a Main-only application SHA.
+
+Governed Write/Maintain operators can discover prerequisites entirely in Actions:
+**Deploy to UAT → Run workflow → uat → operation=inspect**. Leave other inputs
+at defaults. This reads protected source and serving revision metadata through
+the existing UAT workload identity, creates no deployment record or acceptance,
+and changes no runtime state. The summary provides the application/base and
+existing CI status. Wait for an in-flight run; inspect a failed run before retrying.
+
+When qualification is missing, run **PR Validation** on **uat**, `scope=all`,
+using the shown `uat_base_sha`. After success inspect again to obtain verified
+current run/attempt/base pins. Then select `operation=deploy` from the protected UAT caller:
 
 ```bash
-gh workflow run deploy-uat.yml --ref main -f scope=auto -f sha=<landed-main-sha>
+gh workflow run deploy-uat.yml --ref uat -f operation=inspect
+# Only when the inspection requires new qualification:
+gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<observed-serving-base>
+# Inspect again after success, then use its exact pins:
+gh workflow run deploy-uat.yml --ref uat -f operation=deploy -f scope=auto \
+  -f sha=<qualified-protected-uat-tip> -f ci_run_id=<run-id> \
+  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base> \
+  -f approved_scope='<serving-backend-SHA>:<serving-frontend-SHA>:<PR-number>=<PR-head-SHA>'
 ```
 
-`scope=auto` compares the target SHA with each service's currently deployed SHA.
-This includes every accumulated frontend/backend change when UAT lags more than
-one merge. Force `frontend`, `backend`, or `all` only after proving the complete
-target-to-deployed-service delta and recording why automatic resolution is not
-appropriate.
+New deployments require all qualification pins and validate them before security,
+capacity or mutation jobs start. Admission repeats current CI, reviewed authority,
+protected-tip and live-base proof under the mutation lock. The separate protected
+Deployment Security job remains mandatory. Operators need no personal cloud
+admin login or copy of its credential. An inspection result grants no release authority.
 
-With a blank `sha`, UAT selects the newest main commit with its own successful
-post-merge gate. If main already matches the newest UAT deployment and its
-latest status is successful, the workflow finishes successfully with a `NO_OP`
-summary only after matching the existing `deployed/uat-latest` exact-SHA receipt
-to that same successful `deploy-uat.yml` run. Rollback and rehearsal environment
-records, mismatched targets, and missing receipt proof cannot authorize a no-op.
-Selection runs before entering the UAT environment, so this no-op
-creates no deployment record, builds, traffic changes, or release tag updates.
-Unknown deployment state and unavailable or failed gates still block selection.
-An explicit SHA continues through the existing exact-SHA deployment validator.
+`scope=auto` compares each serving service with the selected application and covers
+accumulated changes. Force a lane only with complete target-to-serving delta proof.
+Deployment requires an explicit SHA and approved scope. The governed dispatcher
+attests the reviewed release PR and both observed service bases. Review the full
+PR delta from the serving base before merging. If other developers' changes
+would be included, obtain explicit approval for the identified PRs or prepare
+an isolated candidate. The landed tree must match the pinned PR head, and the
+PR comparison base must match the qualified serving tree. A concurrent landing
+that changes the approved delta or a serving-base change requires requalification.
+Use the separately protected `uat-isolated` source when the shared branch
+contains changes outside the approved scope. Start it at the observed serving
+SHA and land the reviewed release PR there. Dispatch the full qualification from
+Main with the exact isolated application commit, its Git tree and the observed
+serving baseline:
+
+```bash
+gh workflow run ci.yml --ref main -f scope=all \
+  -f uat_candidate_sha=<protected-isolated-tip> \
+  -f uat_candidate_tree=<git-tree-of-isolated-tip> \
+  -f uat_base_sha=<observed-serving-base>
+```
+
+Each selected lane tests a disposable checkout at the application SHA with
+reviewed Main validation tooling. Deployment uses the original application
+tree and rechecks shared build recipes, credentialed migration controls, the
+exact Main CI attempt and both serving revisions. Set `source_branch=uat-isolated`
+on inspection and deployment from the protected `uat` caller. Both sources
+share the same UAT runtime and release lock.
+
+A failed first deploy attempt can be ignored during selection only with complete,
+rechecked job/step evidence that its explicit runtime-mutation boundary and all
+mutators were skipped. Legacy failures without that marker, reruns, unknown
+operations and uncertain outcomes remain blocked. This only allows inspection of
+older independently qualified receipts; it never supplies acceptance by itself.
 
 UAT defaults `backend_image_source=auto`. When the exact accepted Dev backend
 attempt records a verified executable image, UAT revalidates that same
@@ -365,6 +409,76 @@ remain responsible for application rollout.
 Cloud Build files are implementation inputs. Their presence does not authorize
 direct human builds or traffic changes.
 
+### Akshat's personal backend
+
+The Main-owned personal backend workflow binds `RGlodAkshat` to
+`hushh-pda-uat/us-central1/backend-dev-akshat` and grants
+`i-akshat@hush1one.com` invoker and viewer access on that service. The
+initial approval for `5f4dcb772a66a303fb925f267246bc2e17b0ba9f` remains
+available through the pinned archive path.
+
+Land the UAT capacity entry before creating the Cloud Run service. Provision
+the dedicated `backend-dev-akshat-pg` Cloud SQL instance, initialize the
+`backend_dev_akshat` database from the approved source, and verify startup
+under its own database role. Provision the same-name Artifact Registry
+repository, the `hushh-pda-uat-backend-dev-akshat-builds` source bucket,
+separate `backend-dev-akshat` and `backend-dev-akshat-build` service
+accounts, and the four `BACKEND_DEV_AKSHAT_*` secrets. Scope runtime and
+builder access to their own resources. The existing UAT WIF deployer
+submits the build and deploys the image.
+
+Configure the isolated Firebase project `hushh-akshat-sandbox-auth` for
+the sandbox runtime and localhost session signer. Enable the Google sign-in
+provider for sandbox test accounts and authorize `localhost`. The approved backend
+source resolves its Firebase project through Google ADC. Verify that a
+sandbox Firebase token works and a shared-project token is refused. Use
+sandbox test accounts and fixtures.
+
+For a new source, run the canonical CI workflow on `New_memory_architecutre`
+and wait for its Branch Validation Gate. The branch must keep Main's CI and
+release tooling and contain the original sandbox baseline. CI tests the actual
+branch SHA with the usual change selection against Main. Each dispatch accepts
+the exact, current, green branch tip without a per-commit owner review.
+
+```bash
+gh workflow run ci.yml --ref New_memory_architecutre -f scope=auto
+# After Branch Validation Gate succeeds on the intended branch SHA:
+gh workflow run deploy-personal-backend.yml --ref main -f sandbox=akshat -f "sha=$sha"
+```
+
+The Main checkout creates the archive, then the deployer writes an immutable
+generation to the dedicated bucket. The sandbox build publishes an immutable
+image digest. The revision uses the dedicated Azure Entra client with
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` and a revision tag bound to the
+source, deploy recipe and workflow attempt.
+
+The original approved source still requires the pinned Git tar mode and its
+generation-qualified object and compressed SHA-256. This path does not enable
+Azure.
+
+Download the `backend-dev-akshat-receipt` artifact to the exact source
+worktree's Git metadata directory. Run the launcher from a checkout of the
+Main tooling and pass the path to the exact source worktree.
+
+```bash
+source_tree=/path/to/akshat-source
+receipt="$(git -C "$source_tree" rev-parse --path-format=absolute --git-path hushh-personal-backend)"
+gh run download "$run_id" -R hushh-labs/hushh-research \
+  --name backend-dev-akshat-receipt --dir "$(dirname "$receipt")"
+deploy/dev-personal-backend.sh "$source_tree" --check
+deploy/dev-personal-backend.sh "$source_tree"
+```
+
+The launcher uses Akshat's gcloud login for the Cloud Run tunnel. For the
+frontend, supply `HUSHH_SANDBOX_FIREBASE_WEB_CONFIG` from the dedicated
+Firebase web app and `GOOGLE_APPLICATION_CREDENTIALS` for its impersonated
+`localhost-sandbox-auth` service account. Verify the frontend on
+`http://localhost:3000` after the proxy reaches the pinned backend. Set
+`HUSHH_SANDBOX_PHONE_TESTS=1` when using the registered fictional numbers
+with a source that supports this test setting. Test codes belong only in the
+dedicated Firebase project's Auth configuration. Do not enable real SMS billing
+for this fixture flow.
+
 ## Environment and secret contracts
 
 Canonical owners:
@@ -413,21 +527,52 @@ Initial producer admission still uses `--qualify-source` and migration 423, so
 upgrading a pre-phone producer remains possible. Source qualification does not
 replace schema, runtime health, provider-settlement or device acceptance proof.
 
+Initial production phone-schema qualification accounts for retained and deleted
+issuers. The recorded pre-phone restoration and its exact parallel predecessor
+require canonical source-policy, producer-absence and scoped Git equality checks;
+they gain no phone-reader or rollback authority. Build inventory uses metadata
+listing plus bounded full readback, and joins every synchronous submission to its
+exact governed workflow attempt. The reviewed legacy workflow is pinned in full.
+Cold receipts retain the staged fallback producer separately from the primary
+source/image probed by that same build; a probe never invents a serving revision.
+Completed skipped steps may have equal valid start/end timestamps; unmatched
+builds and incomplete or active producers still refuse qualification.
+
+Deleted readiness jobs require the complete Cloud Run activity/system audit join:
+redacted create request, full UID-bound job creation, effective execution template,
+delete request and matching job/execution deletion. Source/image pairs must join
+acknowledged builds. Only reviewed packaged probes and the three exact historical
+document-readiness bodies qualify. The approved rollout probe's production-
+equivalent legacy body is restricted to the selected plan source/image pairs.
+The retained October 2 readiness image separately requires its original immutable
+release archive. Missing evidence, changed launchers, overrides, unknown jobs or
+changed incarnations refuse proof. No extra IAM role or Cloud Asset dependency
+is required; operational receipts retain fingerprints and release metadata only.
+
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
-rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
+rehearsal or reviewer BYOK proof is required. It compares from a service's
+serving SHA only once UAT accepted that exact SHA for that service. The trusted
+"Prove UAT comparison bases" step checks this with the exact-SHA acceptance
+reader (`scripts/ci/verify-predecessor-acceptance.py`, a bounded search of recent
+runs), and refuses a SHA that has no healthy `deployed/uat/<sha8>-*` tag without
+searching. A candidate still serving after its acceptance failed is no base, so
+the next release that deploys that service runs both the PKM upgrade rehearsal
+and reviewer BYOK. Dev still compares from its serving SHAs. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
 `run_live_model_checks=true` dispatch input. UAT backend releases always run
-synthetic Azure and Vertex provider checks from the exact candidate image and
-runtime identity, in parallel. A provider passes only when its full application
-capability bundle passes: structured and streamed text, image and PDF inputs,
-public search citations, exact public source retrieval, Location transcription
-and semantics, isolated narration, Live audio with function results and input
-transcription, and compatible embeddings. The required aggregate qualifies the
-provider selected in `config/managed-ai-runtime.json` (`managed_provider_selection.uat`),
-with Azure as the checked-in default. A healthy alternate does not override that
-choice; an incomplete selected provider blocks promotion.
-The API and both Drive workers must bind the same selected provider. UAT remains
-held until the selected provider has verified every declared capability.
+core provider checks from the exact candidate image and runtime identity. Ordinary
+UAT deployment explicitly selects `core` readiness for the configured provider:
+One chat and Drive text scopes, structured output and research attribution/schema
+proof remain mandatory. The execution-bound receipt records the qualification
+mode; an HTTP success alone cannot pass it. Search, images, PDFs, voice, Live audio
+and the broader capability exam are separate full diagnostics. A missing diagnostic
+is recorded as not run, never as a successful feature qualification.
+
+The provider selection in `config/managed-ai-runtime.json` remains authoritative.
+Core mode does not probe an unused alternate or grant fallback. Existing full-mode
+fallback requires its complete bound evidence; trust failures still veto release.
+The API and both Drive workers must bind the same verified provider. Enabling a new
+capability still requires its own qualification. See the [CI readiness policy](../docs/reference/operations/ci.md#managed-provider-readiness-policy).
 
 Azure's canonical PWM schema and six-case attribution evaluation remain
 independent safety checks. An explicit identity, attribution or schema violation
@@ -437,8 +582,8 @@ The execution-bound aggregate is uploaded as `uat-managed-provider-readiness.jso
 After the migration gate passes, UAT derives its Cloud Build scheduling from the
 shared backend template with `scripts/ci/uat_backend_build_config.py`. Only the
 pinned, zero-traffic UAT candidate may warm alongside the provider jobs. The
-unchanged required aggregate joins that candidate and both provider results
-before selection or promotion. The generated config refuses an unexpected DAG;
+required aggregate joins that candidate and the configured provider's core proof
+before selection or promotion. Full diagnostics retain both provider results. The generated config refuses an unexpected DAG;
 Dev and production retain the shared template's predeployment Vertex gate.
 
 Backend images compile dependency bytecode while installing the locked graph,
@@ -489,7 +634,8 @@ their existing contracts. Local E5 Drive/action embeddings are unchanged. The
 processor; this migration does not activate it or backfill a production index.
 
 The older SHA-bound one-time exception remains separately guarded. Its legacy
-text-only receipts do not satisfy this release's complete-capability gate.
+text-only receipts do not satisfy the current execution-bound core gate or
+full capability qualification.
 Provenance, IAM, authorization, schemas, preservation and candidate health remain
 mandatory. A diagnostic source-overlay job is useful during development, but
 only the immutable candidate image qualifies a release.
@@ -523,7 +669,7 @@ repair command into an alternative release path.
 
 1. Classify CI, deploy, runtime, schema, provenance, or semantic failure before
    editing.
-2. Start with `./bin/hushh codex rca --surface uat --text` for UAT failures.
+2. Start with `./bin/hushh agents rca --surface uat --text` for UAT failures.
 3. Inspect the exact failing GitHub job/step and its artifacts.
 4. Apply the smallest owner-routed correction, rerun local parity, and dispatch
    a new governed workflow from an eligible SHA.

@@ -155,6 +155,8 @@ def _revision() -> dict:
                         {"name": "DRIVE_WORKER_MODE", "value": "true"},
                         {"name": "DRIVE_WORKER_V1_ONLY", "value": "true"},
                         {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "value": "gemini"},
+                        {"name": "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "value": "true"},
+                        {"name": "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", "value": "false"},
                         {"name": "ENVIRONMENT", "value": "uat"},
                         {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "value": "azure_openai"},
                         {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER", "value": "azure_openai"},
@@ -262,7 +264,9 @@ def test_v1_revision_requires_exact_image_and_isolation_flags(drain_enabled) -> 
 
 
 def test_workflow_deploys_v1_only_after_paused_legacy_attestation() -> None:
-    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml").read_text()
+    )
     steps = {row["id"]: row for row in workflow["jobs"]["deploy"]["steps"] if "id" in row}
     v1 = steps["deploy-drive-v1-worker"]
     assert "inputs.preserve_paused_drive_worker == true" in v1["if"]
@@ -503,7 +507,9 @@ def test_release_gate_requires_mode_specific_evidence(mode, paused, http200, exp
     import re
     import subprocess
 
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     step = next(
         row
         for row in workflow["jobs"]["deploy"]["steps"]

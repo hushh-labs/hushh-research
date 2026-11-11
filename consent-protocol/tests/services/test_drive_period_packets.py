@@ -272,11 +272,12 @@ async def test_worker_threads_exact_head_lease_to_pre_send_guard(monkeypatch):
 
 
 @pytest.mark.parametrize("cached", [False, True])
-async def test_planning_reuses_only_this_exact_period_checkpoint(monkeypatch, cached):
+@pytest.mark.parametrize("provider", ["azure_openai", "gemini"])
+async def test_planning_reuses_only_this_exact_period_checkpoint(monkeypatch, cached, provider):
     import json
 
     module = "hushh_mcp.services.drive_period_packet_service"
-    binding = {"provider": "azure_openai", "deployment": "central"}
+    binding = {"provider": provider, "deployment": "central", "authorization_basis": "uat_policy"}
     authored = {"semantic_query": semantic()}
     monkeypatch.setattr(f"{module}.semantic_request_model_binding", lambda: binding)
     plan = AsyncMock(return_value=SimpleNamespace(model_dump=lambda **_: authored))

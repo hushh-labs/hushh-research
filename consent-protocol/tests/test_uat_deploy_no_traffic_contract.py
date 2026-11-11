@@ -18,6 +18,9 @@ from tests._deploy_contract import (
     managed_vertex_probe_script,
     managed_vertex_probe_surface,
 )
+from tests.helpers.managed_vertex_preflight import (
+    vertex_preflight_script as _vertex_preflight_script,
+)
 from tests.test_pwm_runtime_probe import pwm_proof_fixture
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +35,7 @@ _BACKEND_RELEASE_TOOL_FIXTURES = (
     "scripts/deploy/verify-managed-vertex-runtime.sh",
     "scripts/deploy/commerce-preview-bindings.sh",
     "scripts/deploy/backend-model-settings.sh",
+    "scripts/deploy/backend-drive-search-settings.sh",
     "scripts/deploy/backend-drive-secret-settings.sh",
     "scripts/deploy/scope-commerce-secrets.sh",
     "deploy/email-auth/bind_secrets.sh",
@@ -55,8 +59,8 @@ def test_backend_cloud_build_uses_valid_secret_flag_combinations():
 def test_selected_reviewer_repetition_requires_each_independent_pass(
     tmp_path: Path, repeat: bool, fail_at: int, expected_calls: int, completed: int
 ) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
-    inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    inputs = workflow.get("on", workflow.get(True))["workflow_call"]["inputs"]
     assert inputs["repeat_reviewer_byok"]["default"] is False
     step = next(
         step
@@ -113,7 +117,7 @@ def test_selected_reviewer_repetition_requires_each_independent_pass(
 def test_email_auth_release_admits_only_supported_enabled_backends(
     tmp_path, supported, backend, flag, allowed
 ):
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     sync = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]
@@ -264,6 +268,8 @@ def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
 
 
 def _read(path: str) -> str:
+    if path in {".github/workflows/deploy-dev.yml", ".github/workflows/deploy-uat.yml"}:
+        path = path.removesuffix(".yml") + "-implementation.yml"
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
@@ -379,8 +385,9 @@ def test_candidate_pkm_evaluator_inherits_exact_revision_resources(
 
 
 @pytest.mark.parametrize("pwm_provider", ["azure_openai_web_search", "azure_openai_tavily"])
+@pytest.mark.parametrize("mode", ["full", "core"])
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
-    tmp_path: Path, pwm_provider: str
+    tmp_path: Path, pwm_provider: str, mode: str
 ) -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
@@ -404,8 +411,17 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             {
                 "pwm_research": {"provider": "vertex_google_search"},
                 "pwm_research_uat": {"provider": pwm_provider},
+                "managed_provider_selection": {"uat": "azure_openai"},
             }
         ),
+        encoding="utf-8",
+    )
+    helper = tmp_path / "scripts/ci/managed_provider_readiness.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        "import sys\n"
+        "if sys.argv[1:] != ['configured-provider']: raise SystemExit(2)\n"
+        "print('azure_openai')\n",
         encoding="utf-8",
     )
     fake_bin = tmp_path / "bin"
@@ -433,6 +449,8 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "PROJECT_ID": "hushh-pda-uat",
         "BUILD_ID": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "_DEPLOY_ENV": "uat",
+        "_MANAGED_READINESS_MODE": mode,
+        "READINESS_QUALIFICATION_MODE": mode,
         "_REGION": "us-central1",
         "_CLOUD_RUN_NO_TRAFFIC": "true",
         "_RUNTIME_SERVICE_ACCOUNT": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
@@ -448,6 +466,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         ("missing_http", digest, runtime_identity, 1, True),
         ("missing_managed", digest, runtime_identity, 1, True),
         ("wrong_scope", digest, runtime_identity, 1, True),
+        ("wrong_mode", digest, runtime_identity, 1, True),
         ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 1, False),
         ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 1, False),
     )
@@ -467,6 +486,13 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             {"azure_managed_text_contract": "ok", "scopes": 1 if verdict == "wrong_scope" else 2},
             {"azure_pwm_runtime_probe_result": "failed" if verdict == "failed" else "ok"},
         ]
+        if mode == "core":
+            records[-1]["qualification_mode"] = "core"
+        if verdict == "wrong_mode":
+            if mode == "core":
+                records[-1].pop("qualification_mode")
+            else:
+                records[-1]["qualification_mode"] = "core"
         if verdict == "missing_http":
             records.pop(0)
         if verdict == "missing_managed":
@@ -557,21 +583,30 @@ def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
     )
 
 
-def test_uat_semantic_provider_reaches_api_and_both_worker_revisions() -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+@pytest.mark.parametrize(
+    "selector,default,expected_name",
+    [
+        ("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT", "gemini", "EXPECTED_SEMANTIC_MODEL_PROVIDER"),
+        ("DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED", "true", "EXPECTED_ACTIVITY_UNION_ENABLED"),
+        ("DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED", "false", "EXPECTED_ACTIVITY_UNION_PAUSED"),
+    ],
+)
+def test_uat_semantic_provider_reaches_api_and_both_worker_revisions(
+    selector, default, expected_name
+) -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
-    selector = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT"
-    flag = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER"
+    flag = selector.replace("_UAT", "")
     for step_id in ("deploy-backend", "deploy-drive-worker", "deploy-drive-v1-worker"):
         step = next(item for item in steps if item.get("id") == step_id)
-        assert step["env"][selector] == "${{ vars." + selector + " || 'gemini' }}"
+        assert step["env"][selector] == "${{ vars." + selector + " || '" + default + "' }}"
     backend = next(item for item in steps if item.get("id") == "deploy-backend")
     assert f"_{flag}=${{{selector}}}" in backend["run"]
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
-    assert build["substitutions"][f"_{flag}"] == "gemini"
+    assert build["substitutions"][f"_{flag}"] == default
     deployment = next(step for step in build["steps"] if step["id"] == "deploy-backend")
     assert (
-        "_DRIVE_SEARCH_SETTINGS=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}|${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
+        "_DRIVE_SEARCH_SETTINGS=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}|${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}|${_DRIVE_REQUEST_ACTIVITY_UNION_ENABLED}|${_DRIVE_REQUEST_ACTIVITY_UNION_PAUSED}"
         in deployment["env"]
     )
     deployed_script = _read("scripts/deploy/backend-deploy.sh")
@@ -587,9 +622,10 @@ def test_uat_semantic_provider_reaches_api_and_both_worker_revisions() -> None:
     )
     for script in ("deploy_worker_service.sh", "deploy_v1_worker_service.sh"):
         source = _read(f"deploy/drive/{script}")
-        assert f'{selector}="${{{selector}:-gemini}}"' in source
+        defaults = source + _read("deploy/drive/activity_policy_flags.sh")
+        assert f'{selector}="${{{selector}:-{default}}}"' in defaults
         assert f"{flag}=${{{selector}}}" in source
-        assert f'EXPECTED_SEMANTIC_MODEL_PROVIDER="${{{selector}}}"' in source
+        assert f'{expected_name}="${{{selector}}}"' in source
     for lane in ("dev", "production"):
         assert f"_{flag}=" not in _read(f".github/workflows/deploy-{lane}.yml")
 
@@ -602,7 +638,7 @@ def test_uat_semantic_provider_deploy_guards_fail_closed(tmp_path, lane, provide
     if provider is not None:
         environment[selector] = provider
     if lane == "api":
-        workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+        workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
         backend = next(
             step
             for step in workflow["jobs"]["deploy"]["steps"]
@@ -638,29 +674,30 @@ def test_uat_semantic_provider_deploy_guards_fail_closed(tmp_path, lane, provide
 
 
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     selection = workflow["jobs"]["select-target"]
     wait = workflow["jobs"]["wait-capacity"]
     deploy = workflow["jobs"]["deploy"]
 
     # A read-only no-op must not create a successful environment deployment
     # record or enter release classification with missing runtime evidence.
-    assert "environment" not in selection
+    assert selection["environment"] == {"name": "uat", "deployment": False}
     assert selection["permissions"] == {
         "contents": "read",
         "checks": "read",
         "deployments": "read",
+        "pull-requests": "read",
         "actions": "read",
     }
-    assert wait["needs"] == "select-target"
+    assert wait["needs"] == ["select-target", "deployment-security"]
     assert wait["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
     assert wait["environment"] == {"name": "uat", "deployment": False}
-    assert deploy["needs"] == ["select-target", "wait-capacity"]
+    assert deploy["needs"] == ["select-target", "wait-capacity", "deployment-security"]
     assert deploy["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
     assert deploy["environment"] == "uat"
 
     resolver = next(step for step in selection["steps"] if step.get("id") == "resolve-sha")
-    assert "--allow-no-op" in resolver["run"]
+    assert "--allow-no-op --no-op-only" in resolver["run"]
     assert "continue-on-error" not in resolver
     summary = next(
         step for step in selection["steps"] if step["name"] == "Summarize unchanged UAT target"
@@ -670,9 +707,13 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     bridge = next(step for step in deploy["steps"] if step.get("id") == "resolve-sha")
     assert bridge["env"]["DEPLOY_SHA"] == "${{ needs.select-target.outputs.sha }}"
     validator = next(
-        step for step in deploy["steps"] if step["name"] == "Validate deployment SHA against main"
+        step
+        for step in deploy["steps"]
+        if step["name"] == "Validate deployment SHA in selected protected history"
     )
-    assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
+    assert validator["env"]["REQUIRE_CI_SUCCESS"] == (
+        "${{ inputs.source_branch == 'uat-isolated' && '0' || '1' }}"
+    )
     assert (
         validator["env"]["REQUIRED_BRANCH"] == "${{ steps.application-authority.outputs.branch }}"
     )
@@ -700,7 +741,7 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 def test_initial_contacts_source_change_requires_paired_scope_before_builds(
     tmp_path: Path, scope: str
 ) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
     scope_index = next(index for index, step in enumerate(steps) if step.get("id") == "scope")
     scope_step = steps[scope_index]
@@ -758,7 +799,7 @@ def test_initial_contacts_source_change_requires_paired_scope_before_builds(
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
@@ -782,7 +823,7 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
 def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     """Drive-only credentials are opt-in UAT bindings, never generic fallbacks."""
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     backend_build = managed_vertex_probe_surface()
     names = (
         "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
@@ -816,7 +857,7 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
         assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
         assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${{" not in workflow
 
-    uat = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    uat = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = uat["jobs"]["deploy"]["steps"]
     backend = next(step for step in steps if step.get("id") == "deploy-backend")
     worker = next(step for step in steps if step.get("id") == "deploy-drive-worker")
@@ -903,7 +944,7 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
 
 def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -> None:
     """A UAT payout rollout must reach both runtimes and cannot silently reach production."""
-    uat = _read(".github/workflows/deploy-uat.yml")
+    uat = _read(".github/workflows/deploy-uat-implementation.yml")
     production = _read(".github/workflows/deploy-production.yml")
     backend_build = managed_vertex_probe_surface()
     uat_worker = _read("deploy/drive/deploy_worker_service.sh")
@@ -936,7 +977,7 @@ def test_frontend_verifies_server_chunks_before_binding_cloud_run_port() -> None
 
 
 def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     rollback_block = workflow[
         workflow.index("- name: Resolve rollback targets from predeploy traffic") : workflow.index(
             "- name: Resolve final Cloud Run state"
@@ -961,7 +1002,7 @@ def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
 
 
 def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
-    workflow_source = _read(".github/workflows/deploy-uat.yml")
+    workflow_source = _read(".github/workflows/deploy-uat-implementation.yml")
     workflow = yaml.safe_load(workflow_source)
 
     assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
@@ -973,7 +1014,7 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
     backend_build = managed_vertex_probe_surface()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
 
     assert load_profile("uat")["text_locations"] == ["global"]
     assert "_MANAGED_AI_CONFIG_HASH" in backend_build
@@ -997,9 +1038,17 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
     workflow = yaml.safe_load(uat_workflow)
     # PyYAML's YAML 1.1 loader treats the workflow `on` key as True.
-    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
+    dispatch = workflow.get("on", workflow.get(True))["workflow_call"]
     assert dispatch["inputs"]["run_live_model_checks"]["default"] is False
-    assert '--run-live-model-checks "${{ inputs.run_live_model_checks' in uat_workflow
+    plan = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") == "verification-plan"
+    )
+    assert plan["env"]["RUN_LIVE_MODEL_CHECKS"] == (
+        "${{ inputs.run_live_model_checks && 'true' || 'false' }}"
+    )
+    assert '--run-live-model-checks "${RUN_LIVE_MODEL_CHECKS}"' in plan["run"]
     semantic_steps = [
         step
         for step in workflow["jobs"]["deploy"]["steps"]
@@ -1055,31 +1104,6 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services list --enabled" in backend_build
     assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
     assert "gcloud services describe" not in backend_build
-
-
-def _vertex_preflight_script(preflight: str) -> str:
-    start = preflight.index("gcloud iam service-accounts describe")
-    end = preflight.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}"', start)
-    decision = preflight[start:end]
-    return (
-        """set -euo pipefail
-    gcloud() {
-      printf 'CALL:%s\\n' "$*" >&2
-      if [[ "$1 $2" == "iam service-accounts" ]]; then return 0; fi
-      if [[ "${DENY_PROJECT_DISCOVERY}" == "true" ]]; then return 7; fi
-      if [[ "$1 $2" == "services list" ]]; then
-    printf 'aiplatform.googleapis.com\\n'
-      elif [[ "$*" == *roles/aiplatform.user* ]]; then
-    printf 'roles/aiplatform.user\\n'
-      elif [[ "$*" == *roles/serviceusage.serviceUsageConsumer* ]]; then
-    printf 'roles/serviceusage.serviceUsageConsumer\\n'
-      else
-    return 8
-      fi
-    }
-    """
-        + decision
-    )
 
 
 def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() -> None:
@@ -1194,21 +1218,15 @@ def _assert_vertex_candidate_probe(probe: str) -> None:
 
 
 def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Path) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
-    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    dispatch = workflow.get("on", workflow.get(True))["workflow_call"]
     assert dispatch["inputs"]["skip_managed_vertex_probe_once"]["default"] is False
     steps = workflow["jobs"]["select-target"]["steps"]
     validation = next(
         step for step in steps if step["name"] == "Validate one-time Vertex probe exception"
     )
     assert validation["if"] == "inputs.skip_managed_vertex_probe_once"
-    for required in (
-        "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
-        '"$REQUESTED_SCOPE" != "all"',
-        '"$LIVE_CHECKS" != "false"',
-        '"$GITHUB_ACTOR" != "ankitkumarsingh1702"',
-    ):
-        assert required in validation["run"]
+    assert "historical one-time Vertex exception has expired" in validation["run"]
     allowed_dispatch = {
         "REQUESTED_SHA": "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
         "REQUESTED_SCOPE": "all",
@@ -1227,7 +1245,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         )
         return result.returncode
 
-    assert validate_dispatch() == 0
+    assert validate_dispatch() != 0
     assert validate_dispatch(REQUESTED_SHA="b" * 40) != 0
     assert validate_dispatch(REQUESTED_SCOPE="backend") != 0
     assert validate_dispatch(LIVE_CHECKS="true") != 0
@@ -1359,13 +1377,22 @@ def _healthy_vertex_verdict(project):
     }
 
 
-def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
+@pytest.mark.parametrize("mode", ["full", "core"])
+def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict(mode) -> None:
     probe = managed_vertex_probe_script()
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
     project = load_profile("uat")["project"]
     healthy = _healthy_vertex_verdict(project)
+    if mode == "core":
+        healthy.update(
+            qualification_mode="core",
+            core_models_exercised=True,
+            candidate_models_exercised=False,
+            one_chat_probe_ok=True,
+            one_voice_probe_ok=None,
+        )
 
     def run_verdict(
         report: dict | str,
@@ -1393,6 +1420,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
                 "_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER": drive_provider,
                 "_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED": drive_enabled,
                 "_CLOUD_RUN_NO_TRAFFIC": "true",
+                "_MANAGED_READINESS_MODE": mode,
                 "_MANAGED_AI_CONFIG_HASH": "checked-profile-hash",
                 "_GENAI_PROJECT_ID": project,
                 "_VERTEX_LIVE_MODEL_ID": "reviewed-live-model",
@@ -1413,10 +1441,21 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         {**healthy, "config_hash": "different-profile"},
         {**healthy, "one_chat_project": "different-project"},
         {**healthy, "drive_document_requests_probe_ok": False},
-        {**healthy, "one_voice_probe_ok": False},
+        {
+            **healthy,
+            **({"one_chat_probe_ok": False} if mode == "core" else {"one_voice_probe_ok": False}),
+        },
         {**healthy, "ok": False},
         {**healthy, "check": "different-check"},
-        {**healthy, "candidate_models_exercised": False},
+        {
+            **healthy,
+            **(
+                {"core_models_exercised": False}
+                if mode == "core"
+                else {"candidate_models_exercised": False}
+            ),
+        },
+        {**healthy, "qualification_mode": "full" if mode == "core" else "core"},
         {**healthy, "classification": "provider_unavailable"},
         {**healthy, "probes": []},
         {k: v for k, v in healthy.items() if k != "probes"},
@@ -1425,6 +1464,32 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     ):
         rejected = run_verdict(invalid)
         assert rejected.returncode != 0, invalid
+
+    if mode == "full":
+        # Shared helper changes must preserve both non-UAT release paths.
+        ordinary = {**healthy, "one_chat_probe_ok": True}
+        ordinary["probes"] = [
+            *healthy["probes"][:-1],
+            {
+                "probe": "one_voice_live:reviewed-live-model@reviewed-live-location",
+                "ok": True,
+                "classification": "dependency_ok",
+            },
+        ]
+        for environment in ("dev", "production"):
+            assert run_verdict(ordinary, deploy_env=environment).returncode == 0
+            assert (
+                run_verdict(
+                    {**ordinary, "one_chat_probe_ok": False}, deploy_env=environment
+                ).returncode
+                != 0
+            )
+            assert (
+                run_verdict(
+                    {**ordinary, "one_voice_probe_ok": False}, deploy_env=environment
+                ).returncode
+                != 0
+            )
 
     # Regression: chat success alone used to let a failed full runtime job
     # enter the provider-outage advisory and green the candidate build.
@@ -1461,7 +1526,9 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
             )
         ],
     }
-    assert run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0
+    assert (run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0) is (
+        mode == "full"
+    )
     assert (
         run_verdict(exhausted, 1, drive_provider="azure_openai", drive_enabled="false").returncode
         != 0
@@ -1499,8 +1566,8 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     legacy = run_verdict(
         {**partial, "one_chat_probe_ok": True}, 85, deploy_env="dev", voice_enabled="false"
     )
-    assert legacy.returncode == 0, legacy.stderr
-    assert "Release CONTINUES" in legacy.stdout
+    assert (legacy.returncode == 0) is (mode == "full"), legacy.stderr
+    assert ("Release CONTINUES" in legacy.stdout) is (mode == "full")
 
 
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
@@ -1537,7 +1604,7 @@ def test_managed_vertex_targets_follow_environment_profiles() -> None:
 def test_one_chat_uses_central_project_and_verified_profile() -> None:
     backend_build = managed_vertex_probe_surface()
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=" not in workflow
     assert (
         '-n "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" || -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]'
@@ -1571,7 +1638,7 @@ def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:
     sources = [
         _read("deploy/backend.cloudbuild.yaml"),
-        _read(".github/workflows/deploy-uat.yml"),
+        _read(".github/workflows/deploy-uat-implementation.yml"),
         _read(".github/workflows/deploy-production.yml"),
         _read("consent-protocol/scripts/verify_managed_vertex_runtime.py"),
     ]
@@ -1595,7 +1662,7 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
 
 def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
     backend_build = managed_vertex_probe_surface()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert '_ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"' in backend_build
@@ -1614,8 +1681,8 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     from hushh_mcp.runtime_providers.registry import resolve_live_model_entry
 
     backend_build = managed_vertex_probe_surface()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
-    dev_workflow = _read(".github/workflows/deploy-dev.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
+    dev_workflow = _read(".github/workflows/deploy-dev-implementation.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     for name in ("ONE_VOICE_LIVE_ENABLED", "VERTEX_LIVE_MODEL_ID", "VERTEX_LIVE_LOCATION"):
@@ -1631,8 +1698,8 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     assert "_ONE_VOICE_LIVE_ENABLED=true" in production_workflow
     assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
     assert (
-        '[[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]'
-        in backend_build
+        '[[ "${_MANAGED_READINESS_MODE:-full}" == "full" && "${_DEPLOY_ENV}" == "production" '
+        '&& "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]' in backend_build
     )
     assert "python3 scripts/ci/assert_one_voice_live_probe.py" in backend_build
 
@@ -1664,7 +1731,7 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
 def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> None:
     backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert '"DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"' in backend_deploy
@@ -1772,6 +1839,10 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     assert promote["if"].startswith(
         "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' &&"
     )
+    recheck = next(step for step in steps if step.get("id") == "main-source-recheck")
+    assert steps.index(recheck) < steps.index(promote)
+    assert "--predecessor /tmp/prod-predecessor-acceptance.json" in recheck["run"]
+    assert "steps.main-source-recheck.outcome == 'success'" in promote["if"]
     assert '--backend-revision "${{ steps.candidate-state.outputs.backend_revision }}"' in workflow
     assert (
         '--frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"' in workflow
@@ -1797,11 +1868,66 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
     assert "UPSTREAM_JOB_STATUS: ${{ job.status }}" in workflow
     assert 'if [ "$UPSTREAM_JOB_STATUS" != "success" ]; then' in workflow
     assert 'if [ "$upstream_failed" = "true" ]' in workflow
-    assert (
-        workflow.count('if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then')
-        == 1
+
+    def is_fail_closed(document):
+        steps = document["jobs"]["deploy"]["steps"]
+        status = [step for step in steps if step.get("id") == "release-status"]
+        summary = [step for step in steps if step.get("name") == "Deployment Summary"]
+        failure = [
+            step
+            for step in steps
+            if step.get("name") == "Fail workflow when production release did not end healthy"
+        ]
+        return (
+            len(status) == len(summary) == len(failure) == 1
+            and status[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and status[0].get("run", "").startswith('set -euo pipefail\nSTATUS="blocked"')
+            and 'if [ "${{ steps.classify.outputs.release_failed }}" = "false" ]; then'
+            in status[0].get("run", "")
+            and 'STATUS="healthy"' in status[0].get("run", "")
+            and 'echo "status=$STATUS" >> "$GITHUB_OUTPUT"' in status[0].get("run", "")
+            and "steps.release-status.outputs.status || 'unknown'" in summary[0].get("run", "")
+            and "|| 'unknown'" in summary[0].get("run", "")
+            and failure[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and 'if [ "$STATUS" = pending_activation ]; then' in failure[0].get("run", "")
+            and 'if [ "$STATUS" != "healthy" ]; then' in failure[0].get("run", "")
+            and 'echo "Production release did not end healthy."' in failure[0].get("run", "")
+        )
+
+    assert is_fail_closed(yaml.safe_load(workflow))
+    for mutation in ("inverted_classification", "healthy_default", "inverted_guard"):
+        changed = yaml.safe_load(workflow)
+        status = next(
+            step
+            for step in changed["jobs"]["deploy"]["steps"]
+            if step.get("id") == "release-status"
+        )
+        guard = next(
+            step
+            for step in changed["jobs"]["deploy"]["steps"]
+            if step.get("name") == "Fail workflow when production release did not end healthy"
+        )
+        if mutation == "inverted_classification":
+            status["run"] = status["run"].replace(
+                'outputs.release_failed }}" = "false"',
+                'outputs.release_failed }}" != "false"',
+            )
+        elif mutation == "healthy_default":
+            status["run"] = status["run"].replace('STATUS="blocked"', 'STATUS="healthy"', 1)
+        else:
+            guard["run"] = guard["run"].replace(
+                'if [ "$STATUS" != "healthy" ]; then',
+                'if [ "$STATUS" = "healthy" ]; then',
+            )
+        assert not is_fail_closed(changed)
+    misleading = yaml.safe_load(workflow)
+    summary = next(
+        step
+        for step in misleading["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Deployment Summary"
     )
-    assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
+    summary["run"] = summary["run"].replace("|| 'unknown'", "|| 'healthy'")
+    assert not is_fail_closed(misleading)
 
 
 def test_production_release_verifies_provenance_and_publishes_evidence() -> None:
@@ -2026,8 +2152,9 @@ def _provider_fixture(module, provider, *, document=None):
         "step_exit": 0,
         "capabilities": {},
     }
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
     policy = document["managed_runtime_uat"]
-    digest = module.fingerprint({"policy": policy, "azure": document["pwm_research_uat"]["azure"]})
     capabilities = _capability_results_fixture(policy)
     if provider == "vertex":
         capabilities["public_source"].update(research_contracts=1, attribution_cases=8)
@@ -2035,9 +2162,9 @@ def _provider_fixture(module, provider, *, document=None):
         "schema": "managed_capabilities_probe.v1",
         "provider": provider,
         "config_fingerprint": expected["config_fingerprint"],
-        "policy_generation": str(
-            uuid5(UUID(policy["policy_id"]), policy["version"] + digest + provider)
-        ),
+        "policy_generation": load_managed_runtime_policy(
+            environment="uat", provider=provider, document=document
+        )["generation"],
         "synthetic_only": True,
         "capabilities": capabilities,
         "ready": True,
@@ -2057,12 +2184,32 @@ def _provider_fixture(module, provider, *, document=None):
     [(True, False), (False, True), (True, True), (False, False)],
 )
 @pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
-def test_provider_release_admission_qualifies_the_configured_provider(azure, vertex, configured):
+@pytest.mark.parametrize("account", ["packaged", "switched"])
+@pytest.mark.parametrize("mode", ["full", "core"])
+def test_provider_release_admission_qualifies_the_configured_provider(
+    azure, vertex, configured, account, mode
+):
     module = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     document["managed_provider_selection"]["uat"] = configured
+    if account == "switched":
+        # The gate must bind the selected account's identity, never re-derive it.
+        accounts = document["managed_azure_accounts"]
+        accounts["accounts"]["spare"] = {
+            "tenant_id": "11111111-2222-4333-8444-555555555555",
+            "client_id": "66666666-7777-4888-8999-aaaaaaaaaaaa",
+            "primary_endpoint": "https://spare-account.openai.azure.com/openai/v1/",
+            "phi_endpoint": "https://spare-account.services.ai.azure.com/openai/v1/",
+            "readiness_exam_client_id": None,
+        }
+        accounts["selection"]["uat"] = "spare"
     expected, a = _provider_fixture(module, "azure_openai", document=document)
     _, v = _provider_fixture(module, "vertex", document=document)
+    if mode == "core":
+        expected["qualification_mode"] = mode
+        a["context"] = v["context"] = expected
+        a.pop("capability_proof")
+        v.pop("capability_proof")
     result = module.evaluate(
         {"azure_openai": a if azure else None, "vertex": v if vertex else None},
         expected,
@@ -2159,9 +2306,13 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
     "defect",
     ["image", "context", "scope", "model", "generation", "duplicate_trust", "failed_trust"],
 )
-def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect):
+@pytest.mark.parametrize("mode", ["full", "core"])
+def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect, mode):
     module = _managed_provider_gate()
     expected, value = _provider_fixture(module, "azure_openai")
+    if mode == "core":
+        expected["qualification_mode"] = mode
+        value.pop("capability_proof")
     if defect == "image":
         value["execution_image"] = "wrong-image"
     elif defect == "context":
@@ -2179,6 +2330,7 @@ def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect):
     assert module.evaluate({"azure_openai": value}, expected)["ready"] is False
     if defect == "failed_trust":
         _, alternate = _provider_fixture(module, "vertex")
+        alternate["context"] = expected
         assert (
             module.evaluate({"azure_openai": value, "vertex": alternate}, expected)["ready"]
             is False
@@ -2472,7 +2624,7 @@ def test_complete_azure_bundle_does_not_require_a_working_alternate(classificati
 
 
 def test_provider_receipt_workflow_pins_collector_and_exact_build_identity():
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
     deploy = next(s for s in steps if s.get("id") == "deploy-backend")
     capture = next(

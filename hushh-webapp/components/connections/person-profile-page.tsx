@@ -1,5 +1,6 @@
 "use client";
 import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
+import { PersonNetworkSummary } from "./person-network-summary";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
@@ -55,6 +56,7 @@ import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/reques
 import { joinInformationLabels } from "@/lib/consent/consent-owner-copy";
 import {
   PersonProfileService,
+  PersonProfileNotFoundError,
   mergePersonScopePage,
   type PublicPersonProfile,
   type ViewerPersonProfile,
@@ -65,6 +67,7 @@ import {
 } from "@/lib/services/person-profile-service";
 import {
   resolvePersonRefFromProfilePathname,
+  buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -78,7 +81,7 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
-type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; onNetworkReady?: () => void };
 
 function renderCategoryIcon(domain: string) {
   const presentation = {
@@ -138,7 +141,7 @@ export function PersonProfilePage(props: Props) {
   return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
 }
 
-function PersonProfileSession({ personRef, initialProfile }: Props) {
+function PersonProfileSession({ personRef, initialProfile, embedded = false, onNetworkReady }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -149,23 +152,27 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
-    if (!isNativeIOS) return personRef;
+    if (!isNativeIOS || embedded) return personRef;
     return resolvePersonRefFromProfilePathname(pathname) || personRef;
-  }, [pathname, personRef]);
+  }, [pathname, personRef, embedded]);
   const [profileState, setProfileState] = useState<{
     personRef: string;
     profile: PublicPersonProfile | null;
+    missing?: boolean;
   }>(() => ({ personRef: resolvedPersonRef, profile: initialProfile ?? PersonProfileService.peekPublic?.(resolvedPersonRef) ?? null }));
   const profile =
     profileState.personRef === resolvedPersonRef ? profileState.profile
       : initialProfile?.personRef === resolvedPersonRef ? initialProfile : null;
-  const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const profileMissing = profileState.personRef === resolvedPersonRef && profileState.missing === true;
+  const [publicReadFailed, setPublicReadFailed] = useState(false);
+  const publicProfileUnavailable = profileMissing || publicReadFailed;
   const nativeTestDataState = profile
     ? "loaded"
     : publicProfileUnavailable
       ? "unavailable-valid"
       : "loading";
   const [publicReloadToken, setPublicReloadToken] = useState(0);
+  const publicReadGeneration = useRef(0);
   const [viewerLoadError, setViewerLoadError] = useState<{
     personRef: string; viewerUid: string;
   } | null>(null);
@@ -210,6 +217,14 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   } | null>(null);
   const currentHistory = historyState?.personRef === resolvedPersonRef
     && historyState.viewerUid === user?.uid && historyState.page === historyPage ? historyState : null;
+  const [networkReady, setNetworkReady] = useState(false);
+  const markNetworkReady = useCallback(() => setNetworkReady(true), []);
+  useEffect(() => {
+    const terminalUnavailable = !profile && publicProfileUnavailable;
+    const bodyReady = terminalUnavailable || (profile && !authLoading
+      && (!user || ((viewerProfile || viewerUnavailable) && (currentHistory?.result || currentHistory?.failed))));
+    if (bodyReady && (networkReady || terminalUnavailable)) onNetworkReady?.();
+  }, [profile, publicProfileUnavailable, authLoading, user, viewerProfile, viewerUnavailable, currentHistory, networkReady, onNetworkReady]);
   const historyGroups = currentHistory?.result?.bundles.map((summary) => {
     const recent = recentHistoryGroups.find((group) => group.bundleId === summary.bundleId);
     return {
@@ -246,8 +261,8 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   const searchParams = useSearchParams();
   // /connect and the agent's discovery card land here with ?request=1: bring
   // the requestable catalog into view instead of the identity header.
-  const requestIntent = searchParams?.get("request") === "1";
-  const sharedIntent = searchParams?.get("section") === "shared";
+  const requestIntent = !embedded && searchParams?.get("request") === "1";
+  const sharedIntent = !embedded && searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
   const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -274,15 +289,27 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   useEffect(() => {
     if (initialProfile?.personRef === resolvedPersonRef && publicReloadToken === 0) return;
     let active = true;
-    setPublicProfileUnavailable(false);
+    const generation = ++publicReadGeneration.current;
+    const isCurrent = () => active && publicReadGeneration.current === generation;
+    setPublicReadFailed(false);
     void PersonProfileService.getPublic(resolvedPersonRef)
       .then((value) => {
-        if (active) {
-          setProfileState({ personRef: resolvedPersonRef, profile: value });
-        }
+        if (isCurrent()) setProfileState({ personRef: resolvedPersonRef, profile: value });
       })
-      .catch(() => {
-        if (active) setPublicProfileUnavailable(true);
+      .catch((error: unknown) => {
+        if (!isCurrent()) return;
+        if (error instanceof PersonProfileNotFoundError) {
+          requestGeneration.current += 1;
+          viewerReadGeneration.current += 1;
+          relationshipReadGeneration.current += 1;
+          setProfileState({ personRef: resolvedPersonRef, profile: null, missing: true });
+          setViewerProfileState((current) => ({ ...current, profile: null }));
+          setDisplayState((current) => ({ ...current, profile: null }));
+          setRelationshipState(null);
+          setReviewOpen(false);
+          return;
+        }
+        setPublicReadFailed(true);
       });
     return () => {
       active = false;
@@ -412,7 +439,10 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
       setViewerReloadToken((value) => value + 1);
     };
     const unsubscribe = subscribeToConnectionGraphChanges((event) => {
-      if (event.userId === userId) refresh();
+      if (event.userId !== userId) return;
+      publicReadGeneration.current += 1;
+      setPublicReloadToken((value) => value + 1);
+      refresh();
     });
     const onPush = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
@@ -764,7 +794,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   }, [viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
-    viewerProfile
+    profile && viewerProfile && !embedded
       ? {
           screenId: "one_person_profile",
           title: "Person profile",
@@ -785,11 +815,11 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           },
         }
       : null,
-    { role: "route", routeKey: "/people/[personRef]" },
+    { role: embedded ? "interaction_layer" : "route", routeKey: embedded ? undefined : "/people/[personRef]" },
   );
 
   usePublishVoiceSurfaceMetadata(
-    reviewOpen
+    profile && reviewOpen
       ? {
           screenId: "one_person_profile",
           title: "Review information request",
@@ -810,7 +840,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           },
         }
       : null,
-    { role: "interaction_layer", routeKey: "/people/[personRef]" },
+    { role: "interaction_layer", routeKey: embedded ? undefined : "/people/[personRef]" },
   );
 
   if (!profile) {
@@ -832,7 +862,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : undefined}>
             {publicProfileUnavailable ? "This profile is unavailable." : "Loading profile…"}
           </p>
-          {publicProfileUnavailable ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
+          {publicProfileUnavailable && !profileMissing ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
         </div>
       </AppPageShell>
     );
@@ -850,6 +880,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
       }}
     >
       <div className={styles.page} data-native-route="native-route-person-profile">
+        <PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />
         <PersonProfileHero
           profile={profile}
           shareOnly={!viewerProfile}
@@ -892,9 +923,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           </>}
           primaryActions={<>
             {viewerProfile ? (
-              <Button type="button" size="compact" variant="blue-gradient" effect="fill" onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <Button type="button" size="compact" variant="blue-gradient" effect="fill" aria-label="Browse available information" onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                 <FileText className="h-5 w-5" aria-hidden="true" />
-                Request
+                Browse
               </Button>
             ) : null}
             <Button
@@ -906,7 +937,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               ref={requestScopeReturnFocusRef}
               aria-label="Share profile"
               onClick={() => {
-                void navigator.clipboard.writeText(window.location.href);
+                void navigator.clipboard.writeText(new URL(buildPersonProfileRoute(resolvedPersonRef), window.location.origin).href);
                 toast.success("Profile link copied");
               }}
             >
@@ -1010,7 +1041,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
         ) : null}
 
         {displayViewerProfile && viewerUnavailable ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-          <span>Showing saved details. Some updates could not load.</span>
+          <span>Showing saved details. Couldn&rsquo;t refresh.</span>
           <Button type="button" variant="none" size="compact" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button>
         </div> : null}
         {user && !displayViewerProfile && !viewerUnavailable ? <section aria-label="Loading profile details" aria-busy="true" className="space-y-6">
@@ -1073,7 +1104,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                 showDomainFilter
                 categorySelectionInDetail
                 rootLabel="All"
-                emptyText="This person has nothing available to ask for."
+                emptyText="Nothing available yet."
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
@@ -1087,10 +1118,10 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               </fieldset>
               {displayViewerProfile.scopeCatalog?.hasMore ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <p className="text-muted-foreground">{allScopes.length} of {displayViewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
+                  <p className="text-muted-foreground">{allScopes.length} of {displayViewerProfile.scopeCatalog.totalCount} loaded. Search covers loaded items.</p>
                   <Button type="button" size="compact" variant="none" effect="fade" disabled={catalogLoading}
                     onClick={() => void loadMoreScopes()}>
-                    {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more information"}
+                    {catalogLoading ? "Loading more…" : catalogError ? "Try again" : "Load more"}
                   </Button>
                 </div>
               ) : null}
@@ -1099,7 +1130,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
             <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
               <h2 id="request-history" className={styles.heading}>Request history</h2>
               {currentHistory?.failed ? (
-                <p role="status" className="text-sm text-muted-foreground">Older requests could not be loaded. Showing recent activity only.</p>
+                <p role="status" className="text-sm text-muted-foreground">Couldn&rsquo;t load older requests. Showing recent ones.</p>
               ) : null}
               {historyGroups.length ? (
                 <SectionCard className={styles.historyGroup}>
@@ -1148,7 +1179,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                                 disabled={cancellingBundleId === bundleId}
                                 onClick={() => void cancelInformationRequest(bundleId)}
                               >
-                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw pending"}
+                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw request"}
                               </Button>
                             ) : null}
                           </div>
@@ -1199,7 +1230,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           <SectionCard className={styles.signIn}>
             <div role="alert" className="flex flex-col items-center justify-center space-y-2">
               <p className="text-sm font-semibold text-foreground">
-                We couldn&rsquo;t load your connection with {profile.displayName} right now.
+                Couldn&rsquo;t load your connection with {profile.displayName}.
               </p>
               <p className="sr-only">
                 Your connection status, what you can request, and anything shared with you will appear here once this loads.
@@ -1222,9 +1253,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           className="consent-presentation-surface w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
         >
           <DialogHeader className="shrink-0 pr-8 text-left">
-            <DialogTitle>Request information from {profile.displayName}</DialogTitle>
+            <DialogTitle className="[overflow-wrap:anywhere]">Request information from {profile.displayName}</DialogTitle>
             <DialogDescription>
-              They will see exactly what you asked for, why, and for how long.
+              They&rsquo;ll see what you request, why, and for how long.
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
@@ -1259,7 +1290,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           onOpenChange={setShowUnlockDialog}
           onSuccess={() => setShowUnlockDialog(false)}
           title="Unlock your vault"
-          description="Unlock your private agent to reveal information shared with you." presentationClassName="consent-presentation-surface"
+          description="To view what they shared with you." presentationClassName="consent-presentation-surface"
         />
       ) : null}
     </AppPageShell>

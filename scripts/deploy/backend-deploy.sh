@@ -23,6 +23,12 @@
 
 set -euo pipefail
 
+# The pinned Cloud SDK image bundles Python outside its default shell PATH.
+# Keep this inside the entrypoint because the build step already uses 100 env entries.
+if ! command -v python3 >/dev/null && [[ -x /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 ]]; then
+  export PATH="/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:$PATH"
+fi
+
 # Image selection travels together to remain within Cloud Build's env-entry cap.
 IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _PHONE_ROLLBACK_SHA _PHONE_ROLLBACK_IMAGE_REFERENCE _PHONE_DEPLOY_PHASE _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
 _PHONE_DEPLOY_PHASE="${_PHONE_DEPLOY_PHASE:-standard}"
@@ -64,12 +70,8 @@ if [[ -n "${_DB_POOL_SETTINGS:-}" ]]; then
   done
   export _DB_POOL_ACQUIRE_TIMEOUT_SECONDS _DB_POOL_MAX_SIZE _DB_POOL_MIN_SIZE _DB_SQLALCHEMY_MAX_OVERFLOW _DB_SQLALCHEMY_POOL_SIZE
 fi
-# Cloud Build has a 100-entry environment limit; keep the reviewed search pair together.
-IFS='|' read -r _DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED _DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER _drive_search_extra <<< "${_DRIVE_SEARCH_SETTINGS:-false|gemini}"
-if [[ -n "${_drive_search_extra}" || ! "${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}" =~ ^(true|false)$ ||
-      ! "${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}" =~ ^(gemini|azure_openai)$ ]]; then
-  echo "Invalid Drive semantic search settings." >&2; exit 1
-fi
+# Keep version-compatible search and rollback controls in one packed entry.
+source scripts/deploy/backend-drive-search-settings.sh
 source scripts/deploy/backend-model-settings.sh
 source scripts/deploy/backend-drive-secret-settings.sh
 # UAT's Drive work-drain scheduler identity is packed into one Cloud Build
@@ -207,14 +209,16 @@ fi
 append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
 append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
 append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
-# Bind the qualified ciphertext pilot only on the new dev revision. Changing
-# canonical :latest before rollout could enable an older one-shot writer.
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+# Bind the qualified ciphertext pilot only on the new dev and UAT revisions.
+# Changing canonical :latest before rollout could enable an older one-shot
+# writer. Production stays off until UAT acceptance. The secrets are optional:
+# an environment without them deploys exactly as before.
+if [[ "${_DEPLOY_ENV}" == "dev" || "${_DEPLOY_ENV}" == "uat" ]]; then
   append_optional_secret "HUSSH_SHARED_FILES_ENABLED" "HUSSH_SHARED_FILES_ENABLED"
   append_optional_secret "HUSSH_SHARED_FILES_BUCKET" "HUSSH_SHARED_FILES_BUCKET"
-  if [[ -z "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" ]]; then
-    _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET="EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
-  fi
+fi
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" ]]; then
+  _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET="EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
 fi
 append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}" "GMAIL_OAUTH_CLIENT_ID"
 append_optional_secret "${_GMAIL_OAUTH_CLIENT_SECRET_SECRET}" "GMAIL_OAUTH_CLIENT_SECRET"
@@ -239,6 +243,13 @@ append_optional_secret "${_GOOGLE_DRIVE_PICKER_API_KEY_SECRET}" "GOOGLE_DRIVE_PI
 append_optional_secret "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" "EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
 append_optional_secret "${_DRIVE_DOCUMENT_KEY_V1_SECRET}" "DRIVE_DOCUMENT_KEY_V1"
 append_optional_secret "${_DRIVE_SHARING_KEY_V1_SECRET}" "DRIVE_SHARING_KEY_V1"
+# UAT gates ride in the deployed commit (Cloud Build has no spare substitution); enabled needs the sealing key.
+calendar_followups_gate="" calendar_followup_drain_gate=""
+if [[ "${_DEPLOY_ENV}" == "uat" && "$PROJECT_ID" == "hushh-pda-uat" && -f deploy/uat-surface-gates.txt ]]; then
+  gates="$(python3 deploy/calendar/verify_followup_release.py read-gates deploy/uat-surface-gates.txt --project "$PROJECT_ID")" || exit 1
+  read -r calendar_followups_gate calendar_followup_drain_gate <<< "${gates}"
+fi
+[[ "${calendar_followups_gate}" != "true" ]] || secrets="${secrets},CALENDAR_EMAIL_FOLLOWUP_KEY=CALENDAR_EMAIL_FOLLOWUP_KEY:latest"
 # Disabling new paid requests must not strand existing Checkout/refund work.
 # Bind configured secrets in either mode; enabled rollout requires both.
 if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
@@ -390,6 +401,8 @@ fi
 env_vars=(
   "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}"
   "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
+  "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=${_DRIVE_REQUEST_ACTIVITY_UNION_ENABLED}"
+  "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=${_DRIVE_REQUEST_ACTIVITY_UNION_PAUSED}"
   "ENVIRONMENT=${runtime_environment}"
   "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
   "HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
@@ -473,6 +486,8 @@ append_optional_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PR
 append_optional_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
 append_optional_env "ONE_VOICE_LIVE_ENABLED" "${_ONE_VOICE_LIVE_ENABLED:-}"
 append_optional_env "ONE_VOICE_CALENDAR_NARRATION_ENABLED" "${_ONE_VOICE_CALENDAR_NARRATION_ENABLED:-false}"
+append_optional_env "CALENDAR_EMAIL_FOLLOWUPS" "${calendar_followups_gate}"
+append_optional_env "CALENDAR_EMAIL_FOLLOWUP_DRAIN_ENABLED" "${calendar_followup_drain_gate}"
 append_optional_env "VERTEX_LIVE_MODEL_ID" "${_VERTEX_LIVE_MODEL_ID:-}"
 append_optional_env "VERTEX_LIVE_LOCATION" "${_VERTEX_LIVE_LOCATION:-}"
 append_optional_env "PUPPY_INFERENCE_RELAY_URL" "${_PUPPY_INFERENCE_RELAY_URL}"

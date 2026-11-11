@@ -178,6 +178,13 @@ class FilesUpgradeCheckpoint:
         )
 
 
+def _join_publication_exit(exited: Future[None]) -> None:
+    try:
+        exited.result()
+    except FutureCancelled:
+        pass
+
+
 def publish_on_owner_loop(
     coroutine: Coroutine[Any, Any, None],
     *,
@@ -248,17 +255,11 @@ def publish_on_owner_loop(
         # Cancellation atomically fences an unstarted callback; a started one
         # retains the independent exit latch until its child finishes.
         proxy.cancel()
-        try:
-            exited.result()
-        except FutureCancelled:
-            pass
+        _join_publication_exit(exited)
         raise
     except FutureCancelled:
         cancel_unstarted(proxy)
-        try:
-            exited.result()
-        except FutureCancelled:
-            pass
+        _join_publication_exit(exited)
         raise
 
 

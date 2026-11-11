@@ -9,6 +9,7 @@ import { captureGrowthAttribution } from "@/lib/observability/growth";
 import { trackPageView } from "@/lib/observability/client";
 import { setObservabilityUserId } from "@/lib/observability/identity";
 import { refreshWebGtmPageContext } from "@/lib/observability/adapters/web-gtm";
+import { liveActivitySectionSubject, recordSectionVisit } from "@/components/observability/live-activity-section-subject";
 import { useAuth } from "@/hooks/use-auth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 
@@ -17,6 +18,7 @@ export function ObservabilityRouteObserver() {
   const { user, userId, loading } = useAuth();
   const mountedRef = useRef(false);
   const lastObservedPathRef = useRef<string | null>(null);
+  const lastSectionVisitRef = useRef<string | null>(null);
   const setLastKaiPath = useKaiSession((state) => state.setLastKaiPath);
   const setLastRiaPath = useKaiSession((state) => state.setLastRiaPath);
 
@@ -38,6 +40,15 @@ export function ObservabilityRouteObserver() {
     // published, send nothing: after start fresh the Firebase UID names the
     // deleted account. The view is sent once the owner arrives.
     if (user?.uid && !userId) return;
+    // One section visit is one journal entry: tabs and sub-screens of the same
+    // section are the same visit. The journal drops it unless this owner's
+    // store is unlocked, so it does not wait for the analytics identity.
+    const section = userId ? liveActivitySectionSubject(pathname) : null;
+    const visit = section ? `${userId}:${section}` : null;
+    if (visit !== lastSectionVisitRef.current) {
+      lastSectionVisitRef.current = visit;
+      if (userId) recordSectionVisit(userId, section);
+    }
     let cancelled = false;
     // A route view emitted before AuthProvider restores the account lands in
     // GA4 as an anonymous browser. Bind the validated identity first, then

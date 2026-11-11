@@ -184,6 +184,25 @@ def _persist_attempt(
             .first()
         )
         generation = connection_generation(dict(row) if row else None)
+        if service == "gmail" and calendar_additional:
+            if not calendar_account_id:
+                raise GoogleConnectionError(
+                    "Choose an additional Calendar account", status_code=422
+                )
+            selected = (
+                connection.execute(
+                    text("""SELECT * FROM google_calendar_additional_accounts
+                    WHERE user_id = :user_id AND account_id = :account_id FOR UPDATE"""),
+                    {"user_id": user_id, "account_id": calendar_account_id},
+                )
+                .mappings()
+                .first()
+            )
+            if not selected or selected["status"] != "connected":
+                raise GoogleConnectionError(
+                    "Reconnect the selected Calendar account", status_code=409
+                )
+            generation = connection_generation(dict(selected))
         include_photos = _include_guest_photos(
             connection,
             user_id=user_id,

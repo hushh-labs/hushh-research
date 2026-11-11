@@ -9,6 +9,40 @@ from hushh_mcp.services.person_profile_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _active_fixture_accounts(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.person_profile_service.active_directory_user_ids",
+        lambda owners, **_: set(owners),
+    )
+
+
+def test_legacy_profile_hides_technical_label_and_rejects_retired_identity(monkeypatch):
+    person_ref = "11111111-1111-4111-8111-111111111111"
+    owner_id = "opaque-legacy-identity"
+    row = {"user_id": owner_id, "public_person_ref": person_ref, "display_name": owner_id}
+    service = PersonProfileService(connections=object(), consent_db=object())
+
+    def read_profile(sql, params):
+        assert "account_deletion_tombstones" in sql
+        assert params == {"public_person_ref": person_ref}
+        return row
+
+    monkeypatch.setattr(service, "_execute_one", read_profile)
+    assert service.get_public_profile(person_ref)["displayName"] == "Hussh member"
+
+    def retired_identity(owners, *, use_cache):
+        assert owners == [owner_id]
+        assert use_cache is False
+        return set()
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.person_profile_service.active_directory_user_ids", retired_identity
+    )
+    with pytest.raises(PersonProfileNotFoundError):
+        service.get_public_profile(person_ref)
+
+
 class _Connections:
     def get_information_scope_catalog(self, *_args, **_kwargs):
         return {

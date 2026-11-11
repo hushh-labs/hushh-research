@@ -419,3 +419,30 @@ def test_download_fails_if_owner_leaves_shared_placement_during_file_check(monke
     with pytest.raises(HTTPException) as error:
         run(calendar_workspace.meeting_download(payload, Response(), "owner"))
     assert error.value.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "availability,expected",
+    [
+        ({"recording": "available"}, "available"),
+        ({"recording": "processing", "notes": "resource_denied"}, "processing"),
+        ({"recording": "permission_required", "notes": "resource_denied"}, "permission_required"),
+        ({"recording": "account_mismatch"}, "account_mismatch"),
+        ({"recording": "resource_denied", "notes": "provider_configuration"}, "access_required"),
+        ({"recording": "provider_policy"}, "provider_policy"),
+        # Provider configuration is not retryable; it must never read as temporary.
+        ({"recording": "provider_configuration"}, "provider_configuration"),
+        (
+            {"recording": "provider_configuration", "notes": "temporarily_unavailable"},
+            "provider_configuration",
+        ),
+        ({"recording": "temporarily_unavailable"}, "temporarily_unavailable"),
+        ({"recording": "unavailable", "notes": "meet_discovery_denied"}, "unknown"),
+        ({}, "unknown"),
+    ],
+)
+def test_row_state_keeps_provider_conditions_distinct(availability, expected):
+    from hushh_mcp.services.calendar_meeting_library import _row_file_state
+
+    kinds = [kind for kind, state in availability.items() if state == "available"]
+    assert _row_file_state({"artifact_kinds": kinds, "availability": availability}) == expected

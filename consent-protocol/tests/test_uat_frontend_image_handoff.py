@@ -58,6 +58,17 @@ def test_late_frontend_wait_is_independent_of_probes_and_keeps_the_complete_buil
     assert steps["await-frontend-image"]["waitFor"] == ["build-backend-image", "verify-runtime-iam"]
     assert steps["inspect-frontend-image-manifest"]["waitFor"] == ["await-frontend-image"]
     assert steps["pin-frontend-image"]["waitFor"] == ["inspect-frontend-image-manifest"]
+    # The stable Cloud SDK builder only ships Python inside the SDK.
+    sdk_image = steps["verify-runtime-iam"]["name"]
+    assert re.fullmatch(
+        r"gcr[.]io/google[.]com/cloudsdktool/google-cloud-cli:.+@sha256:[0-9a-f]{64}", sdk_image
+    )
+    for step_id in ("verify-runtime-iam", "await-frontend-image", "pin-frontend-image"):
+        assert steps[step_id]["name"] == sdk_image
+        assert any(
+            entry.startswith("PATH=") and "/platform/bundledpythonunix/bin:" in entry
+            for entry in steps[step_id]["env"]
+        ), step_id
     assert steps[module.FRONTEND_STEPS[0]]["waitFor"] == ["pin-frontend-image"]
     assert steps["verify-managed-provider-readiness"]["waitFor"] == [
         "deploy-backend",
@@ -192,9 +203,9 @@ def _pin_late_image(module, context, tmp_path, monkeypatch, build_values=None):
 def _frontend_producer_values(module, context, tmp_path):
     # Run the actual tag/substitution producer: a synthetic consumer-only tag
     # missed a real mismatch between this workflow and the pending handoff.
-    workflow_steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"][
-        "steps"
-    ]
+    workflow_steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))[
+        "jobs"
+    ]["deploy"]["steps"]
     producer = next(s["run"] for s in workflow_steps if s.get("id") == "start-frontend-image-build")
     expressions = {
         "steps.resolve-sha.outputs.sha": context.sha,
@@ -347,8 +358,55 @@ def test_late_image_roundtrip_uses_the_original_hash_checked_pin_without_resolvi
         )
 
 
+def test_late_image_binds_to_the_controller_selected_qualification_mode(
+    image_handoff, tmp_path, monkeypatch
+):
+    module = image_handoff
+    context = _handoff_context(module)
+    report = _pin_late_image(module, context, tmp_path, monkeypatch)
+    build = _completed_deployment_build(module, context, report)
+    substitutions = build["substitutions"]
+    substitutions["_MANAGED_READINESS_MODE"] = "core"
+    monkeypatch.setattr(module, "cloud_json", lambda *_: build)
+
+    with pytest.raises(module.ReceiptError, match="build_context_mismatch"):
+        module.collect_image(context, substitutions["_IMAGE_REFERENCE"], False, float("inf"))
+
+    image, _ = module.collect_image(
+        context,
+        substitutions["_IMAGE_REFERENCE"],
+        False,
+        float("inf"),
+        qualification_mode="core",
+    )
+    assert image == report["image"]
+
+    substitutions["_MANAGED_READINESS_MODE"] = "full"
+    with pytest.raises(module.ReceiptError, match="build_context_mismatch"):
+        module.collect_image(
+            context,
+            substitutions["_IMAGE_REFERENCE"],
+            False,
+            float("inf"),
+            qualification_mode="core",
+        )
+
+
+def test_release_passes_its_backend_mode_to_the_late_frontend_collector():
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    collector = next(step for step in steps if step.get("id") == "build-frontend-image")
+    assert collector["env"]["FRONTEND_BACKEND_QUALIFICATION_MODE"] == (
+        "${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}"
+    )
+    assert '--qualification-mode "$FRONTEND_BACKEND_QUALIFICATION_MODE"' in collector["run"]
+
+
 def test_historical_checkout_keeps_the_current_handoff_and_its_resolver(tmp_path):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     scripts = [
         next(s["run"] for s in steps if s.get("name") == name)
         for name in ("Preserve current release tooling", "Checkout deployment SHA")
@@ -374,6 +432,9 @@ def test_historical_checkout_keeps_the_current_handoff_and_its_resolver(tmp_path
         if index:
             for name in names:
                 (directory / name).unlink()
+        # This fixture covers frontend-only historical handoff. Backend
+        # capacity preservation is exercised by the worker composition owner.
+        script = script.replace("${{ needs.wait-capacity.outputs.scope }}", "frontend")
         script = re.sub(r"\$\{\{[^}]+\}\}", "false", script)
         result = subprocess.run(  # noqa: S603 - real copy steps, isolated synthetic checkout.
             [shutil.which("bash"), "-c", adapters + script],

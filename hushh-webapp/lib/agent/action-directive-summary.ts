@@ -137,6 +137,13 @@ export function describeDirectiveForOwner(
     }
     case "consent.deny":
       return "Decline this request.";
+    case "careers.apply": {
+      // The slug is what the handler checks against the careers portal, so it
+      // is what the card names; a model-written title could differ from it.
+      const slug = text(resolved.slug);
+      const role = slug ? `the hussh role "${slug}"` : "this hussh role";
+      return `Apply to ${role}. Sends your name, location, resume and links from your memory to hussh careers.`;
+    }
     case "consent.revoke": {
       const holder = text(resolved.holderLabel);
       const what = text(resolved.label) || "this information";

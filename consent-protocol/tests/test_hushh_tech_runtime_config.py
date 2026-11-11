@@ -219,7 +219,7 @@ def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
     # secret-binding helper append_optional_secret. Read the whole deploy surface.
     cloudbuild = backend_deploy_surface()
     workflow = (
-        Path(__file__).resolve().parents[2] / ".github/workflows/deploy-uat.yml"
+        Path(__file__).resolve().parents[2] / ".github/workflows/deploy-uat-implementation.yml"
     ).read_text()
     assert (
         'append_optional_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"'
@@ -296,7 +296,7 @@ def test_voice_mail_reply_switch_is_generated_off_unless_a_lane_turns_it_on(monk
 def test_production_workflow_pins_voice_mail_reply_off():
     root = Path(__file__).resolve().parents[2]
     production = (root / ".github/workflows/deploy-production.yml").read_text()
-    uat = (root / ".github/workflows/deploy-uat.yml").read_text()
+    uat = (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
     assert '--one-voice-mail-reply-enabled "false"' in production_runtime_profile(production)
     assert (
         "--one-voice-mail-reply-enabled \"${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}\""
@@ -339,7 +339,7 @@ def test_mail_part_two_switches_are_generated_off_unless_a_lane_turns_them_on(
 def test_production_pins_mail_part_two_switches_off_and_uat_turns_them_on(key, _env_name):
     root = Path(__file__).resolve().parents[2]
     production = (root / ".github/workflows/deploy-production.yml").read_text()
-    uat = (root / ".github/workflows/deploy-uat.yml").read_text()
+    uat = (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
     flag = "--" + key.replace("_", "-")
     assert f'{flag} "false"' in production_runtime_profile(production)
     assert f"{flag} \"${{{{ vars.{key.upper()}_UAT || 'true' }}}}\"" in uat

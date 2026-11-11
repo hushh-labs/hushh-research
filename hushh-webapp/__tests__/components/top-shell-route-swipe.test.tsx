@@ -4,6 +4,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
+import { RiaAwareTopShellRouteSwipe } from "@/components/ria/layout/ria-aware-route-swipe";
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 
 const navigation = vi.hoisted(() => ({
@@ -11,6 +12,14 @@ const navigation = vi.hoisted(() => ({
   begin: vi.fn(),
   pathname: "/one/consent",
   scrollToTop: vi.fn(),
+}));
+
+const persona = vi.hoisted(() => ({
+  state: { riaOnboardingStatus: null as Record<string, string> | null },
+}));
+
+vi.mock("@/lib/persona/persona-context", () => ({
+  usePersonaState: () => persona.state,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -166,5 +175,57 @@ describe("TopShellRouteSwipe", () => {
 
     expect(navigation.begin).not.toHaveBeenCalled();
     expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  function dragTowardsNextTab() {
+    fireEvent.touchStart(document, {
+      touches: [{ clientX: 320, clientY: 120 }],
+      timeStamp: 0,
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ clientX: 160, clientY: 122 }],
+      timeStamp: 80,
+    });
+    fireEvent.touchEnd(document, {
+      changedTouches: [{ clientX: 120, clientY: 122 }],
+      timeStamp: 120,
+    });
+  }
+
+  it("does not swipe an advisor who is not verified into the Picks tab they are not offered", () => {
+    navigation.pathname = "/ria/clients";
+    persona.state = {
+      riaOnboardingStatus: { advisory_status: "submitted", verification_status: "submitted" },
+    };
+    render(
+      <RiaAwareTopShellRouteSwipe tabSet={{ ...RIA_TABS, activeValue: "clients" }}>
+        <div>RIA clients content</div>
+      </RiaAwareTopShellRouteSwipe>,
+    );
+
+    dragTowardsNextTab();
+
+    expect(navigation.begin).not.toHaveBeenCalled();
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it("still swipes a verified advisor from Clients into Picks", () => {
+    navigation.pathname = "/ria/clients";
+    persona.state = { riaOnboardingStatus: { advisory_status: "active" } };
+    render(
+      <RiaAwareTopShellRouteSwipe tabSet={{ ...RIA_TABS, activeValue: "clients" }}>
+        <div>RIA clients content</div>
+      </RiaAwareTopShellRouteSwipe>,
+    );
+
+    dragTowardsNextTab();
+
+    expect(navigation.begin).toHaveBeenCalledWith(
+      "/ria/picks",
+      expect.any(Function),
+      "tap",
+      "contextual",
+      "selection",
+    );
   });
 });

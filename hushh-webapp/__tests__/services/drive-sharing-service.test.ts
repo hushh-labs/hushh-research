@@ -1690,3 +1690,17 @@ describe("requester terms and recovery transport", () => {
     expect((await DriveSharingService.delivery("vault", requestId, guard)).reviewRequest).toEqual(notice);
   });
 });
+
+
+describe("private owner request search diagnostics", () => {
+  beforeEach(() => vi.resetAllMocks());
+  it("accepts a not-yet-created search only as a successful JSON null", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(null));
+    expect(await DriveSharingService.requestSearchStatus("vault", requestId, guard)).toBeNull();
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/search`);
+    fetcher.mockResolvedValueOnce(Response.json(null, { status: 403 }));
+    await expect(DriveSharingService.requestSearchStatus("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(Response.json(null));
+    await expect(DriveSharingService.startRequestSearch("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+  });
+});

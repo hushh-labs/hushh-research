@@ -50,14 +50,15 @@ describe("EmailDeliveryHistoryCard", () => {
     );
   });
 
-  it("requires an explicit click before repairing a legacy Gmail connection", () => {
+  // GMAIL_REAUTH_REQUIRED: a revoked or expired grant used to fall back to "Unlock your vault".
+  it.each(["GMAIL_SEND_DISABLED", "GMAIL_REAUTH_REQUIRED"])("requires an explicit click before repairing Gmail (%s)", (errorCode) => {
     const onEnableGmailSend = vi.fn();
     render(
       <EmailDeliveryHistoryCard
         item={{
           ...item,
           status: "failed",
-          errorCode: "GMAIL_SEND_DISABLED",
+          errorCode,
           errorMessage: "Reconnect Gmail to finish enabling email sending.",
         }}
         onEnableGmailSend={onEnableGmailSend}
@@ -70,8 +71,33 @@ describe("EmailDeliveryHistoryCard", () => {
     expect(onEnableGmailSend).toHaveBeenCalledTimes(1);
     // The failed item travels with the request so its draft can reopen.
     expect(onEnableGmailSend).toHaveBeenCalledWith(
-      expect.objectContaining({ id: item.id, errorCode: "GMAIL_SEND_DISABLED" }),
+      expect.objectContaining({ id: item.id, errorCode }),
     );
+  });
+
+  it("offers a first Gmail connection in place when the mailbox was never connected", () => {
+    const onEnableGmailSend = vi.fn();
+    const failed = { ...item, status: "failed" as const, errorMessage: "Mail could not be sent." };
+    const { rerender } = render(
+      <EmailDeliveryHistoryCard item={failed} onEnableGmailSend={onEnableGmailSend} onRetry={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByText("Mail activity"));
+    // Negative control: an ordinary failure offers only the editable retry.
+    expect(screen.queryByRole("button", { name: "Connect Gmail" })).not.toBeInTheDocument();
+
+    rerender(
+      <EmailDeliveryHistoryCard
+        item={{ ...failed, errorCode: "GMAIL_NOT_CONNECTED" }}
+        onEnableGmailSend={onEnableGmailSend}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Reconnect Mail" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect Gmail" }));
+    expect(onEnableGmailSend).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: item.id, errorCode: "GMAIL_NOT_CONNECTED" }),
+    );
+    expect(screen.getByRole("button", { name: "Edit and retry" })).toBeInTheDocument();
   });
 
   it("waits in place with a quiet Cancel sign-in while Google's window is open", () => {

@@ -38,6 +38,9 @@ from hushh_mcp.services.drive_document_processor import (  # noqa: E402
     ClamAvScanner,
     IsolatedDocumentEmbedding,
 )
+from hushh_mcp.services.drive_planner_warmup import (  # noqa: E402
+    warm_semantic_request_planner,
+)
 from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR  # noqa: E402
 from hushh_mcp.services.google_drive_adapter import DriveReadError  # noqa: E402
 
@@ -47,6 +50,8 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError  # noqa: E402
 # its expensive imports at 100s with only 80s left for a second cold load.
 STARTUP_TIMEOUT_SECONDS = 180
 EMBEDDING_STARTUP_TIMEOUT_SECONDS = STARTUP_TIMEOUT_SECONDS - 10
+# Bounded separately and never fatal: it overlaps admission inside the same bounds.
+PLANNER_WARMUP_TIMEOUT_SECONDS = 150
 logger = logging.getLogger(__name__)
 
 
@@ -94,11 +99,48 @@ async def _timed_admission(stage: str, check: Callable[[], Awaitable[None]]) -> 
         )
 
 
+async def _warm_planner() -> None:
+    """Best effort: a failure only leaves the first plan to load lazily, as before."""
+    started = monotonic()
+    outcome = "failed"
+    try:
+        async with asyncio.timeout(PLANNER_WARMUP_TIMEOUT_SECONDS):
+            await asyncio.to_thread(warm_semantic_request_planner)
+        outcome = "ready"
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    except TimeoutError:
+        outcome = "timeout"
+    except Exception:  # noqa: BLE001 - warm-up never decides readiness.
+        outcome = "failed"
+    finally:
+        # A failed warm-up is a latency regression, so it is a warning, not info.
+        (logger.info if outcome == "ready" else logger.warning)(
+            "drive_worker_startup stage=planner outcome=%s duration_ms=%d",
+            outcome,
+            round((monotonic() - started) * 1000),
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # The request planner warms beside scanner and model admission, so a new
+    # instance's first allowed request starts its search without loading it.
+    planner = asyncio.create_task(_warm_planner())
+    try:
+        await _admit()
+        await planner
+    finally:
+        if not planner.done():
+            planner.cancel()
+        await asyncio.gather(planner, return_exceptions=True)
+    yield
+
+
+async def _admit() -> None:
     indexing = _indexing_active()
     if not _scanner_active():
-        yield
         return
     if indexing and not Path(BAKED_MODEL_DIR).is_dir():
         raise RuntimeError("Drive worker image is missing its pinned local model")
@@ -122,7 +164,6 @@ async def lifespan(_app: FastAPI):
             if not task.done() and not task.cancelling():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-    yield
 
 
 app = FastAPI(

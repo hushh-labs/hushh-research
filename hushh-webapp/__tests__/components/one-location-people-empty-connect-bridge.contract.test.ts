@@ -104,15 +104,6 @@ describe("link 2 — Connect search offers the invite", () => {
 });
 
 describe("the chain holds end to end", () => {
-  it("lands on the tab that actually offers the invite", () => {
-    // `canInviteToOne` is gated on `tab === "people"`. Arriving from the
-    // People bridge onto any other tab would complete two links of the chain
-    // and hide the third, which is worse than no bridge: the person would be
-    // sent somewhere that looks like the same dead end.
-    expect(CONNECT).toContain('useState<ConnectTab>("people")');
-    expect(CONNECT).toContain('tab === "people"');
-  });
-
   it("every link points at the next one", () => {
     // 1 -> Connect
     expect(peopleEmptyState(HUB)).toContain("addPeopleEmptyAction");

@@ -1,4 +1,5 @@
 import { invalidateInvitationSnapshots } from "./calendar-invitations-resource";
+import { invalidateInsightsSnapshots } from "./calendar-insights-resource";
 import { CacheService } from "@/lib/services/cache-service";
 
 export const calendarRefreshKey = (ownerId: string) => `calendar-schedule-refresh:${ownerId}`;
@@ -6,5 +7,6 @@ export const calendarRefreshKey = (ownerId: string) => `calendar-schedule-refres
 /** Publish only after the provider confirms a mutation; invitation snapshots are invalidated. */
 export function notifyCalendarChanged(ownerId: string) {
   invalidateInvitationSnapshots(ownerId);
+  invalidateInsightsSnapshots(ownerId);
   CacheService.getInstance().set(calendarRefreshKey(ownerId), Date.now(), 60_000);
 }

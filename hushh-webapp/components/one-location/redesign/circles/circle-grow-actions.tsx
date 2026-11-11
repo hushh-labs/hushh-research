@@ -42,7 +42,8 @@ import {
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
-import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
+import { connectPersonName } from "@/lib/connections/person-label";
+import { CirclePersonSelectionDetail } from "./circle-person-selection-row";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
@@ -331,10 +332,10 @@ export function CircleInvitePeopleSheet({
                       const atCapacity =
                         selectedConnections.size >= selectionLimit;
                       return (
-                        <SettingsRow
+                        <SettingsRow leadingInteractive
                           key={connection.userId}
                           leading={
-                            <ConnectionPersonAvatar
+                            <ConnectionPersonAvatar userId={connection.userId}
                               photoUrl={connection.photoUrl ?? null}
                               label={connectPersonName(connection)}
                               verified={Boolean(connection.isRia)}
@@ -346,10 +347,10 @@ export function CircleInvitePeopleSheet({
                               <span className="min-w-0 truncate">{connectPersonName(connection)}</span>
                             </span>
                           }
-                          description={connectPersonSelectionDetail(connection)}
+                          description={<CirclePersonSelectionDetail person={connection} />}
                           describeContent
                           ariaPressed={selected}
-                          ariaLabel={`${selected ? "Deselect" : "Select"} ${connectPersonName(connection)} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
+                          ariaLabel={`${selected ? "Deselect" : "Select"} ${connectPersonName(connection)} for Circle invitation`}
                           disabled={!selected && atCapacity}
                           trailing={
                             <span className="flex shrink-0 items-center gap-3">
@@ -432,7 +433,7 @@ export function CircleInvitePeopleSheet({
                         trailing={
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="text"
                             disabled={Boolean(cancellingInviteId)}
                             isLoading={cancellingInviteId === invite.id}
                             onClick={(event) => {

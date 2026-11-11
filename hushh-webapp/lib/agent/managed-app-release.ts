@@ -15,9 +15,9 @@ const DEV_RELEASE: ManagedAppRelease = {
   id: "app:dev:2026-10-07:private-cloud",
   publishedAt: "2026-10-07T00:00:00Z",
   title: "What’s new in One",
-  description: "More control over your private agent.",
+  description: "More control over Agent One.",
   changes: [
-    "Set up your private agent in your own cloud from Hosting.",
+    "Set up Agent One in your own cloud from Hosting.",
     "Choose when to install software updates on your pod.",
     "Your current hosting stays in place.",
   ],

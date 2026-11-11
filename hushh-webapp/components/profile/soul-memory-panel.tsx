@@ -80,7 +80,7 @@ export function SoulMemoryPanelBody({ model, liveMirror }: { model: SoulMemoryMo
       >
         <div className="flex flex-col items-start gap-2 px-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <p className="ui-text-row-description min-w-0 flex-1">
-            The memory One uses in every conversation.
+            Your long-term memory. One uses this in every conversation.
           </p>
           {editing ? (
             <div className="flex flex-wrap gap-2">

@@ -2,7 +2,6 @@
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_request_discovery import discovery_delivery
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 SEMANTIC_COMMIT_KEYS = (
@@ -85,7 +84,7 @@ def require_request_semantics(store, job, row, private, evidence_manifest):
     from hushh_mcp.services.drive_owner_allowed import semantic_search_request
     from hushh_mcp.services.drive_owner_search_store import _semantic_binding_current
     from hushh_mcp.services.drive_request_semantic_plan import (
-        SemanticDrivePlan,
+        parse_semantic_plan,
         semantic_plan_digest,
     )
 
@@ -100,18 +99,34 @@ def require_request_semantics(store, job, row, private, evidence_manifest):
 
         validate_buyer_checkpoint(evidence_manifest, private, claimed, frozen)
     else:
-        if (private.get("semantic_search_policy_version") in {2, 3}) != discovery_delivery(claimed):
-            raise DriveReadError("search_superseded")
-        if private.get("semantic_search_policy_version") == 3:
-            from hushh_mcp.services.drive_request_discovery import provider_results_only
+        from hushh_mcp.services.drive_request_discovery import (
+            DISCOVERY_ACTIVITY_UNION_POLICY,
+            DISCOVERY_DELIVERY_POLICY,
+            DISCOVERY_PROVIDER_RESULTS_POLICY,
+        )
 
-            if not provider_results_only(claimed):
-                raise DriveReadError("search_superseded")
+        version = private.get("semantic_search_policy_version")
+        expected = {
+            1: None,
+            2: DISCOVERY_DELIVERY_POLICY,
+            3: DISCOVERY_PROVIDER_RESULTS_POLICY,
+            4: DISCOVERY_ACTIVITY_UNION_POLICY,
+        }
+        if claimed.get("discovery_delivery_policy") != expected.get(version):
+            raise DriveReadError("search_superseded")
+        if version == 4 and (
+            semantic is None
+            or semantic.get("version") != 2
+            or claimed.get("semantic_model_binding") is None
+        ):
+            raise DriveReadError("search_superseded")
+        if version in {1, 2, 3} and (semantic is None or semantic.get("version") != 1):
+            raise DriveReadError("search_superseded")
         if semantic_search_request(private) != (semantic is not None):
             raise DriveReadError("search_superseded")
         if semantic is not None:
             try:
-                parsed = SemanticDrivePlan.model_validate(semantic)
+                parsed = parse_semantic_plan(semantic)
                 valid = (
                     parsed.status == "ready"
                     and semantic_plan_digest(parsed) == claimed.get("semantic_plan_digest")

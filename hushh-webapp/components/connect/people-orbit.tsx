@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Link from "next/link";
+import { PersonProfileLink as Link } from "@/components/connections/person-profile-link";
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { User } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
@@ -10,6 +11,7 @@ export type OrbitPerson = {
   name: string;
   photoUrl?: string | null;
   verified?: boolean;
+  fromContacts?: boolean;
   publicPersonRef?: string | null;
 };
 
@@ -85,6 +87,7 @@ function OrbitLayout({
               photoUrl={person.photoUrl}
               label={person.name}
               verified={person.verified}
+              fromContacts={person.fromContacts}
             />
           </span>
         );
@@ -120,22 +123,24 @@ function OrbitLayout({
             style={style}
             title={person.name}
             aria-label={`Open ${person.name}'s profile`}
-            onClick={() => onOpenPerson(person.publicPersonRef!)}
+            onClick={event => openPersonProfilePreview({ personRef: person.publicPersonRef }, event.currentTarget)}
             {...dragProps}
           >
             {avatar}
           </button>
         ) : (
-          <span
+          <button
+            type="button"
+            onClick={event => { event.preventDefault(); event.stopPropagation(); openPersonProfilePreview({ userId: person.id }, event.currentTarget); }}
             key={person.id}
             className={sharedClass}
             style={style}
             title={person.name}
-            aria-label={person.name}
+            aria-label={`View ${person.name}'s profile`}
             {...dragProps}
           >
             {avatar}
-          </span>
+          </button>
         );
       })}
       {Array.from({ length: placeholders }, (_, index) => {

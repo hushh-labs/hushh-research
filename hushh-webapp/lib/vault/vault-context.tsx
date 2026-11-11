@@ -38,13 +38,11 @@ import React, {
 import { useAuth } from "@/lib/firebase/auth-context";
 import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import {
-  clearAgentChatHistoryCache,
-  warmAgentChatHistoryCache,
-} from "@/lib/agent/agent-chat-history-cache";
+import { clearAgentChatHistoryCache, warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -58,10 +56,8 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { renewMarkdownMemorySession } from "@/lib/pkm/markdown-memory";
-import {
-  dispatchAuthSessionVerificationRequired,
-  snapshotValidatedAuthSessionOwner,
-} from "@/lib/auth/session-owner";
+import { clearLiveActivity, renewLiveActivitySession } from "@/lib/pkm/live-activity/live-activity-journal";
+import { dispatchAuthSessionVerificationRequired, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
@@ -252,6 +248,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     // Read from refs so event-listeners registered at mount time always see
     // the latest values — never stale closure captures.
     const lockedUserId = vaultUserIdRef.current;
+    if (lockedUserId) MessagesDraftService.lock(lockedUserId);
     const lockedOwnerToken = storedVaultOwnerTokenRef.current;
     sessionEpochRef.current += 1;
     advanceVaultSessionEpoch();
@@ -275,6 +272,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
         );
       });
     }
+    // Live activity captures only while unlocked; drop it and its key for every owner.
+    clearLiveActivity();
     if (lockedUserId) {
       // The Agent's decrypted working set is strictly session-memory-only.
       // Clear it synchronously with the vault credentials, rather than waiting
@@ -345,6 +344,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       console.log(
         "🔒 [VaultProvider] Auth identity changed - clearing vault memory...",
       );
+      void MessagesDraftService.clearForUser(vaultUserId).catch(() => undefined);
       lockVault();
     }
   }, [
@@ -449,6 +449,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         if (issued.token !== priorToken) advanceVaultSessionEpoch();
         storedVaultOwnerTokenRef.current = issued.token;
         tokenExpiresAtRef.current = issued.expiresAt;
+        renewLiveActivitySession({ userId: ownerId, previousEpoch: priorVaultEpoch, vaultKey: key });
         renewMarkdownMemorySession({ userId: ownerId, previousEpoch: priorVaultEpoch,
           vaultKey: key, vaultOwnerToken: issued.token,
           beforeEffect: async () => {
@@ -905,9 +906,21 @@ export function VaultProvider({ children }: VaultProviderProps) {
       ) {
         return false;
       }
+      const priorVaultEpoch = snapshotVaultSessionEpoch();
+      // A same-owner, same-key re-unlock (Kai's token refresh) renews the session rather than starting one.
+      const renewsSession = storedVaultKeyRef.current === key && vaultUserIdRef.current === unlockingUserId;
       sessionEpochRef.current += 1;
       advanceVaultSessionEpoch();
       const epoch = sessionEpochRef.current;
+      if (renewsSession) {
+        // Keep the live activity journal and memory.md sync attached, exactly as a token renewal does.
+        renewLiveActivitySession({ userId: unlockingUserId, previousEpoch: priorVaultEpoch, vaultKey: key });
+        renewMarkdownMemorySession({ userId: unlockingUserId, previousEpoch: priorVaultEpoch, vaultKey: key, vaultOwnerToken: token,
+          beforeEffect: async () => {
+            if (sessionEpochRef.current !== epoch || !authStateRef.current.ready || authStateRef.current.ownerId !== unlockingUserId ||
+              storedVaultOwnerTokenRef.current !== token || Date.now() >= expiresAt) throw new DOMException("Vault session changed", "AbortError");
+          } });
+      }
       storedVaultKeyRef.current = key;
       storedVaultOwnerTokenRef.current = token;
       tokenExpiresAtRef.current = expiresAt;
@@ -923,31 +936,18 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // dashboard warming. In particular /one/setup can finish into Chat or
       // Connect without ever opening Location. Start strict, session-fenced
       // recovery here, before optional Firebase-token reads or route deferrals.
-      UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({
-        userId: unlockingUserId,
-        vaultOwnerToken: token,
-        vaultKey: key,
-      });
+      UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({ userId: unlockingUserId, vaultOwnerToken: token, vaultKey: key });
 
       // Notify listeners (e.g. Siri handoff) that the vault is now unlocked
       // so they can resume any pending actions that were blocked by vault.
-      window.dispatchEvent(
-        new CustomEvent("vault-unlocked", {
-          detail: { userId: unlockingUserId },
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("vault-unlocked", { detail: { userId: unlockingUserId } }));
 
       if (user) void publishNativeSession(epoch, user, unlockingUserId, key, token, expiresAt);
 
       const routePath =
         typeof window !== "undefined" ? window.location.pathname : "";
       if (!routePath.startsWith("/ria")) {
-        trackGrowthFunnelStepCompleted({
-          journey: "investor",
-          step: "vault_ready",
-          dedupeKey: "growth:investor:vault_ready",
-          dedupeWindowMs: 5_000,
-        });
+        trackGrowthFunnelStepCompleted({ journey: "investor", step: "vault_ready", dedupeKey: "growth:investor:vault_ready", dedupeWindowMs: 5_000 });
       }
 
       if (applicationOwnerId && !routePath.startsWith("/one/setup")) {

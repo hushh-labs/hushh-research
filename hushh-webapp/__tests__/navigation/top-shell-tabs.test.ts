@@ -85,6 +85,14 @@ describe("top shell contextual tabs", () => {
       id: "ria",
       activeValue: "picks",
     });
+    expect(
+      resolveRiaRouteTabSet("/ria/clients", { includePicks: false })?.tabs.map(
+        (tab) => tab.value,
+      ),
+    ).toEqual(["profile", "clients"]);
+    expect(
+      resolveRiaRouteTabSet("/ria/clients")?.tabs.map((tab) => tab.value),
+    ).toEqual(["profile", "clients", "picks"]);
   });
 
   it("does not expose contextual tabs on unrelated routes", () => {

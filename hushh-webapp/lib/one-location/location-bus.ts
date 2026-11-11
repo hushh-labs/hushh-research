@@ -143,6 +143,8 @@ let watchers = 0;
  * memory existed.
  */
 let attachedUserId: string | null = null;
+let accountGeneration = 0;
+let earliestAccountMeasurementMs = 0;
 
 /** In-flight hydration, so N surfaces mounting together cause one read. */
 let pendingHydration: Promise<void> | null = null;
@@ -196,7 +198,8 @@ function isFresh(snapshot: LocationSnapshot | null, maxAgeMs: number): boolean {
   if (maxAgeMs <= 0) return false;
   const capturedMs = Date.parse(snapshot.capturedAt);
   if (!Number.isFinite(capturedMs)) return false;
-  return Date.now() - capturedMs <= maxAgeMs;
+  const age = Date.now() - capturedMs;
+  return age >= 0 && age <= maxAgeMs;
 }
 
 function toSnapshot(point: {
@@ -252,12 +255,14 @@ function recordFix(point: {
   });
 }
 
-async function capture(): Promise<LocationSnapshot | null> {
+async function capture(generation: number, fastNetworkFallback?: boolean): Promise<LocationSnapshot | null> {
   try {
     const point = await HushhLocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeoutMs: 15_000,
+      ...(fastNetworkFallback ? { fastNetworkFallback: true } : {}),
     });
+    if (generation !== accountGeneration) return null;
     const snapshot = toSnapshot(point);
     lastCaptureError = null;
     fixInvalidated = false;
@@ -271,6 +276,7 @@ async function capture(): Promise<LocationSnapshot | null> {
     recordFix(point);
     return snapshot;
   } catch (error) {
+    if (generation !== accountGeneration) return null;
     lastCaptureError = error;
     const denied = isDeniedError(error);
     if (!denied && state.snapshot) {
@@ -306,7 +312,7 @@ async function capture(): Promise<LocationSnapshot | null> {
  * what they keep seeing if it never does. Never overwrites a fix taken this
  * session: a restored coordinate is strictly a floor, never a replacement.
  */
-async function hydrateFromMemory(userId: string): Promise<void> {
+async function hydrateFromMemory(userId: string, generation: number): Promise<void> {
   // Read through a call rather than touching `state` directly: `state` is a
   // module-level binding, so TypeScript narrows it at the first check and then
   // believes the identical check after the await is dead code. It is not — the
@@ -318,7 +324,7 @@ async function hydrateFromMemory(userId: string): Promise<void> {
     userId,
     maxAgeMs: LAST_KNOWN_FIX_RETENTION_MS,
   });
-  if (!point) return;
+  if (!point || generation !== accountGeneration || userId !== attachedUserId) return;
   // The GPS may have answered while the store was being read. It wins.
   if (originNow() === "fresh") return;
   emit({
@@ -344,6 +350,10 @@ export const LocationBus = {
     return state;
   },
 
+  getAccountGeneration(): number {
+    return accountGeneration;
+  },
+
   subscribe(listener: (next: LocationBusState) => void): () => void {
     listeners.add(listener);
     return () => {
@@ -360,6 +370,22 @@ export const LocationBus = {
    */
   getLastCaptureError(): unknown {
     return lastCaptureError;
+  },
+
+  /** A recent measurement from this owner session, suitable for an explicit recovery. */
+  getRecentMeasuredFix(userId: string, maxAgeMs: number): LocationSnapshot | null {
+    if (
+      attachedUserId !== userId ||
+      fixInvalidated ||
+      state.permission !== "granted" ||
+      state.snapshotOrigin !== "fresh" ||
+      !state.snapshot
+    ) return null;
+    const measuredAt = Date.parse(state.snapshot.capturedAt);
+    const age = Date.now() - measuredAt;
+    return measuredAt >= earliestAccountMeasurementMs && age >= 0 && age <= maxAgeMs
+      ? state.snapshot
+      : null;
   },
 
   /**
@@ -395,7 +421,11 @@ export const LocationBus = {
    * Return a position, prompting only if the OS has not decided yet.
    * Reuses a fix younger than `maxAgeMs` and coalesces concurrent callers.
    */
-  async ensure(options?: { maxAgeMs?: number; requireMeasurement?: boolean }): Promise<LocationSnapshot | null> {
+  async ensure(options?: {
+    maxAgeMs?: number;
+    requireMeasurement?: boolean;
+    fastNetworkFallback?: boolean;
+  }): Promise<LocationSnapshot | null> {
     const maxAgeMs = options?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
     // Only a fix measured this session short-circuits the GPS. A restored one
     // is there to fill the screen, not to end the attempt — reusing it would
@@ -420,10 +450,11 @@ export const LocationBus = {
       });
     }
 
-    pendingCapture = capture().finally(() => {
-      pendingCapture = null;
+    const captureTask = capture(accountGeneration, options?.fastNetworkFallback).finally(() => {
+      if (pendingCapture === captureTask) pendingCapture = null;
     });
-    return pendingCapture;
+    pendingCapture = captureTask;
+    return captureTask;
   },
 
   /**
@@ -445,6 +476,12 @@ export const LocationBus = {
     pendingHydration = null;
 
     if (switchingAccounts) {
+      accountGeneration += 1;
+      earliestAccountMeasurementMs = Date.now();
+      pendingCapture = null;
+      lastCaptureError = null;
+      fixInvalidated = false;
+      lastPersistedAtMs = 0;
       // One person's coordinate must never appear under another person's
       // session, however briefly.
       state = { ...INITIAL_STATE };
@@ -466,12 +503,13 @@ export const LocationBus = {
       return;
     }
 
-    pendingHydration = hydrateFromMemory(next)
+    const hydrationTask = hydrateFromMemory(next, accountGeneration)
       .catch(() => undefined)
       .finally(() => {
-        pendingHydration = null;
+        if (pendingHydration === hydrationTask) pendingHydration = null;
       });
-    await pendingHydration;
+    pendingHydration = hydrationTask;
+    await hydrationTask;
   },
 
   /**
@@ -591,6 +629,8 @@ export const LocationBus = {
     watchStarting = null;
     watchers = 0;
     attachedUserId = null;
+    accountGeneration += 1;
+    earliestAccountMeasurementMs = 0;
     pendingHydration = null;
     lastPersistedAtMs = 0;
     lastCaptureError = null;

@@ -28,7 +28,8 @@ def run(run_id, workflow="deploy-uat.yml", actor="maintainer", sha="a" * 40):
     return {"id": run_id, "path": f".github/workflows/{workflow}", "head_branch": "main",
             "repository": {"full_name": REPOSITORY}, "head_repository": {"full_name": REPOSITORY},
             "event": "workflow_dispatch", "status": "completed", "conclusion": "success",
-            "actor": {"login": actor}, "created_at": "2026-10-22T01:00:00Z",
+            "actor": {"login": actor, "type": "User", "id": 1},
+            "triggering_actor": {"login": actor, "type": "User", "id": 1}, "created_at": "2026-10-22T01:00:00Z",
             "updated_at": "2026-10-22T02:00:00Z", "head_sha": sha, "run_attempt": 1}
 
 
@@ -212,16 +213,14 @@ class DispatchTest(unittest.TestCase):
             return {"workflow_run_id": run_id, "html_url": f"https://github.com/{REPOSITORY}/actions/runs/{run_id}"}
         return invoke
 
-    def test_new_four_production_pair_yields_to_uat_and_keeps_one_source(self):
+    def test_production_pair_is_independent_of_uat_and_keeps_one_source(self):
         state = counted(3)
         core.adopt_cadence(state, 101, NEW_POLICY)
         sha = f"{4:040x}"
         core.account(state, run(4, sha=sha), receipt(sha), sha, 101, NEW_POLICY)
         ledger, calls = FakeLedger(state), []
-        with patch.object(github, "uat_busy", return_value=True), patch.object(github, "api") as transport:
-            github.dispatch_pending(ledger)
-        transport.assert_not_called()
-        with patch.object(github, "api", self.dispatch_api(calls)):
+        with patch.object(github, "uat_busy", return_value=True), \
+                patch.object(github, "api", self.dispatch_api(calls)):
             github.dispatch_pending(ledger)
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(call[1]["inputs"]["sha"] == sha for call in calls))
@@ -262,7 +261,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(ledger.state["count"], 8)
         for lane in ("deploy", "appstore"):
             self.assertEqual(children[lane], {"state": "pending"})
-        deferred.assert_called_once_with("production requires complete exact-SHA UAT acceptance")
+        deferred.assert_called_once_with("production requires qualified protected Main source")
         with patch.object(github, "api", self.dispatch_api(calls)):
             github.dispatch_pending(ledger)
             self.assertEqual(len(calls), 1)  # The active TestFlight bundle retains its slot.
@@ -282,17 +281,15 @@ class DispatchTest(unittest.TestCase):
         request.assert_not_called()
         self.assertEqual(ledger.state["requests"]["8"]["lanes"]["deploy"], {"state": "pending"})
 
-    def test_uat_arriving_during_predecessor_lookup_prevents_intent(self):
-        for accepted in (True, False):
-            with self.subTest(accepted=accepted):
-                ledger = FakeLedger(counted())
-                with patch.object(github, "api") as request, \
-                        patch.object(github, "uat_busy", side_effect=[False, True]), \
-                        patch.object(github, "production_predecessor_accepted", return_value=accepted):
-                    github.dispatch_pending(ledger)
-                request.assert_not_called()
-                for lane in ("deploy", "testflight"):
-                    self.assertEqual(ledger.state["requests"]["8"]["lanes"][lane], {"state": "pending"})
+    def test_uat_busy_does_not_waive_main_qualification(self):
+        ledger = FakeLedger(counted())
+        with patch.object(github, "api") as request, \
+                patch.object(github, "uat_busy", return_value=True), \
+                patch.object(github, "production_predecessor_accepted", return_value=False):
+            github.dispatch_pending(ledger)
+        request.assert_not_called()
+        for lane in ("deploy", "testflight"):
+            self.assertEqual(ledger.state["requests"]["8"]["lanes"][lane], {"state": "pending"})
 
     def test_half_dispatched_pair_resumes_app_without_duplicate_deployment(self):
         ledger, calls = FakeLedger(counted()), []
@@ -304,21 +301,16 @@ class DispatchTest(unittest.TestCase):
         self.assertFalse(any("deploy-production.yml" in path for path, _ in calls))
         self.assertEqual(calls[0][1]["inputs"]["production_deploy_run_id"], "155")
 
-    def test_uat_arrival_between_production_dispatches_yields_and_resumes_once(self):
+    def test_half_pair_resumes_while_uat_busy_without_duplicate_deployment(self):
         ledger, calls = FakeLedger(counted()), []
         children = ledger.state["requests"]["8"]["lanes"]
+        children["deploy"] = {"state": "success", "run_id": 201}
         with patch.object(github, "api", self.dispatch_api(calls)), \
-                patch.object(github, "uat_busy", side_effect=[False, False, True]):
+                patch.object(github, "uat_busy", return_value=True):
+            github.dispatch_pending(ledger)
             github.dispatch_pending(ledger)
         self.assertEqual(len(calls), 1)
-        self.assertEqual(children["deploy"]["run_id"], 201)
-        self.assertEqual(children["appstore"]["state"], "pending")
-        with patch.object(github, "api", self.dispatch_api(calls)):
-            github.dispatch_pending(ledger)
-            github.dispatch_pending(ledger)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[1][1]["inputs"]["production_deploy_run_id"], "201")
-        self.assertEqual(calls[0][1]["inputs"]["sha"], calls[1][1]["inputs"]["sha"])
+        self.assertEqual(calls[0][1]["inputs"]["production_deploy_run_id"], "201")
         self.assertEqual(children["testflight"]["state"], "pending")
 
     def test_running_release_bundles_cannot_admit_a_competing_bundle(self):
@@ -416,7 +408,7 @@ class AdmissionTest(unittest.TestCase):
         from urllib.parse import parse_qs, urlsplit
         for busy in ("requested", "queued", "pending", "waiting", "in_progress"):
             with self.subTest(status=busy):
-                ledger, posts = FakeLedger(counted()), []
+                ledger, posts = FakeLedger(counted(4)), []
                 def observed(path, data=None, **kwargs):
                     if data is not None:
                         posts.append((path, data))
@@ -429,8 +421,8 @@ class AdmissionTest(unittest.TestCase):
                     github.dispatch_pending(ledger)
                 self.assertEqual(posts, [])
                 deferred.assert_called_once_with("UAT is queued or running")
-                self.assertEqual(ledger.state["requests"]["8"]["lanes"]["deploy"], {"state": "pending"})
-                self.assertEqual(ledger.state["count"], 8)
+                self.assertEqual(ledger.state["requests"]["4"]["lanes"]["testflight"], {"state": "pending"})
+                self.assertEqual(ledger.state["count"], 4)
 
     def test_unreadable_uat_admission_fails_closed_before_dispatch_intent(self):
         for response in (None, {}, {"total_count": "0"}, {"total_count": -1}):
@@ -815,10 +807,14 @@ class AuthorityTest(unittest.TestCase):
 class ProductionJoinTest(unittest.TestCase):
     def test_join_requires_exact_healthy_provenance_and_never_latest_run(self):
         deployment = run(200, "deploy-production.yml")
+        deployment.update(
+            actor={"login": "future-maintainer", "id": 3, "type": "User"},
+            triggering_actor={"login": "future-maintainer", "id": 3, "type": "User"},
+        )
         value = {"sha": "a" * 40, "status": "healthy", "final": {"backend_revision": "candidate"},
                  "candidate": {"backend_revision": "candidate"},
                  "verification": {"backend_provenance": "success", "backend_health": "success"}}
-        with patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+        with patch.object(github, "configuration", side_effect=AssertionError("current roster consulted")), \
                 patch.object(github, "run_info", return_value=deployment) as get_run, \
                 patch.object(github, "receipt", return_value=value):
             self.assertEqual(github.wait_production(REPOSITORY, 200, "a" * 40), value)

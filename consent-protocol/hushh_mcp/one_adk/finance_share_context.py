@@ -94,7 +94,7 @@ async def admit_finance_share(
         or _latest_user_text(messages) != FINANCE_REVIEW_MESSAGE
     ):
         raise ConsentContinuationError(
-            "Open shared Finance and choose Review with my private agent.", status_code=403
+            "Open shared Finance and choose Review with Agent One.", status_code=403
         )
     try:
         from uuid import UUID
@@ -108,7 +108,7 @@ async def admit_finance_share(
         shared = validate_finance_review(payload, authority, owner_id)
     except Exception:
         raise ConsentContinuationError(
-            "Finance access changed or private-agent review is not allowed. Open the shared view again.",
+            "Finance access changed or Agent One review is not allowed. Open the shared view again.",
             status_code=403,
         ) from None
     labels = [section.capitalize() for section in authority["sections"]]

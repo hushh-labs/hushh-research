@@ -373,7 +373,20 @@
     "434_calendar_guest_photo_access.sql",
     "435_finance_connection_sharing.sql",
     "436_phone_linked_account_deletions.sql",
-    "437_account_legacy_generation_settlement.sql"
+    "437_account_legacy_generation_settlement.sql",
+    "439_drive_rest_owner_admission.sql",
+    "440_drive_permission_file_claim_lanes.sql",
+    "441_sms_alarm_capability.sql",
+    "442_calendar_mail_read_grant.sql",
+    "443_calendar_email_followups.sql",
+    "444_calendar_email_followup_delivery.sql",
+    "445_calendar_email_followup_relevance.sql",
+    "448_connection_network_visibility.sql",
+    "449_gcp_notification_account_id_limit.sql",
+    "450_one_attempt_email_outbox.sql",
+    "451_one_attempt_email_feedback.sql",
+    "452_direct_calls.sql",
+    "454_calendar_email_followup_temporal.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -793,6 +806,19 @@
     "435_finance_connection_sharing.sql": "rollback/435_finance_connection_sharing.rollback.sql",
     "436_phone_linked_account_deletions.sql": "rollback/436_phone_linked_account_deletions.rollback.sql",
     "437_account_legacy_generation_settlement.sql": "rollback/437_account_legacy_generation_settlement.rollback.sql",
-    "438_uat_legacy_generation_settlement.sql": "rollback/438_uat_legacy_generation_settlement.rollback.sql"
+    "438_uat_legacy_generation_settlement.sql": "rollback/438_uat_legacy_generation_settlement.rollback.sql",
+    "439_drive_rest_owner_admission.sql": "rollback/439_drive_rest_owner_admission.rollback.sql",
+    "440_drive_permission_file_claim_lanes.sql": "rollback/440_drive_permission_file_claim_lanes.rollback.sql",
+    "441_sms_alarm_capability.sql": "rollback/441_sms_alarm_capability.rollback.sql",
+    "442_calendar_mail_read_grant.sql": "rollback/442_calendar_mail_read_grant.rollback.sql",
+    "443_calendar_email_followups.sql": "rollback/443_calendar_email_followups.rollback.sql",
+    "444_calendar_email_followup_delivery.sql": "rollback/444_calendar_email_followup_delivery.rollback.sql",
+    "448_connection_network_visibility.sql": "rollback/448_connection_network_visibility.rollback.sql",
+    "445_calendar_email_followup_relevance.sql": "rollback/445_calendar_email_followup_relevance.rollback.sql",
+    "449_gcp_notification_account_id_limit.sql": "rollback/449_gcp_notification_account_id_limit.rollback.sql",
+    "450_one_attempt_email_outbox.sql": "rollback/450_one_attempt_email_outbox.rollback.sql",
+    "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql",
+    "452_direct_calls.sql": "rollback/452_direct_calls.rollback.sql",
+    "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql"
   }
 }

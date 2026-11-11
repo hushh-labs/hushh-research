@@ -84,8 +84,7 @@ export function CircleDiscoveryCardBody({ model }: { model: CircleDiscoveryCardM
         {hidden.length ? (
           <Button
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={styles.quietAction}
             onClick={restore}
@@ -117,8 +116,7 @@ export function CircleDiscoveryCardBody({ model }: { model: CircleDiscoveryCardM
               </button>
               <Button
                 type="button"
-                variant="none"
-                effect="fade"
+                variant="plain"
                 size="icon-touch"
                 aria-label={`Hide ${starter.label} suggestion`}
                 disabled={Boolean(creating)}
@@ -136,8 +134,7 @@ export function CircleDiscoveryCardBody({ model }: { model: CircleDiscoveryCardM
           {unavailable ? (
             <Button
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onRetryCircles}
             >
@@ -147,8 +144,7 @@ export function CircleDiscoveryCardBody({ model }: { model: CircleDiscoveryCardM
           {needsSetup ? (
             <Button
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onSetupCircles}
             >

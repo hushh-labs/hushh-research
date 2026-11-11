@@ -1,9 +1,7 @@
 """Minimal Cloud Run Admin (v1 knative) REST client for the GCP compute backend.
 
-Used ONLY in live mode by ``GcpBackend`` to actually create / get / delete a
-per-user Cloud Run service. The token is minted from the operator service account
-(``GCP_DEPLOY_SA_KEY_B64``); every call goes through the agent proxy + CA bundle
-the environment configures (honored automatically by requests via the proxy env).
+Used only in live mode by ``GcpBackend`` to create, get, and delete each user's
+Cloud Run service with operator credentials through the configured proxy and CA bundle.
 
 Sync + requests-based (google-auth's transport is requests); ``GcpBackend`` calls
 it off the event loop via ``asyncio.to_thread``. The v1 knative API is used because
@@ -20,6 +18,8 @@ import os
 import re
 import time
 from typing import Any, Callable, Optional
+
+from hushh_mcp.services.gcp_run_hosted_files import HostedFilesRunClientMixin
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ def resolve_admin_project(sa_key_b64: Optional[str] = None) -> Optional[str]:
     return attached_project or None
 
 
-class GcpRunClient:
+class GcpRunClient(HostedFilesRunClientMixin):
     """Create / get / delete Cloud Run services via the v1 knative regional API."""
 
     def __init__(self, *, project: str, region: str, credentials: Any = None) -> None:
@@ -737,6 +737,7 @@ class GcpRunClient:
         operation_name: Optional[str] = None,
         before_submit: Optional[Callable[[dict[str, Any]], bool]] = None,
         on_acknowledged: Optional[Callable[[dict[str, Any]], bool]] = None,
+        session: Any = None,
     ) -> None:
         if (
             operation_name is not None or before_submit is not None or on_acknowledged is not None
@@ -753,6 +754,7 @@ class GcpRunClient:
                 operation_name=operation_name,
                 before_submit=before_submit,
                 on_acknowledged=on_acknowledged,
+                session=session,
             )
             return
         import requests  # type: ignore[import-untyped]
@@ -772,6 +774,7 @@ class GcpRunClient:
         operation_name: Optional[str] = None,
         before_submit: Optional[Callable[[dict[str, Any]], bool]] = None,
         on_acknowledged: Optional[Callable[[dict[str, Any]], bool]] = None,
+        session: Any = None,
     ) -> None:
         """Delete only the recorded incarnation and verify absence before return.
 
@@ -783,6 +786,8 @@ class GcpRunClient:
         coordinator owns attempt exclusivity and lost-acknowledgement recovery.
         """
         import requests  # type: ignore[import-untyped]
+
+        http = session if session is not None else requests
 
         if (
             not isinstance(name, str)
@@ -813,10 +818,8 @@ class GcpRunClient:
             return min(30, budget)
 
         def observe() -> Optional[dict[str, Any]]:
-            headers = self._headers()
-            request_timeout = remaining()
-            response = requests.get(
-                url, headers=headers, timeout=request_timeout, allow_redirects=False
+            response = http.get(
+                url, headers=self._headers(), timeout=remaining(), allow_redirects=False
             )
             remaining()
             if response.status_code == 404:
@@ -844,12 +847,10 @@ class GcpRunClient:
         def finish_operation(operation: str) -> None:
             operation = validate_operation(operation)
             while True:
-                headers = self._headers()
-                request_timeout = remaining()
-                result = requests.get(
+                result = http.get(
                     f"https://run.googleapis.com/v2/{operation}",
-                    headers=headers,
-                    timeout=request_timeout,
+                    headers=self._headers(),
+                    timeout=remaining(),
                     allow_redirects=False,
                 )
                 remaining()
@@ -915,13 +916,11 @@ class GcpRunClient:
             admission.update(generation=int(generation), image=containers[0]["image"])
             if before_submit(dict(admission)) is not True:
                 raise RuntimeError("Cloud Run deletion admission retention unconfirmed")
-        headers = self._headers()
-        request_timeout = remaining()
-        response = requests.delete(
+        response = http.delete(
             url,
-            headers=headers,
+            headers=self._headers(),
             params={"etag": etag},
-            timeout=request_timeout,
+            timeout=remaining(),
             allow_redirects=False,
         )
         if response.status_code not in (200, 404):

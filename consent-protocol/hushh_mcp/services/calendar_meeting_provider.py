@@ -12,6 +12,13 @@ from hushh_mcp.services.calendar_meeting_common import ArtifactUnavailable
 from hushh_mcp.services.google_provider_errors import classify_google_forbidden_response
 
 
+def _meet_operation(path: str) -> str:
+    """Resource collection names only (``conferenceRecords.recordings``), never IDs."""
+    segments = path.split("?", 1)[0].strip("/").split("/")
+    names = [segment for segment in segments[::2] if segment.isalpha()]
+    return "meet." + ".".join(names) if names else "meet"
+
+
 async def meet_request(token, path, params=None):
     async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
         with suppress_instrumentation():
@@ -24,7 +31,11 @@ async def meet_request(token, path, params=None):
                 if response.status_code == 401:
                     raise ArtifactUnavailable("token_rejected")
                 if response.status_code == 403:
-                    reason = await classify_google_forbidden_response(response)
+                    reason = await classify_google_forbidden_response(
+                        response,
+                        operation=_meet_operation(path),
+                        service_hint="meet.googleapis.com",
+                    )
                     raise ArtifactUnavailable(
                         "temporarily_unavailable" if reason == "rate_limited" else reason,
                         retryable=reason == "rate_limited",

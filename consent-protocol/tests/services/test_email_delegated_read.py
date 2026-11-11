@@ -9,11 +9,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from hushh_mcp.agents.email.runtime import load_email_gene
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent
 from hushh_mcp.services.email_chat_service import EmailChatService
 from hushh_mcp.services.email_delegated_read import (
+    RECEIPT_FUNCTIONS_TEXT,
     MailAnalysisAnswer,
     MailReadAnswer,
     MailReadPlan,
@@ -867,6 +869,14 @@ def test_mail_analyzer_schema_builds_as_a_toolless_manifest_gene():
     assert agent.disallow_transfer_to_parent and agent.disallow_transfer_to_peers
     assert "untrusted" in agent.instruction.lower()
     assert agent.output_schema is MailAnalysisAnswer
+    assert "payments_due" in agent.instruction and "security_alerts" in agent.instruction
+    finding = {"source_ref": "mail:1", "detail": "Invoice due.", "state": "active"}
+    MailAnalysisAnswer.model_validate(
+        {"findings": [{**finding, "category": c} for c in ("payments_due", "security_alerts")]}
+    )
+    # Negative control: only the classifier judges personal-information requests.
+    with pytest.raises(ValidationError):
+        MailAnalysisAnswer.model_validate({"findings": [{**finding, "category": "personal_info"}]})
 
 
 @pytest.mark.parametrize(
@@ -1325,104 +1335,66 @@ async def test_no_summaries_is_a_normal_read():
     assert all("gist" not in item for item in result["items"])
 
 
-# --- Receipts: answered from the saved receipt memory, never from the inbox ---
-
-
-def _receipt_memory(generated_at="2026-09-25T09:00:00Z"):
-    return {
-        "schema": "receipt_canonical_index.v1",
-        "generated_at": generated_at,
-        "total_transactions": 2,
-        "truncated": False,
-        "transactions": [
-            {
-                "ref": "txn_" + "a" * 16,
-                "merchant": "Supabase",
-                "amount": 124.01,
-                "currency": "USD",
-                "category": "Cloud & Infra",
-                "status": "overdue",
-                "transaction_date": "2026-09-04",
-                "identifiers": [{"kind": "invoice", "value": "ZSUQHV-00028"}],
-                "detail": None,
-            },
-            {
-                "ref": "txn_" + "b" * 16,
-                "merchant": "Anthropic",
-                "amount": 20,
-                "currency": "USD",
-                "category": None,
-                "status": "paid",
-                "transaction_date": "2026-08-18",
-                "identifiers": [],
-                "detail": "Claude Pro subscription",
-            },
-        ],
-    }
+# --- Receipts: handed back to One's receipt functions, never read from the inbox ---
 
 
 def _never_a_reader(**_):
     raise AssertionError("a receipts answer must never construct a Gmail reader")
 
 
-async def _receipts_turn(plan, memory, *, message="show my receipts", **kwargs):
+async def _receipts_turn(plan, *, receipt_reads=True, gmail=None):
     prompts: dict[str, str] = {}
 
     async def gene(**gene_kwargs):
         prompts[gene_kwargs["gene_id"]] = gene_kwargs["prompt"]
         if gene_kwargs["gene_id"] == "agent_email_read_planner":
             return plan
-        raise AssertionError("only the planner may run for a receipts answer")
+        raise AssertionError("only the planner may run for a receipts question")
 
     result = await run_delegated_mail_read(
-        gmail=SimpleNamespace(assert_read_ready=AsyncMock()),
+        gmail=gmail or SimpleNamespace(assert_read_ready=AsyncMock()),
         user_id="owner",
         consent_token="synthetic",  # noqa: S106 - synthetic test authority
         conversation_id="original-one-thread",
-        message=message,
+        message="what did I spend last month",
         require_access=AsyncMock(),
-        timezone="America/Los_Angeles",
-        receipt_memory=memory,
-        receipt_reads=kwargs.pop("receipt_reads", True),
+        receipt_reads=receipt_reads,
         gene_runner=gene,
         reader_factory=_never_a_reader,
         clock=lambda: _NOW,
-        **kwargs,
     )
     return result, prompts
 
 
-async def test_a_receipt_question_is_answered_from_receipt_memory_not_the_inbox():
-    plan = {
-        "operation": "read_receipts",
-        "receipt_since": "2026-07-26",
-        "receipt_window_label": "from the last 2 months",
-    }
-    result, prompts = await _receipts_turn(plan, _receipt_memory())
-    assert list(prompts) == ["agent_email_read_planner"]  # no interpreter, no analyzer
-    assert result["response"] == (
-        "Found 2 receipts from the last 2 months:\n\n"
-        "- **Supabase** — $124.01 · Overdue · Sep 4  \n"
-        "  Invoice ZSUQHV-00028.\n\n"
-        "- **Anthropic** — $20.00 · Paid · Aug 18  \n"
-        "  Claude Pro subscription."
+async def test_typed_receipts_question_is_handed_to_one_without_reading_or_proposing(caplog):
+    gmail = SimpleNamespace(assert_read_ready=AsyncMock(side_effect=AssertionError("no Gmail")))
+    caplog.set_level(logging.INFO)
+    result, prompts = await _receipts_turn({"operation": "use_receipt_functions"}, gmail=gmail)
+    assert result["structured"]["status"] == "receipt_functions_required"
+    assert result["response"] == RECEIPT_FUNCTIONS_TEXT
+    assert result["structured"]["sources"] == [] and result["items"] == []
+    assert result["coverage"] is None and result["failure_stage"] is None
+    # No Open Receipts navigation and no receipts list position: One answers.
+    assert "directive" not in result and "receipt_cursor" not in result
+    assert list(prompts) == ["agent_email_read_planner"]
+    gmail.assert_read_ready.assert_not_awaited()
+    assert "stage=receipts ms=0 status=redirected" in caplog.text
+
+
+async def test_voice_receipts_question_refuses_instead_of_searching_the_inbox():
+    result, prompts = await _receipts_turn(
+        {"operation": "use_receipt_functions"}, receipt_reads=False
     )
-    structured = result["structured"]
-    assert structured["status"] == "ok" and structured["connector"] == "mail"
-    assert structured["sources"] == [] and structured["metadata_only"] is True
-    assert result["coverage"]["source"] == "receipt_memory"
-    assert result["receipt_cursor"] == {"action": "clear", "value": None}
-    assert "directive" not in result
-    # The planner sees the person's words and the clock, never the saved receipts.
-    assert "Supabase" not in prompts["agent_email_read_planner"]
-    assert "124.01" not in prompts["agent_email_read_planner"]
+    assert result["structured"]["status"] == "invalid_argument"
+    assert result["response"].startswith("I can't read your saved receipts here yet.")
+    assert result["failure_stage"] == "planning"
+    assert list(prompts) == ["agent_email_read_planner"]
 
 
-async def test_overdue_bills_filter_uses_the_planned_status_only():
-    plan = {"operation": "read_receipts", "receipt_statuses": ["overdue"]}
-    result, _ = await _receipts_turn(plan, _receipt_memory(), message="show overdue bills")
-    assert result["response"].startswith("Found 1 overdue receipt:")
-    assert "Supabase" in result["response"] and "Anthropic" not in result["response"]
+@pytest.mark.parametrize("extra", [{"categories": ["meetings"]}, {"ordinal": 2}])
+async def test_receipts_plan_carrying_read_fields_is_refused_not_repaired(extra):
+    result, _ = await _receipts_turn({"operation": "use_receipt_functions", **extra})
+    assert result["structured"]["status"] == "invalid_argument"
 
 
 @pytest.mark.parametrize(
@@ -1433,11 +1405,8 @@ async def test_overdue_bills_filter_uses_the_planned_status_only():
         ({"operation": "list_needs_reply"}, "list_needs_reply"),
     ],
 )
-async def test_ordinary_mail_requests_still_read_the_inbox_even_with_receipt_memory(
-    plan, operation
-):
-    """ "Find emails mentioning receipts" and every other non-receipt read are
-    untouched by the saved receipt memory riding on the same turn."""
+async def test_typed_mail_that_mentions_receipts_is_still_an_inbox_read(plan, operation):
+    """ "Find emails mentioning receipts" and every other ordinary read stay inbox reads."""
     reader = _Reader()
 
     async def gene(**kwargs):
@@ -1445,84 +1414,10 @@ async def test_ordinary_mail_requests_still_read_the_inbox_even_with_receipt_mem
             return plan
         return {"answer": "One message.", "source_refs": ["mail:1"]}
 
-    result = await _run(
-        reader,
-        gene,
-        receipt_memory=_receipt_memory(),
-        receipt_reads=True,
-    )
+    result = await _run(reader, gene, receipt_reads=True)
     assert [call[0] for call in reader.calls] == [operation]
     assert result["structured"]["status"] == "ok"
-    assert "Supabase" not in result["response"]
     assert "receipt_cursor" not in result and "directive" not in result
-
-
-@pytest.mark.parametrize("memory", [None, _receipt_memory("2026-09-01T09:00:00Z"), {"schema": "x"}])
-async def test_missing_or_stale_memory_is_not_ready_and_proposes_open_receipts(memory):
-    result, _ = await _receipts_turn({"operation": "read_receipts"}, memory)
-    assert result["response"] == (
-        "Your receipt memory is not ready yet. Sync and save your receipts in Mail."
-    )
-    assert result["structured"]["status"] == "input_required"
-    assert result["coverage"] is None
-    assert result["directive"] == {
-        "type": "receipts_open_proposal",
-        "actionId": "route.profile_receipts",
-        "slots": {},
-    }
-    assert "inbox" not in result["response"].lower()
-
-
-async def test_a_surface_without_the_device_memory_refuses_instead_of_searching_the_inbox():
-    result, prompts = await _receipts_turn(
-        {"operation": "read_receipts"}, _receipt_memory(), receipt_reads=False
-    )
-    assert result["structured"]["status"] == "invalid_argument"
-    assert "Supabase" not in result["response"]
-    assert list(prompts) == ["agent_email_read_planner"]
-
-
-async def test_receipt_fields_on_another_operation_or_a_malformed_plan_are_refused():
-    mixed, _ = await _receipts_turn(
-        {"operation": "search_inbox", "query": "x", "receipt_statuses": ["paid"]},
-        _receipt_memory(),
-    )
-    assert mixed["structured"]["status"] == "invalid_argument"
-    assert mixed["response"].startswith("Please ask for")
-    bad_date, _ = await _receipts_turn(
-        {"operation": "read_receipts", "receipt_since": "last month"}, _receipt_memory()
-    )
-    assert bad_date["structured"]["status"] == "invalid_argument"
-    assert bad_date["response"].startswith("I couldn't turn that into a receipts request")
-    with_categories, _ = await _receipts_turn(
-        {"operation": "read_receipts", "categories": ["meetings"]}, _receipt_memory()
-    )
-    assert with_categories["structured"]["status"] == "invalid_argument"
-
-
-async def test_show_more_continues_from_the_stored_cursor():
-    memory = _receipt_memory()
-    memory["transactions"] = [
-        {
-            **memory["transactions"][0],
-            "ref": f"txn_{n:016x}",
-            "merchant": f"Shop {n}",
-            "transaction_date": f"2026-09-{n:02d}",
-            "identifiers": [],
-        }
-        for n in range(1, 13)
-    ]
-    memory["total_transactions"] = 12
-    first, _ = await _receipts_turn({"operation": "read_receipts"}, memory)
-    assert first["receipt_cursor"]["action"] == "set"
-    more, _ = await _receipts_turn(
-        {"operation": "read_receipts", "receipt_more": True},
-        memory,
-        message="show more",
-        receipt_cursor=first["receipt_cursor"]["value"],
-    )
-    assert more["response"].startswith("Showing 11–12 of 12 receipts:")
-    assert more["receipt_cursor"] == {"action": "clear", "value": None}
 
 
 async def test_delegated_entrypoint_enables_receipt_reads_only_for_typed_chat(monkeypatch):
@@ -1537,20 +1432,15 @@ async def test_delegated_entrypoint_enables_receipt_reads_only_for_typed_chat(mo
         conversation_id="same-thread",
         message="show my receipts",
         require_access=AsyncMock(),
-        receipt_memory={"schema": "receipt_canonical_index.v1"},
-        receipt_cursor="cursor",
     )
-    kwargs = execute.await_args.kwargs
-    assert kwargs["receipt_reads"] is True
-    assert kwargs["receipt_memory"] == {"schema": "receipt_canonical_index.v1"}
-    assert kwargs["receipt_cursor"] == "cursor"
+    assert execute.await_args.kwargs["receipt_reads"] is True
     # One Live Voice calls the read directly and never passes the flag.
     import inspect
 
     assert inspect.signature(run_delegated_mail_read).parameters["receipt_reads"].default is False
 
 
-def test_planner_is_manifest_owned_routes_receipts_to_memory_and_keeps_inbox_search():
+def test_planner_is_manifest_owned_hands_receipts_to_one_and_briefs_every_category():
     agent = build_single_turn_agent(
         load_email_gene("agent_email_read_planner"),
         output_schema=MailReadPlan,
@@ -1560,21 +1450,124 @@ def test_planner_is_manifest_owned_routes_receipts_to_memory_and_keeps_inbox_sea
     assert agent.output_schema is MailReadPlan
     instruction = " ".join(agent.instruction.split())
     # Routing meaning is authored in the manifest, not in host-side phrase tables.
-    assert "read_receipts" in instruction
-    assert "never plan search_inbox, list_recent or read_message for them" in instruction
+    assert "use_receipt_functions" in instruction and "read_receipts" not in instruction
+    assert (
+        "never plan search_inbox, list_recent, read_message or analyze_mail for them" in instruction
+    )
     assert "mention receipts or invoices" in instruction
     assert "stays search_inbox" in instruction
+    assert "-category:promotions -category:social" in instruction
     assert "presentation_intent" in instruction
     assert "who sent the latest five" in instruction
     assert "When unsure, set answer_question" in instruction
     assert MailReadPlan.model_validate({"operation": "list_recent"}).presentation_intent == (
         "answer_question"
     )
-    # The planner schema stays flat for the structured-output API: no nested objects.
-    schema = MailReadPlan.model_json_schema()["properties"]
-    for name in ("receipt_statuses", "receipt_identifier_kinds"):
-        assert schema[name]["type"] == "array"
-        assert "$ref" in schema[name]["items"] or schema[name]["items"].get("type") == "string"
+    every = ["personal_info", "action_items", "meetings", "payments_due", "security_alerts"]
+    plan = MailReadPlan.model_validate({"operation": "analyze_mail", "categories": every})
+    assert plan.categories == every
+    # The retired receipt-memory fields are gone from the planner's output schema.
+    assert not any(
+        name.startswith("receipt_") for name in MailReadPlan.model_json_schema()["properties"]
+    )
+
+
+# --- Mail brief: counts are code over model findings; no body or address leaves ---
+
+
+def _brief_reader() -> _Reader:
+    rows = [
+        ("Priya Sharma", "Q3 plan", "Please send the Q3 deck by Friday.", True),
+        (
+            "billing@acme.example",
+            "Invoice 42 is due",
+            "Pay $120 by Oct 5 at billing@acme.example.",
+            False,
+        ),
+        (
+            "Google",
+            "Security alert for owner@example.com",
+            "New sign-in on Mac. Code 123456.",
+            False,
+        ),
+        ("Priya Sharma", "Lunch", "", False),
+    ]
+    return _Reader(
+        offered_ids=tuple(f"mail-id-{n}" for n in range(1, 5)),
+        metadata={
+            "status": "ok",
+            "operation": "analyze_mail",
+            "untrusted_external_content": [
+                {
+                    "source_ref": f"mail:{n}",
+                    "sender": sender,
+                    "subject": subject,
+                    "body": body,
+                    "unread": unread,
+                    "thread_ref": f"thread:{n}",
+                    "received_at": f"2026-09-26T1{n}:00:00+00:00",
+                }
+                for n, (sender, subject, body, unread) in enumerate(rows, 1)
+            ],
+            "metadata_only": False,
+            "truncated": False,
+            "coverage": {"operation": "analyze_mail", "returned": 4, "matches_beyond_page": False},
+        },
+    )
+
+
+async def test_brief_counts_findings_per_category_and_carries_no_body_or_address():
+    every = ["personal_info", "action_items", "meetings", "payments_due", "security_alerts"]
+    found = {
+        "action_items": ("mail:1", "Send the Q3 deck by Friday."),
+        "payments_due": ("mail:2", "Invoice 42: $120 due Oct 5; pay at billing@acme.example."),
+        "security_alerts": ("mail:3", "New sign-in on a Mac."),
+    }
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "analyze_mail", "categories": every, "limit": 12}
+        category = json.loads(kwargs["prompt"])["requested_categories"][0]
+        if category not in found:
+            return {"findings": []}
+        ref, detail = found[category]
+        return {
+            "findings": [
+                {"category": category, "source_ref": ref, "detail": detail, "state": "active"}
+            ]
+        }
+
+    async def assess(_row):
+        return SensitiveRequestAssessment(
+            is_information_request=False, confidence=0.9, requested_domains=(), requested_fields=()
+        )
+
+    result = await _run(_brief_reader(), gene, personal_assessor=assess)
+    brief = result["brief"]
+    assert result["structured"]["status"] == "ok"
+    assert brief["counts_by_category"] == {
+        "personal_info": 0,
+        "action_items": 1,
+        "meetings": 0,
+        "payments_due": 1,
+        "security_alerts": 1,
+    }
+    assert [item["category"] for item in brief["items"]] == list(found)
+    assert brief["items"][1]["sender_name"] is None  # an address is not a name
+    assert brief["items"][2]["subject"] == "Security alert for an email address"
+    assert brief["senders"] == [
+        {"name": "Priya Sharma", "messages": 2, "unread": 1},
+        {"name": "Google", "messages": 1, "unread": 0},
+    ]
+    assert brief["coverage"]["unreadable"] == 1 and brief["checked_at"] == _NOW.isoformat()
+    assert "Mail in this page came from Priya Sharma (2), Google and others." in result["response"]
+    assert "1 payment due found:" in result["response"]
+    assert result["coverage"]["findings_security_alerts"] == 1
+    # Negative control: the raw rows hold the addresses and bodies; the brief must not.
+    assert "billing@acme.example" in json.dumps(result["items"])
+    shown = json.dumps(brief)
+    assert "@" not in shown
+    assert "Please send the Q3 deck" not in shown and "123456" not in shown
 
 
 @pytest.mark.parametrize("truncated", [False, True])
@@ -1643,25 +1636,6 @@ async def test_live_mail_preflight_refuses_before_planner(code, expected):
     assert result["structured"]["status"] == expected
     gene.assert_not_awaited()
     assert "private provider text" not in result["response"]
-
-
-async def test_receipt_memory_planner_remains_available_without_live_gmail():
-    gmail = SimpleNamespace(assert_read_ready=AsyncMock(side_effect=AssertionError("no Gmail")))
-    result = await run_delegated_mail_read(
-        gmail=gmail,
-        user_id="owner",
-        consent_token="fixture-authority",  # noqa: S106 - synthetic test authority
-        conversation_id="conversation",
-        message="show receipts",
-        require_access=AsyncMock(),
-        receipt_reads=True,
-        receipt_memory=_receipt_memory(),
-        reader_factory=_never_a_reader,
-        gene_runner=AsyncMock(return_value={"operation": "read_receipts"}),
-        clock=lambda: _NOW,
-    )
-    assert result["structured"]["status"] == "ok"
-    gmail.assert_read_ready.assert_not_awaited()
 
 
 async def test_category_deadline_cancels_active_and_queued_assessments(monkeypatch):

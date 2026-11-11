@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
-import { projectFinance } from "@/lib/finance-sharing/contract";
+import { projectAdvisorFinance, projectFinance } from "@/lib/finance-sharing/contract";
 import { readSavedFinance } from "@/lib/finance-sharing/saved-source";
 import { FinanceSharingService, clearPendingFinanceShares } from "@/lib/services/finance-sharing-service";
 import { setFinancePublicationState, clearFinancePublication } from "@/lib/finance-sharing/publication-state";
@@ -33,11 +33,14 @@ export function FinanceSharePublisher() {
             try {
               const grant = await FinanceSharingService.view(context, metadata.id);
               const config = await FinanceSharingService.ownerConfig(context, grant);
-              const saved = await readSavedFinance(context, config.source);
+              const advisor = grant.policy.version === 2;
+              const saved = await readSavedFinance(context, config.source, advisor);
               // New/missing accounts require a new approval; never substitute current UI source.
               if (!context.isCurrent()) return;
               if (saved.sourceFence !== config.sourceFence) { setFinancePublicationState(context.userId, grant.id, "source_changed"); continue; }
-              await FinanceSharingService.refresh(context, grant, projectFinance(saved.model, config.selection, config.source));
+              await FinanceSharingService.refresh(context, grant, advisor
+                ? projectAdvisorFinance(saved.model, saved.portfolio, config.source)
+                : projectFinance(saved.model, config.selection, config.source));
               if (context.isCurrent()) setFinancePublicationState(context.userId, grant.id, "current");
             } catch {
               // Key rotation, absent source and revision races keep the last approved view.

@@ -105,6 +105,95 @@ def inventory():
 
 
 class BridgeTests(unittest.TestCase):
+    def test_recorded_bridge_keeps_routes_and_reserves_zero_only_when_inert(self):
+        recorded = bridge.recorded
+        observed = inventory()
+        backend = observed["services"][bridge.SERVICE]
+        service = backend["service"]
+        baseline = backend["revisions"][0]
+        baseline["metadata"].update(name=recorded.SERVING_BACKEND, uid=recorded.SERVING_BACKEND_UID)
+        baseline["metadata"]["labels"]["deploy-sha"] = recorded.BACKEND_SOURCE
+        baseline["status"]["imageDigest"] = recorded.BACKEND_IMAGE
+        service["metadata"].update(uid=recorded.BACKEND_SERVICE_UID, generation=1)
+        routes = [
+            {"revisionName": recorded.SERVING_BACKEND, "percent": 100},
+            {"revisionName": recorded.SERVING_BACKEND, "tag": "healthy"},
+        ]
+        service["spec"]["traffic"] = copy.deepcopy(routes)
+        service["status"].update(
+            latestCreatedRevisionName=recorded.DISPLACED,
+            latestReadyRevisionName=recorded.DISPLACED,
+            observedGeneration=1,
+            conditions=[{"type": "Ready", "status": "True"}],
+            traffic=[{**routes[0], "tag": "healthy"}],
+        )
+        release = {
+            "sha": recorded.FRONTEND_SOURCE,
+            "final": {"backend_revision": recorded.SERVING_BACKEND},
+            "_maintenance_recorded_recovery": True,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "completed.json"
+            checkpoint.write_text("{}")
+
+            def replace(command, **_):
+                intent = bridge.receipt_state(json.loads(checkpoint.read_text())["capacity_bridge"])
+                self.assertTrue(intent["requested"])
+                self.assertEqual(intent["status"], "intent")
+                self.assertEqual(intent["pins"], {})
+                body = json.loads(Path(command[4]).read_text())
+                self.assertEqual(body["metadata"]["resourceVersion"], "precondition")
+                self.assertEqual(body["spec"]["traffic"], routes)
+                candidate = body["spec"]["template"]
+                candidate["metadata"]["uid"] = "provider-assigned-uid"
+                candidate["metadata"]["labels"]["serving.knative.dev/serviceUid"] = recorded.BACKEND_SERVICE_UID
+                candidate["status"] = {
+                    "imageDigest": recorded.BACKEND_IMAGE,
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                }
+                backend["revisions"].append(candidate)
+                service["spec"] = body["spec"]
+                service["metadata"]["generation"] = 2
+                service["status"].update(
+                    latestCreatedRevisionName=recorded.REVISION,
+                    latestReadyRevisionName=recorded.REVISION,
+                    observedGeneration=2,
+                )
+
+            with (
+                mock.patch.dict(bridge.os.environ, {
+                    "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_NAME": "main",
+                }),
+                mock.patch.object(bridge, "verify_recorded_displacement") as verify,
+                mock.patch.object(bridge.budget, "collect", side_effect=lambda *args: copy.deepcopy(observed)),
+                mock.patch.object(bridge.budget, "evaluate", return_value={"admitted": True}) as budget,
+                mock.patch.object(bridge.retention, "run_command", side_effect=replace) as provider,
+            ):
+                bridge.maintain(release, checkpoint, create=True)
+                bridge.maintain(release, checkpoint, create=False)
+                service["spec"]["traffic"].append({"revisionName": recorded.REVISION, "tag": "debug"})
+                with self.assertRaisesRegex(bridge.retention.MutationUncertain, "unchanged traffic"):
+                    bridge.maintain(release, checkpoint, create=False)
+                service["spec"]["traffic"].pop()
+            self.assertEqual(json.loads(checkpoint.read_text())["capacity_bridge"]["status"], "verified")
+            provider.assert_called_once()
+            verify.assert_called_once()
+            self.assertTrue(all(call.kwargs["candidate_services"] == frozenset() for call in budget.call_args_list))
+
+        evaluate = bridge.budget.service_budget
+        settings = {"container": "consent-protocol", "count_retained_revisions": True}
+        args = (bridge.SERVICE, settings, service, backend["revisions"],
+                "hushh-pda:us-central1:hushh-vault-db")
+        self.assertEqual(next(row["connections"] for row in evaluate(*args)
+                              if row["name"] == recorded.REVISION), 0)
+        service["spec"]["traffic"].append({"revisionName": recorded.REVISION, "tag": "debug"})
+        with self.assertRaisesRegex(bridge.budget.BudgetError, "routable"):
+            evaluate(*args)
+        service["spec"]["traffic"].pop()
+        backend["revisions"][-1]["metadata"]["annotations"]["run.googleapis.com/cloudsql-instances"] = args[-1]
+        with self.assertRaisesRegex(bridge.budget.BudgetError, "unverified"):
+            evaluate(*args)
+
     def test_bootstrap_keeps_listener_headroom_and_overrides_the_real_frozen_launcher(
         self,
     ):

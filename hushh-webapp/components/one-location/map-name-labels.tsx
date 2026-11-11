@@ -43,13 +43,14 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
     >
       {labels.map((label) => {
         const isSelf = label.kind === "self";
+        const isPlace = label.kind === "place";
         return (
           <span
             key={label.key}
             data-testid="one-location-map-name-label"
             data-kind={label.kind}
             data-stale={label.stale ? "true" : undefined}
-            className={`absolute left-0 top-0 flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-4 tracking-[-0.01em] shadow-[0_6px_20px_color-mix(in_oklab,var(--foreground)_22%,transparent)] backdrop-blur-md sm:text-[12px] ${
+            className={`absolute left-0 top-0 flex select-none items-center gap-1.5 border px-2.5 py-1 text-[11px] font-semibold leading-4 tracking-[-0.01em] shadow-[0_6px_20px_color-mix(in_oklab,var(--foreground)_22%,transparent)] backdrop-blur-md sm:text-[12px] ${isPlace ? "rounded-2xl" : "rounded-full"} ${
               isSelf
                 ? "border-black/10 bg-white/95 text-foreground shadow-[0_1px_4px_rgba(60,64,67,0.30),0_1px_2px_rgba(60,64,67,0.18)] dark:border-white/15 dark:bg-background/95 dark:text-foreground"
                 : label.stale
@@ -64,7 +65,7 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
               transform: `translate3d(${label.x}px, ${
                 label.y - MAP_NAME_LABEL_PIN_OFFSET_PX
               }px, 0) translate(-50%, -100%)`,
-              maxWidth: MAP_NAME_LABEL_MAX_WIDTH_PX,
+              maxWidth: label.maxWidthPx ?? MAP_NAME_LABEL_MAX_WIDTH_PX,
             }}
           >
             <span
@@ -84,7 +85,13 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
                     }
               }
             />
-            <span data-location-type-role="row-title" className="min-w-0 truncate">{label.text}</span>
+            <span
+              data-location-type-role="row-title"
+              dir="auto"
+              className={isPlace ? "line-clamp-2 min-w-0 [overflow-wrap:anywhere]" : "min-w-0 truncate"}
+            >
+              {label.text}
+            </span>
             {/* The tail. Without it, a name sitting between two nearby pins is
                 a guess about which one it belongs to. */}
             <span

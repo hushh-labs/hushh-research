@@ -49,6 +49,12 @@ describe("compact person row", () => {
 });
 
 describe("mutual connections line", () => {
+  it("opens all mutuals even when the preview is unavailable", () => {
+    const open = vi.fn();
+    render(<DirectoryMutualLine person={{ ...person, mutualConnectionCount: 7 }} onOpenMutual={open} />);
+    fireEvent.click(screen.getByRole("button", { name: "View all 7 mutual connections with Test Person" }));
+    expect(open).toHaveBeenCalledOnce();
+  });
   it("renders server-backed counts without naming the preview", () => {
     const withCount = { ...person, mutualConnectionCount: 3 };
     const view = render(<DirectoryMutualLine person={withCount} />);

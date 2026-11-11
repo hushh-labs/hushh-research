@@ -22,6 +22,7 @@ from db.db_client import DatabaseClient
 from hushh_mcp.services.account_service import AccountService
 from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from tests.feed_fixture_support import add_followup_fence_relations
 
 ROOT = Path(__file__).resolve().parents[1]
 DISMISSAL_MIGRATION = ROOT / "db/migrations/331_feed_dismissal.sql"
@@ -106,6 +107,7 @@ def feed_db():
                   metadata JSONB NOT NULL DEFAULT '{}'::jsonb);
             """)
             )
+            add_followup_fence_relations(connection)
         for migration in (DISMISSAL_MIGRATION, RECIPIENT_CLEAR_MIGRATION):
             apply(engine, migration)
             apply(engine, migration)

@@ -91,6 +91,25 @@ describe("SwipeViews", () => {
     expect(target.set).toHaveBeenCalledWith(-400);
   });
 
+  it.each([false, true])("preserves same-tab query state unless cancelling a pending opposite tap (%s)", pendingTap => {
+    const committed = vi.fn();
+    render(<SwipeViews options={OPTIONS} tabSetId="query-state" activeValue="first" onSelectionCommit={committed}>
+      <div>My connections with a search</div><div>Circles</div>
+    </SwipeViews>);
+    if (pendingTap) act(() => requestTopShellTabSelection("query-state", "second"));
+    act(() => {
+      embla.listeners.get("pointerDown")?.();
+      embla.scrollProgress = 0.1;
+      embla.listeners.get("scroll")?.();
+      embla.selectedIndex = 0;
+      if (pendingTap) embla.listeners.get("select")?.();
+      embla.listeners.get("pointerUp")?.();
+      embla.listeners.get("settle")?.();
+    });
+    if (pendingTap) expect(committed).toHaveBeenCalledExactlyOnceWith("first");
+    else expect(committed).not.toHaveBeenCalled();
+  });
+
   it("does not restart a swipe when the active value follows its destination", () => {
     let destination = 0;
     embla.engine = {
@@ -285,15 +304,24 @@ describe("SwipeViews", () => {
       </SwipeViews>,
     );
 
+    embla.listeners.get("pointerDown")?.();
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
+    // Embla can select a fast flick on release before its first scroll frame.
+    embla.listeners.get("pointerUp")?.();
+    embla.scrollProgress = 1;
+    embla.listeners.get("scroll")?.();
 
     expect(onSelectionChange).toHaveBeenCalledWith("second");
 
     embla.listeners.get("settle")?.();
 
     expect(onSelectionChange).toHaveBeenCalledTimes(1);
-    expect(onSelectionCommit).toHaveBeenCalledWith("second");
+    expect(onSelectionCommit).toHaveBeenCalledExactlyOnceWith("second");
+    // A presentation-only settle after the gesture is consumed must not
+    // produce another URL write while the first one is still pending.
+    embla.listeners.get("settle")?.();
+    expect(onSelectionCommit).toHaveBeenCalledTimes(1);
     expect(embla.options).toMatchObject({
       duration: 16,
       dragThreshold: 6,
@@ -327,6 +355,7 @@ describe("SwipeViews", () => {
         <div>Third</div>
       </SwipeViews>,
     );
+    embla.listeners.get("pointerDown")?.();
     target = 0;
     embla.selectedIndex = 0;
     act(() => embla.listeners.get("select")?.());
@@ -627,6 +656,7 @@ describe("SwipeViews", () => {
       </SwipeViews>,
     );
 
+    embla.listeners.get("pointerDown")?.();
     target = -400;
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
@@ -764,7 +794,7 @@ describe("SwipeViews", () => {
       width = 785;
       emitWidth(785);
       expect(embla.reInit).toHaveBeenCalled();
-      expect(embla.scrollTo).toHaveBeenCalledWith(0, true);
+      expect(embla.scrollTo).toHaveBeenCalledWith(1, true);
     });
 
     it("realigns the indicator when geometry repair jumps without a scroll event", () => {
@@ -780,6 +810,26 @@ describe("SwipeViews", () => {
       emitWidth(800);
       expect(embla.scrollTo).toHaveBeenCalledWith(0, true);
       expect(document.documentElement.style.getPropertyValue(topShellTabSwipePositionVariable("resize"))).toBe("0");
+    });
+
+    it("retains a settled swipe during geometry repair before its route echo", () => {
+      let width = 800;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
+      const committed = vi.fn();
+      render(<SwipeViews tabSetId="resize" activeValue="first" options={OPTIONS} onSelectionCommit={committed}>
+        <div>First</div><div>Second</div>
+      </SwipeViews>);
+      embla.listeners.get("pointerDown")?.();
+      embla.scrollProgress = 1;
+      embla.listeners.get("scroll")?.();
+      embla.selectedIndex = 1;
+      embla.listeners.get("select")?.();
+      act(() => embla.listeners.get("settle")?.());
+      embla.scrollTo.mockClear();
+      width = 785;
+      emitWidth(width);
+      expect(embla.scrollTo).toHaveBeenCalledExactlyOnceWith(1, true);
+      expect(committed).toHaveBeenCalledExactlyOnceWith("second");
     });
 
     it("disconnects the observer on unmount", () => {

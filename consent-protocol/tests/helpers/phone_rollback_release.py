@@ -106,6 +106,43 @@ def _command_port(state, command, **_kwargs):
     raise AssertionError(f"Unexpected release command: {command}")
 
 
+def cleanup_upgrade_source(state, paths, migration, changed, mutation):
+    """Whole-file fixture for the coupled cleanup upgrade and its refusal controls."""
+    original = state.compat._source
+    before = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+    after = "49dafdc2f1b6e1dcd87e7badd7cf850a6e1494fc"
+    fallback, primary = "a" * 40, "e" * 40
+
+    def source(sha, path):
+        if path in paths or path == migration:
+            if sha in {before, fallback}:
+                body = b"complete old file:" + path.encode()
+            elif sha in {after, primary}:
+                body = b"complete reviewed file:" + path.encode()
+            else:
+                return original(sha, path)
+            if path == changed:
+                if mutation == "wrong_old" and sha == fallback:
+                    body += b"unreviewed authority"
+                elif mutation == "wrong_new" and sha == primary:
+                    body += b"unreviewed authority"
+                elif mutation == "reversed" and sha in {fallback, primary}:
+                    prefix = (
+                        b"complete reviewed file:" if sha == fallback else b"complete old file:"
+                    )
+                    body = prefix + path.encode()
+                elif mutation == "partial" and sha == primary:
+                    body = b"complete old file:" + path.encode()
+            return body
+        if sha in {before, fallback}:
+            sha = FALLBACK
+        elif sha in {after, primary}:
+            sha = PRIMARY
+        return original(sha, path)
+
+    return source
+
+
 def _source_gate(command, **_kwargs):
     if command[:3] == ["git", "merge-base", "--is-ancestor"]:
         sha = command[-2]

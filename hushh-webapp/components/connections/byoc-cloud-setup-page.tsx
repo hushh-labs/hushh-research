@@ -526,7 +526,7 @@ function OwnerCloudSetupPage({ user, owner }: {
       <AppPageHeaderRegion>
         <PageHeader
           title="Where your agent lives"
-          description="Choose where your private agent runs. Your existing setup stays in place."
+          description="Choose where Agent One runs. Your existing setup stays in place."
           accent="neutral"
         />
         {checkTimedOut && !authorized ? (
@@ -611,7 +611,7 @@ function OwnerCloudSetupPage({ user, owner }: {
               Connected: {existing.projectId}
             </p>
             <p className="text-sm text-[var(--app-text-secondary)]">
-              {existing.rationale || "Your private agent remains assigned to this project."}
+              {existing.rationale || "Agent One remains assigned to this project."}
             </p>
             <AzureFreeTrialNote stages={job?.stages} />
           </div>
@@ -629,7 +629,7 @@ function OwnerCloudSetupPage({ user, owner }: {
           >
             <p className="text-sm font-semibold">Your cloud project is saved</p>
             <p className="text-sm text-[var(--app-text-secondary)]">
-              Finish setup in {reservedProjectId} to start your private agent.
+              Finish setup in {reservedProjectId} to start Agent One.
             </p>
             <button
               type="button"

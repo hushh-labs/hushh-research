@@ -24,7 +24,7 @@ export type TopShellBreadcrumbConfig = {
   backHref: string;
   backLabel?: string;
   items: TopShellBreadcrumbItem[];
-  width?: "content" | "profile";
+  width?: "content" | "profile" | "mutuals";
   align?: "start" | "center";
   /**
    * Keep an agent-owned page heading out of the compact top bar even after a

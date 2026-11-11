@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from asyncpg import UniqueViolationError
+from asyncpg import LockNotAvailableError, UniqueViolationError
 from fastapi import HTTPException
 from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
@@ -52,7 +52,15 @@ _PRUNE = """DELETE FROM account_phone_linked_deletions WHERE operation_id IN
      WHERE (state IN ('prepared','cancelled') AND expires_at<clock_timestamp()-INTERVAL '1 hour')
         OR (state IN ('admitted','refused','pending','action_required')
             AND expires_at<clock_timestamp()-INTERVAL '90 days')
-     ORDER BY expires_at LIMIT 100)"""
+        -- An erased requester's receipt is unreadable; it only guards a spent
+        -- SMS event, which cannot authorize again after its 300 s window.
+        OR (requester_user_id IS NULL AND dispatched_at<clock_timestamp()-INTERVAL '10 minutes')
+     -- Never wait on a receipt another transaction holds: erasure and prepare()
+     -- both prune, and waiting here inverts their owner-barrier lock order.
+     ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED)"""
+# Account erasure runs the same bounded prune, so retained receipts age out
+# even when no new deletion is ever prepared.
+RECEIPT_PRUNE_SQL = _PRUNE
 # A rate limit, not a lock: an unsettled receipt never blocks the requester for good.
 _OPEN_DRAFTS = """SELECT count(*) FROM account_phone_linked_deletions WHERE requester_hash=$1 AND
     created_at>clock_timestamp()-INTERVAL '5 minutes'"""
@@ -83,6 +91,9 @@ class _Proof:
     method: str
     digest: str
     uid: str | None
+    # A real SMS proof expires with its authentication event; configured UAT
+    # test codes are operation-scoped and carry no provider deadline.
+    valid_until: float | None = None
 
 
 def _production_runtime() -> bool:
@@ -159,12 +170,15 @@ async def prepare(owner: str, phone: str) -> dict[str, Any]:
     _require_enabled()
     normalized = _normalized(phone)
     requester = account_deletion_user_hash(owner)
+    # Prune in its own short transaction, so no pruned row stays locked while
+    # this operation waits on a holder's owner barrier below.
+    async with transaction() as conn:
+        await conn.execute(_PRUNE)
     async with transaction() as conn:
         await conn.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
             f"phone-linked-deletion:{requester}",
         )
-        await conn.execute(_PRUNE)
         if await conn.fetchval(_OPEN_DRAFTS, requester) >= 5:
             raise refuse("PHONE_RECOVERY_LIMIT_REACHED", 429)
         holder = await conn.fetchval(
@@ -223,7 +237,7 @@ async def confirm(
     refused = await _admit(owner, operation, row, proof)
     if refused is not None:
         return refused
-    return await _dispatch(owner, operation, row, delete)
+    return await _dispatch(owner, operation, row, delete, proof=proof)
 
 
 async def _refuse(owner: str, operation: str, code: str) -> dict[str, Any]:
@@ -244,7 +258,11 @@ async def _admit(owner: str, operation: str, row: Any, proof: _Proof) -> dict[st
             if locked["state"] != "prepared" or not locked["live"]:
                 return _receipt(locked)
             code = None
-            if current is None or locked["target_user_id"] != target:
+            if proof.valid_until is not None and proof.valid_until <= await conn.fetchval(
+                "SELECT extract(epoch FROM clock_timestamp())"
+            ):
+                code = "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED"
+            elif current is None or locked["target_user_id"] != target:
                 code = "PHONE_LINKED_ACCOUNT_NOT_FOUND"
             elif not same_binding(locked, current):
                 code = "PHONE_LINKED_DELETION_STALE"
@@ -259,9 +277,11 @@ async def _admit(owner: str, operation: str, row: Any, proof: _Proof) -> dict[st
     return None
 
 
-async def _dispatch(owner: str, operation: str, row: Any, delete: DeletePort) -> dict[str, Any]:
+async def _dispatch(
+    owner: str, operation: str, row: Any, delete: DeletePort, *, proof: _Proof
+) -> dict[str, Any]:
     try:
-        result = await delete(row["target_user_id"], _admission_check(row))
+        result = await delete(row["target_user_id"], _admission_check(row, proof.valid_until))
     except Exception as exc:
         logger.warning("phone_linked_deletion.dispatch_uncertain error=%s", type(exc).__name__)
         result = None
@@ -293,14 +313,20 @@ async def _dispatch(owner: str, operation: str, row: Any, delete: DeletePort) ->
     return _receipt(finished)
 
 
-def _admission_check(row: Any) -> Callable[[Any], None]:
-    """Recheck the proven binding under the erasure's exclusive owner locks."""
+def _admission_check(row: Any, valid_until: float | None) -> Callable[[Any], None]:
+    """Recheck the proof deadline and proven binding under the erasure's owner locks."""
     from hushh_mcp.services.account_service import AccountDeletionAdmissionRefused
 
     target = row["target_user_id"]
     expected = (row["phone_digest"], row["binding_revision"], row["generation"])
 
     def check(conn: Any) -> None:
+        if (
+            valid_until is not None
+            and valid_until
+            <= conn.execute(text("SELECT extract(epoch FROM clock_timestamp())")).scalar()
+        ):
+            raise AccountDeletionAdmissionRefused("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED")
         identity = (
             conn.execute(
                 text(
@@ -365,11 +391,11 @@ async def _verify_proof(
         # Fixture proof is scoped to this requester's operation only.
         event = f"phone-linked-fixture:{owner}:{operation}"
         return _Proof("configured_test", hashlib.sha256(event.encode()).hexdigest(), None)
-    event, uid = await _sms_event(phone_id_token or "", phone)
-    return _Proof("sms", hashlib.sha256(event.encode()).hexdigest(), uid)
+    event, uid, valid_until = await _sms_event(phone_id_token or "", phone)
+    return _Proof("sms", hashlib.sha256(event.encode()).hexdigest(), uid, valid_until)
 
 
-async def _sms_event(token: str, phone: str) -> tuple[str, str]:
+async def _sms_event(token: str, phone: str) -> tuple[str, str, float]:
     """Transfer-grade proof: real provider, fresh <=300 s, single authentication event."""
     from api.utils.firebase_admin import get_firebase_auth_app
     from api.utils.firebase_auth import refuse_foreign_review_mint
@@ -388,9 +414,10 @@ async def _sms_event(token: str, phone: str) -> tuple[str, str]:
     if actual != phone or not uid:
         raise refuse("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED", 403)
     await run_in_threadpool(assert_real_sms_provider, get_firebase_auth_app(), phone)
-    if metadata["valid_until"] <= time.time():
+    valid_until = float(metadata["valid_until"])
+    if valid_until <= time.time():
         raise refuse("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED", 403)
-    return f"phone-linked-sms:{metadata['event']}", uid
+    return f"phone-linked-sms:{metadata['event']}", uid, valid_until
 
 
 async def _recovery_required(uid: str, phone: str) -> bool:
@@ -449,10 +476,18 @@ async def status(owner: str, operation: str) -> dict[str, Any]:
     async with transaction() as conn:
         row = await _row(conn, owner, operation)
         if row["state"] in {"pending", "action_required"}:
-            if await conn.fetchval(_ADMITTED, row["target_hash"]):
-                await conn.execute(_FINISH, operation, "admitted", None)
-            elif row["state"] == "pending" and row["stale"]:
-                await conn.execute(_FINISH, operation, "action_required", row["result_code"])
+            try:
+                # An erasure holds this receipt until it commits. Report the current
+                # outcome instead of failing; a later read settles it.
+                async with conn.transaction():
+                    if await conn.fetchval(_ADMITTED, row["target_hash"]):
+                        await conn.execute(_FINISH, operation, "admitted", None)
+                    elif row["state"] == "pending" and row["stale"]:
+                        await conn.execute(
+                            _FINISH, operation, "action_required", row["result_code"]
+                        )
+            except LockNotAvailableError:
+                return _receipt(row)
             row = await _row(conn, owner, operation)
         return _receipt(row)
 

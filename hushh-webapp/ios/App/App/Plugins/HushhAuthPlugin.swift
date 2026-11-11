@@ -120,6 +120,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "authorizeGoogleContacts", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reauthenticateGoogleIdentity", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reauthenticateAppleIdentity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startPhoneLinkVerification", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startPhoneVerificationProof", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmPhoneVerificationProof", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelPhoneVerificationProof", returnType: CAPPluginReturnPromise),
@@ -167,9 +168,19 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    // The same isolated proof owner serves both journeys; deletion entrypoints
-    // remain compatibility facades. This path always requires manual SMS entry.
-    @objc func startPhoneVerificationProof(_ call: CAPPluginCall) { startPhoneDeletionVerification(call) }
+    @objc func startPhoneVerificationProof(_ call: CAPPluginCall) {
+        startPhoneDeletionVerification(call)
+    }
+
+    @objc func startPhoneLinkVerification(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let proof = self.deletionPhoneProof else {
+                call.reject("Phone verification is unavailable.", "phone_verification_failed"); return
+            }
+            proof.start(call, primaryLink: true)
+        }
+    }
+
     @objc func confirmPhoneVerificationProof(_ call: CAPPluginCall) { confirmPhoneDeletionVerification(call) }
     @objc func cancelPhoneVerificationProof(_ call: CAPPluginCall) { cancelPhoneDeletionVerification(call) }
 
@@ -1340,8 +1351,18 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - Sign Out
     @objc func signOut(_ call: CAPPluginCall) {
+        let departingUser = Auth.auth().currentUser
+        Task { @MainActor in
+            guard Auth.auth().currentUser === departingUser else { call.reject("Session changed."); return }
+            await CallingCoordinator.shared.prepareSignOut(firebaseUid: departingUser?.uid)
+            guard Auth.auth().currentUser === departingUser else { call.reject("Session changed."); return }
+            self.finishNativeSignOut(call)
+        }
+    }
+
+    private func finishNativeSignOut(_ call: CAPPluginCall) {
         guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.signOut(call) }
+            DispatchQueue.main.async { self.finishNativeSignOut(call) }
             return
         }
         deletionPhoneProof?.invalidate()

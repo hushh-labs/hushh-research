@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
+import { resolveOnboardingMapPoint, resolveOwnedOnboardingPlace } from "@/lib/one-location/onboarding-map-point";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
 function point(
@@ -117,5 +117,15 @@ describe("resolveOnboardingMapPoint", () => {
       lat: 51.4779,
       lng: 0,
     });
+  });
+});
+
+describe("onboarding place ownership", () => {
+  const snapshot = { point: point(19.076, 72.8777), address: "Owner's private address", loadingAddress: true, saving: true, rendererDisclosureAccepted: true };
+  it("retains the current owner's complete place snapshot", () => {
+    expect(resolveOwnedOnboardingPlace("owner-a", "owner-a", snapshot)).toBe(snapshot);
+  });
+  it.each(["owner-b", null, undefined])("withholds the place before account reset for %s", (userId) => {
+    expect(resolveOwnedOnboardingPlace(userId, "owner-a", snapshot)).toBeNull();
   });
 });

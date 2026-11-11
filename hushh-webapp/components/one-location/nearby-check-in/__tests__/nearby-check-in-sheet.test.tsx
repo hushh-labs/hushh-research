@@ -8,8 +8,11 @@ import {
 } from "@testing-library/react";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LocationBus, type LocationBusState } from "@/lib/one-location/location-bus";
+import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 
 const service = vi.hoisted(() => ({
+  captureCurrentPosition: vi.fn(),
   checkInNearby: vi.fn(),
   checkoutNearby: vi.fn(),
   extendNearbyPresence: vi.fn(),
@@ -115,7 +118,6 @@ import {
   CHECK_IN_DRAWER_TITLE_CLASSNAME,
   CHECK_IN_SECTION_TITLE_CLASSNAME,
   CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
-  CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME,
   CHECK_IN_VISIBILITY_SWITCH_CLASSNAME,
 } from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
@@ -444,15 +446,13 @@ describe("NearbyCheckInSheet", () => {
       expect(heading).toHaveClass(CHECK_IN_SECTION_TITLE_CLASSNAME),
     );
 
-    expect(screen.getByText("Show my name here")).toHaveClass(
-      CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+    expect(screen.getByRole("button", { name: "Check in" })).toHaveAccessibleDescription(
+      "Checking in shows your name to people checked in nearby.",
     );
     expect(screen.getByText("Allow connection requests")).toHaveClass(
       CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
     );
-    expect(
-      screen.getByRole("checkbox", { name: /Show my name here/ }),
-    ).toHaveClass(...CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME.split(" "));
+    expect(screen.queryByRole("checkbox", { name: /Show my name here/ })).toBeNull();
     expect(
       screen.getByRole("switch", {
         name: "Allow nearby connection requests",
@@ -532,9 +532,9 @@ describe("NearbyCheckInSheet", () => {
 
     // Consent gates the Check in button, so hiding it would leave a disabled
     // primary action with no visible reason. It stays in the open.
-    await screen.findByRole("checkbox", { name: /Show my name here/ });
+    await screen.findByText("Checking in shows your name to people checked in nearby.");
     expect(
-      screen.getByText("Only people checked in nearby can see it."),
+      screen.getByText("Checking in shows your name to people checked in nearby."),
     ).toBeInTheDocument();
     expect(screen.getByText("Let people checked in nearby know you're here.")).toHaveClass("sr-only");
     expect(screen.getByRole("heading", { name: "Nearby places" })).toHaveClass("sr-only");
@@ -615,11 +615,6 @@ describe("NearbyCheckInSheet", () => {
     expect(
       screen.queryByRole("button", { name: "Choose trusted people" }),
     ).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
-    );
     expect(submit).toBeDisabled();
     fireEvent.click(nearest);
     expect(submit).toBeEnabled();
@@ -643,6 +638,10 @@ describe("NearbyCheckInSheet", () => {
       routeId: "one_location_check_in",
     });
     expect(capture).toHaveBeenCalledTimes(2);
+    expect(capture).toHaveBeenLastCalledWith({
+      fresh: true,
+      requireMeasurement: true,
+    });
   });
 
   it("blocks check-in when the final confirmation point is too approximate", async () => {
@@ -666,21 +665,10 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
-    );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
-    expect(
-      await screen.findByText(/couldn't confirm where you are/i),
-    ).toBeInTheDocument();
-    // Recoverable, so it is presented as a state to retry rather than an alarm.
-    expect(screen.getByTestId("nearby-location-fallback")).toHaveAttribute(
-      "role",
-      "status",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Turn on precise location");
+    expect(screen.getByRole("radio", { name: /Stanford University/ })).toHaveAttribute("aria-checked", "true");
     expect(service.checkInNearby).not.toHaveBeenCalled();
     expect(capture).toHaveBeenCalledTimes(2);
   });
@@ -736,11 +724,6 @@ describe("NearbyCheckInSheet", () => {
     );
     expect(screen.queryByText(/accurate to about/i)).not.toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
-    );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     await waitFor(() => {
@@ -961,7 +944,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     const active = await screen.findByTestId("nearby-presence-active");
-    expect(screen.getByText("Checked in")).toBeInTheDocument();
+    expect(screen.getByText("You’re checked in")).toBeInTheDocument();
     expect(screen.getByText("Stanford University")).toBeInTheDocument();
     expect(screen.getByText("1h 58m left")).toBeInTheDocument();
 
@@ -1009,7 +992,7 @@ describe("NearbyCheckInSheet", () => {
       latitude: confirmationLatitude,
       capturedAt: new Date(Date.now() + 1_000).toISOString(),
     };
-    service.checkInNearby.mockResolvedValue({
+    const checkedIn = {
       presence: {
         status: "active",
         audience: "all_opted_in",
@@ -1023,6 +1006,10 @@ describe("NearbyCheckInSheet", () => {
         placeLng: -122.1697,
       },
       attendees: [],
+    };
+    service.checkInNearby.mockImplementation(async () => {
+      service.getNearbyPresence.mockResolvedValue(checkedIn);
+      return checkedIn;
     });
 
     render(
@@ -1041,9 +1028,6 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: /Show my name here/ }),
-    );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
     await screen.findByTestId("nearby-presence-active");
   };
@@ -1054,15 +1038,58 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByTestId("nearby-active-drift")).not.toBeInTheDocument();
   });
 
-  it("says so plainly once the owner has actually left the place", async () => {
-    // ~445 m north of the place, comfortably past the 250 m nudge distance.
+  it("does not mistake an offset confirmation for movement", async () => {
     await checkInFrom(37.4316);
-    const drift = await screen.findByTestId("nearby-active-drift");
-    expect(drift).toHaveTextContent("You’ve moved away.");
-    expect(drift).toHaveTextContent("People still see you here.");
-    // The mechanism ("people here still match against the place, not you")
-    // is unchanged and no longer narrated on the card.
-    expect(drift).not.toHaveTextContent(/match against the place/i);
+    expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+  });
+
+  it("uses existing readings for the reminder and ignores them during a local Pause", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    let onMeasurement: ((state: LocationBusState) => void) | undefined;
+    const subscribe = vi.spyOn(LocationBus, "subscribe").mockImplementation((listener) => {
+      onMeasurement = listener;
+      return () => { onMeasurement = undefined; };
+    });
+    const recent = vi.spyOn(LocationBus, "getRecentMeasuredFix");
+    try {
+      await checkInFrom(37.4276);
+      expect(onMeasurement).toBeDefined();
+      const captureCalls = service.captureCurrentPosition.mock.calls.length;
+      const permissionCalls = service.getPermissionState.mock.calls.length;
+      const sample = async (latitude: number, accuracyM: number) => {
+        await act(() => vi.advanceTimersByTimeAsync(15_000));
+        const snapshot = { ...point, latitude, accuracyM, capturedAt: new Date().toISOString() };
+        recent.mockReturnValue(snapshot);
+        act(() => onMeasurement?.({
+          status: "ready", permission: "granted", snapshot, error: null, snapshotOrigin: "fresh",
+        }));
+      };
+      await sample(37.434, 900);
+      await sample(37.434, 20);
+      expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+      await sample(37.434, 20);
+      expect(screen.getByTestId("nearby-active-drift")).toHaveTextContent("You’ve moved away.");
+      expect(recent).toHaveBeenCalledWith("user-1", 15_000);
+      act(() => updateOneLocationControlState("user-1", (current) => ({ ...current, paused: true })));
+      await sample(37.434, 20);
+      await sample(37.434, 20);
+      expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+      expect(screen.getByTestId("nearby-presence-active")).toBeInTheDocument();
+      act(() => updateOneLocationControlState("user-1", (current) => ({ ...current, paused: false })));
+      await sample(37.434, 20);
+      expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+      await sample(37.434, 20);
+      expect(screen.getByTestId("nearby-active-drift")).toBeInTheDocument();
+      await sample(37.4276, 20);
+      expect(screen.queryByTestId("nearby-active-drift")).toBeNull();
+      expect(service.captureCurrentPosition).toHaveBeenCalledTimes(captureCalls);
+      expect(service.getPermissionState).toHaveBeenCalledTimes(permissionCalls);
+    } finally {
+      act(() => updateOneLocationControlState("user-1", (current) => ({ ...current, paused: false })));
+      subscribe.mockRestore();
+      recent.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("ends the check-in with a neutral action, not a destructive one", async () => {
@@ -1093,7 +1120,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByTestId("nearby-presence-active");
-    const checkout = screen.getByRole("button", { name: "I'm leaving" });
+    const checkout = screen.getByRole("button", { name: "Leave check-in" });
     // "now" adds nothing a person could act on.
     expect(
       screen.queryByRole("button", { name: "Check out now" }),
@@ -1159,7 +1186,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByTestId("nearby-presence-active");
-    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
     await waitFor(() => expect(service.checkoutNearby).toHaveBeenCalledTimes(1));
   });
 
@@ -1207,7 +1234,7 @@ describe("NearbyCheckInSheet", () => {
     await waitFor(() => {
       expect(service.getNearbyPresence).toHaveBeenCalledTimes(2);
     });
-    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
     await screen.findByTestId("nearby-presence-completed");
 
     resolveOldPoll?.(activeState);
@@ -1257,7 +1284,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByTestId("nearby-presence-active");
-    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
     await waitFor(() => {
       expect(service.checkoutNearby).toHaveBeenCalledTimes(1);
     });
@@ -1274,7 +1301,7 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByTestId("nearby-presence-completed"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "I'm leaving" }),
+      screen.queryByRole("button", { name: "Leave check-in" }),
     ).not.toBeInTheDocument();
     expect(service.getNearbyPresence).toHaveBeenCalledTimes(1);
   });
@@ -1490,7 +1517,7 @@ describe("NearbyCheckInSheet", () => {
     );
   });
 
-  it("explains when a nearby person is not accepting connection requests", async () => {
+  it("shows a neutral explanation when a nearby connection request is unavailable", async () => {
     service.getNearbyPresence.mockResolvedValue({
       presence: {
         status: "active",
@@ -1524,10 +1551,10 @@ describe("NearbyCheckInSheet", () => {
 
     expect(
       await screen.findByRole("button", {
-        name: "Taylor Kim is not accepting connection requests",
+        name: "Connection requests unavailable for Taylor Kim",
       }),
     ).toBeDisabled();
-    expect(screen.getByText("Not accepting requests")).toBeInTheDocument();
+    expect(screen.getByText("Connect unavailable")).toBeInTheDocument();
   });
 
   it("clears the previous owner's roster before loading a new owner", async () => {
@@ -1689,11 +1716,6 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
-    );
     const submit = screen.getByRole("button", {
       name: "Check in",
     });
@@ -1752,23 +1774,10 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Campus Health Centre/ }),
     );
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
-    );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
-    await waitFor(() => {
-      expect(service.nearbyPlaces).toHaveBeenLastCalledWith(
-        expect.objectContaining({ category: "all" }),
-      );
-    });
-    // Recovery always re-sweeps the whole area, but the chip the owner was
-    // browsing is preserved and still describes the rows on screen. The chip
-    // can no longer disagree with the list: it filters the sweep locally
-    // instead of standing for a separate, separately-truncated query.
+    expect(await screen.findByRole("alert")).toHaveTextContent("Turn on precise location");
+    expect(screen.getByRole("radio", { name: /Campus Health Centre/ })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -1779,6 +1788,8 @@ describe("NearbyCheckInSheet", () => {
     expect(
       screen.queryByRole("radio", { name: /Stanford University/ }),
     ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
+    await waitFor(() => expect(service.checkInNearby).toHaveBeenCalledWith(expect.objectContaining({ placeId: "campus-clinic" })));
   });
 
   it("clears stale discovery state before a moved user reopens the sheet", async () => {
@@ -1878,11 +1889,6 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Campus Health Centre/ }),
     );
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
-    );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     // The area is re-swept once when the chosen place turns out to be
@@ -1931,11 +1937,6 @@ describe("NearbyCheckInSheet", () => {
 
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
-    );
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
@@ -2017,11 +2018,6 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Show my name here/,
-      }),
-    );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     await waitFor(() => {
@@ -2034,6 +2030,7 @@ describe("NearbyCheckInSheet", () => {
             placeLng: -122.1697,
           }),
         }),
+        true,
       );
       expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -2083,11 +2080,6 @@ describe("NearbyCheckInSheet", () => {
       fireEvent.click(
         await screen.findByRole("radio", { name: /Stanford University/ }),
       );
-      fireEvent.click(
-        screen.getByRole("checkbox", {
-          name: /Show my name here/,
-        }),
-      );
       fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
       await waitFor(() => {
@@ -2099,6 +2091,7 @@ describe("NearbyCheckInSheet", () => {
               placeLng: -122.1697,
             }),
           }),
+          true,
         );
       });
 
@@ -2149,17 +2142,10 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByRole("radio", { name: /Stanford University/ });
-    // 48 m is close enough that saying so would be noise.
-    expect(
-      screen.queryByTestId("nearby-selected-place-offset"),
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("radio", { name: /Campus Health Centre/ }),
-    );
-    expect(
-      await screen.findByTestId("nearby-selected-place-offset"),
-    ).toHaveTextContent(/about 130 m from here/i);
+    const selected = screen.getByRole("radio", { name: /Campus Health Centre/ });
+    fireEvent.click(selected);
+    expect(within(selected).getAllByText("130 m")).toHaveLength(1);
+    expect(screen.queryByText(/from here/i)).toBeNull();
   });
 
   it("offers a way back when a chip has nothing in it", async () => {
@@ -2572,7 +2558,7 @@ describe("NearbyCheckInSheet", () => {
       );
 
       await screen.findByTestId("nearby-presence-active");
-      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
       await screen.findByTestId("nearby-presence-completed");
       return onOpenChange;
     };
@@ -2689,7 +2675,7 @@ describe("NearbyCheckInSheet", () => {
       const sheet = (vaultKey: string | null, open = true) => <NearbyCheckInSheet open={open} ownerId="user-1" vaultOwnerToken="owner-token" vaultKey={vaultKey} captureCurrentPosition={capture} onOpenChange={onOpenChange} />;
       const view = render(sheet("old-key"));
       await screen.findByTestId("nearby-presence-active");
-      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
       fireEvent.click(await screen.findByRole("button", { name: "Save for faster check-ins" }));
       await waitFor(() => expect(service.reverseGeocode).toHaveBeenCalled());
       view.rerender(sheet(null));
@@ -2700,7 +2686,7 @@ describe("NearbyCheckInSheet", () => {
       view.rerender(sheet("new-key", false));
       view.rerender(sheet("new-key"));
       await screen.findByTestId("nearby-presence-active");
-      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
       const save = await screen.findByRole("button", { name: "Save for faster check-ins" });
       expect(save).not.toBeDisabled();
       fireEvent.click(save);
@@ -2716,7 +2702,7 @@ describe("NearbyCheckInSheet", () => {
       const sheet = (vaultKey: string | null) => <NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" vaultKey={vaultKey} captureCurrentPosition={capture} onOpenChange={onOpenChange} />;
       const view = render(sheet("old-key"));
       await screen.findByTestId("nearby-presence-active");
-      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
       await waitFor(() => expect(service.checkoutNearby).toHaveBeenCalled());
       view.rerender(sheet(null));
       await act(async () => finishCheckout({ presence: null, attendees: [], checkedOut: true }));
@@ -2749,7 +2735,7 @@ describe("NearbyCheckInSheet", () => {
       );
 
       await screen.findByTestId("nearby-presence-active");
-      const checkOut = screen.getByRole("button", { name: "I'm leaving" });
+      const checkOut = screen.getByRole("button", { name: "Leave check-in" });
       expect(checkOut.closest('[data-ui-role="flow-actions"]')).toHaveClass("mx-auto", "max-w-[244px]");
       // Red is reserved for dangerous and irreversible actions. Checking out is
       // neither — you can check back in.
@@ -2792,7 +2778,7 @@ describe("NearbyCheckInSheet", () => {
       );
 
       await screen.findByTestId("nearby-presence-active");
-      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      fireEvent.click(screen.getByRole("button", { name: "Leave check-in" }));
       await screen.findByTestId("nearby-presence-completed");
       return onOpenChange;
     };

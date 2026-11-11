@@ -19,12 +19,14 @@ SUMMARY_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "summarize_uat_managed_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["full", "core"])
 @pytest.mark.parametrize("ready", [True, False])
 async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_probes(
-    monkeypatch, ready
+    monkeypatch, ready, mode
 ):
     from unittest.mock import AsyncMock
 
+    from hushh_mcp import constants
     from hushh_mcp.managed_ai_config import PROFILE_PATH, load_profile
     from hushh_mcp.one_voice.config import OneVoiceLiveConfig
     from scripts import probe_managed_capabilities, probe_managed_text, verify_azure_pwm_runtime
@@ -34,8 +36,12 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("MANAGED_READINESS_MODE", mode)
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
     profile = load_profile("uat")
+    # Collection can import the fleet constant under a different environment.
+    # This fixture models a fresh UAT runtime, not that earlier process state.
+    monkeypatch.setattr(constants, "GEMINI_MODEL", profile["text_model"])
     binding = SimpleNamespace(project=profile["project"])
     monkeypatch.setattr(module, "_readiness_bindings", lambda: (binding, binding.project, binding))
     monkeypatch.setattr(module, "_managed_manifest_models", lambda: (profile["text_model"],))
@@ -78,7 +84,17 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
         ),
     )
     report = await module.main()
-    text_probe.assert_awaited_once_with("vertex")
+    text_probe.assert_awaited_once_with("vertex", qualification_mode=mode)
+    if mode == "core":
+        complete.assert_not_awaited()
+        assert report["ok"] is True
+        assert report["one_voice_probe_ok"] is None
+        assert report["managed_runtime_capabilities_ready"] is None
+        assert report["candidate_models_exercised"] is False
+        assert report["core_models_exercised"] is True
+        assert report["config_hash"]
+        assert len(report["probes"]) == 2
+        return
     complete.assert_awaited_once()
     assert (
         complete.call_args.kwargs["deadline"] <= module.monotonic() + module.PROBE_SEQUENCE_SECONDS
@@ -90,6 +106,98 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
             next(p for p in report["probes"] if p["probe"] == "capability:one_text_root")["ok"]
             is False
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["dev", "production"])
+@pytest.mark.parametrize("failure", [None, "empty_response", "timeout"])
+async def test_common_core_proves_only_the_actual_chat_target(monkeypatch, environment, failure):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash
+
+    spec = importlib.util.spec_from_file_location("common_core_readiness", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("MANAGED_READINESS_MODE", "core")
+    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
+    profile = load_profile(environment)
+    selected_model = object()
+    binding = SimpleNamespace(
+        locations_for_model=lambda model: profile["text_locations"],
+        build_regional_adk_model=lambda model: selected_model,
+    )
+    monkeypatch.setattr(
+        module, "_one_chat_target", lambda: (profile["project"], profile["text_model"], binding)
+    )
+    monkeypatch.setattr(
+        module, "managed_ai_settings", lambda: SimpleNamespace(config_hash=profile_hash(profile))
+    )
+    monkeypatch.setattr(
+        module, "_managed_manifest_models", lambda: pytest.fail("core must not sweep models")
+    )
+    monkeypatch.setattr(module, "_readiness_bindings", lambda: pytest.fail("full secondary setup"))
+    error = (
+        None
+        if failure is None
+        else (TimeoutError() if failure == "timeout" else RuntimeError("no usable text"))
+    )
+    probe = AsyncMock(side_effect=error)
+    monkeypatch.setattr(module, "_probe_adk_response", probe)
+    if error is not None:
+        with pytest.raises(type(error)):
+            await module.main()
+    else:
+        report = await module.main()
+        assert report["environment"] == environment
+        assert report["models"] == [profile["text_model"]]
+        assert report["locations"] == profile["text_locations"]
+        assert report["core_contract_version"] == 2
+        assert report["secondary_diagnostics"] == "not_run"
+        assert report["ok"] is report["one_chat_probe_ok"] is True
+        assert report["candidate_models_exercised"] is False
+    probe.assert_awaited_once_with(selected_model, profile["text_model"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["vertex", "azure_openai"])
+@pytest.mark.parametrize("mode", ["core", "full"])
+async def test_text_core_keeps_scope_proof_and_full_keeps_planner_failures(
+    monkeypatch, provider, mode
+):
+    from unittest.mock import AsyncMock
+
+    from scripts import probe_drive_activity_planner, probe_managed_text
+
+    scope_probe = AsyncMock(return_value={"ready": True})
+    planner_probe = AsyncMock(side_effect=RuntimeError("synthetic planner defect"))
+    monkeypatch.setattr(probe_managed_text, "probe_managed_text_model", scope_probe)
+    monkeypatch.setattr(probe_managed_text, "managed_text_policy", lambda: {"generation": 1})
+    clock = iter(range(0, 10_000, 60))
+    monkeypatch.setattr(probe_managed_text, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+    monkeypatch.setattr(probe_drive_activity_planner, "probe_drive_activity_planner", planner_probe)
+    if mode == "full":
+        with pytest.raises(RuntimeError, match="synthetic planner defect"):
+            await probe_managed_text.probe_managed_text(provider)
+        planner_probe.assert_awaited_once_with(provider)
+    else:
+        receipt = await probe_managed_text.probe_managed_text(provider, qualification_mode=mode)
+        assert receipt["activity_planner"] is None
+        assert set(receipt["scopes"]) == set(probe_managed_text.TEXT_SCOPES)
+        planner_probe.assert_not_awaited()
+    assert [call.kwargs for call in scope_probe.await_args_list] == [
+        {"scope": scope, "provider": provider, "allow_fallback": False}
+        for scope in sorted(probe_managed_text.TEXT_SCOPES)
+    ]
+    scope_probe.reset_mock(side_effect=True)
+    scope_probe.side_effect = RuntimeError("synthetic core transport defect")
+    with pytest.raises(RuntimeError, match="synthetic core transport defect"):
+        await probe_managed_text.probe_managed_text(provider, qualification_mode=mode)
+    scope_probe.reset_mock()
+    with pytest.raises(ValueError, match="qualification mode is invalid"):
+        await probe_managed_text.probe_managed_text(provider, qualification_mode="unknown")
+    scope_probe.assert_not_awaited()
 
 
 @pytest.mark.parametrize("transport", ["textPayload", "jsonPayload", "prefixed_text"])
@@ -799,3 +907,40 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     assert report["one_voice_probe_ok"] is connects
     assert report["ok"] is connects
     assert seen and seen[0]["model"] == "gemini-live-2.5-flash-native-audio"
+
+
+def test_scoped_vertex_diagnostic_reads_are_bounded_and_close_output(monkeypatch):
+    monkeypatch.syspath_prepend(str(SUMMARY_PATH.parent))
+    spec = importlib.util.spec_from_file_location("scoped_vertex_summary", SUMMARY_PATH)
+    summary = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(summary)
+    observed = []
+
+    def read(argv, **kwargs):
+        observed.append((argv, kwargs))
+        kwargs["stdout"].write(b"[]")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(summary.subprocess, "run", read)
+    identity = "12345678-1234-1234-1234-123456789abc"
+    assert summary.read_build_logs(identity) == ("[]", "[]")
+    assert len(observed) == 2
+    for argv, options in observed:
+        assert argv[:3] == ["gcloud", "logging", "read"]
+        assert "--project=hushh-pda-uat" in argv
+        assert identity in argv[3]
+        assert options["timeout"] == 60 and options["check"] is True
+        assert options["stderr"] == subprocess.DEVNULL
+        assert options["stdout"].closed
+    with pytest.raises(ValueError):
+        summary.read_build_logs(identity + '" OR true')
+    assert len(observed) == 2
+
+    def failed_read(argv, **kwargs):
+        observed.append((argv, kwargs))
+        raise subprocess.TimeoutExpired(argv, 60)
+
+    monkeypatch.setattr(summary.subprocess, "run", failed_read)
+    with pytest.raises(subprocess.TimeoutExpired):
+        summary.read_build_logs(identity)
+    assert observed[-1][1]["stdout"].closed

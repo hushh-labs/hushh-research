@@ -50,7 +50,9 @@ describe("confirmLinkedDeletion", () => {
     const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
     const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
     vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockResolvedValue(verified as never);
-    await confirmLinkedDeletion({ ...input, readbackOnly: true }, ports());
+    const owner = ports(null);
+    expect(apiErrorCode(await confirmLinkedDeletion({ ...input, readbackOnly: true }, owner).catch(error => error))).toBe("PHONE_LINKED_CLAIM_REQUIRED");
+    expect(owner.finalize).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledOnce();
     expect(confirm).not.toHaveBeenCalled();
   });
@@ -70,19 +72,36 @@ describe("confirmLinkedDeletion", () => {
     expect(confirm).toHaveBeenCalledTimes(confirming ? 1 : 0);
   });
 
-  it("reads a lost response back instead of re-sending the deletion, then claims with the same proof", async () => {
+  it("reads a lost response back instead of re-sending the deletion, then requires fresh verification", async () => {
     vi.useFakeTimers();
     const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new TypeError("Failed to fetch"));
     const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
     const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockResolvedValue(verified as never);
     const owner = ports();
-    const result = confirmLinkedDeletion(input, owner);
+    const result = confirmLinkedDeletion(input, owner).catch(error => error);
     await vi.runAllTimersAsync();
-    await expect(result).resolves.toBe(user);
+    expect(apiErrorCode(await result)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
     expect(confirm).toHaveBeenCalledOnce();
     expect(status).toHaveBeenCalledOnce();
-    expect(claim).toHaveBeenCalledExactlyOnceWith(user, "sms-proof", expect.any(Function));
+    expect(claim).not.toHaveBeenCalled();
     expect(owner.requireOwner).toHaveBeenCalledWith("owner", 3);
+    expect(owner.finalize).not.toHaveBeenCalled();
+  });
+
+  it("uses a new configured-test challenge after deletion without claiming the spent SMS proof", async () => {
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
+    const start = vi.spyOn(AccountIdentityService, "startUatTestPhoneVerification").mockResolvedValue({
+      success: true, eligible: true, verification_id: "fresh-test-challenge",
+    } as never);
+    const confirm = vi.spyOn(AccountIdentityService, "confirmUatTestPhoneVerification").mockResolvedValue(verified as never);
+    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
+    const owner = ports(null);
+    await expect(confirmLinkedDeletion({ ...input, testCode: "123456" }, owner)).resolves.toBe(user);
+    expect(start).toHaveBeenCalledExactlyOnceWith(user, input.phoneNumber, expect.any(Function));
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(user, {
+      phoneNumber: input.phoneNumber, verificationCode: "123456", verificationId: "fresh-test-challenge",
+    }, expect.any(Function));
+    expect(claim).not.toHaveBeenCalled();
     expect(owner.finalize).toHaveBeenCalledExactlyOnceWith(user);
   });
 
@@ -107,9 +126,10 @@ describe("confirmLinkedDeletion", () => {
 
   it("keeps a lost phone-claim response unconfirmed after deletion admission", async () => {
     vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
-    vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.spyOn(AccountIdentityService, "startUatTestPhoneVerification").mockResolvedValue({ success: true, eligible: true, verification_id: "new-challenge" } as never);
+    vi.spyOn(AccountIdentityService, "confirmUatTestPhoneVerification").mockRejectedValue(new TypeError("Failed to fetch"));
     const owner = ports();
-    const failure = await confirmLinkedDeletion(input, owner).catch(error => error);
+    const failure = await confirmLinkedDeletion({ ...input, testCode: "123456" }, owner).catch(error => error);
     expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_UNCONFIRMED");
     expect(owner.finalize).not.toHaveBeenCalled();
   });

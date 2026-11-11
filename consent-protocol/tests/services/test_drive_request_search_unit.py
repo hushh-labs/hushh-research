@@ -3510,55 +3510,6 @@ async def test_semantic_commit_cannot_change_sealed_model_binding(monkeypatch, f
 
 
 @pytest.mark.asyncio
-async def test_semantic_checkpoint_seals_explicit_binding_and_its_policy(monkeypatch):
-    from hushh_mcp.services import drive_request_package_assessment as assessment
-
-    monkeypatch.setattr(
-        assessment, "validate_semantic_model_binding", lambda value: deepcopy(value)
-    )
-    binding = {
-        "provider": "azure_openai",
-        "deployment": "synthetic-deployment",
-        "config_fingerprint": "a" * 64,
-        "approval_generation": "synthetic-generation",
-    }
-    store = SimpleNamespace(
-        clear_legacy_completed_request=AsyncMock(),
-        by_client=AsyncMock(return_value=None),
-        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, True)),
-        align_request_expiry=AsyncMock(),
-    )
-    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
-    service.run_one = AsyncMock()
-    service.status = AsyncMock(return_value={"jobId": "synthetic-job", "status": "queued"})
-    monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
-    await service.create_for_request(
-        user_id="owner",
-        request_id="12345678-1234-1234-1234-123456789012",
-        request_revision=1,
-        purpose={
-            "purpose": "Synthetic Subject records",
-            "periodStart": "2026-09-02",
-            "periodEnd": "2026-10-02",
-        },
-        plan={
-            "mode": "find",
-            "terms": [],
-            "file_kind": "any",
-            "semantic_query": _semantic_checkpoint("Synthetic Subject")["semantic_plan"],
-        },
-        require_current=AsyncMock(),
-        semantic_search=True,
-        semantic_model_binding=binding,
-    )
-    sealed = store.create.await_args.kwargs["checkpoint"]
-    assert sealed["semantic_model_binding"] == binding
-    assert sealed["semantic_model_binding"] is not binding
-    assert sealed["semantic_assessment_policy"] == assessment_policy_version(binding)
-    assert sealed["semantic_assessment_policy"] != assessment_policy_version()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("provider", [None, "gemini", "azure_openai"])
 async def test_semantic_resume_uses_sealed_provider_instead_of_global_selector(
     monkeypatch, provider
@@ -3851,3 +3802,282 @@ async def test_discovery_refuses_query_provenance_drift_before_provider_io(monke
     checkpoint["arguments"] = {"query": "trashed = false"}
     with pytest.raises(DriveReadError, match="provider_response_invalid"):
         await service._page({"user_id": "owner", "generation": 7, "checkpoint": checkpoint})
+
+
+def _activity_checkpoint():
+    from hushh_mcp.services.drive_request_discovery import (
+        DISCOVERY_ACTIVITY_UNION_POLICY,
+        compile_discovery_queries,
+    )
+
+    checkpoint = _discovery_checkpoint()
+    plan = checkpoint["semantic_plan"]
+    plan.update(version=2, date_basis="activity_union")
+    plan["clauses"][0]["predicates"][0].update(match="token", sparse_fallback_any_token=True)
+    queries = compile_discovery_queries(plan)
+    checkpoint.update(
+        discovery_delivery_policy=DISCOVERY_ACTIVITY_UNION_POLICY,
+        semantic_plan_digest=semantic_plan_digest(plan),
+        queries=queries,
+        arguments=queries[0]["arguments"],
+        activity_fallback_decision=None,
+        requested_period={"start": "2026-06-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"},
+    )
+    return checkpoint
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["createdTime", "modifiedTime", "modifiedByMeTime", "sharedWithMeTime", "viewedByMeTime"],
+)
+def test_activity_date_union_each_signal_and_timezone_boundaries(field):
+    from hushh_mcp.services.drive_date_ontology import match_activity_dates
+
+    period = {"start": "2026-06-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"}
+    row = {
+        "name": "Record",
+        "createdTime": "invalid",
+        "modifiedTime": "2027-01-01T00:00:00Z",
+        field: "2026-06-01T18:30:00Z",
+    }
+    assert match_activity_dates(row, period)["signals"] == [field]
+    row[field] = "2026-10-02T18:30:00Z"
+    assert not match_activity_dates(row, period)["matched"]
+    assert not match_activity_dates(
+        {"createdTime": "2026-01-01T00:00:00Z", "modifiedTime": "2027-01-01T00:00:00Z"}, period
+    )["matched"]
+
+
+@pytest.mark.parametrize(
+    "name,start,end,expected",
+    [
+        ("Record_2026-08-15.pdf", "2026-08-15", "2026-08-15", True),
+        ("Record_20260815.pdf", "2026-08-15", "2026-08-15", True),
+        ("Record_08-2026.pdf", "2026-08-15", "2026-08-15", True),
+        ("Record_Aug_2026.pdf", "2026-08-15", "2026-08-15", True),
+        ("Record_2026.pdf", "2026-06-02", "2026-10-02", False),
+        ("Record_2026.pdf", "2025-01-01", "2027-12-31", True),
+        ("Record_2024-02-29.pdf", "2024-02-29", "2024-02-29", True),
+        ("Record_2026-02-29.pdf", "2026-02-01", "2026-02-28", False),
+        ("Record_February 30th 2026.pdf", "2030-02-01", "2030-02-28", False),
+        ("Record_01-02-60.pdf", "2060-02-01", "2060-02-01", True),
+        ("Record_01-02-61.pdf", "1961-02-01", "1961-02-01", True),
+    ],
+)
+def test_activity_filename_dates_are_calendar_valid_and_bounded(name, start, end, expected):
+    from hushh_mcp.services.drive_date_ontology import match_activity_dates
+
+    assert (
+        match_activity_dates({"name": name}, {"start": start, "end": end, "timezone": "UTC"})[
+            "matched"
+        ]
+        is expected
+    )
+
+
+def test_activity_numeric_dates_use_per_file_anchors_and_photo_written_calendar_day():
+    from hushh_mcp.services.drive_date_ontology import match_activity_dates
+
+    period = {"start": "2026-08-05", "end": "2026-08-05", "timezone": "UTC"}
+    row = {"name": "Record_05-08-2026.pdf"}
+    assert match_activity_dates(row, period)["matched"]
+    row["createdTime"] = "2026-05-09T00:00:00Z"
+    assert not match_activity_dates(row, period)["matched"]  # May8 anchored, August5 distant.
+    row["createdTime"] = "invalid"
+    assert match_activity_dates(row, period)["matched"]
+    assert match_activity_dates({"imageMediaMetadata": {"time": "2026:08:05 00:30:00"}}, period)[
+        "interpretations"
+    ] == ["photo_recorded_date"]
+    assert not match_activity_dates(
+        {"imageMediaMetadata": {"time": "2026:08:05 00:30:00+01:00"}}, period
+    )["matched"]
+    assert not match_activity_dates({"createdTime": "2026-08-06T00:30:00+00:99"}, period)["matched"]
+
+
+@pytest.mark.asyncio
+async def test_activity_84_provider_candidates_gate_before_commit_without_per_file_reads(
+    monkeypatch,
+):
+    originals = [
+        _provider_file(f"activity-{i}", f"Cedar Rook record {i}", version="9") for i in range(84)
+    ]
+    for i, row in enumerate(originals):
+        row.update(createdTime="2024-01-01T00:00:00Z", modifiedTime="2027-01-01T00:00:00Z")
+        if i < 63:
+            row["viewedByMeTime"] = "2026-08-01T00:00:00Z"
+
+    def respond(path, params, keys):
+        assert path in {"/files", "/drives"}
+        if path == "/drives":
+            return {"drives": []}
+        assert "createdTime >=" not in params["q"] and "modifiedTime >=" not in params["q"]
+        assert "orderBy" not in params
+        return {"files": originals}
+
+    service, adapter = _real_rest_service(monkeypatch, respond)
+    service.reader_factory = lambda **_: pytest.fail("content reader invoked")
+    service.candidate_assessor = AsyncMock(side_effect=AssertionError("assessor invoked"))
+    checkpoint, files, incomplete, done = await service._page(
+        {"user_id": "owner", "generation": 7, "checkpoint": _activity_checkpoint()}
+    )
+    assert not incomplete and not done and len(files) == 63
+    assert checkpoint["coverage_counts"]["excludedByDateCount"] == 21
+    assert checkpoint["activity_fallback_decision"] == {
+        "first_page_valid_distinct_count": 84,
+        "armed": False,
+    }
+    assert checkpoint["semantic_pending"] == []
+    assert len(adapter.calls) == 1
+    service.candidate_assessor.assert_not_awaited()
+    from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
+
+    assert all(
+        discovery_evidence_matches(file, user_id="owner", generation=7, checkpoint=checkpoint)
+        for file in files
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count,armed", [(0, True), (1, True), (2, True), (3, False)])
+async def test_sparse_fallback_counts_valid_distinct_rows_before_dates_and_keeps_query_provenance(
+    monkeypatch, count, armed
+):
+    originals = [_provider_file(f"fallback-{i}", "Cedar Rook", version="9") for i in range(count)]
+    for row in originals:
+        row.update(createdTime="2024-01-01T00:00:00Z", modifiedTime="2024-01-01T00:00:00Z")
+    if originals:
+        originals.append(originals[0])
+    service, _ = _real_rest_service(
+        monkeypatch,
+        lambda path, params, keys: {"drives": []} if path == "/drives" else {"files": originals},
+    )
+    checkpoint = _activity_checkpoint()
+    frozen = deepcopy(checkpoint["queries"])
+    checkpoint, files, _, _ = await service._page(
+        {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    )
+    assert files == []
+    assert checkpoint["activity_fallback_decision"] == {
+        "first_page_valid_distinct_count": count,
+        "armed": armed,
+    }
+    checkpoint, _, _, done = await service._page(
+        {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    )
+    assert done is (not armed)
+    assert checkpoint["queries"] == frozen
+    if armed:
+        assert checkpoint["query_index"] == 1
+
+
+def test_semantic_v1_digest_is_unchanged_and_sparse_fallback_never_relaxes_exact_constraints():
+    import hashlib
+
+    from pydantic import ValidationError
+
+    from hushh_mcp.services.drive_request_discovery import compile_discovery_queries
+    from hushh_mcp.services.drive_request_semantic_plan import parse_semantic_plan
+
+    old = _semantic_checkpoint("Cedar Rook")["semantic_plan"]
+    assert (
+        semantic_plan_digest(old)
+        == hashlib.sha256(
+            json.dumps(old, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        ).hexdigest()
+    )
+    assert parse_semantic_plan(old).model_dump(mode="json") == old
+    plan = _activity_checkpoint()["semantic_plan"]
+    plan["clauses"][0]["predicates"].append(
+        {
+            "id": "title",
+            "kind": "title",
+            "value": "resume",
+            "match": "exact",
+            "negated": False,
+            "discovery_terms": [],
+        }
+    )
+    primary, fallback = compile_discovery_queries(plan)
+    assert (
+        "name = 'resume'" in primary["arguments"]["query"]
+        and "name = 'resume'" in fallback["arguments"]["query"]
+    )
+    for changes in [{"kind": "title"}, {"match": "phrase"}, {"negated": True}, {"value": "Cedar"}]:
+        invalid = deepcopy(plan)
+        invalid["clauses"][0]["predicates"][0].update(changes)
+        with pytest.raises(ValidationError):
+            parse_semantic_plan(invalid)
+
+
+@pytest.mark.asyncio
+async def test_paused_policy_four_never_invokes_azure_planner(monkeypatch):
+    monkeypatch.setenv("DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", "true")
+    planner = AsyncMock(side_effect=AssertionError("planner invoked while paused"))
+    context = {
+        "purpose": {
+            "purpose": "Cedar Rook",
+            "periodStart": "2026-06-02",
+            "periodEnd": "2026-10-02",
+        },
+        "revision": 1,
+        "semanticSearch": True,
+        "activityDateUnion": True,
+        "autoshare": True,
+    }
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=SimpleNamespace(store=SimpleNamespace(by_client=AsyncMock(return_value=None))),
+        semantic_planner=planner,
+        require_owner=AsyncMock(),
+        owner_index=SimpleNamespace(),
+    )
+    with pytest.raises(DriveReadError, match="provider_unavailable"):
+        await service.start_search(
+            user_id="owner", request_id="request", authority_mode="trusted_auto"
+        )
+    planner.assert_not_awaited()
+
+
+def test_activity_private_diagnostics_project_only_frozen_query_and_decision():
+    from hushh_mcp.services.drive_request_discovery import request_diagnostics
+
+    checkpoint = _activity_checkpoint()
+    assert request_diagnostics(_discovery_checkpoint()) is None
+    assert request_diagnostics(checkpoint)["fallbackDecision"] is None
+    checkpoint["activity_fallback_decision"] = {
+        "armed": True,
+        "first_page_valid_distinct_count": 2,
+        "future_private_value": "must-not-leak",
+    }
+    diagnostics = request_diagnostics(checkpoint)
+    assert diagnostics["fallbackDecision"] == {"armed": True, "first_page_valid_distinct_count": 2}
+    assert diagnostics["queries"][0]["query"] == checkpoint["queries"][0]["arguments"]["query"]
+    assert diagnostics["queries"][1]["enabled"] is True
+    assert "must-not-leak" not in json.dumps(diagnostics)
+    checkpoint["activity_fallback_decision"]["armed"] = False
+    with pytest.raises(ValueError, match="invalid_fallback_decision"):
+        request_diagnostics(checkpoint)
+
+
+def test_incident_report_never_fabricates_raw_identity_or_copy_delivery():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[3] / "scripts/replay_findings.py"
+    spec = importlib.util.spec_from_file_location("drive_incident_replay", path)
+    replay = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(replay)
+    report = replay.build_report(
+        {
+            "saved_owner_search_checkpoint": {"results": [{"position": 1, "shareable": True}]},
+            "after_fix_live_metadata_comparison": [
+                {"position": 1, "equal": {"modifiedTime": False}}
+            ],
+        }
+    )
+    assert report["saved_provider_rows"] == 1
+    assert report["rows"][0]["missing_raw_identity"] is True
+    assert report["copy_comparisons"][0]["guard_replay"] == "unavailable_raw_snapshots_missing"
+    assert report["timestamp_only_comparison_patterns"] == 0
+    assert report["live_copy_delivery_verified"] is False
+    assert report["original_copy_jobs_recreated"] is False

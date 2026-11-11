@@ -1,20 +1,23 @@
 let context: AudioContext | null = null;
 const activeTones = new Map<() => void, string | undefined>();
-const emergencyLoops = new Map<string | undefined, () => void>();
+const emergencyGrants = new Set<string | undefined>();
+let emergencyLoop: ReturnType<typeof setInterval> | undefined;
+let emergencySounded = false;
 let vibrationGrant: string | undefined;
 let vibrating = false;
 
 export function stopOneLocationNotificationSound(grantId?: string): void {
-  for (const [owner, stop] of emergencyLoops) {
-    if (!grantId || owner === grantId) {
-      stop();
-      emergencyLoops.delete(owner);
-    }
+  if (grantId) emergencyGrants.delete(grantId);
+  else emergencyGrants.clear();
+  if (emergencyGrants.size === 0 && emergencyLoop !== undefined) {
+    clearInterval(emergencyLoop);
+    emergencyLoop = undefined;
+    emergencySounded = false;
   }
   for (const [stop, owner] of activeTones) {
-    if (!grantId || owner === grantId) stop();
+    if (!grantId || owner === grantId || (owner === undefined && emergencyGrants.size === 0)) stop();
   }
-  if (vibrating && (!grantId || vibrationGrant === grantId)) {
+  if (vibrating && (!grantId || vibrationGrant === grantId || emergencyGrants.size === 0)) {
     vibrating = false;
     try { navigator.vibrate(0); } catch { /* Device policy. */ }
   }
@@ -36,12 +39,13 @@ export function prepareOneLocationNotificationSound(): void {
 
 /** One authenticated provider owns audio; sign-out/unmount releases it. */
 export function installOneLocationNotificationSound(): () => void {
+  // Hiding a tab is not acknowledgement. Browsers may suspend audio/timers;
+  // retain the loop so it resumes when execution is available again.
   const onVisibility = () => {
-    if (document.visibilityState !== "visible") stopOneLocationNotificationSound();
+    if (document.visibilityState === "visible") prepareOneLocationNotificationSound();
   };
   document.addEventListener("visibilitychange", onVisibility);
-  const onPageHide = () => stopOneLocationNotificationSound();
-  window.addEventListener("pagehide", onPageHide);
+  window.addEventListener("pageshow", onVisibility);
   const events = ["pointerdown", "touchend", "keydown"] as const;
   for (const event of events) {
     window.addEventListener(event, prepareOneLocationNotificationSound, { capture: true, passive: true });
@@ -49,7 +53,7 @@ export function installOneLocationNotificationSound(): () => void {
   return () => {
     stopOneLocationNotificationSound();
     document.removeEventListener("visibilitychange", onVisibility);
-    window.removeEventListener("pagehide", onPageHide);
+    window.removeEventListener("pageshow", onVisibility);
     for (const event of events) window.removeEventListener(event, prepareOneLocationNotificationSound, true);
     const previous = context;
     context = null;
@@ -117,7 +121,7 @@ function playTone(shareKind?: string | null, grantId?: string): boolean {
   }
 }
 
-/** Repeat only a live foreground SOS; Stop owns every future pulse as well. */
+/** Admission checks freshness once. Only acknowledgement/disposal ends the loop. */
 export function playOneLocationNotificationSound(
   shareKind?: string | null,
   grantId?: string,
@@ -125,18 +129,17 @@ export function playOneLocationNotificationSound(
 ): boolean {
   const emergency = String(shareKind || "").trim().toLowerCase() === "sos";
   if (!emergency) return playTone(shareKind, grantId);
-  if (typeof document === "undefined" || document.visibilityState !== "visible" ||
+  if (typeof document === "undefined" ||
       (expiresAt !== undefined && (!Number.isFinite(expiresAt) || expiresAt <= Date.now()))) return false;
-  if (emergencyLoops.has(grantId)) return true;
-  const sounded = playTone(shareKind, grantId);
-  if (!sounded) return false;
-  const timer = setInterval(() => {
-    if (document.visibilityState !== "visible" ||
-        (expiresAt !== undefined && expiresAt <= Date.now()) ||
-        !playTone(shareKind, grantId)) {
-      stopOneLocationNotificationSound(grantId);
-    }
+  emergencyGrants.add(grantId);
+  if (emergencyLoop !== undefined) return emergencySounded && context?.state === "running";
+  // Multiple pending grants share one siren; acknowledging one cannot silence
+  // the remaining grants or multiply the volume with overlapping oscillators.
+  emergencySounded = playTone(shareKind);
+  emergencyLoop = setInterval(() => {
+    // A temporarily suspended AudioContext must not discard an unacknowledged
+    // alert. A later user gesture/foreground transition can unlock it again.
+    emergencySounded = playTone(shareKind);
   }, 1500);
-  emergencyLoops.set(grantId, () => clearInterval(timer));
-  return true;
+  return emergencySounded;
 }

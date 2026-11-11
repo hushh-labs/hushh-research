@@ -47,7 +47,7 @@
           "container": "drive-worker",
           "workers_per_instance": 1,
           "count_retained_revisions": true,
-          "candidate": {"max_instances": 2, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+          "candidate": {"max_instances": 4, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
         },
         "consent-protocol-drive-v1-worker": {
           "container": "drive-worker",
@@ -63,7 +63,8 @@
         "obs-supabase-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
         "uat-db-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
         "uat-db-migrate": {"connections_per_task": 8, "concurrent_executions": 2},
-        "uat-db-verify-vault": {"connections_per_task": 8, "concurrent_executions": 2}
+        "uat-db-verify-vault": {"connections_per_task": 8, "concurrent_executions": 2},
+        "protected-configuration-health": {"connections_per_task": 1, "concurrent_executions": 1}
       }
     },
     "production": {

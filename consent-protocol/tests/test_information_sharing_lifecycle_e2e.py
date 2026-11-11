@@ -670,7 +670,7 @@ async def test_request_creates_pending_for_owner_and_replay_is_idempotent(client
         client,
         scope_refs=["psr_legal_name", "psr_job_title"],
         duration_hours=72,
-        idempotency_key="lease-signing-2026-09-14",
+        idempotency_key="test-idem-replay-001",
     )
     assert created["personRef"] == OWNER_PERSON_REF
     assert created["durationSeconds"] == 72 * 3600
@@ -704,7 +704,7 @@ async def test_request_creates_pending_for_owner_and_replay_is_idempotent(client
         client,
         scope_refs=["psr_legal_name", "psr_job_title"],
         duration_hours=72,
-        idempotency_key="lease-signing-2026-09-14",
+        idempotency_key="test-idem-replay-001",
     )
     assert replayed["bundleId"] == created["bundleId"]
     assert len(_events(world, "REQUESTED")) == 2, "a replay must not write a third request"
@@ -861,7 +861,7 @@ async def test_approval_clamps_duration_and_requester_decrypts_strict_v2_export(
         client,
         scope_refs=["psr_legal_name"],
         duration_hours=72,
-        idempotency_key="lease-signing-approve-1",
+        idempotency_key="synthetic-approval-idempotency",
     )
     bundle_id = created["bundleId"]
     request_id = created["items"][0]["requestId"]
@@ -951,7 +951,7 @@ async def test_wrong_connector_key_id_is_refused_before_any_grant(client, world)
         client,
         scope_refs=["psr_legal_name"],
         duration_hours=24,
-        idempotency_key="lease-signing-wrong-key-1",
+        idempotency_key="synthetic-wrong-connector-idempotency",
     )
     bundle_id = created["bundleId"]
     request_id = created["items"][0]["requestId"]
@@ -1024,7 +1024,7 @@ async def test_revoke_deletes_the_export_and_links_the_original_request(client, 
         client,
         scope_refs=["psr_legal_name"],
         duration_hours=24,
-        idempotency_key="lease-signing-revoke-1",
+        idempotency_key="test-idem-revoke-001",
     )
     bundle_id = created["bundleId"]
     request_id = created["items"][0]["requestId"]

@@ -88,6 +88,32 @@ describe("ApiService.apiFetch", () => {
     vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(matching);
     expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBe(matching);
   });
+  it("binds the Firebase token to the admitted application owner", async () => {
+    const ownerId = `acct_${"a".repeat(32)}`;
+    const firebaseUid = "firebase-a";
+    publishValidatedAuthSessionPrincipal({ firebaseUid, ownerId, accountGeneration: 1 });
+    const matching = makeUnsignedToken({ sub: firebaseUid });
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(matching);
+
+    expect(await ApiService.getFirebaseIdTokenForOwner(ownerId)).toBe(matching);
+    expect(await ApiService.getFirebaseIdTokenForOwner(firebaseUid)).toBeUndefined();
+
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(makeUnsignedToken({ sub: "firebase-b" }));
+    expect(await ApiService.getFirebaseIdTokenForOwner(ownerId)).toBeUndefined();
+  });
+  it("refuses a late token after the same owner signs in again", async () => {
+    const ownerId = "owner-a";
+    publishValidatedAuthSessionOwner(ownerId);
+    const token = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token.promise);
+    const request = ApiService.getFirebaseIdTokenForOwner(ownerId);
+
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner(ownerId);
+    token.resolve(makeUnsignedToken({ sub: ownerId }));
+
+    expect(await request).toBeUndefined();
+  });
   it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ success: true }));
     await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
@@ -413,6 +439,17 @@ describe("ApiService.apiFetch", () => {
     expect(AuthService.getIdToken).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[1]).not.toHaveProperty("accountLifecycleOwnsAuthOutcome");
+  });
+
+  it("reads only the exact cleanup operation with the cached proof after identity removal", async () => {
+    const operationId = "b99efb85-c1f2-4714-8a63-614d774a25a3";
+    mockFetch.mockResolvedValueOnce(jsonResponse({ operation: { id: operationId, state: "complete", identity_removed: true } }));
+    const response = await ApiService.getAccountCleanupStatus("cached-proof", operationId);
+    expect(response.status).toBe(200);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe(`/api/account/deletion-cleanup?operation_id=${operationId}`);
+    expect(mockFetch.mock.calls[0]?.[1].headers.Authorization).toBe("Bearer cached-proof");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
   });
 
   it("keeps a local account-status request alive past the deployed eight-second bound", async () => {

@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
+
 const source = readFileSync(
   join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
   "utf8",
@@ -24,6 +26,12 @@ const source = readFileSync(
  * reply). AgentConnectAccessCard and AgentGmailNudgeCard are gone from the
  * codebase; useGmailNudges() is still used by gmail-nudges-section.tsx on
  * the actual Gmail settings page, untouched.
+ *
+ * The welcome area admits one replacement, MailAttentionStack, only on the
+ * terms below: already-classified receipt attention and detected requests for
+ * the owner's details, no reply-needed guesses, no connect prompt, no mailbox
+ * scan, and nothing rendered when nothing qualifies (behavior is covered by
+ * mail-attention-stack.test.tsx).
  */
 describe("Agent One chat workspace wiring contract", () => {
   it("stages owner-confirmed KYC facts in Soul without a second identity writer", () => {
@@ -119,13 +127,14 @@ describe("Agent One chat workspace wiring contract", () => {
 
   it("keeps the One connector catalog reachable before any provider is connected", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
-    expect(source).toContain("openHistoryConnectors();");
-    const historyConnectors = source.slice(source.indexOf("const openHistoryConnectors ="), source.indexOf("const handleHistoryDrawerOpenChange ="));
-    expect(historyConnectors).toContain('setDrawerMode("connections")');
-    expect(historyConnectors).toContain("setIsHistoryDrawerOpen(true)");
-    expect(source).toContain("<HistoryConnectorsPage");
+    expect(source).toContain("? openHistoryConnectors : undefined");
+    expect(source).toContain("openConnectors: openHistoryConnectors");
+    const historyConnectors = source.slice(source.indexOf("const openHistoryConnectors ="), source.indexOf("const [recoveryCheckedForUid,"));
+    expect(historyConnectors).toContain("openConnectorSurface(undefined,");
+    expect(historyConnectors).toContain("historyDrawerTriggerRef.current ?? historyDrawerFallbackRef.current");
+    expect(source).not.toContain("HistoryConnectorsPage");
     expect(source).not.toContain("connectionsAvailable");
-    // History owns its connector presentation; inline chat cards retain Profile.
+    // History, native History and inline Chat cards share Profile's destination.
     expect(source).toContain("profileConnectorsLocation(");
   });
 
@@ -150,6 +159,20 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(source).not.toContain("AgentGmailNudgeCard");
     expect(source).not.toContain("gmailConnectCardDismissed");
     expect(source).not.toContain("gmailNudgeCardDismissed");
+  });
+
+  it("admits the Mail attention stack only without guesses, connect prompts or mailbox scans", () => {
+    const stack = ["components/agent/mail-attention-stack.tsx", "lib/agent/use-mail-attention.ts"]
+      .map((file) => readFileSync(join(process.cwd(), file), "utf8"));
+    for (const text of stack) {
+      expect(text).not.toMatch(/useGmailNudges|needs_reply|needsReplyCount/);
+      expect(text).not.toMatch(/Connect (Gmail|Mail)|Reconnect|openConnectorSurface|connectGmailInPlace|GmailConnectorChatCard/);
+      expect(text).not.toMatch(/MailReceiptResourceService\.refresh|GmailInformationRequestsService\.scan/);
+    }
+    // Mounted once, in the empty-chat welcome only, never over a conversation.
+    const welcome = source.slice(source.indexOf("!hasStartedConversation && !voiceActive ? ("), source.indexOf("{visibleMessages.map("));
+    expect(welcome).toContain("<MailAttentionStack");
+    expect(source.match(/<MailAttentionStack/g)).toHaveLength(1);
   });
 });
 
@@ -203,8 +226,16 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
     );
     const parser = source.slice(parserStart, parserEnd);
     expect(parser).toContain('type: "calendar.connect"');
-    expect(parser).toContain('type: "calendar.execute_proposal"');
-    expect(parser).toContain("proposalId");
+    expect(parser).toContain("legacyCalendarProposalPayload(parsed, action)");
+    expect(legacyCalendarProposalPayload({
+      proposal_id: "synthetic-proposal",
+      plan: { account_id: "account-b" },
+    }, "create")).toMatchObject({
+      type: "calendar.execute_proposal",
+      proposalId: "synthetic-proposal",
+      accountId: "account-b",
+      confirmLabel: "Schedule meeting",
+    });
     expect(parser).toContain("confirmLabel");
   });
 
@@ -219,8 +250,10 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
 
   it("keeps Calendar connection confirmation in place on the shared OAuth path", () => {
     const connectIndex = normalized.indexOf('type === "calendar.connect"');
-    const block = normalized.slice(connectIndex, connectIndex + 1200);
-    expect(block).toContain('runDirectiveConnect("calendar");');
+    const proposalIndex = normalized.indexOf('type !== "calendar.execute_proposal"', connectIndex);
+    const block = normalized.slice(connectIndex, proposalIndex);
+    expect(block).toContain("calendarDirectiveAccountId(payload)");
+    expect(block).toContain('runDirectiveConnect("calendar", requestedAccount);');
     expect(block).not.toContain("location.assign");
     // The shared connector still owns the existing Calendar start + journey reset.
     const shared = readFileSync(

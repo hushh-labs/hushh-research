@@ -81,11 +81,11 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
         if (outcome.legacyCleanup === 'unconfirmed') setMessage('Google connected. The previous connection still needs verification.');
       }
       if (current()) await refresh();
-    } catch { if (current()) setMessage('Your private agent could not be reached. Try again.'); }
+    } catch { if (current()) setMessage('Agent One could not be reached. Try again.'); }
     finally { if (pending.current === operation) { pending.current = null; if (current()) setBusy(null); } }
   };
   const entries = GOOGLE_CONNECTORS.map(connector => {
-    const status = statuses[connector] === 'connected' ? ((connector === 'gmail' || connector === 'calendar') ? managed[connector] ? 'Connected · changes allowed after your confirmation' : readable[connector] ? 'Connected · reading only' : 'Connected · permissions need verification' : 'Connected to your private agent') :
+    const status = statuses[connector] === 'connected' ? ((connector === 'gmail' || connector === 'calendar') ? managed[connector] ? 'Connected · changes allowed after your confirmation' : readable[connector] ? 'Connected · reading only' : 'Connected · permissions need verification' : 'Connected to Agent One') :
       statuses[connector] === 'needs_reauth' ? 'Sign in again' : statuses[connector] === 'unavailable' ? 'Your agent could not verify this connection' : statuses[connector] ? 'Not connected' : 'Checking connection…';
     return { connector, label: LABELS[connector], status, purpose: connectorAccessPurpose(connector), connected: statuses[connector] === 'connected',
       allowChanges: statuses[connector] === 'connected' && (connector === 'gmail' || connector === 'calendar') && !managed[connector] };
@@ -109,7 +109,7 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
   if (!open) return null;
   return <section className="space-y-4" data-testid="private-google-connectors">
     {surface !== 'profile' && <Button variant="ghost" onClick={onClose ?? onBack}>Back</Button>}
-    <p className="text-sm text-muted-foreground">Connect Google directly to your private agent. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
+    <p className="text-sm text-muted-foreground">Connect Google directly to Agent One. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
     <SettingsGroup>
       {entries.map(({ connector, status, connected, allowChanges }) => {

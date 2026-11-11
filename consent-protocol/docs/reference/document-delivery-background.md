@@ -38,16 +38,31 @@ entitlement, relationship, request stop/revoke, owner generation and immutable
 source binding are checked before source reads and atomically before publication.
 Each binary source requires a frozen provider content identity: size,
 modification time and MD5 checksum, plus SHA-256 and head revision when supplied.
-Global Drive version is not a content revision: changing an ACL can increment it.
+Global Drive version and modification time are not content revisions: a permission
+grant can advance them while the bytes remain unchanged. A timestamp-only change
+is accepted when every captured content-identity field still matches exactly,
+including size and MD5. This includes MD5-only historical identities. Later optional
+provider fields do not rewrite that frozen identity. Missing or changed captured fields,
+source identity/name/type changes and final checksum mismatches still stop delivery.
 The producer checks source identity before and after reading and verifies the
 complete original's checksums. Missing historical identity,
 restricted downloads and unsupported Range transport are explicit
 unavailable outcomes; they do not change the search's result set.
 
+`drive_copy.step` records the existing authority, credential, source, copy,
+verification and publication stages with elapsed time, hashed `request_op` and
+`file_op`, and closed mismatch field names. Failed source checks retain optional
+`copyDiagnostics: { stage, mismatches }` in the existing result envelope and expose
+only that bounded projection to participants. No query, filename, provider ID,
+credential or checksum value enters these diagnostics. Browser
+`[DRIVE_REQUEST][ONE-COPY]` records state/reason/stage counts and verified copies
+whose metadata time changed. These observations do not retry jobs. Erased requests
+and consent cannot be reconstructed by refreshing or replaying a former sale.
+
 Google Docs, Sheets and Slides produce labelled PDF, XLSX and PPTX exports,
-respectively. They are processing-time snapshots, with stable current provider
-version and modification time checked before and after export, and `exportedAt`
-recorded. They do not claim the frozen discovery revision's original bytes.
+respectively. They are processing-time snapshots, with source identity checked
+before and after export and `exportedAt` recorded. Metadata-only version or time
+movement does not reject the export. They do not claim the frozen discovery revision's original bytes.
 Google's 10 MiB export limit is surfaced as unavailable. A complete export is
 hashed before chunking; a resumed export must match that stored representation
 hash, so chunks from independently differing exports cannot be combined.

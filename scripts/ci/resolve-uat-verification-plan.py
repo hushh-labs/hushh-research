@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Select release verification lanes from a proven changed-SHA range.
 
-This is the only selector for expensive PKM and reviewer-browser release lanes.
-UAT compares the target with the deployed service SHAs; PR, queue, and post-merge
+This is the only selector for deterministic PKM preservation. App-browser
+diagnostics require an explicit request; unknown impact never opts into them.
+UAT compares the target with each service's accepted serving SHA; PR, queue, and post-merge
 checks pass one verified base SHA for both services.
 """
 
@@ -66,30 +67,6 @@ def _is_pkm_upgrade(path: str) -> bool:
     )
 
 
-def _is_reviewer_byok(path: str) -> bool:
-    return (
-        path.startswith(".agents/skills/reviewer-app-testing/")
-        or path.startswith(
-            (
-                "hushh-webapp/components/app-ui/native-test-",
-                "hushh-webapp/lib/testing/",
-                "hushh-webapp/lib/vault/",
-                "hushh-webapp/components/vault/",
-                "consent-protocol/api/routes/vault",
-                "consent-protocol/hushh_mcp/services/vault_",
-            )
-        )
-        or path
-        in {
-            "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
-            "hushh-webapp/lib/services/vault-service.ts",
-            "hushh-webapp/components/profile/world-model-provider.tsx",
-            "hushh-webapp/lib/services/world-model-research-service.ts",
-            "consent-protocol/api/routes/app_review.py",
-        }
-    )
-
-
 @dataclass(frozen=True)
 class VerificationPlan:
     changed_files: tuple[str, ...]
@@ -117,13 +94,13 @@ class VerificationPlan:
             },
             "reviewer_byok": {
                 "required": self.run_reviewer_byok,
-                "reason": "vault_or_reviewer_contract_changed"
+                "reason": "browser_diagnostics_explicitly_requested"
                 if self.run_reviewer_byok
-                else "no_vault_or_reviewer_contract_changed",
+                else "browser_diagnostics_not_requested",
             },
         }
         if self.reason.startswith("conservative:"):
-            for name in ("pkm_upgrade", "reviewer_byok"):
+            for name in ("pkm_upgrade",):
                 lane = lanes[name]
                 lane["required"] = True
                 lane["reason"] = "comparison_base_unproven_fail_closed"
@@ -148,17 +125,18 @@ def resolve_plan(
     deploy_backend: bool,
     deploy_frontend: bool,
     run_live_model_checks: bool = False,
+    run_browser_diagnostics: bool = False,
 ) -> VerificationPlan:
     # Paid provider calls require an explicit operator choice. An unknown
-    # comparison base still fails closed for preservation and owner authority,
-    # but never silently opts an operator into model evaluation.
+    # comparison base still fails closed for deterministic preservation,
+    # but never silently opts an operator into model or app-browser evaluation.
     evaluator_runs = int(run_live_model_checks and deploy_backend)
     missing_base = (deploy_backend and not backend_base_sha) or (
         deploy_frontend and not frontend_base_sha
     )
     if missing_base:
         return VerificationPlan(
-            (), evaluator_runs, True, True, "conservative:comparison_base_unproven",
+            (), evaluator_runs, True, run_browser_diagnostics, "conservative:comparison_base_unproven",
             run_live_model_checks,
         )
 
@@ -183,12 +161,12 @@ def resolve_plan(
             )
     except subprocess.CalledProcessError:
         return VerificationPlan(
-            (), evaluator_runs, True, True, "conservative:comparison_base_unproven",
+            (), evaluator_runs, True, run_browser_diagnostics, "conservative:comparison_base_unproven",
             run_live_model_checks,
         )
 
     pkm_upgrade = any(_is_pkm_upgrade(path) for path in changed)
-    reviewer_byok = any(_is_reviewer_byok(path) for path in changed)
+    reviewer_byok = run_browser_diagnostics
     active = [
         name
         for name, enabled in (
@@ -235,6 +213,7 @@ def main() -> int:
     parser.add_argument("--deploy-backend", default="true")
     parser.add_argument("--deploy-frontend", default="true")
     parser.add_argument("--run-live-model-checks", choices=("true", "false"), default="false")
+    parser.add_argument("--run-browser-diagnostics", choices=("true", "false"), default="false")
     parser.add_argument("--github-output", default="")
     parser.add_argument("--json-output", default="")
     args = parser.parse_args()
@@ -246,6 +225,7 @@ def main() -> int:
         deploy_backend=_bool(args.deploy_backend),
         deploy_frontend=_bool(args.deploy_frontend),
         run_live_model_checks=_bool(args.run_live_model_checks),
+        run_browser_diagnostics=_bool(args.run_browser_diagnostics),
     )
     payload = plan.as_dict()
     if args.github_output:

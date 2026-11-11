@@ -225,6 +225,29 @@ describe("canonical receipt storage boundary", () => {
     expect(() => validateReceiptSnapshot({ ...snapshot, rows: [{ ...snapshot.rows[0], amount: 1 }] })).toThrow();
     expect(() => validateReceiptSnapshot({ ...snapshot, rows: [{ ...snapshot.rows[0], confidence: Number.NaN }] })).toThrow();
   });
+  it("dates printed receipts by their ISO email day in the owner's zone and counts unreadable dates as undated", async () => {
+    // Emailed 01:30 on October 10 in Kolkata. Printed text is never parsed, so a year-less or unparseable date can't throw.
+    const snapshot = await captureReceiptSnapshot([receipt(1, { transaction_date: "October 9, 2026", gmail_internal_date: "2026-10-09T20:00:00Z" }),
+      receipt(2, { transaction_date: "9 Oct 2026 10:23 IST" }), receipt(3, { transaction_date: "Oct 9" })], "account", coverage);
+    const result = analyzeReceipts("list_recent_receipts", { from_date: "2026-10-01", to_date: "2026-11-01", timezone: "Asia/Kolkata" }, snapshot, 1);
+    expect(result).toMatchObject({ matched_count: 1, coverage: { undated_count: 2 }, results: [{ transaction_date: "2026-10-10" }] });
+    // Negative control: the hub admits only ISO dates, and every stored printed value (once emitted verbatim) fails it.
+    const hubDate = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+    expect(snapshot.rows.filter(row => hubDate.test(row.transaction_date ?? ""))).toEqual([]);
+  });
+  it("states coverage gaps and staleness, and lists only the attention state One asked for", async () => {
+    const snapshot = await captureReceiptSnapshot([receipt(1, { status: "overdue", attention_state: "needs_attention", attention_reason: "overdue" }),
+      receipt(2, { status: "renewal_due", attention_state: "coming_up", attention_reason: "renewal_due" }), receipt(3)],
+    "account", { ...coverage, partial: true, window_from: "2026-09-15T00:00:00+00:00" }, new Date("2026-10-10T00:00:00Z"));
+    const list = (extra: object) => analyzeReceipts("list_recent_receipts", { from_date: "2026-09-01", to_date: "2026-11-01", timezone: "UTC", ...extra }, snapshot, 1, Date.parse("2026-10-20T00:00:00Z"));
+    expect(list({ attention: "needs_attention" }).results).toEqual([expect.objectContaining({ status: "overdue" })]);
+    expect(list({ attention: "coming_up" }).results).toEqual([expect.objectContaining({ status: "renewal_due" })]);
+    expect(list({}).limitations.slice(4)).toEqual(["Receipts only go back to 2026-09-15; earlier purchases are not included.",
+      "Receipt sync is incomplete, so some receipts may be missing.", "Receipts were last updated on 2026-10-10."]);
+    expect(list({ from_date: "2026-09-15" }).limitations).toHaveLength(6);
+    for (const extra of [{ attention: "overdue" }, { attention: null }]) expect(() => list(extra)).toThrow();
+    expect(() => analyzeReceipts("receipt_spending", { ...request, attention: "coming_up" }, snapshot, 1)).toThrow();
+  });
 });
 
 const session = { userId: "owner", vaultKey: key, vaultOwnerToken: "owner-token" };

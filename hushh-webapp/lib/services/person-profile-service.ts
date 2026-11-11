@@ -1,3 +1,4 @@
+import { recordLiveActivity, snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_TTL } from "@/lib/services/cache-service";
 import type { KycScopedExportPackage } from "@/lib/services/one-kyc-client-zk-service";
@@ -220,7 +221,16 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
   return payload;
 }
 
+export class PersonProfileNotFoundError extends Error {}
+
 export class PersonProfileService {
+  private static readonly publicReads = new Map<string, object>();
+
+  static invalidatePublicProfiles(): void {
+    this.publicReads.clear();
+    CacheService.getInstance().invalidatePattern("person_public_");
+  }
+
   static peekPublic(personRef: string): PublicPersonProfile | null {
     return CacheService.getInstance().peek<PublicPersonProfile>(`person_public_${personRef}`)?.data ?? null;
   }
@@ -302,13 +312,24 @@ export class PersonProfileService {
   }
 
   static async getPublic(personRef: string): Promise<PublicPersonProfile> {
-    const profile = await jsonOrThrow<PublicPersonProfile>(
-      await ApiService.apiFetch(`/api/public/people/${encodeURIComponent(personRef)}`, {
+    const cache = CacheService.getInstance();
+    const key = `person_public_${personRef}`;
+    const read = {};
+    this.publicReads.set(key, read);
+    try {
+      const response = await ApiService.apiFetch(`/api/public/people/${encodeURIComponent(personRef)}`, {
         cache: "no-store",
-      }),
-    );
-    CacheService.getInstance().set(`person_public_${personRef}`, profile, CACHE_TTL.MEDIUM);
-    return profile;
+      });
+      if (response.status === 404 || response.status === 410) {
+        cache.invalidate(key);
+        throw new PersonProfileNotFoundError("This profile is unavailable.");
+      }
+      const profile = await jsonOrThrow<PublicPersonProfile>(response);
+      if (this.publicReads.get(key) === read) cache.set(key, profile, CACHE_TTL.MEDIUM);
+      return profile;
+    } finally {
+      if (this.publicReads.get(key) === read) this.publicReads.delete(key);
+    }
   }
 
   static async getViewer(
@@ -383,6 +404,7 @@ export class PersonProfileService {
   }
 
   static async connect(personRef: string, idToken: string): Promise<PersonRelationship> {
+    const activityOwner = snapshotLiveActivityOwner();
     const payload = await jsonOrThrow<{ relationship: PersonRelationship }>(
       await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}/connection`, {
         method: "POST",
@@ -390,6 +412,7 @@ export class PersonProfileService {
         body: JSON.stringify({}),
       }),
     );
+    recordLiveActivity({ kind: "connection_request_sent" }, activityOwner);
     return payload.relationship;
   }
 
@@ -410,12 +433,14 @@ export class PersonProfileService {
     personRef: string,
     idToken: string,
   ): Promise<PersonRelationship> {
+    const activityOwner = snapshotLiveActivityOwner();
     const payload = await jsonOrThrow<{ relationship: PersonRelationship }>(
       await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}/connection`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${idToken}` },
       }),
     );
+    recordLiveActivity({ kind: "connection_removed" }, activityOwner);
     return payload.relationship;
   }
 }

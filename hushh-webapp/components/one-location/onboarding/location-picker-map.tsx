@@ -34,6 +34,7 @@ import {
   waitForLaidOutBox,
   withNativeMapLock,
 } from "@/lib/one-location/native-map-lifecycle";
+import { LocationPickerUnavailable } from "./location-picker-unavailable";
 import { cn } from "@/lib/utils";
 
 export type PickedLocation = {
@@ -92,6 +93,8 @@ export interface LocationPickerMapProps {
   cancelLabel?: string;
   /** Render only the map, hint, and recovery state inside a larger screen. */
   embedded?: boolean;
+  /** Fill the available map region in the two-screen onboarding layout. */
+  compact?: boolean;
   className?: string;
 }
 
@@ -145,6 +148,7 @@ export function LocationPickerMap({
   confirmLabel = "Confirm location",
   cancelLabel = "Cancel",
   embedded = false,
+  compact = false,
   className,
 }: LocationPickerMapProps) {
   // The map opens directly now (no pre-map disclosure gate), so Google Maps
@@ -611,6 +615,7 @@ export function LocationPickerMap({
    * everything else just says what to do.
    */
   const accuracyHint =
+    compact && unavailable ? "Using the captured point." :
     typeof initialAccuracyM === "number" &&
     Number.isFinite(initialAccuracyM) &&
     initialAccuracyM > 75
@@ -618,7 +623,7 @@ export function LocationPickerMap({
       : "Move the pin if needed.";
 
   return (
-    <div className={cn("flex min-h-0 flex-col gap-3", !embedded && "flex-1", className)}>
+    <div className={cn("flex min-h-0 flex-col gap-3", !embedded && "flex-1", compact && "absolute inset-0 !gap-2", className)}>
       {!embedded ? (
         <div className="flex shrink-0 items-center justify-between">
           {/* Three words. "on the map" described the thing the person is already
@@ -648,6 +653,7 @@ export function LocationPickerMap({
         data-location-picker-body
         className={cn(
           "flex flex-col gap-3",
+          compact && "min-h-0 flex-1 !gap-2",
           !embedded && "min-h-0 flex-1 overflow-y-auto overscroll-contain",
         )}
       >
@@ -658,7 +664,9 @@ export function LocationPickerMap({
           data-location-picker-surface
           className={cn(
             "relative w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
-            embedded
+            compact
+              ? "min-h-[104px] flex-1"
+              : embedded
               ? "h-[clamp(160px,25dvh,240px)] lg:h-[clamp(300px,44dvh,460px)]"
               : PICKER_MAP_HEIGHT_CLASSNAME,
             // Give short screens room for the selected address above the
@@ -694,25 +702,7 @@ export function LocationPickerMap({
           ) : null}
 
           {unavailable ? (
-            <div
-              role="status"
-              aria-live="polite"
-              className="absolute inset-0 flex h-full flex-col items-center justify-center gap-2 bg-[#eef2f7] px-6 text-center dark:bg-[#10151d]"
-            >
-              <MapPin
-                className="h-7 w-7 text-[#8b93a1]"
-                strokeWidth={2}
-                aria-hidden
-              />
-              <p data-location-type-role="helper"
-                id={mapUnavailableDescriptionId}
-                className="text-[13px] font-medium text-[#5b6472] dark:text-[#9aa6b6]"
-              >
-                The interactive map isn&apos;t available right now. You can
-                continue with the captured point and complete the address
-                manually.
-              </p>
-            </div>
+            <LocationPickerUnavailable descriptionId={mapUnavailableDescriptionId} compact={compact} />
           ) : status !== "ready" ? (
             // Overlay (not a replacement): on native the map element stays mounted
             // underneath so create() can resolve; this loader simply covers it
@@ -797,7 +787,7 @@ export function LocationPickerMap({
           )}
         </div>
 
-        <p data-location-type-role="row-description" className="text-[12px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]">
+        <p data-location-type-role="row-description" className={cn("text-[12px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]", compact && "px-2")}>
           {accuracyHint}
         </p>
 

@@ -26,9 +26,9 @@ def validated_request_semantics(
     if bool(semantic_plan is not None) != semantic_search:
         raise DriveReadError("invalid_argument")
     if semantic_plan is not None:
-        from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
+        from hushh_mcp.services.drive_request_semantic_plan import parse_semantic_plan
 
-        semantic_plan = SemanticDrivePlan.model_validate(semantic_plan).model_dump(mode="json")
+        semantic_plan = parse_semantic_plan(semantic_plan).model_dump(mode="json")
         if v1_live_request or indexed and not provider_packet or parsed_brain is not None:
             raise DriveReadError("invalid_argument")
         from hushh_mcp.services.drive_request_package_service import assessment_policy_version

@@ -7,7 +7,7 @@ import {
   resolveTopShellBreadcrumb,
   type TopShellBreadcrumbConfig,
 } from "@/lib/navigation/top-shell-breadcrumbs";
-import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
+import { CONNECT_MUTUALS_PARAM, isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
 import {
   buildOneSetupRoute,
   resolveOneSetupReturnTo,
@@ -97,6 +97,8 @@ export function resolveTopShellBackAction(params: {
       params.searchParams?.get("action") ?? null,
       params.searchParams?.get("circleId") ?? null,
     );
+  const connectMutualsOpen = params.pathname === ROUTES.CONNECT &&
+    params.searchParams?.get("tab") !== "circles" && Boolean(params.searchParams?.get(CONNECT_MUTUALS_PARAM)?.trim());
 
   const action = (
     href: string,
@@ -111,8 +113,8 @@ export function resolveTopShellBackAction(params: {
   // An open panel or action sheet closes in place. It is a query-only state on
   // the same screen, never a step in the trail, so it must not retrace.
   const sameScreenParent = pathnameOf(breadcrumb.backHref) === params.pathname &&
-    (params.pathname !== ROUTES.CONNECT || connectCircleFlowOpen);
-  if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen || sameScreenParent) {
+    (params.pathname !== ROUTES.CONNECT || connectCircleFlowOpen || connectMutualsOpen);
+  if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen || connectMutualsOpen || sameScreenParent) {
     return action(breadcrumb.backHref, "replace");
   }
 

@@ -117,6 +117,37 @@ while preserving compatible review history. The 971 SQL down path refuses while
 private reviews remain; never delete history to force it. Restoring its earlier
 schema requires the separately reviewed forward qualification before re-enablement.
 
+## GCP notification account-ID admission
+
+Canonical 449 and parked 976 correct the notification checkpoint validator's
+service-account local-part boundary to six through thirty characters, with a
+letter first and an alphanumeric character last. The previous expression refused
+the existing renderer's thirty-character runtime identity. Exact owner/project
+binding and the four/five-resource custody alternatives remain unchanged.
+
+The Dev Stage B reconciliation retains Calendar relevance migration 445 and
+registers the notification source at 449, leaving Main/UAT's Finance 446/447
+outside this Dev change. A target-bound Dev inspection at
+2026-11-05T19:32:59Z used a repeatable-read, read-only transaction and rollback:
+there were no accepted canonical receipts for 445–449 or baseline markers;
+parked 976 retained its applied receipt and exact SHA-256
+`ff518e4e4f7141c2a2f046799d1a872ce2080dd335d93eef3b0c3f5857a61cd8`.
+Receipt absence does not prove a replay-mode body never executed. This is
+source registration of the unaccepted canonical identity, preserving the SQL
+and rollback bytes and the accepted 976 history; no shared ledger is rewritten.
+The retained earlier candidate's proposed notification 447 is not reused because
+current Main/UAT assigns that ID to advisor handshake. Recheck lineage and
+recovery at any separately authorized deployment; this source PR executes no
+shared migration.
+
+Both forward entries are necessary: canonical replay precedes pending-only Dev
+migrations. The checksum-pinned 420 adoption adapter preserves only the exact
+reviewed successor definition, callable metadata and execution grants. Unknown
+definitions or changed grants still refuse replay. Accepted migration bodies and
+checksums are unchanged. Repeated canonical-plus-Dev replay must retain the
+corrected validator; ledger presence alone is insufficient. SQL rollback refuses
+to restore the invalid boundary; application rollback retains these guards.
+
 ## Phone and WorkOS mutation receipt replay
 
 Migration 427 extends the Firebase mutation-purpose check with SSO receipts.
@@ -495,7 +526,7 @@ Do not use as:
 ./bin/hushh db verify-release-contract
 ./bin/hushh db verify-uat-schema
 ./bin/hushh db report-prod-posture
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 python3 consent-protocol/db/migrate.py --release --release-environment production --migration-mode observe
 python3 consent-protocol/db/migrate.py --release --release-environment uat --migration-mode observe
 ```
@@ -534,7 +565,7 @@ When a new numbered migration lands:
 4. keep production and dev on the base head when a change is explicitly UAT-only
 5. follow the maintainer SOP in [data-model-governance.md](../architecture/data-model-governance.md)
 6. update [runtime-db-data-plane-contract.json](../architecture/runtime-db-data-plane-contract.json) when the migration creates or renames tables
-7. run `./bin/hushh codex data-model-audit` before claiming the migration is production-ready
+7. run `./bin/hushh agents data-model-audit` before claiming the migration is production-ready
 
 Every new table must have a declared owner, data class, primary access path, expected row-growth posture, retention policy, deletion behavior, and plaintext/ciphertext posture. Prefer adding the table to an existing family. Create a new family only when the table cannot honestly fit an existing bounded context.
 

@@ -595,10 +595,12 @@ async function apiFetch(
   streaming = false,
 ): Promise<Response> {
   const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, accountLifecycleOwnsAuthOutcome, authRefreshRetry, ...fetchOptions } = options;
+  const lifecyclePath = /^\/api\/account\/deletion-cleanup\?operation_id=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path)
+    ? "/api/account/deletion-cleanup" : path;
   if (accountLifecycleOwnsAuthOutcome && ![
     "/api/account/session-status", "/api/account/delete", "/api/account/delete-lost-vault",
     "/api/account/deletion-cleanup", "/api/account/registration-status", "/api/account/start-fresh",
-  ].includes(path)) throw new Error("Unsupported account lifecycle transport.");
+  ].includes(lifecyclePath)) throw new Error("Unsupported account lifecycle transport.");
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -2622,8 +2624,8 @@ export class ApiService {
     });
   }
 
-  static async getAccountCleanupStatus(idToken: string): Promise<Response> {
-    return ApiService.getAccountLifecycleStatus("/api/account/deletion-cleanup", idToken);
+  static async getAccountCleanupStatus(idToken: string, operationId?: string): Promise<Response> {
+    return ApiService.getAccountLifecycleStatus("/api/account/deletion-cleanup", idToken, true, operationId);
   }
 
   static async continueAccountCleanup(
@@ -2644,6 +2646,7 @@ export class ApiService {
     path: "/api/account/session-status" | "/api/account/deletion-cleanup" | "/api/account/registration-status",
     idToken: string,
     accountLifecycleOwnsAuthOutcome = true,
+    operationId?: string,
   ): Promise<Response> {
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => {
@@ -2656,7 +2659,8 @@ export class ApiService {
     }, ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS);
 
     try {
-      return await apiFetch(path, {
+      const target = operationId ? `${path}?operation_id=${encodeURIComponent(operationId)}` : path;
+      return await apiFetch(target, {
         method: "GET",
         accountLifecycleOwnsAuthOutcome,
         cache: "no-store",
@@ -3526,8 +3530,12 @@ export class ApiService {
 
   /** Correlate a token with the initiating owner; the backend verifies it. */
   static async getFirebaseIdTokenForOwner(userId: string): Promise<string | undefined> {
+    const session = snapshotAuthSessionGeneration();
+    if (session?.userId && session.userId !== userId) return undefined;
+    const firebaseUid = snapshotValidatedAuthSessionPrincipal()?.firebaseUid ?? userId;
     const token = await this.getFirebaseToken();
-    return token && decodeFirebaseTokenSubject(token) === userId ? token : undefined;
+    if (session && !isValidatedAuthSessionOwnerCurrent(session)) return undefined;
+    return token && decodeFirebaseTokenSubject(token) === firebaseUid ? token : undefined;
   }
 
   private static async getFirebaseToken(): Promise<string | undefined> {

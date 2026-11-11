@@ -233,7 +233,7 @@ def test_backup_monitor_uses_production_main_and_read_only_identity() -> None:
     # installation. Keep this source-contract check standard-library-only.
     workflow = (REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml").read_text()
     lines = {line.strip() for line in workflow.splitlines()}
-    assert "environment: production" in lines
+    assert "    environment:\n      name: production\n      deployment: false\n" in workflow
     assert (
         "if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'"
         in lines
@@ -248,6 +248,58 @@ def test_backup_monitor_uses_production_main_and_read_only_identity() -> None:
     assert "verify-deploy-identity-provenance.py" in setup
     assert "roles/cloudsql.client" not in setup
     assert "service-accounts keys create" not in setup
+
+
+def test_matching_branch_authority_preserves_main_and_refuses_provider_drift() -> None:
+    import importlib.util
+
+    path = REPO_ROOT / "deploy/iam/setup_nonproduction_github_wif.py"
+    spec = importlib.util.spec_from_file_location("nonproduction_wif", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for environment in ("dev", "uat"):
+        expected = module.record(environment)
+        provider = {
+            "name": expected["name"],
+            "state": "ACTIVE",
+            "attributeMapping": module.MAPPING,
+            "oidc": {"issuerUri": module.ISSUER},
+            "attributeCondition": expected["previous_condition"],
+        }
+        calls = []
+
+        def api(method, path, body=None):
+            calls.append((method, path, body))
+            if method == "PATCH":
+                assert path == expected["name"] + "?updateMask=attributeCondition"
+                assert set(body) == {"attributeCondition"}
+                provider.update(body)
+                return {"name": expected["name"] + "/operations/fixture", "done": True}
+            return dict(provider)
+
+        assert module.reconcile(api, environment)["state"] == "branch-enabled"
+        assert all(method == "GET" for method, _, _ in calls)
+        assert module.reconcile(api, environment, apply=True)["state"] == "ready"
+        assert sum(method == "PATCH" for method, _, _ in calls) == 1
+        assert module.reconcile(api, environment, apply=True)["changed"] is False
+        assert expected["condition"] == expected["legacy"]
+        assert f"refs/heads/{environment}" not in expected["condition"]
+        assert "refs/heads/main" in expected["condition"]
+        provider["attributeCondition"] = "true"
+        before = len(calls)
+        try:
+            module.reconcile(api, environment, apply=True)
+        except module.Refused:
+            pass
+        else:
+            raise AssertionError("Independent provider drift was overwritten")
+        assert all(method == "GET" for method, _, _ in calls[before:])
+    try:
+        module.record("production")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("Nonproduction updater admitted production")
 
 
 def main() -> int:

@@ -1,6 +1,7 @@
 """Synthetic retained-state checks for canonical private-agent graduation."""
 
 import asyncio
+import hashlib
 import json
 from uuid import uuid4
 
@@ -252,6 +253,36 @@ def verify_managed_custody_roundtrip(conn, cp):
         cur.execute("SELECT to_regprocedure('public.private_gcp_coordinates(jsonb)') IS NOT NULL")
         if not cur.fetchone()[0]:
             return
+        cur.execute(
+            "SELECT to_regclass('public.hosted_files_executor_976_rollback_source') IS NOT NULL"
+        )
+        if cur.fetchone()[0]:
+            # 974 is historical. Replaying its rollback over the installed 979+
+            # successor would correctly restore 974 bodies and erase the successor.
+            # Qualify the complete successor family before relying on its marker.
+            # The dedicated readiness case performs 974 rollback/reapply before
+            # successor installation and then tests the successor rollback chain.
+            from db.hosted_custody_acl import QUALIFIED_FAMILY_SETTING
+            from db.hosted_custody_adoption import _successor_qualification
+
+            savepoint = not conn.autocommit
+            if savepoint:
+                cur.execute("SAVEPOINT hosted_custody_qualification")
+            else:
+                cur.execute("BEGIN")
+            try:
+                cur.execute(_successor_qualification())
+                cur.execute("SELECT current_setting(%s,true)", (QUALIFIED_FAMILY_SETTING,))
+                assert cur.fetchone()[0] == "true", (
+                    "successor rollback marker did not qualify the complete custody family"
+                )
+            finally:
+                if savepoint:
+                    cur.execute("ROLLBACK TO SAVEPOINT hosted_custody_qualification")
+                    cur.execute("RELEASE SAVEPOINT hosted_custody_qualification")
+                else:
+                    cur.execute("ROLLBACK")
+            return
         from db.hosted_custody_adoption import QUALIFIED
 
         query = "SELECT p.oid::regprocedure::text,pg_get_functiondef(p.oid),p.proacl::text FROM pg_proc p WHERE p.oid=ANY(SELECT to_regprocedure('public.'||signature) FROM unnest(%s::text[]) signature) ORDER BY 1"
@@ -261,4 +292,16 @@ def verify_managed_custody_roundtrip(conn, cp):
         cur.execute((cp / "db/migrations/rollback/974_hosted_pod_custody.rollback.sql").read_text())
         cur.execute((cp / "db/migrations/parked/974_hosted_pod_custody.sql").read_text())
         cur.execute(query, (signatures,))
-        assert cur.fetchall() == before
+        after = cur.fetchall()
+        changed = [
+            (
+                old[0],
+                hashlib.sha256(old[1].encode()).hexdigest(),
+                hashlib.sha256(new[1].encode()).hexdigest(),
+                old[2],
+                new[2],
+            )
+            for old, new in zip(before, after, strict=True)
+            if old != new
+        ]
+        assert after == before, f"974 custody rollback/reapply changed function catalog: {changed}"

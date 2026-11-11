@@ -3,8 +3,7 @@
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
-import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
+import { PkmMetadataReviewRequired, type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildConfirmedPkmMutationPlanV2,
   isAutomaticPkmWriteAuthorization,
@@ -28,16 +27,17 @@ import {
   reservedEntryFor,
   type ReservedRefusal,
 } from "@/lib/pkm/reserved-branches";
-import type {
-  EncryptedDomainBlob,
-  PkmMergeDecision,
-  PkmSyncCheckpointMetadata,
-  PkmUpgradeContext,
-  PkmWriteProjection,
+import {
+  PersonalKnowledgeModelService,
+  type EncryptedDomainBlob,
+  type PkmMergeDecision,
+  type PkmSyncCheckpointMetadata,
+  type PkmUpgradeContext,
+  type PkmWriteProjection,
 } from "@/lib/services/personal-knowledge-model-service";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeService } from "@/lib/services/pkm-upgrade-service";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 
 const MAX_CONFLICT_RETRIES = 2;
@@ -61,7 +61,6 @@ async function serializeDomainWrite<T>(userId: string, domain: string, run: () =
   try { return await write; }
   finally { if (domainWrites.get(key) === write) domainWrites.delete(key); }
 }
-
 
 export type PkmWriteCoordinatorSaveState =
   | "saved"
@@ -109,6 +108,7 @@ export type PkmWriteCoordinatorResult = {
   idempotentReplay?: boolean;
   conflict?: boolean;
   message?: string;
+  httpStatus?: number;
   dataVersion?: number;
   updatedAt?: string;
   syncCheckpoint?: PkmSyncCheckpointMetadata;
@@ -244,10 +244,10 @@ function pkmWriteFailureResult(
   // way a "Backend returned failure on store" report is diagnosable without
   // pulling server logs.
   console.error("[PkmWriteCoordinator] PKM write failed:", rawMessage);
-  return emptyResult(
+  return { ...emptyResult(
     "failed",
     "We couldn't save this to your vault. Try again, or make sure your vault is set up.",
-  );
+  ), ...(error instanceof PkmStoreDomainError ? { httpStatus: error.status } : {}) };
 }
 
 let reservedWouldRefuseShadowCount = 0;

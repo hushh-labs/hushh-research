@@ -103,7 +103,7 @@ test("three-account Board keeps its measure, heading roles and account actions a
 });
 
 test("a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
-  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, true);
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "broken");
   const account = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
   const avatar = account.locator("[data-photo-source=hussh]");
   await expect(avatar.locator("[data-slot=avatar-fallback]")).toBeVisible();
@@ -111,6 +111,25 @@ test("a broken HUSSH portrait keeps the Calendar account initial and size", asyn
   const bounds = await avatar.boundingBox();
   expect(bounds?.width).toBeGreaterThan(30);
   expect(bounds?.height).toBeGreaterThan(30);
+  expect(unexpectedRequests).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "transparent");
+  for (const section of ["Insights", "Invitations"]) {
+    await page.getByRole("tab", { name: section, exact: true }).click();
+    const owner = page.getByRole("button", { name: "Calendar account: qa-owner@example.com" });
+    await expect.poll(() => owner.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await owner.click();
+    const work = page.getByRole("menuitemradio", { name: /qa-work@example.com/ });
+    await expect.poll(() => work.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(work.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
+    const unmatched = page.getByRole("menuitemradio", { name: /qa-projects@example.com/ });
+    await expect(unmatched.locator("[data-photo-url]")).toHaveCount(0);
+    await expect(unmatched.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
+    await page.keyboard.press("Escape");
+  }
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -187,7 +206,7 @@ for (const width of [320, 390, 1440]) {
     const selectedSurface = await page.locator("[data-highlighted]").evaluate(element => getComputedStyle(element).backgroundColor);
     const inactiveSurface = await page.getByRole("tab", { name: "Free time", exact: true }).evaluate(element => getComputedStyle(element).backgroundColor);
     await expect(page.getByRole("tab", { name: "Today", exact: true })).toHaveCSS("background-color", selectedSurface);
-    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-owner%40example.com");
     await expect(page.getByRole("link", { name: "Join meeting: QA Design Review", exact: true })).toHaveAttribute("href", "https://zoom.us/j/123456789");
     await expect(page.getByRole("link", { name: "Join meeting: QA Client Call – Acme", exact: true })).toHaveAttribute("href", "https://teams.microsoft.com/l/meetup-join/19%3ameeting_qa/0");
     await expect(page.locator('[data-calendar-event="primary:shared-id"] img[src="/one-calendar/providers/google-meet-reference.png"]')).toBeVisible();
@@ -235,7 +254,8 @@ for (const width of [320, 390, 1440]) {
     const menu = page.getByRole("button", { name: "Calendar settings and actions", exact: true });
     await menu.focus(); await page.keyboard.press("Enter");
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await expect(page.getByRole("dialog")).toContainText("Time zone and calendars for this session. Free time checks the whole selected day.");
+    await expect(page.getByRole("dialog")).toContainText("Choose calendars and alternative meeting hours. Free time checks the whole selected day.");
+    await expect(page.getByRole("dialog").getByRole("combobox", { name: "Time zone" })).toHaveCount(0);
     for (let index = 0; index < 6; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.keyboard.press("Escape");
     await expect(menu).toBeFocused();
@@ -351,7 +371,6 @@ if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
     const { errors, unexpectedRequests } = await openFixture(page, width, false, "empty", "future");
     await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await page.getByRole("combobox", { name: "Time zone", exact: true }).selectOption("Asia/Kolkata");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await page.getByRole("button", { name: "Next day", exact: true }).click();
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
@@ -369,7 +388,6 @@ if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
     const today = await openFixture(page, width, false, "empty", "today");
     await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await page.getByRole("combobox", { name: "Time zone", exact: true }).selectOption("Asia/Kolkata");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
     await expect(page.getByText(/^2:13.*11:00 PM$/)).toBeVisible();
@@ -418,8 +436,8 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See your full day in Google Calendar")).toHaveCount(0);
     await page.getByRole("tab", { name: "Invitations", exact: true }).click();
     await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
-    await expect.poll(() => page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("..").locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect.poll(() => page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("..").locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
     await expect(page.getByRole("button", { name: "Show Google contact photos" })).toHaveCount(0);
     const invitationBounds = (await cta.boundingBox())!;
     expect(invitationBounds.width).toBe(scheduleBounds.width);
@@ -429,7 +447,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See more in Google Calendar")).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-list-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
-    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-owner%40example.com");
     const dialog = page.getByRole("dialog", { name: "Invitation details", exact: true });
     await expect(dialog).toBeVisible();
     await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
@@ -574,10 +592,10 @@ for (const width of [390, 1280]) {
         occurrence_id: "d".repeat(64), grant_id: "b".repeat(64),
         sources: [{ calendar_id: "primary", event_id: "restricted" }],
         title: "QA Restricted meeting", start: { dateTime: "2026-10-15T09:00:00Z" },
-        artifact_kinds: [], availability: {}, discovery: "resource_denied", file_state: "provider_policy",
+        artifact_kinds: [], availability: {}, discovery: "meet_discovery_denied", file_state: "unknown",
       }] : [];
       return route.fulfill({ json: {
-        complete: !denied, calendar_complete: true, next_cursor: null, limitations: denied ? ["resource_denied"] : [],
+        complete: !denied, calendar_complete: true, next_cursor: null, limitations: denied ? ["meet_discovery_denied"] : [],
         checked_events: denied ? 1 : 0, meeting_file_access: "ready", meetings,
         account_id: "default", date: body.date, time_zone: body.time_zone,
       } });
@@ -586,7 +604,7 @@ for (const width of [390, 1280]) {
     await page.getByRole("button", { name: /Recordings & Notes/ }).click();
     await expect(page.getByText("No timed meetings for this day.")).toBeVisible();
     await page.getByRole("button", { name: "Next day" }).click();
-    await expect(page.getByText(/Google denied access to one or more meeting files/)).toBeVisible();
+    await expect(page.getByText(/Google denied the Meet discovery check/)).toBeVisible();
     await expect(page.getByRole("button", { name: /QA Restricted meeting/ })).toBeVisible();
     await expect(page.getByText("No timed meetings for this day.")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Allow recording and notes access" })).toHaveCount(0);
@@ -689,11 +707,11 @@ test("quiet loading preserves same-context previews and exposes real failures", 
   await page.screenshot({ path: path.join(screenshotDirectory, "insights-background-refresh.png") });
   release();
   await expect(page.getByRole("alert")).toBeVisible();
-  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
   gate = new Promise<void>(resolve => { release = resolve; });
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Snapshot loading")).toBeVisible();
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Snapshot loading")).toHaveCount(0);
   release();
   await expect(page.getByRole("alert")).toBeVisible();
 });

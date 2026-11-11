@@ -30,9 +30,9 @@ FRONTEND_BUILD = ROOT / "deploy" / "frontend.cloudbuild.yaml"
 FRONTEND_IMAGE_BUILD = ROOT / "deploy" / "frontend-image.cloudbuild.yaml"
 AWAIT_SCRIPT = ROOT / "scripts" / "ci" / "await-prebuilt-image.sh"
 LANES = {
-    "uat": (".github/workflows/deploy-uat.yml", "hushh-pda-uat"),
+    "uat": (".github/workflows/deploy-uat-implementation.yml", "hushh-pda-uat"),
     "production": (".github/workflows/deploy-production.yml", "hushh-pda"),
-    "dev": (".github/workflows/deploy-dev.yml", "hushh-pda-dev"),
+    "dev": (".github/workflows/deploy-dev-implementation.yml", "hushh-pda-dev"),
 }
 DIGEST = "sha256:" + "a" * 64
 BUILD_ID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
@@ -682,7 +682,12 @@ def test_combined_mode_still_deploys_the_tag_it_built(tmp_path: Path) -> None:
 
 
 def _await(
-    tmp_path: Path, statuses: list[str], build_id: str = BUILD_ID, *, status_only: bool = False
+    tmp_path: Path,
+    statuses: list[str],
+    build_id: str = BUILD_ID,
+    *,
+    status_only: bool = False,
+    wait_only: bool = False,
 ):
     manifest, index_digest, child = _manifest_index()
     repository = "gcr.io/hushh-pda-uat/hushh-webapp"
@@ -711,11 +716,21 @@ def _await(
     )
     if status_only:
         command += " --status-only"
+    if wait_only:
+        command += " --wait-only"
     return _run(guards + command), f"{repository}@{child}"
 
 
-def test_await_pins_the_executable_digest_after_success(tmp_path: Path) -> None:
-    result, expected = _await(tmp_path, ["WORKING", "WORKING", "SUCCESS"])
+@pytest.mark.parametrize("wait_only", [False, True])
+def test_await_pins_the_executable_digest_after_success(tmp_path: Path, wait_only: bool) -> None:
+    result, expected = _await(tmp_path, ["WORKING", "WORKING", "SUCCESS"], wait_only=wait_only)
+    if wait_only:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "SUCCESS"
+        assert "streamed-log" not in result.stderr
+        assert not (tmp_path / "image.json").exists()
+        assert not (tmp_path / "manifest.json").exists()
+        return
     assert "UNEXPECTED_" not in result.stdout + result.stderr
     assert result.returncode == 0, result.stderr
     # stdout is exactly the pinned reference; the build log went to stderr.
@@ -725,8 +740,11 @@ def test_await_pins_the_executable_digest_after_success(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("terminal", ["FAILURE", "CANCELLED", "TIMEOUT", "INTERNAL_ERROR", ""])
-def test_await_fails_closed_on_any_non_success(tmp_path: Path, terminal: str) -> None:
-    result, _ = _await(tmp_path, ["QUEUED", terminal])
+@pytest.mark.parametrize("wait_only", [False, True])
+def test_await_fails_closed_on_any_non_success(
+    tmp_path: Path, terminal: str, wait_only: bool
+) -> None:
+    result, _ = _await(tmp_path, ["QUEUED", terminal], wait_only=wait_only)
     assert result.returncode == 1
     assert result.stdout.strip() == ""
     assert "not SUCCESS" in result.stderr

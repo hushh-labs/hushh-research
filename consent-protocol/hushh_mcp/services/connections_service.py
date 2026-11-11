@@ -37,6 +37,7 @@ from hushh_mcp.services.connection_graph_service import (
     lock_connection_graph_users,
 )
 from hushh_mcp.services.connection_mutuals import MUTUAL_CONNECTIONS_SQL
+from hushh_mcp.services.connection_row_metadata import ConnectionRowMetadata
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_MATCH_POLICY_VERSION,
     CONTACT_SYNC_PREFERENCE_DEFAULT,
@@ -179,6 +180,7 @@ def _default_directory_search(
     limit: int,
     audience: str = DIRECTORY_AUDIENCE_ALL,
     name_only: bool = False,
+    typed_search: bool = False,
 ) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
@@ -189,6 +191,7 @@ def _default_directory_search(
         limit=limit,
         audience=audience,
         name_only=name_only,
+        typed_search=typed_search,
     )
 
 
@@ -735,15 +738,25 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        self._assert_directory_visible(viewer, counterpart)
+        person = next(
+            (
+                profile
+                for profile in self._directory_profiles(viewer, [counterpart])
+                if profile.get("userId") == counterpart
+            ),
+            None,
+        )
+        if not person:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
         params = {"viewer": viewer, "counterpart": counterpart}
         row = self._execute_one(
-            """SELECT identity.display_name,
-            COALESCE(identity.custom_photo_url,identity.photo_url) AS photo_url,
-            EXISTS(SELECT 1 FROM connections c WHERE c.status='active'
+            """SELECT EXISTS(SELECT 1 FROM connections c WHERE c.status='active'
                 AND ((c.user_a_id=:viewer AND c.user_b_id=:counterpart)
-                  OR (c.user_b_id=:viewer AND c.user_a_id=:counterpart))) AS connected
-            FROM actor_identity_cache identity WHERE identity.user_id=:counterpart""",
+                  OR (c.user_b_id=:viewer AND c.user_a_id=:counterpart))) AS connected""",
             params,
         )
         if not row:
@@ -770,8 +783,9 @@ class ConnectionsService:
         return {
             "person": {
                 "userId": counterpart,
-                "displayName": row.get("display_name"),
-                "photoUrl": row.get("photo_url"),
+                "publicPersonRef": person.get("publicPersonRef"),
+                "displayName": person.get("displayName"),
+                "photoUrl": person.get("photoUrl"),
                 "email": None,
                 "relationship": relationship,
             },
@@ -3105,6 +3119,7 @@ class ConnectionsService:
         limit: int,
         audience: str,
         name_only: bool = False,
+        typed_search: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         """Call the injected directory search with the options it supports.
 
@@ -3130,13 +3145,12 @@ class ConnectionsService:
         options: dict[str, Any] = {"query": query, "page": page, "limit": limit}
         if accepts_audience:
             options["audience"] = audience
-        if name_only and (
-            "name_only" in parameters
-            or any(
-                parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
-            )
-        ):
-            options["name_only"] = name_only
+        accepts_options = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+        )
+        for option, enabled in (("name_only", name_only), ("typed_search", typed_search)):
+            if enabled and (option in parameters or accepts_options):
+                options[option] = True
         return directory_search(owner_user_id, **options), accepts_audience
 
     def _filter_people_by_audience(
@@ -3203,6 +3217,7 @@ class ConnectionsService:
         limit: int = 20,
         audience: str = DIRECTORY_AUDIENCE_ALL,
         name_only: bool = False,
+        typed_search: bool = False,
     ) -> dict[str, Any]:
         """Search visible people; name resolvers opt out of contact-only matches."""
         user_id = (user_id or "").strip()
@@ -3232,6 +3247,7 @@ class ConnectionsService:
                 limit=limit,
                 audience=audience,
                 name_only=name_only,
+                typed_search=typed_search,
             )
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
@@ -3254,6 +3270,7 @@ class ConnectionsService:
                         phone_number=person.get("phoneNumber"),
                         phone_verified=bool(person.get("phoneVerified")),
                         name_only=name_only,
+                        typed_search=typed_search,
                     )
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]
@@ -3296,117 +3313,21 @@ class ConnectionsService:
         # Annotate only the returned page. Reading the caller's entire pending
         # and connected graph here made a 20-row directory page scale with all
         # 5,000 relationships instead of with the page the caller can see.
-        page_user_ids = sorted(
-            {str(person.get("userId") or "") for person in people} - {"", user_id}
-        )
-        out_pending = {
-            str(r.get("addressee_user_id") or "")
-            for r in (
-                self._execute_many(
-                    """
-                SELECT addressee_user_id FROM connection_requests
-                WHERE requester_user_id = :user_id
-                  AND addressee_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
-                  AND status = 'pending'
-                """,
-                    {"user_id": user_id, "page_user_ids": page_user_ids},
-                )
-                if page_user_ids
-                else []
-            )
-        }
-        in_pending = {
-            str(r.get("requester_user_id") or "")
-            for r in (
-                self._execute_many(
-                    """
-                SELECT requester_user_id FROM connection_requests
-                WHERE addressee_user_id = :user_id
-                  AND requester_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
-                  AND status = 'pending'
-                """,
-                    {"user_id": user_id, "page_user_ids": page_user_ids},
-                )
-                if page_user_ids
-                else []
-            )
-        }
-        connected: set[str] = set()
-        connection_rows = (
-            self._execute_many(
-                """
-                SELECT user_a_id, user_b_id FROM connections
-                WHERE status = 'active'
-                  AND (
-                    (user_a_id = :user_id
-                     AND user_b_id = ANY(CAST(:page_user_ids AS TEXT[])))
-                    OR
-                    (user_b_id = :user_id
-                     AND user_a_id = ANY(CAST(:page_user_ids AS TEXT[])))
-                  )
-                """,
-                {"user_id": user_id, "page_user_ids": page_user_ids},
-            )
-            if page_user_ids
-            else []
-        )
-        for r in connection_rows:
-            a = str(r.get("user_a_id") or "")
-            b = str(r.get("user_b_id") or "")
-            connected.add(b if a == user_id else a)
-
-        def relationship(uid: str) -> str:
-            if uid in connected:
-                return "connected"
-            if uid in out_pending:
-                return "pending_outgoing"
-            if uid in in_pending:
-                return "pending_incoming"
-            return "none"
-
         # Annotated on the row, not inferred from which tab asked: voice name
         # resolution searches everyone, and a row that only knew its kind from
         # its tab would go back to being unlabelled there. Same for roleLabel.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
         public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
-        # One page-bound graph read, then a bounded live directory lookup for
-        # shared peers. Preview visibility must not depend on the current page.
-        mutual_rows = (
-            self._execute_many(
-                MUTUAL_CONNECTIONS_SQL,
-                {"user_id": user_id, "page_user_ids": page_user_ids},
-            )
-            if page_user_ids
-            else []
-        )
-        mutuals = {str(row.get("candidate_id") or ""): row for row in mutual_rows}
-        preview_user_ids = sorted(
-            {str(row.get("preview_user_id") or "") for row in mutual_rows} - {""}
-        )
-        eligible_people = (
-            {
-                str(person.get("userId") or ""): person
-                for person in self._directory_profiles(user_id, preview_user_ids)
-            }
-            if preview_user_ids
-            else {}
-        )
-
-        def mutual_payload(uid: str) -> dict[str, Any]:
-            row = mutuals.get(uid) or {}
-            count = max(0, int(row.get("mutual_count") or 0))
-            peer = eligible_people.get(str(row.get("preview_user_id") or ""))
-            return {
-                "mutualConnectionCount": count,
-                "mutualConnectionPreview": {
-                    "displayName": peer["displayName"],
-                    "photoUrl": peer.get("photoUrl"),
-                    "publicPersonRef": peer.get("publicPersonRef"),
-                }
-                if count and peer and peer.get("displayName")
-                else None,
-            }
+        metadata = ConnectionRowMetadata(
+            self,
+            user_id,
+            [
+                {**p, "publicPersonRef": public_person_refs.get(str(p.get("userId") or ""))}
+                for p in people
+            ],
+            self._directory_profiles,
+        ).settle()
 
         return {
             "items": [
@@ -3421,8 +3342,7 @@ class ConnectionsService:
                         (p.get("phoneNumber") if p.get("phoneVerified") else None)
                         or p.get("maskedPhone")
                     ),
-                    "relationship": relationship(str(p.get("userId") or "")),
-                    **mutual_payload(str(p.get("userId") or "")),
+                    **metadata[str(p.get("userId") or "")],
                     "isRia": str(p.get("userId") or "") in ria_user_ids,
                     **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
                 }
@@ -3431,6 +3351,84 @@ class ConnectionsService:
             "page": page,
             "hasMore": has_more,
             "audience": audience,
+        }
+
+    def list_mutual_connections_page(
+        self, user_id: str, *, person_ref: str, page: int = 1, limit: int = 20
+    ) -> dict[str, Any]:
+        """Read shared identities through the same live directory eligibility gate."""
+        from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+        target = self._execute_one(
+            """SELECT user_id FROM actor_profiles
+               WHERE public_person_ref = CAST(:person_ref AS UUID)
+                 AND public_profile_status = 'active' LIMIT 1""",
+            {"person_ref": person_ref},
+        )
+        target_id = str((target or {}).get("user_id") or "")
+        profiles = (
+            self._directory_profiles(user_id, [target_id])
+            if target_id and target_id != user_id
+            else []
+        )
+        if not profiles:
+            raise ConnectionsError(
+                "MUTUAL_CONNECTIONS_UNAVAILABLE",
+                "This person's connections are unavailable.",
+                status_code=404,
+            )
+        result = OneLocationAgentService().search_directory_candidates(
+            owner_user_id=user_id,
+            mutual_target_user_id=target_id,
+            page=page,
+            limit=limit,
+        )
+        metadata = ConnectionRowMetadata(self, user_id, result["items"], self._directory_profiles)
+        from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
+        from hushh_mcp.services.directory_candidate_statement import (
+            DIRECTORY_PROFILE_ELIGIBILITY_SQL,
+        )
+
+        context_sql = f"""WITH mutual AS ({MUTUAL_CONNECTIONS_SQL})
+            SELECT EXISTS (SELECT 1 FROM actor_profiles profile
+              WHERE profile.user_id = :target AND profile.public_person_ref::TEXT = :person_ref
+                AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL})) AS target_available,
+              COALESCE((SELECT mutual_count FROM mutual WHERE candidate_id = :target), 0) AS total_count
+            """.replace(":page_user_ids", ":count_target_ids")  # nosec B608 -- static fragments
+        payloads = metadata.settle(
+            f"""SELECT profile.user_id, 1 AS degree, FALSE AS overflow
+            FROM actor_profiles profile JOIN actor_profiles target ON target.user_id = :mutual_target_user_id
+            WHERE target.public_profile_status = 'active'
+              AND target.public_person_ref::TEXT = :person_ref
+              AND profile.user_id = ANY(CAST(:candidates AS TEXT[]))
+              AND ({MUTUAL_DIRECTORY_FILTER_SQL})""",  # nosec B608 -- static fragment
+            {
+                "mutual_target_user_id": target_id,
+                "person_ref": person_ref,
+                "target": target_id,
+                "count_target_ids": [target_id],
+                "candidates": [str(p["userId"]) for p in result["items"]],
+            },
+            context_sql=context_sql,
+        )
+        return {
+            "person": {
+                "publicPersonRef": person_ref,
+                "displayName": profiles[0].get("displayName"),
+            },
+            "items": [
+                {
+                    "publicPersonRef": person.get("publicPersonRef"),
+                    "displayName": person.get("displayName"),
+                    "photoUrl": person.get("photoUrl"),
+                    **payloads[str(person["userId"])],
+                }
+                for person in result["items"]
+                if person.get("publicPersonRef")
+            ],
+            "page": result["page"],
+            "hasMore": result["hasMore"],
+            "totalCount": metadata.total_count or 0,
         }
 
     @staticmethod
@@ -3558,6 +3556,13 @@ class ConnectionsService:
               ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
             WHERE c.status = 'active'
               AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
+              AND NOT EXISTS (
+                SELECT 1 FROM account_deletion_tombstones deletion
+                WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                  CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END,
+                  'UTF8'
+                )), 'hex')
+              )
             ORDER BY c.created_at DESC
             """,
             {"user_id": user_id},
@@ -3629,6 +3634,14 @@ class ConnectionsService:
                 AND (
                   connection.user_a_id = :user_id
                   OR connection.user_b_id = :user_id
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM account_deletion_tombstones deletion
+                  WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                    CASE WHEN connection.user_a_id = :user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END,
+                    'UTF8'
+                  )), 'hex')
                 )
                 AND (
                   :query = ''

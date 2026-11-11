@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { RecoveryCheckpointUnreadableError } from "@/lib/services/recovery-checkpoint-error";
 import { openSecureResourceDb, SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 
 const USER_ID = "uid-secure-cache";
@@ -86,13 +87,29 @@ describe("SecureResourceCacheService.writeRequired", () => {
     const params = { userId: USER_ID, resourceKey: "migration:test", vaultKey: VAULT_KEY };
     await expect(SecureResourceCacheService.readRequired(params)).resolves.toBeNull();
     await SecureResourceCacheService.writeRequired({ ...params, value: { revision: "synthetic-recovery" }, ttlMs: 60_000 });
-    await expect(SecureResourceCacheService.readRequired({ ...params, vaultKey: "cd".repeat(32) })).rejects.toThrow();
+    // Recovery may step past a checkpoint that can never be read, so the reason is typed.
+    await expect(SecureResourceCacheService.readRequired({ ...params, vaultKey: "cd".repeat(32) }))
+      .rejects.toMatchObject({ name: "RecoveryCheckpointUnreadableError", reason: "unreadable" });
     await expect(SecureResourceCacheService.readRequired(params)).resolves.toEqual({ revision: "synthetic-recovery" });
   });
   it("expired recovery stays encrypted rather than becoming a new absent job", async () => {
     const params = { userId: USER_ID, resourceKey: "migration:test", vaultKey: VAULT_KEY };
     await SecureResourceCacheService.writeRequired({ ...params, value: { revision: "synthetic-recovery" }, ttlMs: -1 });
-    await expect(SecureResourceCacheService.readRequired(params)).rejects.toThrow("needs review");
+    const expired = await SecureResourceCacheService.readRequired(params).catch((error: unknown) => error);
+    expect(expired).toBeInstanceOf(RecoveryCheckpointUnreadableError);
+    expect(expired).toMatchObject({ reason: "expired", message: expect.stringContaining("needs review") });
+    expect(await readRawCacheRecord()).not.toBeNull();
+  });
+  it("keeps a checkpoint written ahead of this device's clock retryable", async () => {
+    const params = { userId: USER_ID, resourceKey: "migration:test", vaultKey: VAULT_KEY };
+    await SecureResourceCacheService.writeRequired({ ...params, value: { revision: "synthetic-recovery" }, ttlMs: 60_000 });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() - 60 * 60_000);
+    const behind = await SecureResourceCacheService.readRequired(params).catch((error: unknown) => error);
+    vi.useRealTimers();
+    // The clock catches up, so recovery must retry it rather than hold it.
+    expect(behind).toBeInstanceOf(Error);
+    expect(behind).not.toBeInstanceOf(RecoveryCheckpointUnreadableError);
     expect(await readRawCacheRecord()).not.toBeNull();
   });
   it("commits an encrypted record before callers retire a legacy source", async () => {

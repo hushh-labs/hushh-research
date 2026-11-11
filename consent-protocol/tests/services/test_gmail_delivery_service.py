@@ -138,6 +138,9 @@ def test_normalized_delivery_envelope_rejects_header_injection_and_deduplicates(
         normalize_draft(
             {"to": ["to@example.com"], "subject": "safe\r\nBcc: x@example.com", "body": ""}
         )
+    # Regression: getaddresses joined "a@x.com dev" into "a@x.comdev", a different mailbox.
+    with pytest.raises(GmailDeliveryError, match="invalid email address"):
+        normalize_draft({"to": ["sharu@example.com dev"], "subject": "", "body": ""})
 
 
 class _Transaction:

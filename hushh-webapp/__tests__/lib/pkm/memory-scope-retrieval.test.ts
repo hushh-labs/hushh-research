@@ -39,6 +39,10 @@ function payload(path: string, value: unknown): Record<string, unknown> {
   return result;
 }
 const resultValue = (result: Awaited<ReturnType<typeof retrieveApprovedMemoryScopes>>, scope: string, path: string) => atPath(result.projections.find(item => item.scope === scope)?.payload ?? {}, path);
+const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+// The coordinator's default merge: keys missing from the candidate are kept.
+const deepMerge = (base: unknown, next: unknown): unknown => !isObject(base) || !isObject(next) ? next
+  : Object.fromEntries([...new Set([...Object.keys(base), ...Object.keys(next)])].map(key => [key, key in next ? deepMerge(base[key], next[key]) : base[key]]));
 
 beforeEach(() => {
   vi.clearAllMocks(); advanceVaultSessionEpoch(); CacheService.getInstance().clear();
@@ -57,8 +61,11 @@ beforeEach(() => {
   transport.write.mockImplementation(async params => {
     await params.beforeEffect();
     const plan = await params.build({ currentDomainData: structuredClone(projection) });
-    // Simulate the existing writer's durable round trip and its own doorbell.
-    projection = JSON.parse(JSON.stringify(plan.domainData)); bumpPkmInvalidationEpoch(USER);
+    // Simulate the existing writer's durable round trip and its own doorbell, as
+    // the coordinator stores it: nothing for an unchanged plan, and a deep merge
+    // unless the plan replaces the domain.
+    if (!plan.unchanged) projection = JSON.parse(JSON.stringify(plan.mergeDecision?.merge_mode === "replace_domain" ? plan.domainData : deepMerge(projection, plan.domainData)));
+    bumpPkmInvalidationEpoch(USER);
     return { success: true };
   });
 });
@@ -123,6 +130,9 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     const corrected = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME, SEX], ownerIdentity: { displayName: "Account Ava" } });
     expect(resultValue(corrected, NAME, "identity_profile.full_name")).toBe("Corrected Ava"); expect(resultValue(corrected, SEX, "identity_profile.sex")).toBeUndefined();
     expect(corrected.projections.find(item => item.scope === NAME)?.contentRevision).toBe(10);
+    // The rebuilt slice is reused next, so the deleted fact must not survive in storage.
+    const reused = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME, SEX], ownerIdentity: { displayName: "Account Ava" } });
+    expect(resultValue(reused, SEX, "identity_profile.sex")).toBeUndefined();
   });
 
   it("never turns a failed revision check or failed DOB read into cached absence", async () => {
@@ -168,6 +178,33 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     transport.load.mockImplementationOnce(async () => { advanceVaultSessionEpoch(); return { snapshot: null, data: null }; });
     const locked = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME] });
     expect(locked.projections).toEqual([]); expect(locked.complete).toBe(false);
+  });
+
+  it.each(["object", "array", "excluded_leaf", "private_scope", "internal_parent", "unknown_parent"])("honors explicit leaf admission beneath structural containers: %s", async posture => {
+    const parent = posture === "internal_parent" ? "_private.scope_access_rehearsal" : "agent_memory.scope_access_rehearsal";
+    const path = `${parent}.role`;
+    const scope = `attr.professional.${path}`;
+    const snapshot = envelope("professional", 1, 2, [path]);
+    const source = { ...snapshot, manifest: { ...snapshot.manifest,
+      paths: [
+        { json_path: parent, path_type: posture === "array" ? "array" : posture === "unknown_parent" ? undefined : "object", exposure_eligibility: false },
+        { json_path: path, path_type: "leaf", exposure_eligibility: posture !== "excluded_leaf" },
+      ],
+      scope_registry: posture === "private_scope" ? [{ exposure_enabled: false, summary_projection: { top_level_scope_path: "agent_memory" } }] : [],
+    } };
+    transport.snapshot.mockImplementation(async ({ domain }: { domain: string }) => domain === "professional" ? source : null);
+    transport.export.mockResolvedValue({ payload: { professional: payload(path, "Synthetic role") }, sourceContentRevision: 1, sourceManifestRevision: 2 });
+
+    const result = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [scope] });
+    if (posture === "object" || posture === "array") {
+      expect(result.complete).toBe(true);
+      expect(resultValue(result, scope, path)).toBe("Synthetic role");
+      await expect(result.assertCurrent()).resolves.toBeUndefined();
+    } else {
+      expect(result).toMatchObject({ complete: false, unavailableScopes: [scope], projections: [] });
+      expect(transport.export).not.toHaveBeenCalled();
+      expect(transport.write).not.toHaveBeenCalled();
+    }
   });
 
   it("rechecks current exposure posture and never lets a Soul fallback bypass an exact blocked scope", async () => {
@@ -322,6 +359,27 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     expect(JSON.stringify(served)).not.toContain("Inventory Ava");
     expect(Object.values(served.sourceFreshness).flatMap(entry => entry.sources.map(source => source.domain))).not.toContain("one_living_sources");
     expect(answerScopeAvailability({ scopes: [NAME, SEX], retrieval: served }).available).toEqual([NAME, SEX]);
+  });
+
+  it("stores a slice again after it changes back, as a fresh write the server cannot refuse", async () => {
+    // commit_pkm_domain_mutation_v4 binds a reused receipt to its first base revision.
+    let revision = 0;
+    const bound = new Map<string, number>();
+    const write = transport.write.getMockImplementation()!;
+    transport.write.mockImplementation(async params => {
+      const scope = params.idempotencyScope as string | undefined;
+      if (scope && (bound.get(scope) ?? revision) !== revision) return { success: false };
+      if (scope && !bound.has(scope)) bound.set(scope, revision);
+      revision += 1;
+      return write(params);
+    });
+    for (const displayName of ["Account Ava", "Updated account", "Account Ava"]) {
+      CacheService.getInstance().clear();
+      const result = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME], ownerIdentity: { displayName } });
+      expect(result.complete).toBe(true);
+      expect(resultValue(result, NAME, "identity_profile.full_name")).toBe(displayName);
+    }
+    expect(transport.write).toHaveBeenCalledTimes(3);
   });
 });
 

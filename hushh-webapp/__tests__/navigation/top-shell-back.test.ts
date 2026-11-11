@@ -10,6 +10,18 @@ import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { buildKaiImportRoute, ROUTES } from "@/lib/navigation/routes";
 
 describe("top shell back action", () => {
+  it("retraces profile, mutuals and directory before leaving the Connect section", () => {
+    const mutuals = "/one/connect?tab=all&q=Kushal&mutuals=person-kushal";
+    expect(resolveTopShellBackAction({ pathname: "/people/person-manish",
+      searchParams: new URLSearchParams({ from: mutuals }), sectionOrigin: "/one/location",
+    })).toEqual({ href: mutuals, mode: "push", transitionMode: "full" });
+    expect(resolveTopShellBackAction({ pathname: ROUTES.CONNECT,
+      searchParams: new URLSearchParams(mutuals.split("?")[1]), sectionOrigin: "/one/location",
+    })).toEqual({ href: "/one/connect?tab=all&q=Kushal", mode: "replace", transitionMode: "contextual" });
+    expect(resolveTopShellBackAction({ pathname: ROUTES.CONNECT,
+      searchParams: new URLSearchParams("tab=all&view=connections&mutuals=person-kushal"), sectionOrigin: "/one/location",
+    })?.href).toBe("/one/connect?tab=all");
+  });
   it.each(["debate", "summary", "detailed"])("closes the Finance %s selection before leaving Stocks", (view) => {
     expect(resolveTopShellBackAction({
       pathname: "/one/kai", searchParams: new URLSearchParams({ tab: "analysis", view }),

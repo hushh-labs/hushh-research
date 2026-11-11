@@ -33,6 +33,7 @@ async function openFixture(page: Page, width: number, theme = "light") {
 }
 
 const taskIds = ["request-files", "ask-about-files", "request-scope", "request-cards"];
+
 async function boxes(page: Page) {
   return page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>("[data-id]")].map((el) => {
     const { top, bottom, left, right, width, height } = el.getBoundingClientRect();
@@ -48,6 +49,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
         const hero = root.firstElementChild!;
         const cover = hero.firstElementChild!;
         const avatar = hero.querySelector('[data-slot="avatar"]')!;
+        const footer = hero.querySelector('[class*="heroFooter"]')!;
         const title = root.querySelector("h1")!;
         const section = root.querySelector("h2")!;
         const empty = [...root.querySelectorAll("section")].find(node => node.textContent === "Nothing shared yet")!;
@@ -60,6 +62,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
           return { left, width, height, top, bottom };
         };
         return { title: style(title), section: style(section), hero: style(hero), cover: rect(cover), avatar: rect(avatar),
+          footerBorder: getComputedStyle(footer).borderTopWidth,
           empty: rect(empty), shell: rect(root.parentElement!), heroBox: rect(hero), titleBox: rect(title),
           historyTitle: rect(root.querySelector('[class*="historyTitle"]')!),
           pagination: style(root.querySelector('[class*="pagination"] > span')!),
@@ -72,6 +75,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(geometry.cover.height).toBe(width < 768 ? 94 : 120);
       expect(geometry.avatar.width).toBe(width < 768 ? 64 : 76);
       expect(geometry.cover.bottom - geometry.avatar.top).toBe(width < 768 ? 24 : 30);
+      expect(geometry.footerBorder).toBe("0px");
       expect(geometry.titleBox.left - geometry.heroBox.left).toBe(width < 768 ? 17 : 25);
       expect(geometry.empty.height).toBe(width < 768 ? 62 : 68);
       expect(geometry.historyTitle.width).toBeGreaterThanOrEqual(160);
@@ -79,6 +83,9 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(geometry.pagination).toMatchObject({ size: "12px", line: "18px" });
       expect(geometry.shell.width).toBeLessThanOrEqual(880);
       const rect = await boxes(page);
+      expect(rect.connected.height).toBeGreaterThanOrEqual(44);
+      expect(rect.connected.top).toBeGreaterThanOrEqual(geometry.cover.bottom);
+      expect(rect.connected.right).toBeLessThanOrEqual(geometry.heroBox.left + geometry.heroBox.width);
       expect(rect.request.height).toBe(44);
       expect(rect.share.height).toBe(44);
       expect(Math.abs(rect.request.top - rect.share.top)).toBeLessThan(1);
@@ -97,7 +104,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       expect(Math.abs(rect[taskIds[0]].top - rect[taskIds[1]].top)).toBeLessThan(1);
       if (width >= 1024) expect(Math.abs(rect[taskIds[0]].top - rect[taskIds[3]].top)).toBeLessThan(1);
       else expect(rect[taskIds[2]].top).toBeGreaterThanOrEqual(rect[taskIds[0]].bottom);
-      expect(rect.manage.top).toBeGreaterThanOrEqual(rect[taskIds[3]].bottom);
+      expect(rect.manage.top - rect[taskIds[3]].bottom).toBeGreaterThanOrEqual(12);
       expect(rect.manage.height).toBeGreaterThanOrEqual(44);
       expect(rect.review.height).toBe(44);
       expect(rect.review.width).toBeLessThan(250);
@@ -109,6 +116,88 @@ for (const width of [320, 393, 768, 1024, 1440]) {
       if (width === 393 && theme === "light") await page.screenshot({ path: testInfo.outputPath("profile-v16-lower.png") });
     });
   }
+}
+
+for (const width of [320, 1024]) {
+  test(`Connected menu stays usable below the cover at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const trigger = page.getByRole("button", { name: "Connected, connection options" });
+    await trigger.click();
+    await expect(page.getByRole("menuitem", { name: "Remove connection" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+  });
+}
+
+for (const width of [320, 393]) {
+  test(`catalog checkbox stays beside its label at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.getByRole("button", { name: "Open Professional" }).click();
+    const row = page.getByTestId("consent-scope-row-synthetic-Professional");
+    const title = row.locator('[data-slot="settings-row-title"]');
+    const checkbox = row.getByRole("checkbox", { name: "Professional details" });
+    await expect(checkbox).toBeVisible();
+    await title.evaluate((node) => { node.textContent = "Professional details with a much longer description"; });
+    const geometry = await row.evaluate((node) => {
+      const rect = (element: Element) => {
+        const { left, right, top, bottom } = element.getBoundingClientRect();
+        return { left, right, top, bottom };
+      };
+      return {
+        row: rect(node),
+        title: rect(node.querySelector('[data-slot="settings-row-title"]')!),
+        checkbox: rect(node.querySelector('input[type="checkbox"]')!),
+      };
+    });
+    expect(geometry.title.right).toBeLessThan(geometry.checkbox.left);
+    expect(Math.abs((geometry.title.top + geometry.title.bottom) / 2 - (geometry.checkbox.top + geometry.checkbox.bottom) / 2)).toBeLessThan(2);
+    expect(geometry.checkbox.right).toBeLessThan(geometry.row.right);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  });
+}
+
+for (const [width, height] of [[320, 568], [390, 844]]) {
+  test(`information review choices and long labels fit ${width}x${height}`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.setViewportSize({ width, height });
+    await page.locator('[data-id="review"]').click();
+    const dialog = page.getByRole("dialog", { name: "Request information from Aarav Sharma" });
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => dialog.evaluate((node) => node.getBoundingClientRect().width / node.offsetWidth)).toBe(1);
+    await expect(dialog.getByRole("group", { name: "Access duration" })).toBeVisible();
+    const selected = dialog.getByRole("radio", { name: "7 days" });
+    await expect(selected).toBeChecked();
+    const optionBoxes = await dialog.locator('[data-testid^="person-profile-duration-"]:not([data-testid="person-profile-duration-options"])').evaluateAll((inputs) => inputs.map((input) => {
+      const { left, right, top, bottom, height } = input.parentElement!.getBoundingClientRect();
+      return { left, right, top, bottom, height };
+    }));
+    expect(optionBoxes).toHaveLength(4);
+    expect(optionBoxes[0]!.height).toBeGreaterThanOrEqual(44);
+    expect(optionBoxes[0]!.top).toBeCloseTo(optionBoxes[1]!.top, 0);
+    expect(optionBoxes[2]!.top).toBeGreaterThanOrEqual(optionBoxes[0]!.bottom);
+    const geometry = await dialog.evaluate((node) => {
+      const dialogBox = node.getBoundingClientRect();
+      const row = node.querySelector('[data-testid="person-profile-scope-row-synthetic-wallet-summary"]')!;
+      const rowBox = row.getBoundingClientRect();
+      const label = row.firstElementChild!.getBoundingClientRect();
+      const pill = row.lastElementChild!.getBoundingClientRect();
+      return {
+        dialogLeft: dialogBox.left, dialogRight: dialogBox.right, dialogBottom: dialogBox.bottom,
+        labelLeft: label.left, labelRight: label.right, pillLeft: pill.left, pillRight: pill.right,
+        rowLeft: rowBox.left, rowRight: rowBox.right, rowOverflow: row.scrollWidth - row.clientWidth,
+      };
+    });
+    expect(geometry.dialogLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.dialogRight).toBeLessThanOrEqual(width);
+    expect(geometry.dialogBottom).toBeLessThanOrEqual(height);
+    expect(geometry.labelLeft).toBeGreaterThanOrEqual(geometry.rowLeft);
+    expect(geometry.labelRight).toBeLessThanOrEqual(geometry.pillLeft);
+    expect(geometry.pillRight).toBeLessThanOrEqual(geometry.rowRight);
+    expect(geometry.rowOverflow).toBeLessThanOrEqual(0);
+    await dialog.getByTestId("person-profile-duration-24").locator("xpath=..").click();
+    await expect(dialog.getByRole("radio", { name: "1 day" })).toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
+  });
 }
 
 test("long mixed-direction details, sparse actions and focus remain usable at 320px", async ({ page, browserName }) => {
@@ -128,8 +217,13 @@ test("long mixed-direction details, sparse actions and focus remain usable at 32
   })).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   // WebKit's macOS full keyboard access uses Option+Tab to include buttons.
-  for (let i = 0; i < 6; i++) await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  const tabKey = browserName === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab";
   const question = page.getByRole("button", { name: "Ask a question", exact: true });
+  // Native tab settings can omit links; the action must remain reachable within six presses.
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press(tabKey);
+    if (await question.evaluate((node) => document.activeElement === node)) break;
+  }
   await expect(question).toBeFocused();
   expect(await question.evaluate(el => getComputedStyle(el).boxShadow)).not.toBe("none");
   await page.locator('[data-id="share"]').evaluate(el => {
@@ -305,4 +399,175 @@ test("v18 phone keyboard and acknowledged native overlay seats keep actions reac
   expect(seat.top).toBeGreaterThanOrEqual(60);
   expect(seat.bottom).toBeLessThanOrEqual(544);
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
+});
+
+test.describe("Connected profile preview and network return", () => {
+  let fixture: PersonProfileBrowserFixture;
+  let css: string;
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    fixture = await buildPersonProfileBrowserFixture({ includePresentation: false, includeRequests: false, includePreview: true });
+    css = fixture.css;
+  });
+  test.afterAll(() => fixture?.dispose());
+  for (const width of [393, 1280]) {
+    test(`connected avatar preserves the source sheet, choices and search at ${width}px @feature_connected_profiles @loop_smoke`, async ({ page }, testInfo) => {
+      test.setTimeout(90_000);
+      const errors: string[] = [];
+      page.on("pageerror", error => { errors.push(error.message); console.error("Preview fixture:", error.message); });
+      await page.setViewportSize({ width, height: 900 });
+      await page.route("http://localhost:41839/**", route => route.fulfill({ contentType: "text/html", body: `<html><head><title>Connected profile return verification</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+      await page.goto("http://localhost:41839/one/location?action=share&step=people");
+      await page.addScriptTag({ content: fixture.previewScript! });
+      const source = page.getByRole("dialog", { name: "Add people to circle", exact: true });
+      await expect(source).toBeVisible();
+      await source.getByRole("textbox", { name: "Search connections" }).fill("Aar");
+      await source.getByRole("button", { name: "Select Aarav for circle" }).click();
+      const before = await source.boundingBox();
+      await source.getByRole("button", { name: "View Aarav Sharma's profile" }).click();
+      const profile = page.locator("[data-person-profile-preview]");
+      await expect(profile.getByRole("heading", { name: "Aarav Sharma" })).toBeVisible();
+      const badge = profile.getByRole("button", { name: "RIA verified" });
+      await badge.click();
+      const explanation = page.getByRole("dialog", { name: "RIA verified" });
+      await expect(explanation).toContainText("This person is verified as a registered investment adviser (RIA).");
+      await page.keyboard.press("Escape");
+      await expect(explanation).toBeHidden();
+      await expect(badge).toBeFocused();
+      await expect(page.locator("button button, a button")).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+      await page.screenshot({ path: testInfo.outputPath("connected-profile-open.png") });
+      await profile.getByRole("button", { name: "Back to previous screen" }).evaluate(element => {
+        // Both taps arrive before the asynchronous history pop completes.
+        (element as HTMLButtonElement).click();
+        (element as HTMLButtonElement).click();
+      });
+      await expect(profile).toHaveCount(0);
+      await expect(source).toBeVisible();
+      await expect(page).toHaveURL("http://localhost:41839/one/location?action=share&step=people");
+      await expect(source.getByRole("textbox", { name: "Search connections" })).toHaveValue("Aar");
+      await expect(source.getByRole("button", { name: "Select Aarav for circle" })).toHaveAttribute("aria-pressed", "true");
+      expect(await source.boundingBox()).toEqual(before);
+      await expect(source.getByRole("button", { name: "View Aarav Sharma's profile" })).toBeFocused();
+      await source.getByRole("button", { name: "View Maya Singh's profile" }).click();
+      await expect(profile.getByRole("heading", { name: "Maya Singh" })).toBeVisible();
+      await expect(profile.getByRole("heading", { name: "Aarav Sharma" })).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(profile).toHaveCount(0);
+      await expect(source).toBeVisible();
+      await source.getByRole("button", { name: "View Aarav Sharma's profile" }).click();
+      await profile.getByRole("button", { name: "Request information" }).click();
+      await expect(page.getByRole("dialog", { name: "Review information request", exact: true })).toBeVisible();
+      // Back may be consumed by the dialog without a navigation/load event.
+      await page.evaluate(() => history.back());
+      await expect(page.getByRole("dialog", { name: "Review information request", exact: true })).toHaveCount(0);
+      await expect(profile).toBeVisible();
+      await page.evaluate(() => history.back());
+      await expect(profile).toHaveCount(0);
+      await expect(source).toBeVisible();
+      await expect(source.getByRole("textbox", { name: "Search connections" })).toHaveValue("Aar");
+      await expect(source.getByRole("button", { name: "Select Aarav for circle" })).toHaveAttribute("aria-pressed", "true");
+      expect(errors).toEqual([]);
+      await page.screenshot({ path: testInfo.outputPath("connected-profile-return.png") });
+    });
+  }
+
+  for (const width of [320, 393, 768, 1440]) {
+    test(`network journey retraces mutuals of mutuals, shared lists and degrees at ${width}px @feature_mutual_connections @loop_smoke`, async ({ page }, testInfo) => {
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.setViewportSize({ width, height: 900 });
+      await page.route("http://localhost:41839/**", route => route.fulfill({ contentType: "text/html", body: `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+      await page.goto("http://localhost:41839/one/location?action=share&step=people");
+      await page.addScriptTag({ content: fixture.previewScript! });
+      const source = page.getByRole("dialog", { name: "Add people to circle", exact: true });
+      await source.getByRole("textbox", { name: "Search connections" }).fill("Aar");
+      await source.getByRole("button", { name: "Select Aarav for circle" }).click();
+      await source.getByRole("button", { name: "View Aarav Sharma's profile" }).click();
+      const preview = page.locator("[data-person-profile-preview]");
+      const back = () => preview.getByRole("button", { name: "Back to previous screen" }).click();
+      await preview.getByRole("button", { name: "2 mutual connections", exact: true }).click();
+      await preview.getByRole("button", { name: "Open Maya Singh's profile" }).click();
+      await expect(preview.getByRole("heading", { name: "Maya Singh", exact: true })).toBeVisible();
+      await preview.getByRole("button", { name: "Request information" }).click();
+      await page.evaluate(() => history.back());
+      await expect(page.getByRole("dialog", { name: "Review information request", exact: true })).toHaveCount(0);
+      await expect(preview.getByRole("heading", { name: "Maya Singh", exact: true })).toBeVisible();
+      await preview.getByRole("button", { name: "2 mutual connections", exact: true }).click();
+      await preview.getByRole("button", { name: "Open Aarav Sharma's profile" }).click();
+      await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
+      await preview.getByRole("button", { name: "View connections", exact: true }).click();
+      await preview.getByRole("textbox", { name: "Search network by name" }).fill("Second");
+      const connect = preview.getByRole("button", { name: "Connect with Second Degree Person" });
+      await expect(connect).toBeVisible();
+      await expect.poll(async () => {
+        const [connectBounds, profileBounds] = await Promise.all([
+          connect.boundingBox(),
+          preview.getByRole("button", { name: "Open Second Degree Person's profile" }).boundingBox(),
+        ]);
+        return connectBounds && profileBounds
+          ? profileBounds.x + profileBounds.width - connectBounds.x
+          : Number.POSITIVE_INFINITY;
+      }).toBeLessThanOrEqual(0);
+      expect(await connect.evaluate(button => {
+        const row = button.closest("li")!;
+        return row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight) - button.getBoundingClientRect().right;
+      })).toBeCloseTo(0, 0);
+      await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(1);
+      await page.screenshot({ path: testInfo.outputPath(`network-connect-action-${width}.png`) });
+      await connect.click();
+      await expect(preview.getByText("Request sent", { exact: true })).toBeVisible();
+      await expect(preview.getByRole("heading", { name: "Second Degree Person", exact: true })).toHaveCount(0);
+      await page.screenshot({ path: testInfo.outputPath(`network-connect-row-${width}.png`) });
+      await preview.getByRole("button", { name: "Open Second Degree Person's profile" }).click();
+      await expect(preview.getByText("2nd connection", { exact: true })).toBeVisible();
+      await preview.getByRole("button", { name: "1 mutual connection", exact: true }).click();
+      await expect(preview.getByRole("heading", { name: "Maya Singh", exact: true })).toBeVisible();
+      await page.evaluate(() => history.back());
+      await expect(preview.getByRole("heading", { name: "Second Degree Person", exact: true })).toBeVisible();
+      await back();
+      await expect(preview.getByRole("textbox", { name: "Search network by name" })).toHaveValue("Second");
+      await expect(preview.getByRole("button", { name: "Open Second Degree Person's profile" })).toBeFocused();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`network-shared-list-${width}.png`) });
+      await back(); // Aarav's revisited profile
+      await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
+      await back(); // Maya's mutual list
+      await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
+      await back(); // Maya
+      await expect(preview.getByRole("heading", { name: "Maya Singh", exact: true })).toBeVisible();
+      await back(); // Aarav's mutual list
+      await expect(preview.getByRole("button", { name: "Open Maya Singh's profile" })).toBeVisible();
+      await back(); // Aarav
+      await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
+      await back(); // original picker
+      await expect(preview).toHaveCount(0);
+      await expect(source.getByRole("textbox", { name: "Search connections" })).toHaveValue("Aar");
+      await expect(source.getByRole("button", { name: "Select Aarav for circle" })).toHaveAttribute("aria-pressed", "true");
+      await expect(source.getByRole("button", { name: "View Aarav Sharma's profile" })).toBeFocused();
+      await page.evaluate(() => history.forward());
+      await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
+      await back();
+      await source.getByRole("button", { name: "Explore your network", exact: true }).click();
+      await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
+      await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(4);
+      await expect(preview).toHaveCSS("opacity", "1");
+      const filters = preview.getByRole("group", { name: "Connection degree filters" });
+      expect(await filters.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`network-discovery-${width}.png`) });
+      await preview.getByRole("button", { name: "Extended network", exact: true }).click();
+      await preview.getByRole("button", { name: "Open Third Degree Person's profile" }).click();
+      await expect(preview.getByText("3rd connection", { exact: true })).toBeVisible();
+      await expect(preview.getByRole("button", { name: /mutual connection/ })).toHaveCount(0);
+      await expect(preview.getByRole("button", { name: "View connections", exact: true })).toHaveCount(0);
+      await back();
+      await expect(preview.getByRole("button", { name: "Extended network", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect(preview.getByRole("button", { name: "Open Third Degree Person's profile" })).toBeFocused();
+      await back();
+      await expect(preview).toHaveCount(0);
+      await expect(source.getByRole("button", { name: "Explore your network", exact: true })).toBeFocused();
+      expect(errors).toEqual([]);
+    });
+  }
 });

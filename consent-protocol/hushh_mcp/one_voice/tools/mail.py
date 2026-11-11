@@ -71,6 +71,7 @@ from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
+from hushh_mcp.services.email_mail_brief import ANALYSIS_CATEGORIES, CATEGORY_LABELS
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
     get_gmail_delivery_service,
@@ -139,6 +140,8 @@ _ANALYSIS_FAILURE_NAMES = {
     "personal_info": "personal-information request",
     "action_items": "action-item",
     "meetings": "meeting",
+    "payments_due": "payment",
+    "security_alerts": "security alert",
 }
 
 
@@ -229,9 +232,7 @@ _MODEL_COVERAGE_KEYS = (
     "content_depth",
     "analysis_requested",
     "analysis_failed",
-    "findings_personal_info",
-    "findings_action_items",
-    "findings_meetings",
+    *(f"findings_{category}" for category in ANALYSIS_CATEGORIES),
     "analysis_unassessable",
 )
 
@@ -308,11 +309,7 @@ def _spoken(coverage: dict[str, Any]) -> list[str]:
         return ["I looked at your mail, but I can't tell you how much I found."]
     requested = coverage.get("analysis_requested")
     if isinstance(requested, list) and requested:
-        names = {
-            "personal_info": ("personal-information request", "personal-information requests"),
-            "action_items": ("action item", "action items"),
-            "meetings": ("meeting finding in Mail", "meeting findings in Mail"),
-        }
+        names = {category: CATEGORY_LABELS[category][1:3] for category in ANALYSIS_CATEGORIES}
         failed = coverage.get("analysis_failed") or []
         assessed = coverage.get("assessed")
         checked = assessed if isinstance(assessed, int) else returned

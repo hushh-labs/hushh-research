@@ -1,5 +1,6 @@
 """Keep dry-run native artifacts tied to one gated main commit without store upload."""
 
+import base64
 import hashlib
 import json
 import os
@@ -12,6 +13,60 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+SECURITY_STEP = "Require current-attempt deployment security"
+FROZEN_REQUEST_SHA = "${{ inputs.sha || needs.deployment-security.outputs.application_sha }}"
+
+
+@pytest.mark.parametrize(
+    "internal_only,privacy,expected",
+    [("true", "true", 0), ("false", "true", 1), ("true", "false", 1)],
+)
+def test_internal_testflight_materialization_needs_no_external_review_configuration(
+    tmp_path: Path,
+    internal_only: str,
+    privacy: str,
+    expected: int,
+) -> None:
+    binary = tmp_path / "bin/gcloud"
+    binary.parent.mkdir()
+    key = base64.b64encode(b"-----BEGIN PRIVATE KEY-----\nsynthetic\n").decode()
+    binary.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CONFIG_CALLS"\n'
+        'case "$*" in\n'
+        "  *EXTERNAL_TESTFLIGHT*|*BETA_REVIEW*) exit 1;;\n"
+        '  *"secrets describe"*) exit 0;;\n'
+        f'  *API_KEY_P8_B64*) printf "%s" "{key}";;\n'
+        "  *PRIVACY_DECLARATION*) printf one-voice-privacy-v2;;\n"
+        '  *APPROVED*) printf "%s" "$CONFIG_PRIVACY";;\n'
+        "  *) printf synthetic-id;;\nesac\n"
+    )
+    binary.chmod(0o700)
+    env_file, calls = tmp_path / "environment", tmp_path / "calls"
+    result = subprocess.run(  # noqa: S603 -- fixed repo script, synthetic provider only
+        ["bash", str(ROOT / "scripts/ci/materialize-ios-testflight-release-config.sh")],
+        env={
+            **os.environ,
+            "PATH": f"{binary.parent}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_ENV": str(env_file),
+            "CONFIG_CALLS": str(calls),
+            "CONFIG_PRIVACY": privacy,
+            "TESTFLIGHT_INTERNAL_ONLY": internal_only,
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr
+    if internal_only == "true":
+        assert "EXTERNAL_TESTFLIGHT" not in calls.read_text()
+        assert "BETA_REVIEW" not in calls.read_text()
+    if expected == 0:
+        assert "ASC_INTERNAL_GROUP_ID=synthetic-id" in env_file.read_text()
+        assert "ASC_EXTERNAL_GROUP_ID" not in env_file.read_text()
+        assert not (tmp_path / "asc-beta-review-contact.json").exists()
 
 
 def _workflow(name: str) -> dict:
@@ -35,7 +90,7 @@ def test_native_jobs_read_environment_configuration_without_hosted_deployment_re
 ) -> None:
     jobs = _workflow(workflow_name)["jobs"]
     environments = [job["environment"] for job in jobs.values() if "environment" in job]
-    assert len(environments) == 3
+    assert len(environments) == (4 if workflow_name == "ship-ios-testflight.yml" else 3)
     assert all(
         environment == {"name": environment_name, "deployment": False}
         for environment in environments
@@ -64,7 +119,7 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     steps = _steps(workflow, "ship")
     assert all("${{" not in step.get("run", "") for step in steps)
     names = [step["name"] for step in steps]
-    assert names[0] == "Validate target track"
+    assert names[:2] == [SECURITY_STEP, "Validate target track"]
     assert names.index("Resolve release SHA") < names.index("Check out exact release SHA")
     assert names.index("Check out exact release SHA") < names.index("Assert source SHA")
     assert names.index("Assert source SHA") < names.index(
@@ -89,7 +144,7 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     resolve = _named(steps, "Resolve release SHA")
     assert resolve["env"]["REQUIRE_CI_SUCCESS"] == "1"
     assert resolve["env"]["REQUIRED_CHECK_NAME"] == "Main Post-Merge Smoke Gate"
-    assert resolve["env"]["REQUESTED_SHA"] == "${{ inputs.sha }}"
+    assert resolve["env"]["REQUESTED_SHA"] == FROZEN_REQUEST_SHA
     assert "^[0-9a-f]{40}$" in resolve["run"]
     assert 'require-deploy-sha-on-main.sh "$SHA"' in resolve["run"]
 
@@ -440,12 +495,12 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
         assert "inputs.dry_run != true" in _named(steps, name)["if"]
     distribution = workflow["jobs"]["distribute"]
     assert distribution["runs-on"] == "ubuntu-latest"
-    assert distribution["needs"] == ["preflight", "ship"]
+    assert distribution["needs"] == ["preflight", "ship", "deployment-security"]
     assert "needs.ship.result == 'success'" in distribution["if"]
     assert "inputs.dry_run != true" in distribution["if"]
     for name in (
         "Wait for valid TestFlight processing",
-        "Attach the same valid build to both TestFlight groups",
+        "Attach the valid build to internal TestFlight testers",
         "Upload redacted release evidence",
     ):
         assert "inputs.dry_run != true" in _named(distribution["steps"], name)["if"]
@@ -582,13 +637,13 @@ def test_appstore_upload_receipt_keeps_source_with_effective_packaging_version(
 def test_production_archive_overlaps_deploy_but_upload_joins_exact_healthy_release() -> None:
     workflow = _workflow("release-ios-appstore.yml")
     assert workflow["jobs"]["preflight"]["runs-on"] == "ubuntu-latest"
-    assert workflow["jobs"]["release"]["needs"] == "preflight"
+    assert workflow["jobs"]["release"]["needs"] == ["preflight", "deployment-security"]
     assert workflow["jobs"]["release"]["if"] == "needs.preflight.outputs.ready == 'true'"
-    admission = _named(
-        _steps(workflow, "preflight"), "Admit automatic App Store version or defer without a Mac"
+    assert workflow["jobs"]["preflight"]["outputs"]["ready"] == "${{ 'true' }}"
+    assert all(
+        "Admit automatic App Store" not in step.get("name", "")
+        for step in _steps(workflow, "preflight")
     )
-    assert "--defer-if-review" in admission["run"]
-    assert '"$status" == 75' in admission["run"]
     steps = _steps(workflow, "release")
     names = [step.get("name") for step in steps]
     archive = names.index("Archive with target-owned automatic signing")
@@ -605,25 +660,20 @@ def test_production_archive_overlaps_deploy_but_upload_joins_exact_healthy_relea
     )
     prepare = workflow["jobs"]["prepare"]
     assert prepare["runs-on"] == "ubuntu-latest"
-    assert prepare["needs"] == "release"
+    assert prepare["needs"] == ["release", "deployment-security"]
     assert "needs.release.result == 'success'" in prepare["if"]
     assert "inputs.dry_run != true" in prepare["if"]
-    assert (
-        "materialize-ios-testflight-release-config.sh"
-        in _named(
-            prepare["steps"], "Require automatic public-release privacy and compliance attestations"
-        )["run"]
+    submission = _named(
+        prepare["steps"],
+        "Prepare App Store version (set What's New, attach build; one-click submit)",
     )
-    assert (
-        "--require-reviewer-account"
-        in _named(
-            prepare["steps"],
-            "Prepare App Store version (set What's New, attach build; one-click submit)",
-        )["run"]
-    )
+    assert "github.event.inputs.submit_for_review" in submission["run"]
+    assert "SUBMIT_ARGS+=(--submit)" in submission["run"]
+    assert "Public App Store submission" in submission["run"]
+    assert "cadence_origin" not in (ROOT / ".github/workflows/release-ios-appstore.yml").read_text()
     testflight = _workflow("ship-ios-testflight.yml")
     assert workflow["jobs"]["release"]["concurrency"] == testflight["jobs"]["ship"]["concurrency"]
     assert workflow["jobs"]["release"]["concurrency"]["group"] == "ios-build-and-upload"
-    uat = _workflow("deploy-uat.yml")
+    uat = _workflow("deploy-uat-implementation.yml")
     assert "release" not in uat["jobs"] and "cadence" not in uat["jobs"]
     assert uat["jobs"]["deploy"]["concurrency"]["group"] == "deploy-uat"

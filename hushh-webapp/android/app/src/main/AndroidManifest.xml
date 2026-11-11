@@ -24,6 +24,8 @@
         <service android:name=".plugins.HushhNotifications.ChatMessagingService" android:exported="false">
             <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
         </service>
+        <service android:name=".plugins.HushhNotifications.EmergencySmsAlarmService"
+            android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <!-- Credential Manager uses this Digital Asset Links declaration to
              authorize the canonical native passkey relying party. -->
         <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
@@ -143,6 +145,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />

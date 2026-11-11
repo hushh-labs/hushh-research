@@ -202,6 +202,15 @@ function isSilentNotification(data) {
 }
 
 function notificationTapTarget(data) {
+  if (String(data?.type || "").trim().toLowerCase() === "calendar_email_follow_up") {
+    const accountId = data?.account_id;
+    const requestId = data?.followup_request_id;
+    if (typeof accountId !== "string" || !/^(?:default|[A-Za-z0-9_-]{1,64})$/.test(accountId) ||
+        typeof requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+      return "/one/calendar";
+    }
+    return `/one/calendar?followupAccount=${encodeURIComponent(accountId)}&followupRequest=${encodeURIComponent(requestId)}`;
+  }
   if (data?.type === "location_circle_message") {
     const circleId = String(data.circle_id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(circleId)) return "/one/feed";
@@ -345,7 +354,7 @@ async function locationPresentation(grantId, update) {
   } finally { db?.close(); }
 }
 
-async function deliverPushToClients(payload) {
+async function deliverPushToClients(payload, focusedOnly = false) {
   const clientList = await self.clients.matchAll({
     type: "window",
     includeUncontrolled: true,
@@ -355,7 +364,7 @@ async function deliverPushToClients(payload) {
   );
   const owner =
     visibleClients.find((client) => client.focused === true) ||
-    visibleClients[0] ||
+    (focusedOnly ? null : visibleClients[0]) ||
     null;
 
   clientList.forEach((client) => {
@@ -603,7 +612,7 @@ self.addEventListener("push", function (event) {
           tag,
           requireInteraction,
           data: notificationData,
-        });
+        }, smsCreated);
         const acknowledged = visibleClientCount > 0 ? await deliveryAck : false;
         // Suppress the browser notification only after the visible app bridge
         // confirms receipt. Otherwise the system tray remains the reliable fallback.

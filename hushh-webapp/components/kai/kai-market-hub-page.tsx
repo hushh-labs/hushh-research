@@ -51,15 +51,17 @@ export function KaiMarketHubPage() {
   ) as PortfolioTab;
   const [visibleTab, setVisibleTab] = useState<PortfolioTab>(activeTab);
 
-  const setActiveTab = (tab: PortfolioTab) => {
+  // The tab this page last asked the router for. A soft navigation reaches
+  // `useSearchParams` a round trip AFTER the pane has moved, so `activeTab`
+  // alone cannot tell "already requested" from "not requested".
+  const requestedTabRef = useRef<PortfolioTab | null>(null);
+
+  const navigateToTab = (tab: PortfolioTab) => {
     const destination = FINANCE_TAB_DEFINITION.tabs.find(
       (candidate) => candidate.value === tab,
     );
-    if (
-      !destination ||
-      (destination.href === `${KAI_MARKET_PATH}?tab=${activeTab}` && visibleTab === activeTab)
-    )
-      return;
+    if (!destination) return;
+    requestedTabRef.current = tab;
     beginRouteTransition(
       destination.href,
       () => {
@@ -72,7 +74,25 @@ export function KaiMarketHubPage() {
     );
   };
 
+  // A tab press is the selection: the pager follows `visibleTab`, so it has to
+  // change with the press, not with the URL echo. Waiting for the echo left the
+  // pager's self-heal reading the old tab as the selection and dragging the
+  // pane back to it.
+  const selectTab = (tab: PortfolioTab) => {
+    setVisibleTab(tab);
+    navigateToTab(tab);
+  };
+
+  // Settling a pane (a swipe, or the press above) confirms the URL. It must not
+  // ask the router again for a tab it is already on its way to, because a second
+  // `replace` pre-empts the first and restarts its round trip.
+  const commitTab = (tab: PortfolioTab) => {
+    if (tab === (requestedTabRef.current ?? activeTab)) return;
+    navigateToTab(tab);
+  };
+
   useEffect(() => {
+    requestedTabRef.current = null;
     setVisibleTab(activeTab);
     scrollAppToTop();
     resetKaiBottomChromeVisibility();
@@ -110,7 +130,7 @@ export function KaiMarketHubPage() {
   // agent column and let the shared shell own the only outer gutter.
   return (
     <NativeFinanceRoute frame={nativeFrame} model={{ owner: userId, view: visibleTab, navigation: { tabs: FINANCE_TAB_DEFINITION.tabs,
-      select: value => { setVisibleTab(value); setActiveTab(value); } } }}><AppPageShell ref={nativeFrame}
+      select: value => { selectTab(value as PortfolioTab); } } }}><AppPageShell ref={nativeFrame}
       as="div"
       fitContent
       width="agent"
@@ -135,6 +155,7 @@ export function KaiMarketHubPage() {
         />
         <TopShellTabs
           tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}
+          onValueChange={(value) => selectTab(value as PortfolioTab)}
         />
       </AppPageHeaderRegion>
       <KaiMarketHomeProvider>
@@ -143,7 +164,7 @@ export function KaiMarketHubPage() {
         activeValue={visibleTab}
         options={FINANCE_TAB_DEFINITION.tabs}
         onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
-        onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
+        onSelectionCommit={(value) => commitTab(value as PortfolioTab)}
         heightMode="active"
         holdHeightDuringTransition={false}
         panelInset="none"

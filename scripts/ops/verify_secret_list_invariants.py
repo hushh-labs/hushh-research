@@ -35,6 +35,14 @@ from typing import NamedTuple, TypedDict
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG = REPO_ROOT / "config" / "protected-lists.json"
 SPLIT = re.compile(r"[,;\n]+")
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
+sys.path.insert(0, str(REPO_ROOT / "deploy" / "observability"))
+from auth_health_read_diagnostics import (  # noqa: E402
+    HealthOutcomeReason,
+    HealthOutcomeStatus,
+    HealthRuntimeStatus,
+    validate_health_outcome,
+)
 
 
 def entries(raw: str) -> list[str]:
@@ -76,7 +84,11 @@ def read(secret: str, project: str, version: str) -> str | None:
 
 
 def publish_phone_health(
-    project: str, status: str, checked: int, *, runtime_status: str | None = None
+    project: str,
+    status: str,
+    checked: int,
+    *,
+    runtime_status: str | None = None,
 ) -> bool:
     """Publish only bounded status/count metadata, never a secret or provider error."""
     fields = {
@@ -220,6 +232,7 @@ class ListCheck(NamedTuple):
     summary: str | None
     failures: list[str]
     unavailable: list[str]
+    reason_codes: tuple[str, ...] = ()
 
     @property
     def status(self) -> str:
@@ -228,20 +241,39 @@ class ListCheck(NamedTuple):
         return "unavailable" if self.unavailable else "healthy"
 
 
+class CheckSummary(NamedTuple):
+    failures: list[str]
+    unchecked: list[str]
+    phone_results: list[str]
+    reason_codes: set[str]
+
+
 def check_list(spec: ProtectedListSpec) -> ListCheck:
     name, project = spec["name"], spec["project"]
     label = f"{project}/{name}"
     vs = versions(name, project)
     if not vs:
-        return ListCheck(None, [], [f"{label}: cannot list versions (missing, or no access)"])
+        return ListCheck(
+            None,
+            [],
+            [f"{label}: cannot list versions (missing, or no access)"],
+            (HealthOutcomeReason.VERSION_LIST_UNAVAILABLE.value,),
+        )
     current_raw = read(name, project, vs[0])
     if current_raw is None:
-        return ListCheck(None, [], [f"{label}: cannot read version {vs[0]}"])
+        return ListCheck(
+            None,
+            [],
+            [f"{label}: cannot read version {vs[0]}"],
+            (HealthOutcomeReason.CURRENT_VERSION_UNAVAILABLE.value,),
+        )
     current = entries(current_raw)
     failures: list[str] = []
     unavailable: list[str] = []
+    reason_codes: list[str] = []
     line = f"  {label:46s} v{vs[0]:<4s} {len(current):4d} entries"
     if len(current) < spec["min_entries"]:
+        reason_codes.append(HealthOutcomeReason.PROTECTED_LIST_FAILED.value)
         failures.append(
             f"{label}: {len(current)} entries is below the floor of "
             f"{spec['min_entries']}. This list has been wiped. "
@@ -252,6 +284,7 @@ def check_list(spec: ProtectedListSpec) -> ListCheck:
     if len(vs) > 1:
         prev_raw = read(name, project, vs[1])
         if prev_raw is None:
+            reason_codes.append(HealthOutcomeReason.PREVIOUS_VERSION_UNAVAILABLE.value)
             unavailable.append(f"{label}: cannot verify previous enabled version")
         else:
             prev = entries(prev_raw)
@@ -259,6 +292,7 @@ def check_list(spec: ProtectedListSpec) -> ListCheck:
             lost = [entry for entry in prev if entry not in current_set]
             line += f"   (prev v{vs[1]}: {len(prev)}, lost {len(lost)})"
             if len(lost) > spec["max_shrink"]:
+                reason_codes.append(HealthOutcomeReason.PROTECTED_LIST_FAILED.value)
                 failures.append(
                     f"{label}: {len(lost)} entries present in v{vs[1]} are gone from "
                     f"v{vs[0]} (limit {spec['max_shrink']}). A write replaced the list "
@@ -267,7 +301,7 @@ def check_list(spec: ProtectedListSpec) -> ListCheck:
                     f"--project {project} --restore-from {vs[1]} --apply"
                 )
                 line += "   *** ENTRIES LOST ***"
-    return ListCheck(line, failures, unavailable)
+    return ListCheck(line, failures, unavailable, tuple(sorted(set(reason_codes))))
 
 
 def report_results(tracked_count: int, failures: list[str], unchecked: list[str]) -> int:
@@ -290,6 +324,109 @@ def report_results(tracked_count: int, failures: list[str], unchecked: list[str]
     return 0
 
 
+def _checked_phone_list_count(tracked: list[ProtectedListSpec]) -> int:
+    phone_lists = {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}
+    return sum(spec["name"] in phone_lists for spec in tracked)
+
+
+def _collect_list_checks(
+    tracked: list[ProtectedListSpec], *, quiet: bool
+) -> CheckSummary:
+    summary = CheckSummary([], [], [], set())
+    for spec in tracked:
+        result = check_list(spec)
+        summary.failures.extend(result.failures)
+        summary.unchecked.extend(result.unavailable)
+        summary.reason_codes.update(result.reason_codes)
+        if result.summary is not None and not quiet:
+            print(result.summary)
+        if spec["name"] in {
+            "HUSHH_UAT_PHONE_TEST_NUMBERS",
+            "HUSHH_PROD_PHONE_TEST_NUMBERS",
+        }:
+            summary.phone_results.append(result.status)
+    return summary
+
+
+def _record_missing_phone_list(
+    tracked: list[ProtectedListSpec], summary: CheckSummary
+) -> None:
+    if _checked_phone_list_count(tracked):
+        return
+    if "unavailable" not in summary.phone_results:
+        summary.phone_results.append("unavailable")
+    summary.unchecked.append(
+        "No protected phone list configured for health observation"
+    )
+    summary.reason_codes.add(HealthOutcomeReason.PHONE_LIST_UNCONFIGURED.value)
+
+
+def _observe_phone_runtime(project: str, summary: CheckSummary, *, quiet: bool) -> str:
+    runtime_status = check_phone_runtime(project)
+    summary.phone_results.append(runtime_status)
+    if not quiet:
+        print(f"Phone test runtime observation: {runtime_status}")
+    if runtime_status != "healthy":
+        summary.reason_codes.add(HealthOutcomeReason.PHONE_RUNTIME_UNAVAILABLE.value)
+        summary.unchecked.append(
+            "Serving phone-test runtime readiness unavailable; inspect deployed configuration"
+        )
+    return runtime_status
+
+
+def _publish_phone_health(
+    project: str,
+    tracked: list[ProtectedListSpec],
+    summary: CheckSummary,
+    runtime_status: str | None,
+) -> None:
+    status = (
+        "failed"
+        if "failed" in summary.phone_results
+        else "unavailable"
+        if not summary.phone_results or "unavailable" in summary.phone_results
+        else "healthy"
+    )
+    if status == "failed":
+        summary.reason_codes.add(HealthOutcomeReason.PROTECTED_LIST_FAILED.value)
+    published = publish_phone_health(
+        project,
+        status,
+        _checked_phone_list_count(tracked),
+        runtime_status=runtime_status,
+    )
+    if not published:
+        summary.reason_codes.add(HealthOutcomeReason.HEALTH_PUBLICATION_UNAVAILABLE.value)
+        summary.unchecked.append(
+            "Auth phone-list health publication unavailable; check logging writer permission"
+        )
+
+
+def _emit_health_result(
+    tracked: list[ProtectedListSpec],
+    summary: CheckSummary,
+    runtime_status: str | None,
+) -> int:
+    status = (
+        HealthOutcomeStatus.FAILED.value
+        if summary.failures
+        else HealthOutcomeStatus.UNAVAILABLE.value
+        if summary.unchecked
+        else HealthOutcomeStatus.HEALTHY.value
+    )
+    outcome = validate_health_outcome(
+        {
+            "status": status,
+            "reason_codes": sorted(summary.reason_codes),
+            "checked_lists": _checked_phone_list_count(tracked),
+            "runtime_status": runtime_status
+            or HealthRuntimeStatus.NOT_REQUESTED.value,
+        }
+    )
+    print(json.dumps(outcome, separators=(",", ":")))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", help="only check secrets in this project")
@@ -304,65 +441,39 @@ def main() -> int:
         action="store_true",
         help="Also observe the governed serving phone-test readiness (explicit opt-in)",
     )
+    ap.add_argument(
+        "--health-result-json",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     args = ap.parse_args()
     if (args.publish_health or args.check_phone_runtime) and args.project not in {
         "hushh-pda",
         "hushh-pda-uat",
     }:
         ap.error("phone-health options require one governed --project")
+    if args.health_result_json and not args.publish_health:
+        ap.error("health result output requires governed phone-health publication")
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
     tracked = [s for s in config["secrets"] if not args.project or s["project"] == args.project]
-    if not tracked and not args.check_phone_runtime:
+    if not tracked and not args.check_phone_runtime and not args.publish_health:
         print("No tracked secrets for that project.")
         return 0
 
-    failures: list[str] = []
-    unchecked: list[str] = []
-    phone_results: list[str] = []
-
-    for spec in tracked:
-        result = check_list(spec)
-        failures.extend(result.failures)
-        unchecked.extend(result.unavailable)
-        if result.summary is not None:
-            print(result.summary)
-        if spec["name"] in {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}:
-            phone_results.append(result.status)
-
+    summary = _collect_list_checks(tracked, quiet=args.health_result_json)
     runtime_status = None
+    if args.publish_health or args.check_phone_runtime:
+        _record_missing_phone_list(tracked, summary)
     if args.check_phone_runtime:
-        if not phone_results:
-            phone_results.append("unavailable")
-            unchecked.append("No protected phone list configured for runtime observation")
-        runtime_status = check_phone_runtime(args.project)
-        phone_results.append(runtime_status)
-        print(f"Phone test runtime observation: {runtime_status}")
-        if runtime_status != "healthy":
-            unchecked.append(
-                "Serving phone-test runtime readiness unavailable; inspect deployed configuration"
-            )
-
+        runtime_status = _observe_phone_runtime(
+            args.project, summary, quiet=args.health_result_json
+        )
     if args.publish_health:
-        status = (
-            "failed"
-            if "failed" in phone_results
-            else "unavailable"
-            if not phone_results or "unavailable" in phone_results
-            else "healthy"
-        )
-        checked_lists = sum(
-            spec["name"] in {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}
-            for spec in tracked
-        )
-        if not publish_phone_health(
-            args.project, status, checked_lists, runtime_status=runtime_status
-        ):
-            unchecked.append(
-                "Auth phone-list health publication unavailable; check logging writer permission"
-            )
-
-    return report_results(len(tracked), failures, unchecked)
+        _publish_phone_health(args.project, tracked, summary, runtime_status)
+    if args.health_result_json:
+        return _emit_health_result(tracked, summary, runtime_status)
+    return report_results(len(tracked), summary.failures, summary.unchecked)
 
 
 if __name__ == "__main__":

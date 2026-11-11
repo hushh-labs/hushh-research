@@ -30,6 +30,8 @@ from hushh_mcp.consent.scope_sensitivity import covers, scope_sensitivity
 from hushh_mcp.consent.share_collapse import collapse_covered_shares, share_order_key
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.directory_identity_service import active_directory_user_ids
+from hushh_mcp.services.requester_identity import label_from_identity_row
 
 
 class PersonProfileNotFoundError(LookupError):
@@ -170,6 +172,11 @@ class PersonProfileService:
             LEFT JOIN actor_identity_cache identity ON identity.user_id = profile.user_id
             WHERE profile.public_person_ref = CAST(:public_person_ref AS UUID)
               AND profile.public_profile_status = 'active'
+              AND NOT EXISTS (
+                  SELECT 1 FROM account_deletion_tombstones deletion
+                  WHERE deletion.user_id_hash =
+                      'sha256:' || encode(sha256(convert_to(profile.user_id, 'UTF8')), 'hex')
+              )
             LIMIT 1
             """,
             {"public_person_ref": public_person_ref},
@@ -178,11 +185,22 @@ class PersonProfileService:
             raise PersonProfileNotFoundError("Person profile was not found.")
         return row
 
+    def _live_profile_row(self, public_person_ref: str, *, use_cache: bool) -> dict[str, Any]:
+        # Older provider-side deletions can predate the local tombstone contract.
+        # Display reads verify liveness. Other consumers keep the local authority check.
+        row = self._profile_row(public_person_ref)
+        owner_id = str(row.get("user_id") or "")
+        if owner_id not in active_directory_user_ids([owner_id], use_cache=use_cache):
+            raise PersonProfileNotFoundError("Person profile was not found.")
+        return row
+
     @staticmethod
     def _public_projection(row: dict[str, Any]) -> dict[str, Any]:
         return {
             "personRef": str(row.get("public_person_ref") or ""),
-            "displayName": str(row.get("display_name") or "").strip() or "Hussh member",
+            "displayName": label_from_identity_row(
+                row, allow_email_handle=False, fallback="Hussh member"
+            ),
             "photoUrl": str(row.get("photo_url") or "").strip() or None,
             "verifiedRole": "Registered investment adviser"
             if bool(row.get("is_verified_ria"))
@@ -190,7 +208,7 @@ class PersonProfileService:
         }
 
     def get_public_profile(self, public_person_ref: str) -> dict[str, Any]:
-        return self._public_projection(self._profile_row(public_person_ref))
+        return self._public_projection(self._live_profile_row(public_person_ref, use_cache=False))
 
     def get_relationship_target(
         self, *, viewer_user_id: str, public_person_ref: str
@@ -542,7 +560,7 @@ class PersonProfileService:
         catalog_query: str = "",
         catalog_domain: str = "",
     ) -> dict[str, Any]:
-        row = await asyncio.to_thread(self._profile_row, public_person_ref)
+        row = await asyncio.to_thread(self._live_profile_row, public_person_ref, use_cache=True)
         subject_user_id = str(row.get("user_id") or "")
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")

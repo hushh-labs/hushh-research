@@ -151,9 +151,27 @@ describe("exclusion still applies to the complete walk", () => {
       snapshot: emptySnapshot, domainData, ownerUserId: "owner", audience,
       sources: [{ domain: "one_living_sources", contentRevision: 1 }], builtAt: now,
     });
-    expect(build("self").markdown).toContain("profile.name · verified");
+    expect(build("self").markdown).toContain("profile.name · profile:owner · revision 1");
     expect(build("agent").markdown).not.toContain("Ankit");
-    expect(build("agent").markdown).not.toContain("profile.name · verified");
+    expect(build("agent").markdown).not.toContain("profile.name · profile:owner");
+  });
+
+  it("keeps the source section identical when a source is only re-verified, so memory.md is not rewritten", () => {
+    const record = { kind: "profile", id: "owner", revision: 1, createdAt: null, updatedAt: null,
+      capturedAt: "2026-10-15T00:00:00.000Z", deletedAt: null, value: { name: "Ankit" } };
+    const section = (observedAt: string, now: string) => collectDomainRows({
+      domain: "one_living_sources", audience: "self", ownerUserId: "owner", now,
+      domainData: { _private: { inventory: { complete: true, unavailable: [], observedAt, records: [record] } } },
+    });
+    const first = section("2026-10-15T00:00:00.000Z", "2026-10-15T00:00:30.000Z");
+    expect(first.truncated).toBe(false);
+    expect(first.rows.some(row => row.label.startsWith("profile.name · profile:owner"))).toBe(true);
+    // A later check re-verified the profile: the whole section is unchanged.
+    expect(section("2026-10-15T00:02:00.000Z", "2026-10-15T00:02:30.000Z")).toEqual(first);
+    // A reader after the verification lapsed keeps the same rows and marks the section truncated.
+    const lapsed = section("2026-10-15T00:00:00.000Z", "2026-10-15T00:06:00.000Z");
+    expect(lapsed.rows).toEqual(first.rows);
+    expect(lapsed.truncated).toBe(true);
   });
 
   it("withholds a reserved label_only branch from an agent record and names it", () => {

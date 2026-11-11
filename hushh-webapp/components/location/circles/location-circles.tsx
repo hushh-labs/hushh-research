@@ -320,7 +320,7 @@ export function LocationCircles({ circleId = null }: LocationCirclesProps) {
                   "flex flex-wrap items-center gap-3 p-3",
                 )}
               >
-                <AvatarBubble
+                <AvatarBubble userId={invite.inviterUserId}
                   initials={initialsFor(invite.inviterDisplayName)}
                   imageUrl={invite.inviterPhotoUrl}
                 />

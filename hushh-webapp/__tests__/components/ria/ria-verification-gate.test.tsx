@@ -61,4 +61,22 @@ describe("RiaVerificationGate", () => {
     expect(screen.getByTestId("gated-content")).toBeTruthy();
     expect(screen.queryByTestId("ria-clients-verify-gate-cta")).toBeNull();
   });
+
+  it("does not tell an advisor to verify while their status is still being fetched", () => {
+    // A cached persona ends `loading` before the advisor status arrives.
+    mocks.usePersonaState.mockReturnValue({
+      loading: false,
+      refreshing: true,
+      riaOnboardingStatus: null,
+    });
+
+    render(
+      <RiaVerificationGate>
+        <div data-testid="gated-content" />
+      </RiaVerificationGate>,
+    );
+
+    expect(screen.queryByTestId("ria-clients-verify-gate-cta")).toBeNull();
+    expect(screen.queryByTestId("gated-content")).toBeNull();
+  });
 });

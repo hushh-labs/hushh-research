@@ -2,7 +2,7 @@
 
 import { NativeCalendarLayer, NativeCalendarBoardScope, useNativeCalendarFrame, useNativeCalendarEnabled, type CalendarNativeSection, type CalendarNativeRow } from "./native-calendar-workspace";
 import { shiftCalendarDate } from "./calendar-schedule-presentation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, ChevronDown, Clock, MoreHorizontal, Plus, RefreshCw } from "@/components/icons";
 import { Cake, Confetti } from "@/components/icons/ui/calendar-occasion-icons";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -23,7 +23,7 @@ import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import { boardOccasionKind, isCountedBoardEvent } from "@/lib/calendar/calendar-board-event";
 import type { GoogleCalendarAccount, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
-import { calendarHusshPerson, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
+import { calendarEventPeople, verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -35,8 +35,10 @@ import { CalendarInvitations } from "./calendar-invitations";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
 import { CalendarBookingDialog, type BookingOpening } from "./calendar-booking-dialog";
+import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
 import { CalendarJoinLink } from "./calendar-join-link";
 import { bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
+import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import { calendarDate, calendarProviderDayUrl, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider } from "./calendar-schedule-presentation";
@@ -58,6 +60,7 @@ type Props = {
   onDisconnectAccount: (accountId: string) => void;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
   onMailConnect?: () => Promise<void>;
+  onFollowupMailConnect?: (accountId: string) => Promise<boolean>;
   onChat: (prompt?: string, slot?: CalendarSlotHandoff) => void;
 };
 
@@ -102,12 +105,6 @@ function accountEmailParts(email: string): [string, string] {
   return at > 0 ? [email.slice(0, at), email.slice(at)] : [email, ""];
 }
 
-function verifiedAccountPhoto(account: GoogleCalendarAccount | undefined, email: string, people: CalendarHusshPeople) {
-  return account?.google_email_verified === true && account.google_email?.trim().toLowerCase() === email.trim().toLowerCase()
-    ? calendarHusshPerson(people, email)?.photoUrl ?? null
-    : null;
-}
-
 function CalendarAccountPicker({ accounts, value, onChange, people }: {
   accounts: GoogleCalendarAccount[]; value: string; onChange: (accountId: string) => void; people: CalendarHusshPeople;
 }) {
@@ -117,7 +114,7 @@ function CalendarAccountPicker({ accounts, value, onChange, people }: {
     <span className={styles.accountPickerLabel}>Calendar account</span>
     <DropdownMenu>
       <DropdownMenuTrigger asChild><button type="button" className={styles.accountPickerTrigger} aria-label={`Calendar account: ${selectedEmail}`} title={selectedEmail}>
-        {selected ? <CalendarPersonAvatar name={selectedEmail} photoUrl={verifiedAccountPhoto(selected, selectedEmail, people)} className={styles.pickerAvatar} source="hussh" /> : null}
+        {selected ? <CalendarPersonAvatar name={selectedEmail} photoUrl={verifiedCalendarAccountPhoto(selected, selectedEmail, people)} className={styles.pickerAvatar} source="hussh" /> : null}
         <span className={styles.accountPickerEmail}>{selectedEmail}</span><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} />
       </button></DropdownMenuTrigger>
       <DropdownMenuContent align="start" className={styles.accountPickerMenu}>
@@ -125,7 +122,7 @@ function CalendarAccountPicker({ accounts, value, onChange, people }: {
           {accounts.map(account => {
             const email = accountLabel(account.google_email);
             return <DropdownMenuRadioItem key={account.account_id} value={account.account_id} title={email} className={styles.accountPickerItem}>
-              <CalendarPersonAvatar name={email} photoUrl={verifiedAccountPhoto(account, email, people)} className={styles.pickerAvatar} source="hussh" />
+              <CalendarPersonAvatar name={email} photoUrl={verifiedCalendarAccountPhoto(account, email, people)} className={styles.pickerAvatar} source="hussh" />
               <span className={styles.accountPickerEmail}>{email}</span>
             </DropdownMenuRadioItem>;
           })}
@@ -139,7 +136,7 @@ function JoinVideoIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 10 6-3v10l-6-3" /></svg>;
 }
 
-export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, getVaultOwnerToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onChat }: Props) {
+export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, getVaultOwnerToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onFollowupMailConnect, onChat }: Props) {
   const nativeFrame = useNativeCalendarFrame();
   const nativeEnabled = useNativeCalendarEnabled();
   const [nativeSharedPage, setNativeSharedPage] = useState({ key: "", page: 0 });
@@ -155,6 +152,21 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const [tab, setTab] = useState<"board" | "invitations" | "insights">(restored ? "insights" : "board");
   const [invitationAccount, setInvitationAccount] = useState(status.accounts?.[0]?.account_id || "default");
   const [insightsAccount, setInsightsAccount] = useState(restored?.accountId || status.accounts?.[0]?.account_id || "default");
+  const [followupIntent, setFollowupIntent] = useState<{ accountId: string; requestId: string } | null>(null);
+  const intentRead = useRef(false);
+  useEffect(() => {
+    if (intentRead.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const accountId = params.get("followupAccount");
+    const requestId = params.get("followupRequest");
+    if (!accountId || !requestId) { intentRead.current = true; return; }
+    if (!calendarFollowupHref(accountId, requestId) ||
+        !status.accounts?.some(account => account.account_id === accountId)) return;
+    intentRead.current = true;
+    setFollowupIntent({ accountId, requestId });
+    setInsightsAccount(accountId);
+    setTab("insights");
+  }, [status.accounts]);
   useEffect(() => {
     if (tab === "insights" && restored?.accountId === insightsAccount) setRestored(null);
   }, [tab, restored, insightsAccount]);
@@ -174,6 +186,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const error = snapshot.key === key ? snapshot.error : null;
   const loading = snapshot.key !== key;
   const [selected, setSelected] = useState<Selection | null>(null);
+  const people = useMemo(() => calendarEventPeople(calendarPeople, board?.people, userId), [calendarPeople, board?.people, userId]);
   const [booking, setBooking] = useState<BookingOpening | null>(null);
   const bookingRef = useRef(false); bookingRef.current = Boolean(booking);
   const bookingTrigger = useRef<HTMLButtonElement | null>(null);
@@ -271,7 +284,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
         actions={<div className={styles.headerActions}>
           <CalendarCompactAction disabled={busy || actionBusy || (status.accounts?.length || 0) >= 3} onClick={onAddAccount}><Plus aria-hidden className="size-4" />Add account</CalendarCompactAction>
-          <Button variant="ghost" size="icon" aria-label="Refresh Calendar" disabled={busy || actionBusy} onClick={refreshCurrentView}><RefreshCw aria-hidden className="size-5" /></Button>
+          <Button variant="plain" size="icon" className="text-[color:var(--app-accent)]" aria-label="Refresh Calendar" disabled={busy || actionBusy} onClick={refreshCurrentView}><RefreshCw aria-hidden className="size-5" /></Button>
         </div>} />
       {connectionNotice}
       <div className={styles.topTabs}><TopShellTabs tabSet={{ id: "calendar", label: "Calendar sections", queryParam: null, activeValue: tab,
@@ -296,7 +309,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               const scrollEvents = meetings.length + otherItems.length > 3;
               const [accountName, accountDomain] = accountEmailParts(account.google_email);
               const verifiedAccount = status.accounts?.find(item => item.account_id === account.account_id);
-              const husshPhoto = verifiedAccountPhoto(verifiedAccount, account.google_email, calendarPeople);
+              const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, people);
               const renderEvent = (event: CalendarEventSummary) => {
                 const choice: Selection = { accountId: account.account_id, calendarId: event.calendar_id || "primary", eventId: event.id || "" };
                 const count = board.conflicts.filter(pair => pairIncludes(pair, choice)).length;
@@ -325,7 +338,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                 <div className={styles.accountHeader}>
                   <CalendarPersonAvatar name={accountName} photoUrl={husshPhoto} className={styles.accountAvatar} fallbackText={connectionAvatarInitials(accountName)} source="hussh" />
                   <div className={styles.accountIdentity} title={account.google_email}><div className={styles.accountName}>{accountName}</div>{accountDomain ? <span className={styles.accountDomain}>{accountDomain}</span> : null}</div>
-                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon" className="text-[color:var(--app-accent)]" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
                     <DropdownMenuItem variant="destructive" onSelect={() => onDisconnectAccount(account.account_id)}>Disconnect</DropdownMenuItem>
                   </DropdownMenuContent></DropdownMenu>
                 </div>
@@ -350,15 +363,35 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
           </SurfaceCard>
         </> : null}
       </> : tab === "invitations" ? <section className={styles.secondary} aria-label="Invitations">
-        <CalendarAccountPicker accounts={status.accounts || []} value={invitationAccount} onChange={setInvitationAccount} people={calendarPeople} />
+        <CalendarAccountPicker accounts={status.accounts || []} value={invitationAccount} onChange={setInvitationAccount} people={people} />
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout calendarPeople={calendarPeople} userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
-        <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={calendarPeople} />
-        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} /> : <p role="alert">Reconnect this account to see its insights.</p>}
+        <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={people} />
+        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       </div>
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
-      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} userId={userId} token={token} timeZone={zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={(result, startAt, _accountId, accountEmail) => { closeBooking(); setDate(bookingLocalFields(startAt, zone).date); notifyCalendarChanged(userId); setRevision(value => value + 1); morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`); }} /> : null}
+      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
+        const request = booking.followupRequest;
+        const selectedAccount = booking.accountId;
+        closeBooking();
+        setDate(bookingLocalFields(startAt, booking.timeZoneHint || zone).date);
+        notifyCalendarChanged(userId);
+        setRevision(value => value + 1);
+        if (request) {
+          try {
+            if (selectedAccount !== accountId || !result.event.id) throw new Error("Follow-up account or event changed.");
+            const ownerToken = getVaultOwnerToken?.();
+            if (!ownerToken) throw new Error("Unlock One to link this event to its follow-up.");
+            await CalendarFollowupsService.confirmBooking(userId, accountId, request, result.event.id, await getIdToken(), ownerToken);
+            setInsightsRefreshRevision(value => value + 1);
+          } catch {
+            morphyToast.error("Calendar event created, but its follow-up could not be marked booked. Review it again before dismissing reminders.");
+            return;
+          }
+        }
+        morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`);
+      }} /> : null}
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
         <DialogContent className={styles.occasionDialog}>
           {occasionAccount ? <>

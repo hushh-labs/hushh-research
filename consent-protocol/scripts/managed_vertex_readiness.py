@@ -1,6 +1,7 @@
 """Complete synthetic UAT Vertex qualification under the owning sequence deadline."""
 
 import asyncio
+import os
 from time import monotonic
 
 from hushh_mcp.runtime_providers.dependency_health import (
@@ -21,11 +22,42 @@ async def probe_uat_runtime(
     from scripts.probe_managed_text import probe_managed_text
     from scripts.verify_azure_pwm_runtime import _initialize_synthetic_runtime
 
+    mode = os.environ.get("MANAGED_READINESS_MODE", "full")
+    if mode not in {"core", "full"}:
+        raise RuntimeError("Managed readiness mode is invalid")
     _initialize_synthetic_runtime()
     if chat_binding is None:
         raise RuntimeError("UAT requires the configured chat binding")
     async with asyncio.timeout(max(0, deadline - monotonic())):
-        core = await probe_managed_text("vertex")
+        core = await probe_managed_text("vertex", qualification_mode=mode)
+        if mode == "core":
+            return {
+                "check": "managed_vertex_runtime",
+                "qualification_mode": "core",
+                "config_hash": managed_ai_settings().config_hash,
+                "ok": True,
+                "classification": DEPENDENCY_OK,
+                "advisory": False,
+                "models": sorted({row["model"] for row in core["scopes"].values()}),
+                "one_chat_project": chat_project,
+                "one_chat_probe_ok": core["scopes"]["one_text_chat"]["ready"],
+                "drive_document_requests_probe_ok": core["scopes"]["drive_document_requests"][
+                    "ready"
+                ],
+                "managed_text_provider_probe": core,
+                "managed_runtime_capabilities_ready": None,
+                "one_voice_probe_ok": None,
+                "probes": [
+                    {
+                        "probe": scope + ":" + result["model"] + "@" + result["location"],
+                        "ok": result["ready"],
+                        "classification": DEPENDENCY_OK,
+                    }
+                    for scope, result in core["scopes"].items()
+                ],
+                "core_models_exercised": True,
+                "candidate_models_exercised": False,
+            }
         selected_model = resolve_fleet_model_name("gemini-default")
         # Retain coverage for a separately authored model beyond the fleet alias.
         for model in models:

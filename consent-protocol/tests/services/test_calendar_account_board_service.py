@@ -141,3 +141,30 @@ async def test_incomplete_account_never_produces_shared_free_time(monkeypatch, f
     assert result["conflicts_complete"] is False
     assert result["shared_free_windows"] == []
     assert result["accounts"][2]["status"] == "incomplete"
+
+
+@pytest.mark.asyncio
+async def test_board_resolves_hussh_profiles_for_verified_accounts_without_events(monkeypatch):
+    schedules = {name: _Schedule(name) for name in ("default", "second", "third")}
+    monkeypatch.setattr(
+        board_module, "account_schedule", lambda account_id, connections: schedules[account_id]
+    )
+    seen = {}
+
+    async def portraits(*, owner_user_id, events, account_emails=()):
+        seen["owner"] = owner_user_id
+        seen["account_emails"] = account_emails
+        assert events == []
+        return {"manish@hushh.ai": {"userId": "m", "displayName": "Manish", "photoUrl": "p"}}
+
+    monkeypatch.setattr(board_module, "calendar_directory_portraits", portraits)
+    connections = _Connections()
+    connections.accounts[0]["google_email_verified"] = True
+    connections.accounts[1]["google_email_verified"] = False
+    connections.accounts[2]["google_email_verified"] = True
+    connections.accounts[2]["connected"] = False
+    result = await CalendarAccountBoardService(connections).day(
+        user_id="owner", date="2026-10-21", time_zone="UTC"
+    )
+    assert seen == {"owner": "owner", "account_emails": ["default@example.com"]}
+    assert result["people"]["manish@hushh.ai"]["displayName"] == "Manish"

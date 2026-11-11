@@ -119,6 +119,7 @@ from hushh_mcp.one_adk.history_projection import (
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, admit_owner_style
 from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
@@ -142,7 +143,11 @@ from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_loca
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.runtime_providers import bind_managed_vertex_project
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
-from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.action_gateway import (
+    get_action_gateway_action,
+    is_runtime_disabled_action,
+    list_action_gateway_actions,
+)
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.chat_key import request_has_chat_key
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
@@ -166,6 +171,40 @@ from hushh_mcp.services.person_profile_service import PersonProfileService
 from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
 logger = logging.getLogger(__name__)
+
+
+def admit_client_tools(tools: list[Any]) -> list[Any]:
+    """Client-provided tools are frontend execution requests, never new authority.
+
+    Every tool must already exist in the generated Action Gateway. One whose action
+    a runtime switch hides here (careers, CRM) is dropped, so the model is never
+    offered it and the turn still runs: every screen sends the global segments.
+    """
+    admitted: list[Any] = []
+    switched_off = 0
+    for tool in tools:
+        try:
+            if admit_receipt_tool(tool):
+                admitted.append(tool)
+                continue
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Receipt tool contract is invalid."
+            ) from None
+        action_id = action_id_from_tool_name(tool.name)
+        if action_id and get_action_gateway_action(action_id) is not None:
+            admitted.append(tool)
+        elif is_runtime_disabled_action(action_id):
+            switched_off += 1
+        else:
+            raise HTTPException(
+                status_code=400, detail="Agent tool is not in the generated action contract."
+            )
+    if switched_off:
+        logger.info("chat_tool_switched_off count=%d", switched_off)
+    return admitted
+
+
 router = APIRouter(tags=["Agent One"])
 
 
@@ -308,6 +347,9 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
 
 
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from time import time
+
+    turn_started_at = time()
     if any(message.role == "system" for message in input_data.messages):
         raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
     from hushh_mcp.one_adk.receipt_client_tools import (
@@ -351,21 +393,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         screen_payload if isinstance(screen_payload, dict) else {}
     )
 
-    # Client-provided tools are frontend execution requests, never new
-    # authority. Every tool must already exist in the generated Action Gateway.
-    for tool in input_data.tools:
-        try:
-            if admit_receipt_tool(tool):
-                continue
-        except ValueError:
-            raise HTTPException(
-                status_code=400, detail="Receipt tool contract is invalid."
-            ) from None
-        action_id = action_id_from_tool_name(tool.name)
-        if not action_id or get_action_gateway_action(action_id) is None:
-            raise HTTPException(
-                status_code=400, detail="Agent tool is not in the generated action contract."
-            )
+    input_data.tools = admit_client_tools(input_data.tools)
 
     # Discard arbitrary client state before the middleware merges the trusted
     # projection. Sensitive values are represented only by expiring references.
@@ -481,7 +509,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The owner's consented memory for this turn: Soul.md, then the bounded
     # Live Mirror facts packet. Popped before the bridge can copy forwarded
     # props; only an unlocked owner turn stores it (below).
-    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
+    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")
+    if len(raw_pkm_context) > 128_000:
+        raise HTTPException(413, detail="Private memory context exceeds the request budget")
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
@@ -507,6 +537,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        "temp:hussh:turn_started_at": turn_started_at,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,
@@ -516,14 +547,14 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         STATE_DRIVE_SEARCH_SELECTION: drive_search_selection,
-        # This is only an untrusted selection request. The resolver validates
-        # it against owner/thread-bound server-issued choices before any read.
-        # A picker handle is an untrusted, current-turn admission request. The
-        # ADK temp prefix keeps it out of persisted conversation state so an
-        # expired selection cannot block or redirect a later typed prompt.
+        # An untrusted picker handle, checked against owner/thread-bound choices before any
+        # read. temp: keeps it unpersisted so an expired one can't redirect a later prompt.
         "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
             :64
         ],
+        # Only a draft-contract-2 app fills the card from the result's envelope; older
+        # installed apps show the call's own To, Cc and Bcc (mail_instruction.py).
+        "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
         # Typed chat carries the current screen snapshot in this request. It
         # must not inherit a stale live-voice publication that is still marked
         # as settling; that would suppress the consent confirmation card even
@@ -531,7 +562,10 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
+        if token
+        else "",
+        STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,

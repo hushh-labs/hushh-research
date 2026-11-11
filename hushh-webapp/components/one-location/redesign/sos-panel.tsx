@@ -52,12 +52,15 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
   "Come get me",
 ];
 
+export type SosDispatchStatus = "sending" | "sent" | "email-only" | "failed" | "unconfirmed";
+
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
   contactCount?: number;
   /** The authoritative SMS Circle roster is still being reconciled. */
   recipientsLoading?: boolean;
   active: boolean;
+  dispatchStatus?: SosDispatchStatus;
   busy: boolean;
   /**
    * Returning the handler's promise is load-bearing: the panel awaits it to
@@ -67,6 +70,7 @@ export type SosPanelProps = {
    * release the fired latch instead of sitting on a dead progress ring.
    */
   onTrigger: (message?: string | null) => void | Promise<void>;
+  onPrepareSend?: (signal: AbortSignal) => void;
   /**
    * Stop a live SMS session: revokes the location grants created by the
    * alert AND clears the incident, so "SENT · Live now" resets. Kept separate
@@ -90,8 +94,10 @@ export function SosPanel({
   contactCount,
   recipientsLoading = false,
   active,
+  dispatchStatus,
   busy,
   onTrigger,
+  onPrepareSend,
   onStopSos,
   stopBusy,
   onEditContacts,
@@ -123,6 +129,7 @@ export function SosPanel({
 
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendPreparationRef = useRef<AbortController | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef<number | null>(null);
   const holdTargetRef = useRef<"sms" | "composer" | null>(null);
@@ -149,7 +156,19 @@ export function SosPanel({
   const disabled = hardDisabled || noContacts;
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
-  const alertedSummary = "Live location sharing is active";
+  const activeStatus = dispatchStatus === "sending" ? "Sending alert…"
+    : dispatchStatus === "failed" ? "Alert could not be sent"
+    : dispatchStatus === "unconfirmed" ? "Delivery not confirmed"
+    : dispatchStatus === "email-only" ? "Alert sent by email"
+    : dispatchStatus === "sent" ? "SMS alert sent" : "Alert active";
+  const alertedSummary = dispatchStatus === "failed"
+    ? "Call for help directly. Stop the pending alert before trying again."
+    : dispatchStatus === "unconfirmed"
+      ? "Call for help directly if you need it. You can still stop this alert."
+      : dispatchStatus === "sending"
+        ? "Checking delivery."
+        : dispatchStatus === "email-only" ? "In-app delivery could not be confirmed."
+        : dispatchStatus === "sent" ? "Live location sharing is active" : "You can stop this alert.";
   const messageDescribedBy = customMessageLimitExceeded
     ? "sos-short-message-error sos-short-message-count"
     : "sos-short-message-count";
@@ -167,6 +186,8 @@ export function SosPanel({
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     timeoutRef.current = null;
     frameRef.current = null;
+    sendPreparationRef.current?.abort();
+    sendPreparationRef.current = null;
     holdStartedAtRef.current = null;
     holdTargetRef.current = null;
     countdownModeRef.current = null;
@@ -223,6 +244,13 @@ export function SosPanel({
     }
   }, []);
 
+  const prepareSend = useCallback(() => {
+    if (!onPrepareSend) return;
+    const preparation = new AbortController();
+    sendPreparationRef.current = preparation;
+    onPrepareSend(preparation.signal);
+  }, [onPrepareSend]);
+
   const startHold = useCallback((target: "sms" | "composer") => {
     if (disabled || holdStartedAtRef.current !== null || firedRef.current || tapCountdownRef.current) return;
     suppressSendClickRef.current = false;
@@ -233,7 +261,8 @@ export function SosPanel({
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, disabled, updateProgress]);
+    prepareSend();
+  }, [completeHold, disabled, prepareSend, updateProgress]);
 
   const startTapCountdown = useCallback(() => {
     if (disabled || !customMessage.trim() || holdStartedAtRef.current !== null || firedRef.current) return;
@@ -246,7 +275,8 @@ export function SosPanel({
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, customMessage, disabled, updateProgress]);
+    prepareSend();
+  }, [completeHold, customMessage, disabled, prepareSend, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
 
@@ -407,7 +437,7 @@ export function SosPanel({
               onClick={onEditContacts}
               aria-label="Edit emergency contacts"
               data-location-type-role="utility-action"
-              className="ui-text-button-label -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+              className="ui-text-button-label -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
             >
               Edit
             </button>
@@ -438,13 +468,17 @@ export function SosPanel({
         <div className="mt-6 space-y-6">
           <div className="flex flex-col items-center rounded-[20px] bg-[color:var(--app-card-surface-default-solid)] px-6 py-7 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--app-destructive)]/10 text-[color:var(--app-destructive)]">
-              <Check className="h-7 w-7" aria-hidden />
+              {dispatchStatus === "sending" ? <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
+                : dispatchStatus === "failed" || dispatchStatus === "unconfirmed"
+                  ? <span className="text-2xl" aria-hidden>!</span>
+                  : <Check className="h-7 w-7" aria-hidden />}
             </span>
             <p
               data-testid="sos-status-label"
+              role="status"
               className="ui-text-medium-row-label mt-4"
             >
-              Alert active
+              {activeStatus}
             </p>
             <RowDescription className="mt-1">
               {alertedSummary}
@@ -458,24 +492,24 @@ export function SosPanel({
                 {sentMessage}
               </RowLabel>
             ) : null}
-            <span data-testid="sos-sent-face" className="sr-only">
-              SENT
-            </span>
+
           </div>
 
-          <button
+          <Button
             type="button"
+            size="standard"
+            variant="destructive"
             onClick={() => setStopConfirmOpen(true)}
             disabled={stopBusy}
-            aria-label="Stop Save My Soul alert"
+            aria-label="Stop SMS alert"
             data-testid="sos-cancel-alert"
-            className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-[16px] bg-[color:var(--sos-control-surface)] px-5 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60"
+            className="mx-auto flex max-w-full"
           >
             {stopBusy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             ) : null}
             {stopBusy ? "Stopping..." : "Stop alert"}
-          </button>
+          </Button>
         </div>
       ) : (
         <>
@@ -542,7 +576,11 @@ export function SosPanel({
                 aria-label={tapCountdownActive
                   ? "Cancel pending Save My Soul alert"
                   : "Send message: tap for a two-second countdown or hold for two seconds"}
-                aria-describedby={customMessageLimitExceeded ? "sos-short-message-error" : "sos-send-hint"}
+                aria-describedby={
+                  customMessageLimitExceeded
+                    ? "sos-short-message-error"
+                    : tapCountdownActive ? "sos-send-hint" : undefined
+                }
                 onClick={handleSendClick}
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
                 onPointerUp={handlePointerEnd}
@@ -559,10 +597,10 @@ export function SosPanel({
                   ? "Cancel"
                   : holdTarget === "composer" && isHolding
                     ? `${remainingSeconds}s`
-                    : "Send"}
+                    : "Send · 2s"}
               </button>
             </div>
-            <div className="mt-1 flex min-h-5 items-baseline justify-between gap-3">
+            <div className="mt-1 flex min-h-5 items-baseline gap-3">
               {customMessageLimitExceeded ? (
                 <HelperText
                   id="sos-short-message-error"
@@ -572,18 +610,16 @@ export function SosPanel({
                 >
                   Message is too long
                 </HelperText>
-              ) : (
+              ) : tapCountdownActive ? (
                 <HelperText id="sos-send-hint" as="p" className="text-[color:var(--sos-label)]">
-                  {tapCountdownActive
-                    ? `Sending in ${remainingSeconds}s · Tap Cancel`
-                    : "Tap Send (2s delay) or hold 2s"}
+                  Sending in {remainingSeconds}s · Tap Cancel
                 </HelperText>
-              )}
+              ) : null}
               <HelperText
                 as="div"
                 id="sos-short-message-count"
                 className={cn(
-                  "shrink-0 text-right",
+                  "ml-auto shrink-0 text-right",
                   customMessageLimitExceeded
                     ? "text-[color:var(--app-destructive)]"
                     : "text-[color:var(--sos-label)]",
@@ -627,13 +663,14 @@ export function SosPanel({
 
             <StatusText
               as="p"
+              role="status"
               data-testid="sos-status-label"
               className="mt-3 text-center text-[color:var(--sos-label)]"
             >
-              {statusLabel}
+              {dispatchStatus === "failed" && !busy && !isHolding ? "Alert not sent · Hold to retry" : statusLabel}
             </StatusText>
             <HelperText as="p" className="mt-1 text-center text-[color:var(--sos-label)]">
-              Alerts your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
+              Alert your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
             </HelperText>
           </div>
         </>
@@ -642,7 +679,7 @@ export function SosPanel({
       <AlertDialog open={stopConfirmOpen && !native} onOpenChange={setStopConfirmOpen}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Stop Save My Soul alert?</AlertDialogTitle>
+            <AlertDialogTitle>Stop SMS alert?</AlertDialogTitle>
             <AlertDialogDescription>
               Your emergency contacts will stop receiving your live location.
             </AlertDialogDescription>

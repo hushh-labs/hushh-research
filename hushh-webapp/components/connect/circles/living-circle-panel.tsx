@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonProfileLink } from "@/components/connections/person-profile-link";
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { useId, useState } from "react";
 import Link from "next/link";
 import { Check, Plus, Trash2, UsersRound } from "@/components/icons";
@@ -13,7 +15,8 @@ import { TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter } from "@/lib/mo
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
-import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
+import { connectPersonName } from "@/lib/connections/person-label";
+import { CirclePersonSelectionDetail } from "@/components/one-location/redesign/circles/circle-person-selection-row";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -132,17 +135,17 @@ export function LivingCirclePanel({
           tabSetId={peopleViewId} options={[{ value: "all", label: "All connections" }, { value: "selected", label: `Selected (${selectedUserIds.size})` }]} />
       </TaskSurfaceToolbar>
       <TaskSurfaceBody role="tabpanel" id={`top-shell-${peopleViewId}-panel-${peopleView}`} aria-labelledby={`top-shell-${peopleViewId}-tab-${peopleView}`}>
-        {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="ghost" size="compact" onClick={onRetry}>Retry</Button></div> : null}
+        {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="text" size="compact" onClick={onRetry}>Retry</Button></div> : null}
         {loading && !candidates.length && peopleView === "all" ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
           : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
           : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
-            avatar={<ConnectionPersonAvatar size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />}
-            name={connectPersonName(person)} detail={connectPersonSelectionDetail(person)} checked={selectedUserIds.has(person.userId)}
+            avatar={<ConnectionPersonAvatar userId={person.userId} size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />}
+            name={connectPersonName(person)} detail={<CirclePersonSelectionDetail person={person} />} checked={selectedUserIds.has(person.userId)}
             onCheckedChange={() => onAdd(person.userId)}
             disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
             label={`Add ${connectPersonName(person)} to ${circleName}`} />)
           : !error ? <p className="py-4 text-sm text-muted-foreground">{peopleView === "selected" ? "No people selected." : searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
-        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="ghost" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
+        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="text" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
       </TaskSurfaceBody>
       <TaskSurfaceFooter>
         <SheetCount>{selectedUserIds.size} selected</SheetCount>
@@ -183,13 +186,14 @@ export function LivingCirclePanel({
             name: connectPersonName(member),
             photoUrl: member.photoUrl,
             verified: Boolean(member.isRia),
+            fromContacts: member.connectedFromContacts,
             publicPersonRef: member.publicPersonRef,
           }))}
           totalCount={orbitMemberCount}
           emptySlots={emptySlots}
           center={
             showGroupIdentity ? <CircleAvatar photoUrl={groupPhotoUrl} className="size-16 ring-2 ring-background" /> : owner?.publicPersonRef ? (
-              <Link
+              <PersonProfileLink
                 data-testid="circle-owner-profile"
                 className="cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
                 title={connectPersonName(owner)}
@@ -197,7 +201,11 @@ export function LivingCirclePanel({
                 href={profileHref(owner.publicPersonRef)}
               >
                 {ownerAvatar}
-              </Link>
+              </PersonProfileLink>
+            ) : owner?.userId && owner.relationship !== "self" ? (
+              <button type="button" aria-label={`Open ${connectPersonName(owner)}'s profile`}
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={event => openPersonProfilePreview({ userId: owner.userId }, event.currentTarget)}>{ownerAvatar}</button>
             ) : (
               ownerAvatar
             )
@@ -275,7 +283,7 @@ export function LivingCirclePanel({
               data-testid="connect-circle-remove-banner"
               className="mb-4 flex items-center justify-center gap-2 rounded-[var(--app-card-radius-compact)] border border-dashed border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] px-4 py-3 text-sm font-medium text-destructive transition-[background-color,border-color] duration-150"
             >
-              <Trash2 className="size-4 shrink-0" aria-hidden="true" />
+              <Trash2 inheritColor className="size-4 shrink-0" aria-hidden="true" />
               <span>{overRemoveZone ? "Release to remove from circle" : "Drag down here to remove from circle"}</span>
             </div>
           ) : null}
@@ -292,7 +300,7 @@ export function LivingCirclePanel({
                 {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="text"
                     size="compact"
                     onClick={() => {
                       if (expanded) onSearchChange("");
@@ -338,10 +346,10 @@ export function LivingCirclePanel({
                       }}
                       className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] "
                     >
-                      <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />
+                      <ConnectionPersonAvatar userId={person.userId} size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />
                       <span className="min-w-0 flex-1">
                         <span data-profile-role="name" className="block truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
-                        <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]">{connectPersonSelectionDetail(person)}</span>
+                        <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]"><CirclePersonSelectionDetail person={person} /></span>
                       </span>
                       <button
                         type="button"

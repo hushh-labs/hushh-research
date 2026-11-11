@@ -1,6 +1,7 @@
 "use client";
 
 import { NativeLocationLayer } from "../native-location-workspace";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, UsersRound } from "@/components/icons";
 
@@ -316,7 +317,7 @@ export function CircleMemberPicker({
                   const blocked = Boolean(row.blockedReason);
                   const checked = added || ticked.has(row.userId);
                   return (
-                    <button data-location-type-role="compact-action"
+                    <PersonSelectionSurface data-location-type-role="compact-action"
                       type="button"
                       role="checkbox"
                       aria-checked={checked}
@@ -328,7 +329,7 @@ export function CircleMemberPicker({
                         (added || blocked) && "opacity-60",
                       )}
                     >
-                      <ContactAvatar
+                      <ContactAvatar userId={row.userId}
                         label={row.label}
                         photoUrl={row.photoUrl}
                         verified={row.isRia}
@@ -364,7 +365,7 @@ export function CircleMemberPicker({
                           <Check className="h-3.5 w-3.5 text-[color:var(--app-accent-fg)]" />
                         ) : null}
                       </span>
-                    </button>
+                    </PersonSelectionSurface>
                   );
                 }}
               />

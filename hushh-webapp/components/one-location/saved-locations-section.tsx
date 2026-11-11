@@ -853,7 +853,7 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                   <button
                     data-location-type-role="utility-action" type="button"
                     onClick={() => void reload()}
-                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
                   >
                     Retry
                   </button>
@@ -914,10 +914,10 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                           </p>
                         </div>
                         {visitDate ? (
-                          <time data-location-type-role="row-description"
+                          <time
                             dateTime={dateValue}
                             title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
-                            className="shrink-0 self-start pt-0.5 text-right text-[12px] leading-[18px] tabular-nums text-[color:var(--app-secondary-label)]"
+                            className="shrink-0 self-start pt-0.5 text-right text-[11px] font-normal leading-[14px] tabular-nums text-[color:var(--app-secondary-label)]"
                           >
                             {!location.checkedInAt ? <span className="block">Saved</span> : null}
                             {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
@@ -932,13 +932,13 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                       </button>
 
                       {expanded ? (
-                        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
+                        <div data-no-auto-fade="true" className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
                           {!location.address && (resolvedAddresses[location.id] === null || (!address && !findingAddress)) ? (
                             <button
                               type="button"
                               data-location-type-role="utility-action" onClick={() => void handleRepairAddress(location)}
                               disabled={repairingId !== null}
-                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                             >
                               <RefreshCw
                                 className={cn(
@@ -970,7 +970,7 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                               capturing ||
                               locationControl.paused
                             }
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             <Pencil
                               className="h-[15px] w-[15px]"
@@ -983,7 +983,7 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                             type="button"
                             data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
                             disabled={removingId !== null || favoritingId !== null}
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             {removingId === location.id ? (
                               <Loader2

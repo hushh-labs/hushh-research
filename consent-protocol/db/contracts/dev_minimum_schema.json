@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 437,
+  "expected_migration_version": 454,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -87,9 +87,11 @@
     "delete_pkm_domain_v2",
     "delete_pkm_domain_v3",
     "detach_hashcoin_wallet_owner",
+    "direct_call_expired",
     "document_delivery_summary_for",
     "effective_erasure_azure_files_inventory",
     "effective_erasure_substrate_inventory",
+    "end_finance_connection_shares",
     "enroll_account_generation",
     "ensure_drive_share_management_context",
     "erase_hosted_source_envelope_on_grant_change",
@@ -107,6 +109,7 @@
     "expected_erasure_never_hosted",
     "feed_from_agent_outcome",
     "feed_from_bulk_share_outcome",
+    "fence_sms_alarm_capability",
     "files_upgrade_admission_ready",
     "finalize_personal_agent_cloud_removal",
     "finalize_personal_agent_erasure",
@@ -129,6 +132,8 @@
     "guard_direct_message_reaction_write",
     "guard_drive_owner_search_capacity",
     "guard_email_account_capture",
+    "guard_finance_access_grant",
+    "guard_finance_share_request",
     "guard_hashcoin_direct_transfer",
     "guard_hashcoin_redemption",
     "guard_pending_phone_transfer_erasure",
@@ -331,9 +336,12 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
-    "guard_finance_share_request",
-    "guard_finance_access_grant",
-    "end_finance_connection_shares",
+    "rotate_followup_read_generation",
+    "calendar_email_followup_grant_current",
+    "enqueue_one_attempt_email",
+    "fence_one_attempt_email_preference",
+    "reset_one_attempt_email",
+    "erase_one_attempt_email",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -499,6 +507,7 @@
       "phone_binding_revision"
     ],
     "actor_profiles": [
+      "connection_list_shared",
       "contact_discoverable",
       "contact_sync_consent_contract_version",
       "contact_sync_consent_enabled_at",
@@ -604,6 +613,107 @@
       "review_id",
       "state",
       "user_id"
+    ],
+    "calendar_email_followup_conversations": [
+      "id",
+      "user_id",
+      "account_id",
+      "thread_hmac",
+      "thread_ref_ciphertext",
+      "subject_ciphertext",
+      "sender_ciphertext",
+      "latest_internal_date_ms",
+      "created_at",
+      "updated_at"
+    ],
+    "calendar_email_followup_monitors": [
+      "user_id",
+      "account_id",
+      "enabled",
+      "notifications_enabled",
+      "historical_start_at",
+      "time_zone",
+      "reminder_lead_days",
+      "reminder_hour",
+      "grant_epoch_digest",
+      "provider_subject_sha256",
+      "mail_generation",
+      "calendar_connected_at",
+      "calendar_grant_revision",
+      "generation",
+      "checkpoint_ciphertext",
+      "scan_state",
+      "scan_error_code",
+      "last_complete_at",
+      "next_scan_at",
+      "lease_id",
+      "lease_until",
+      "created_at",
+      "updated_at",
+      "consecutive_failures"
+    ],
+    "calendar_email_followup_mutations": [
+      "request_id",
+      "idempotency_key",
+      "resulting_revision",
+      "created_at"
+    ],
+    "calendar_email_followup_requests": [
+      "id",
+      "conversation_id",
+      "user_id",
+      "account_id",
+      "evidence_hmac",
+      "source_message_hmac",
+      "source_message_ref_ciphertext",
+      "source_body_digest",
+      "source_internal_date_ms",
+      "kind",
+      "state",
+      "title_ciphertext",
+      "quote_ciphertext",
+      "due_wording_ciphertext",
+      "due_date",
+      "due_relation",
+      "proposed_date",
+      "proposed_at",
+      "time_zone",
+      "responsibility",
+      "ambiguities",
+      "reminder_at",
+      "reminder_is_manual",
+      "reminder_sent_revision",
+      "booking_event_ref_ciphertext",
+      "booking_confirmed_at",
+      "revision",
+      "last_source_internal_date_ms",
+      "last_checked_at",
+      "reminder_lease_id",
+      "reminder_lease_until",
+      "reminder_retry_at",
+      "created_at",
+      "updated_at",
+      "relevance",
+      "category",
+      "urgency",
+      "meeting_state",
+      "assessment_version",
+      "suppressed_at",
+      "suppression_reason",
+      "linked_event_ciphertext",
+      "after_date",
+      "merged_into"
+    ],
+    "calendar_email_followup_scanned_messages": [
+      "user_id",
+      "account_id",
+      "message_hmac",
+      "thread_hmac",
+      "body_digest",
+      "internal_date_ms",
+      "processed_at",
+      "assessment_version",
+      "outcome"
     ],
     "chat_push_device_deliveries": [
       "accepted_at",
@@ -971,6 +1081,67 @@
       "token_hash",
       "token_prefix"
     ],
+    "direct_call_commands": [
+      "nonce",
+      "user_id",
+      "device_id",
+      "expires_at"
+    ],
+    "direct_call_signals": [
+      "sequence",
+      "call_id",
+      "sender_device_id",
+      "sender_sequence",
+      "envelope",
+      "proof"
+    ],
+    "direct_call_slots": [
+      "user_id",
+      "call_id"
+    ],
+    "direct_call_voip_outbox": [
+      "call_id",
+      "device_id",
+      "token_generation",
+      "attempts",
+      "next_attempt_at"
+    ],
+    "direct_call_voip_tokens": [
+      "device_id",
+      "user_id",
+      "key_id",
+      "token",
+      "generation",
+      "environment",
+      "topic",
+      "updated_at"
+    ],
+    "direct_calls": [
+      "id",
+      "conversation_id",
+      "caller_user_id",
+      "callee_user_id",
+      "caller_device_id",
+      "callee_device_id",
+      "state",
+      "revision",
+      "caller_connected",
+      "callee_connected",
+      "expires_at",
+      "created_at",
+      "offers",
+      "caller_proof",
+      "caller_seen_at",
+      "callee_seen_at"
+    ],
+    "direct_communication_keys": [
+      "device_id",
+      "user_id",
+      "key_id",
+      "public_key",
+      "enrollment_proof",
+      "created_at"
+    ],
     "direct_message_attachments": [
       "ciphertext",
       "content_digest",
@@ -1219,7 +1390,10 @@
       "share_id",
       "state",
       "updated_at",
-      "user_id"
+      "user_id",
+      "sharing_quota_attempts",
+      "first_sharing_quota_at",
+      "ordinary_failure_attempts"
     ],
     "drive_bulk_share_files": [
       "file_digest",
@@ -1743,6 +1917,19 @@
       "stripe_checkout_session_id",
       "stripe_event_id"
     ],
+    "drive_rest_call_leases": [
+      "lease_id",
+      "user_id",
+      "connection_generation",
+      "expires_at"
+    ],
+    "drive_rest_owner_admission": [
+      "user_id",
+      "connection_generation",
+      "connector_id",
+      "next_start_at",
+      "sharing_cooldown_until"
+    ],
     "drive_share_events": [
       "created_at",
       "delivered_at",
@@ -1764,7 +1951,11 @@
       "created_at",
       "erased_at",
       "file_lock_hmac",
-      "operation_id"
+      "operation_id",
+      "bulk_share_id",
+      "bulk_position",
+      "bulk_recipient_user_id",
+      "removal_id"
     ],
     "drive_share_live_sources": [
       "connection_generation",
@@ -2124,7 +2315,10 @@
       "connected_at",
       "revoked_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "gmail_read_enabled",
+      "gmail_read_granted_at",
+      "gmail_read_generation"
     ],
     "google_email_send_actions": [
       "action_id",
@@ -2272,7 +2466,8 @@
       "send_enabled",
       "send_grant_generation",
       "status",
-      "user_id"
+      "user_id",
+      "followup_read_generation"
     ],
     "live_memory_connector_events": [
       "event_id",
@@ -2443,6 +2638,42 @@
       "message_ref",
       "rating",
       "updated_at",
+      "user_id"
+    ],
+    "one_attempt_email_outbox": [
+      "accepted_at",
+      "action_id",
+      "activity_generation",
+      "agent_id",
+      "attempt_key",
+      "bounced_at",
+      "claim_id",
+      "claimed_at",
+      "created_at",
+      "expires_at",
+      "id",
+      "observed_at",
+      "permission_generation",
+      "permission_revision",
+      "phase",
+      "provider_id",
+      "recipient_hash",
+      "rfc_message_id",
+      "status",
+      "submission_attempts",
+      "user_id"
+    ],
+    "one_attempt_email_preferences": [
+      "activity_generation",
+      "chosen_at",
+      "consent_at",
+      "delivery_blocked",
+      "disclosure_version",
+      "email_hash",
+      "enabled",
+      "generation",
+      "revision",
+      "user_hash",
       "user_id"
     ],
     "one_capability_runs": [
@@ -4067,6 +4298,7 @@
       "platform",
       "preview_key_id",
       "preview_public_key",
+      "sms_alarm_version",
       "token",
       "updated_at",
       "user_id"
@@ -4185,5 +4417,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 437
+  "expected_schema_head": 454
 }

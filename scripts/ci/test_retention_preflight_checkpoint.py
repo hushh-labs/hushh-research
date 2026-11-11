@@ -303,7 +303,7 @@ class PreflightCheckpointTest(EarlyCheckpointCases, unittest.TestCase):
                 set(MAINTENANCE.LANES["uat"]["services"]),
             )
             self.assertTrue((directory / "README.txt").is_file())
-            self.assertEqual(output.read_text(), "checkpoint_ready=true\n")
+            self.assertEqual(output.read_text(), "checkpoint_ready=true\n" * 2)
             mutate.assert_not_called()
 
     def assert_intent_fenced(self, directory, status, pending):

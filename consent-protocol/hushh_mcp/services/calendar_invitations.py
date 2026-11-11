@@ -12,15 +12,21 @@ RESPONSES = frozenset({"needsAction", "accepted", "declined", "tentative"})
 READABLE_ROLES = frozenset({"reader", "writer", "owner", "writerWithoutPrivateAccess"})
 
 
-def own_attendee(event, email, *, raw=False):
-    """Google's `self` identifies the source calendar, not necessarily this person."""
+def attendee_status(event, email, *, raw=False):
+    """(attendee, None) or (None, closed reason): why this email is not one attendee.
+
+    Google's `self` identifies the source calendar, not necessarily this person,
+    so only the verified email is matched.
+    """
     organizer = event.get("organizer") or {}
-    if not email or str(organizer.get("email") or "").casefold() == email.casefold():
-        return None
-    if event.get("status") == "cancelled" or event.get(
-        "attendeesOmitted" if raw else "attendees_omitted"
-    ):
-        return None
+    if not email:
+        return None, "requester_not_listed"
+    if str(organizer.get("email") or "").casefold() == email.casefold():
+        return None, "requester_is_organizer"
+    if event.get("status") == "cancelled":
+        return None, "event_cancelled"
+    if event.get("attendeesOmitted" if raw else "attendees_omitted"):
+        return None, "attendees_omitted"
     matches = [
         a
         for a in event.get("attendees", [])
@@ -28,7 +34,16 @@ def own_attendee(event, email, *, raw=False):
         and str(a.get("email") or "").casefold() == email.casefold()
         and not a.get("organizer")
     ]
-    return matches[0] if len(matches) == 1 else None
+    if not matches:
+        return None, "requester_not_listed"
+    if len(matches) > 1:
+        return None, "duplicate_attendee"
+    return matches[0], None
+
+
+def own_attendee(event, email, *, raw=False):
+    """The one matching attendee entry, or None; see ``attendee_status`` for why not."""
+    return attendee_status(event, email, raw=raw)[0]
 
 
 def event_bounds(event, zone="UTC"):

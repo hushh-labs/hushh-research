@@ -82,20 +82,7 @@
   min-height: 70px;
   padding-block: 10px;
 }
-.workspace
-  :global(
-    [data-row-layout="person-compact"]
-      > div:first-child
-      > button
-      > span:first-child
-  ),
-.workspace
-  :global(
-    [data-row-layout="person-compact"]
-      > div:first-child
-      > div:first-child
-      > span:first-child
-  ) {
+.workspace :global([data-row-layout="person-compact"] [data-slot="settings-row-leading"]) {
   width: 36px;
 }
 .workspace :global([data-testid="connect-directory-group"]),
@@ -168,10 +155,6 @@
   font-weight: 550;
   color: var(--app-accent);
 }
-.joinAction.joinAction {
-  background: transparent;
-}
-
 .rosterSearch {
   position: relative;
   margin-bottom: 18px;
@@ -380,20 +363,7 @@
     grid-template-columns: 32px minmax(0, 1fr);
     column-gap: 8px;
   }
-  .workspace
-    :global(
-      [data-row-layout="person-compact"]
-        > div:first-child
-        > button
-        > span:first-child
-    ),
-  .workspace
-    :global(
-      [data-row-layout="person-compact"]
-        > div:first-child
-        > div:first-child
-        > span:first-child
-    ) {
+  .workspace :global([data-row-layout="person-compact"] [data-slot="settings-row-leading"]) {
     width: 32px;
   }
   .workspace

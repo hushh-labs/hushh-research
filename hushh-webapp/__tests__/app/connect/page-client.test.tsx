@@ -8,10 +8,12 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
   messageSelection: vi.fn(),
   searchDirectory: vi.fn(),
+  listMutualConnections: vi.fn(),
   listConnections: vi.fn(),
   listConnectionsPage: vi.fn(),
   listRequests: vi.fn(),
@@ -118,6 +120,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: mocks.user,
+    userId: mocks.user.uid,
+  }),
   useRequireAuth: () => ({
     user: mocks.user,
     // Generation-0 accounts: the application owner equals the Firebase UID.
@@ -134,8 +140,10 @@ vi.mock("@/hooks/use-debounced-value", () => ({
 }));
 
 vi.mock("@/lib/services/connections-service", () => ({
+  ConnectionsServiceRequestError: class extends Error { constructor(readonly status: number, message: string) { super(message); } },
   ConnectionsService: {
     searchDirectory: mocks.searchDirectory,
+    listMutualConnections: mocks.listMutualConnections,
     listConnections: mocks.listConnections,
     listConnectionsPage: mocks.listConnectionsPage,
     listRequests: mocks.listRequests,
@@ -435,8 +443,11 @@ describe("Location command connection prerequisite", () => {
 });
 
 beforeEach(() => {
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("me");
   vi.clearAllMocks();
   mocks.searchDirectory.mockReset();
+  mocks.listMutualConnections.mockReset();
   mocks.user = { uid: "me", getIdToken: async () => "id-token" };
   mocks.getPersonContext.mockReset();
   mocks.routerReplace.mockImplementation((href: string) => {
@@ -909,15 +920,17 @@ describe("Connect — People", () => {
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
-  it("shows viewer-relative contact provenance on a fresh connection read", async () => {
+  it("explains both connection badges independently without opening the profile or changing server order", async () => {
     mocks.listConnections.mockResolvedValue([
       {
         connectionId: "c-contact",
         userId: "u-contact",
+        publicPersonRef: "person-ref-contact",
         displayName: "Asha Contact",
         photoUrl: null,
         createdAt: "2026-08-25T00:00:00Z",
         connectedFromContacts: true,
+        isRia: true,
       },
       { connectionId: "c-other", userId: "u-other", displayName: "Manual Friend", photoUrl: null, createdAt: "invalid", connectedFromContacts: false },
       { connectionId: "c-legacy", userId: "u-legacy", displayName: "Legacy Friend", photoUrl: null, createdAt: null },
@@ -928,17 +941,37 @@ describe("Connect — People", () => {
     fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     await screen.findByText("Asha Contact");
-    const contacts = screen.getByRole("region", { name: "From contacts" });
-    const other = screen.getByRole("region", { name: "Other connections" });
-    expect(within(contacts).getByRole("heading", { name: "From contacts" })).toBeTruthy();
-    expect(within(contacts).getByText("Asha Contact")).toBeTruthy();
-    expect(within(contacts).getByText("Second Contact")).toBeTruthy();
-    expect(within(contacts).queryByText("Manual Friend")).toBeNull();
-    expect(within(other).getByText("Manual Friend")).toBeTruthy();
-    expect(within(other).getByText("Legacy Friend")).toBeTruthy();
-    expect(within(other).getAllByText("Connected")).toHaveLength(2);
-    expect(screen.queryByLabelText("Connected from your contacts")).toBeNull();
-    expect([...contacts.querySelectorAll("[data-voice-label]")].map(row => row.getAttribute("data-voice-label"))).toEqual(["Asha Contact", "Second Contact"]);
+    const list = screen.getByTestId("connect-my-connections-group");
+    expect(within(list).queryByRole("heading", { name: /From contacts|Other connections/ })).toBeNull();
+    const rows = within(list).getAllByTestId("connect-person-row");
+    expect(rows.map(row => row.getAttribute("data-voice-label"))).toEqual([
+      "Asha Contact", "Manual Friend", "Legacy Friend", "Second Contact",
+    ]);
+    const avatar = rows[0].querySelector('[data-avatar-size="compact"]') as HTMLElement;
+    const contactBadge = within(avatar).getByRole("button", { name: "Via contacts" });
+    const riaBadge = within(avatar).getByRole("button", { name: "Verified Advisor" });
+    const profileButton = within(rows[0]).getByRole("button", { name: "Open Asha Contact's profile" });
+    expect(profileButton).not.toContainElement(contactBadge);
+    expect(profileButton).not.toContainElement(riaBadge);
+    expect(within(rows[3]).getByRole("button", { name: "Via contacts" })).toBeVisible();
+    expect(within(rows[3]).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
+    for (const row of rows.slice(1, 3)) {
+      expect(within(row).queryByRole("button", { name: "Via contacts" })).toBeNull();
+      expect(within(row).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
+    }
+    expect(within(list).getAllByText("Connected")).toHaveLength(2);
+
+    expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
+    fireEvent.click(contactBadge);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("You connected with this person through a match from your synced contacts.");
+    fireEvent.blur(contactBadge);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.click(riaBadge);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Hussh verified this person's advisor profile.");
+    fireEvent.keyDown(riaBadge, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
   it("restores a roster profile return without redirecting its search to discovery", async () => {
@@ -974,7 +1007,7 @@ describe("Connect — People", () => {
     const connectionName =
       await within(myConnections).findByText("Scoped Friend");
     expect(within(myConnections).queryByRole("heading", { name: "From contacts" })).toBeNull();
-    expect(within(myConnections).getByRole("heading", { name: "Other connections" })).toBeTruthy();
+    expect(within(myConnections).queryByRole("heading", { name: "Other connections" })).toBeNull();
     // The name and avatar are one control that opens the person. The actions sit
     // beside it, never inside it, so a tap on an action cannot open the profile.
     const connectionRow = connectionName.closest<HTMLElement>(
@@ -1005,7 +1038,7 @@ describe("Connect — People", () => {
     expect(mocks.removeConnection).not.toHaveBeenCalled();
   });
 
-  it("loads page 2 in stable server order within each provenance group", async () => {
+  it("appends page 2 in server order and retains contact badges", async () => {
     mocks.listConnectionsPage.mockImplementation(async (options) => ({
       items:
         options.page === 2
@@ -1043,8 +1076,10 @@ describe("Connect — People", () => {
       expect(screen.getAllByText("Same Name")).toHaveLength(2),
     );
     expect(screen.getByRole("tab", { name: /My connections 5000/ })).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "From contacts" })).getByText("Same Name")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Other connections" })).getByText("Same Name")).toBeTruthy();
+    const rows = within(screen.getByTestId("connect-my-connections-group")).getAllByTestId("connect-person-row");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).queryByRole("button", { name: "Via contacts" })).toBeNull();
+    expect(within(rows[1]).getByRole("button", { name: "Via contacts" })).toBeVisible();
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith(
       expect.objectContaining({ page: 2, limit: 50, audience: "all" }),
     );
@@ -1581,6 +1616,123 @@ describe("Connect — People", () => {
     expect(screen.queryByLabelText("People per page")).toBeNull();
   });
 
+  it("restores directory and mutual-list position while rechecking people after profile visits", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections&q=Original");
+    const target = { userId: "kushal", publicPersonRef: "person-kushal", displayName: "Kushal", photoUrl: null, email: null,
+      relationship: "connected", mutualConnectionCount: 3, mutualConnectionPreview: null };
+    mocks.searchDirectory.mockResolvedValue({ items: [target], page: 1, hasMore: false });
+    mocks.listMutualConnections.mockImplementation(async ({ page }: { page: number }) => ({
+      person: { publicPersonRef: "person-kushal", displayName: "Kushal" }, page, hasMore: page === 1, totalCount: 3,
+      items: page === 1 ? [{ publicPersonRef: "person-alex", displayName: "Alex", photoUrl: null }, { publicPersonRef: "person-manish", displayName: "Manish", photoUrl: null }]
+        : [{ publicPersonRef: "person-second", displayName: "Second mutual", photoUrl: null }],
+    }));
+    const root = document.createElement("div");
+    root.dataset.appScrollRoot = "true";
+    document.body.appendChild(root);
+    const view = render(<ConnectPageClient />);
+    fireEvent.click(screen.getByRole("tab", { name: "Find people" }));
+    await screen.findByText("Kushal");
+    fireEvent.change(screen.getByLabelText("Search people"), { target: { value: "Kushal" } });
+    chooseDirectory("RIAs");
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenLastCalledWith(expect.objectContaining({ query: "Kushal", audience: "ria" })));
+    root.scrollTop = 480;
+    fireEvent.click(screen.getByRole("button", { name: "View all 3 mutual connections with Kushal" }));
+    const listHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
+    expect(listHref).toContain("mutuals=person-kushal");
+    expect(listHref).toContain("q=Kushal");
+    expect(listHref).not.toContain("view=connections");
+    mocks.searchParams = new URLSearchParams(listHref.split("?")[1]);
+    view.rerender(<ConnectPageClient />);
+    await screen.findByRole("button", { name: "Open Manish's profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Load more mutual connections" }));
+    const peer = await screen.findByRole("button", { name: "Open Second mutual's profile" });
+    const preview = vi.fn();
+    window.addEventListener("hussh:person-profile-preview", preview, { once: true });
+    fireEvent.click(peer);
+    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.objectContaining({ personRef: "person-second", returnFocus: peer }),
+    }));
+    expect(mocks.routerPush.mock.calls.at(-1)?.[0]).toBe(listHref);
+    view.unmount();
+    // Restore both pages only after fresh authorization, without retaining private rows.
+    const returned = render(<ConnectPageClient />);
+    expect(screen.queryByRole("button", { name: "Open Manish's profile" })).toBeNull();
+    await screen.findByRole("button", { name: "Open Second mutual's profile" });
+    expect(screen.getByRole("button", { name: "Open Manish's profile" })).toBeVisible();
+    expect(mocks.listMutualConnections).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
+    mocks.listMutualConnections.mockRejectedValue(new Error("offline"));
+    await act(async () => dispatchConnectionGraphChanged("me"));
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Open Second mutual's profile" })).toBeNull();
+    mocks.searchParams = new URLSearchParams("tab=all");
+    returned.rerender(<ConnectPageClient />);
+    expect((screen.getByLabelText("Search people") as HTMLInputElement).value).toBe("Kushal");
+    expect(screen.getByRole("button", { name: /Current directory: RIAs/ })).toBeVisible();
+    await waitFor(() => expect(root.scrollTop).toBe(480));
+    returned.unmount();
+    root.remove();
+  });
+
+  it("opens a single mutual directly with the directory return destination", async () => {
+    mocks.searchDirectory.mockResolvedValue({ items: [{ userId: "andrew", publicPersonRef: "person-andrew", displayName: "Andrew", photoUrl: null,
+      relationship: "pending_outgoing", mutualConnectionCount: 1,
+      mutualConnectionPreview: { publicPersonRef: "person-manish", displayName: "Manish", photoUrl: null } }], page: 1, hasMore: false });
+    render(<ConnectPageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open mutual connection Manish's profile" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/people/person-manish?from=%2Fone%2Fconnect%3Ftab%3Dall", { scroll: false });
+    expect(mocks.listMutualConnections).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a disconnect to one mutual without redirecting, and rejects late results across accounts", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&mutuals=person-target");
+    const response = (name: string) => ({ person: { publicPersonRef: "person-target", displayName: "Target" },
+      items: [{ publicPersonRef: "person-peer", displayName: name, photoUrl: null }], page: 1, hasMore: false, totalCount: 1 });
+    mocks.listMutualConnections.mockResolvedValue(response("Remaining peer"));
+    const view = render(<ConnectPageClient />);
+    await screen.findByRole("button", { name: "Open Remaining peer's profile" });
+    expect(screen.getByTestId("mutual-connections-list")).toBeVisible();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+    let finishOld!: (value: ReturnType<typeof response>) => void;
+    mocks.listMutualConnections.mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("hushh:connection-graph-changed", { detail: { userId: "me", changedAt: 100 } }));
+    });
+    await waitFor(() => expect(finishOld).toBeTypeOf("function"));
+    publishValidatedAuthSessionOwner("other-owner");
+    mocks.user = { uid: "other-owner", getIdToken: async () => "other-token" };
+    mocks.listMutualConnections.mockResolvedValue(response("Other account peer"));
+    view.rerender(<ConnectPageClient />);
+    await screen.findByRole("button", { name: "Open Other account peer's profile" });
+    await act(async () => finishOld(response("Stale private peer")));
+    expect(screen.queryByText("Stale private peer")).toBeNull();
+    expect(screen.queryByText("Remaining peer")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Other account peer's profile" }));
+    const { ConnectionsServiceRequestError } = await import("@/lib/services/connections-service");
+    mocks.listMutualConnections.mockRejectedValue(new ConnectionsServiceRequestError(404, "Unavailable"));
+    await act(async () => { window.dispatchEvent(new CustomEvent("hushh:connection-graph-changed", { detail: { userId: "other-owner", changedAt: 200 } })); });
+    await screen.findByRole("alert");
+    expect(screen.queryByText("Other account peer")).toBeNull();
+    view.unmount();
+    render(<ConnectPageClient />);
+    expect(screen.queryByText("Other account peer")).toBeNull();
+  });
+
+  it("removes a deleted person from an open Connections list after a viewer-scoped graph hint", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections");
+    const live = { connectionId: "live-edge", userId: "live", displayName: "Current Friend", photoUrl: null };
+    const retired = { connectionId: "retired-edge", userId: "retired", displayName: "Deleted Friend", photoUrl: null };
+    mocks.listConnections.mockResolvedValue([live, retired]);
+    render(<ConnectPageClient />);
+    await screen.findByText("Deleted Friend");
+
+    mocks.listConnections.mockResolvedValue([live]);
+    await act(async () => dispatchConnectionGraphChanged("other-owner", { broadcast: false }));
+    expect(screen.getByText("Deleted Friend")).toBeVisible();
+    await act(async () => dispatchConnectionGraphChanged("me", { broadcast: false }));
+    await waitFor(() => expect(screen.queryByText("Deleted Friend")).toBeNull());
+    expect(screen.getByText("Current Friend")).toBeVisible();
+  });
+
   it("restores a typed search query after the page remounts", async () => {
     // Regression: navigating to a person's detail screen and using the
     // shared back control remounts this page. The search box is local
@@ -1705,6 +1857,41 @@ describe("Connect — People", () => {
       expect(await screen.findByText(name)).toBeTruthy();
     }
     expect(screen.queryByText('No one matches "N"')).toBeNull();
+  });
+
+  it("submits Find people on Enter and hides rows for the previous query", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({
+      items: [person("previous", "Other Person")],
+      hasMore: true,
+      page: 1,
+    }).mockResolvedValueOnce({
+      items: [person("match", "Dinesh Kumar")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await screen.findByText("Other Person");
+
+    vi.useFakeTimers();
+    try {
+      const search = screen.getByLabelText("Search people");
+      fireEvent.change(search, { target: { value: "Ne" } });
+      expect(screen.queryByText("Other Person")).toBeNull();
+      fireEvent.keyDown(search, { key: "Enter", isComposing: true });
+      expect(mocks.searchDirectory).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.keyDown(search, { key: "Enter" });
+      });
+      expect(screen.getByText("Dinesh Kumar")).toBeVisible();
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(expect.objectContaining({
+        query: "Ne",
+        page: 1,
+        typedSearch: true,
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves the directory's A-Z order rather than re-sorting the page", async () => {
@@ -2859,11 +3046,11 @@ describe("Connect — inviting someone who is not on One yet", () => {
     return screen.findByText(`No one matches "${query}"`);
   }
 
-  it("offers an invite instead of stopping at the dead end", async () => {
-    // No matches does not prove the person lacks an account. The optional
-    // invite must not make that claim.
-    await searchForNobody();
-
+  it("offers an invite when People hands off a search with no matches", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&q=Bob%20Kanjilal");
+    mocks.searchDirectory.mockResolvedValue({ items: [], hasMore: false, page: 1 });
+    render(<ConnectPageClient />);
+    expect(await screen.findByText('No one matches "Bob Kanjilal"')).toBeTruthy();
     expect(await screen.findByText("Invite them to One")).toBeTruthy();
     expect(
       screen.getByText("Share an invite link with them."),
@@ -3183,6 +3370,16 @@ describe("Connect — Circles", () => {
     ).toBeNull();
   });
 
+  it("supersedes a pending Circle navigation before the route echo", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("tab", { name: "Circles" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Connections", exact: true }));
+    expect(mocks.routerPush.mock.calls.map(call => String(call[0]))).toEqual([
+      expect.stringContaining("tab=circles"), expect.stringContaining("tab=all"),
+    ]);
+  });
+
   it("keeps directory tab switches local while Circles stays linkable", async () => {
     // People / RIAs / Around you answer "which directory" inside the hub. Only
     // Circles writes the route-backed surface, so ordinary directory switches
@@ -3319,14 +3516,7 @@ describe("Connect — contact sync", () => {
     ).toBeInTheDocument();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
 
-    const proceed = within(sheet).getByRole("link", {
-      name: "Proceed to connections",
-    });
-    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-    proceed.addEventListener("click", (event) => event.preventDefault(), {
-      once: true,
-    });
-    fireEvent.click(proceed);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(sheet).not.toBeInTheDocument());
     expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
   });

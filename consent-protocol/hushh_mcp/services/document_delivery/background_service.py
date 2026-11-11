@@ -1,12 +1,18 @@
 """Additive background producer and authenticated original-byte reader."""
 
 import asyncio
+import json
 import time
 from collections import Counter
 
 from sqlalchemy import text
 
 from hushh_mcp.services.document_delivery import background_objects
+from hushh_mcp.services.document_delivery.background_diagnostics import (
+    CopySourceChanged,
+    copy_step,
+    safe_detail,
+)
 from hushh_mcp.services.document_delivery.background_source import (
     BackgroundOriginalReader,
     require_original,
@@ -14,6 +20,7 @@ from hushh_mcp.services.document_delivery.background_source import (
 from hushh_mcp.services.document_delivery.background_store import BackgroundCopyStore
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
 from hushh_mcp.services.document_delivery.storage import configured_objects
+from hushh_mcp.services.drive_rest_admission import scoped_job
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
@@ -32,25 +39,33 @@ class BackgroundCopyService:
             self._objects = configured_objects()
         return self._objects
 
+    @scoped_job(background=True)
     async def produce(self, row, deadline):
-        await self.store.current(row)
+        with copy_step(row, "authority"):
+            await self.store.current(row)
         source = self.store.open(row, "source_envelope", "background-copy-source-v2")
         oauth = self.oauth or get_external_connector_oauth_service().drive()
-        connection, credential = await oauth.current_credential(
-            user_id=self.store.owner(row), required_profile="live"
-        )
+        with copy_step(row, "credential"):
+            connection, credential = await oauth.current_credential(
+                user_id=self.store.owner(row), required_profile="live"
+            )
         if connection["connection_generation"] != row["connection_generation"]:
             raise DeliveryError("source_connection_changed")
         from . import background_exports, background_producer
 
-        facts = await self.reader.facts(source, credential)
+        with copy_step(row, "read"):
+            facts = await self.reader.facts(source, credential)
         native = None
         metadata = {"rendition": "original", "name": source["name"], "mimeType": source["mimeType"]}
+        time_changed = facts.get("modifiedTime") != (source.get("sourceContentIdentity") or {}).get(
+            "modifiedTime"
+        )
         try:
             if source["mimeType"] in background_exports.FORMATS:
-                identity, native = await background_exports.snapshot(
-                    self, row, source, credential, facts
-                )
+                with copy_step(row, "export_before"):
+                    identity, native = await background_exports.snapshot(
+                        self, row, source, credential, facts
+                    )
                 metadata = {
                     key: identity[key]
                     for key in (
@@ -64,52 +79,83 @@ class BackgroundCopyService:
                     )
                 }
             else:
-                identity = require_original(source, facts)
+                with copy_step(row, "source_before", metadata_time_changed=time_changed):
+                    identity = require_original(source, facts)
+                metadata["sourceMetadataTimeChanged"] = time_changed
             await self.store.current(row)
-            chunks = await background_producer.copy_chunks(
-                self, row, source, credential, identity, deadline, native
-            )
+            with copy_step(row, "copy") as step:
+                chunks = await background_producer.copy_chunks(
+                    self, row, source, credential, identity, deadline, native
+                )
+                if chunks is None:
+                    step["outcome"] = "deferred"
             if chunks is None:
                 return "deferred"
-            after = await self.reader.facts(source, credential)
-            if native is not None:
-                background_exports.require_export(source, after)
-                if (
-                    after["version"] != identity["sourceRevision"]
-                    or after["modifiedTime"] != identity["sourceModifiedTime"]
-                ):
-                    raise DeliveryError("source_changed")
-            else:
-                require_original(source, after)
-            result = await background_producer.verify(self, row, chunks, identity, deadline)
+            with copy_step(row, "read"):
+                after = await self.reader.facts(source, credential)
+            with copy_step(row, "source_after"):
+                if native is not None:
+                    background_exports.require_revision(
+                        source,
+                        after,
+                        identity["sourceRevision"],
+                        identity["sourceModifiedTime"],
+                        stage="source_after",
+                    )
+                else:
+                    require_original(source, after, stage="source_after")
+            with copy_step(row, "verify") as step:
+                result = await background_producer.verify(self, row, chunks, identity, deadline)
+                if result is None:
+                    step["outcome"] = "deferred"
             if result is None:
                 return "deferred"
-            await self.store.finish(row, result={**result, **metadata})
+            with copy_step(row, "publish"):
+                await self.store.finish(row, result={**result, **metadata})
             return "released"
         finally:
             if native is not None:
                 native[:] = b"\0" * len(native)
 
-    async def defer(self, row):
-        if row.get("_verification_attempt", 0) >= 3:
+    async def defer(self, row, *, paused=False):
+        if not paused and row.get("_verification_attempt", 0) >= 3:
             await self.stop(row, "verification_budget_exhausted")
             return
         await self.store._transaction(
             lambda c: c.execute(
                 text("""UPDATE document_delivery_background_files
-          SET lease_id=NULL,lease_expires_at=NULL,next_at=clock_timestamp()
+          SET lease_id=NULL,lease_expires_at=NULL,next_at=clock_timestamp()+(:delay * INTERVAL '1 second')
           WHERE file_ref=:ref AND lease_id=:lease AND state='preparing'"""),
-                {"ref": row["file_ref"], "lease": row["lease_id"]},
+                {"ref": row["file_ref"], "lease": row["lease_id"], "delay": 60 if paused else 0},
             )
         )
 
-    async def stop(self, row, reason):
+    async def stop(self, row, reason, *, detail=None):
         def operation(connection):
+            diagnostic = None
+            try:
+                if reason == "source_changed" and (projected := safe_detail(detail)):
+                    diagnostic = json.dumps(
+                        self.store.sharing_cipher.seal(
+                            {"copyDiagnostics": projected},
+                            user_id=self.store.owner(row),
+                            resource_id=str(row["file_ref"]),
+                            purpose="background-copy-result-v2",
+                        )
+                    )
+            except Exception:
+                pass
             retired = connection.execute(
                 text("""UPDATE document_delivery_background_files SET state='unavailable',reason=:reason,
+              result_envelope=CAST(:diagnostic AS jsonb),
               lease_id=NULL,lease_expires_at=NULL WHERE file_ref=:ref AND lease_id=:lease
               AND state='preparing' RETURNING file_ref"""),
-                {"ref": row["file_ref"], "lease": row["lease_id"], "reason": reason},
+                {
+                    "ref": row["file_ref"],
+                    "lease": row["lease_id"],
+                    "reason": reason,
+                    "diagnostic": diagnostic,
+                },
             ).scalar_one_or_none()
             if retired is not None:
                 self.store.retire(connection, retired)
@@ -141,6 +187,12 @@ class BackgroundCopyService:
                 counts["deferred"] += 1
                 break
             except (DeliveryError, DriveReadError) as error:
+                from hushh_mcp.services.drive_rest_admission import DriveRestDeferred
+
+                if isinstance(error, DriveRestDeferred):
+                    await self.defer(row, paused=True)
+                    counts["deferred"] += 1
+                    continue
                 code = str(error)
                 if code in {"provider_unavailable", "refresh_in_progress"}:
                     try:
@@ -165,6 +217,7 @@ class BackgroundCopyService:
                             "copy_integrity_mismatch",
                         }
                         else "authority_ended",
+                        detail=error.copy_detail if isinstance(error, CopySourceChanged) else None,
                     )
                 counts["unavailable"] += 1
             except Exception:

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
 import { applyStatementHoldingsEdit } from "@/lib/kai/brokerage/statement-holdings-edit";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { getStatementPortfolio } from "@/lib/kai/brokerage/financial-sources";
 
 /* ---------- mocks (before any real imports) ---------- */
@@ -688,6 +689,18 @@ describe("PkmWriteCoordinator", () => {
         expect.stringContaining("PKM_STORE_DOMAIN_FAILED"),
       );
       consoleErrorSpy.mockRestore();
+    });
+
+    it("passes only the status of a terminal store-domain validation failure to retry owners", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(new PkmStoreDomainError(422,
+        "Failed to store domain data: 422 - manifest.manifest_version"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const result = await PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, build: BUILD_CALLBACK });
+      expect(result).toMatchObject({ success: false, saveState: "failed", httpStatus: 422 });
+      expect(result.message).not.toContain("manifest.manifest_version");
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledTimes(1);
     });
 
     it("requires recipient re-review when sharing changes during the write", async () => {

@@ -29,8 +29,9 @@ class NonReleaseQualificationTest(unittest.TestCase):
     def test_enabling_cadence_requires_restoring_hourly_wake(self):
         root = Path(__file__).resolve().parents[2]
         policy = json.loads((root / "config/release-cadence.json").read_text())
-        workflow = (root / ".github/workflows/release-cadence.yml").read_text()
-        self.assertTrue(enabled_has_hourly_wake(policy, workflow))
+        self.assertFalse((root / ".github/workflows/release-cadence.yml").exists())
+        self.assertFalse(policy["enabled"])
+        self.assertTrue(policy["retired"])
         enabled = {**policy, "enabled": True}
         quiet = "on:\n  schedule:\n    - cron: '7 3 * * *'\npermissions:\n"
         self.assertFalse(enabled_has_hourly_wake(enabled, quiet))

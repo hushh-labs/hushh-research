@@ -14,6 +14,7 @@ import subprocess
 
 import production_restoration_receipt as owner
 import release_acceptance_provenance as provenance
+import production_phone_nonproducer as production_job_names
 
 ORIGIN = "prod-restoration-activation-origin.json"
 REPOSITORY = "hushh-labs/hushh-research"
@@ -61,18 +62,26 @@ def ports():
 
 
 def manual(run):
-    policy = json.loads((owner.ROOT / "config/ci-governance.json").read_text())
-    allowed = policy["production"]["manual_dispatch_users"]
     require(
         run.get("path") == ".github/workflows/deploy-production.yml"
         and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
         and all((run.get(key) or {}).get("full_name") == REPOSITORY
                 for key in ("repository", "head_repository"))
         and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
-        and all((run.get(key) or {}).get("login") in allowed
+        and all((run.get(key) or {}).get("type") == "User"
+                and type((run.get(key) or {}).get("id")) is int
+                and run[key]["id"] > 0 and bool(run[key].get("login"))
                 for key in ("actor", "triggering_actor")),
         "both dispatch actors must be governed humans",
     )
+    if run.get("status") != "completed":
+        from github_team_authority import request_operation_authority
+        require(run.get("id") == int(os.environ["GITHUB_RUN_ID"])
+                and run.get("run_attempt") == int(os.environ["GITHUB_RUN_ATTEMPT"])
+                and run["actor"]["login"] == os.environ.get("GITHUB_ACTOR")
+                and run["triggering_actor"]["login"] == os.environ.get("GITHUB_TRIGGERING_ACTOR"),
+                "active restoration is not the authenticated operation")
+        request_operation_authority(dict(os.environ), "production", os.environ.get("GITHUB_ACTOR"))
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", run["head_sha"], "origin/main"],
         capture_output=True, timeout=30, check=False,
@@ -96,15 +105,30 @@ def active_run(maintenance):
             and current.get("status") == "in_progress"
             and current.get("head_sha") == os.environ["GITHUB_SHA"]
             and current.get("run_attempt") == int(os.environ["GITHUB_RUN_ATTEMPT"])
-            and os.environ.get("GITHUB_JOB") == "complete-restoration-activation",
+            and os.environ.get("GITHUB_JOB") == production_job_names.JOB_ID,
             "verifier identity or job changed")
     jobs = maintenance.api(REPOSITORY, f"runs/{current['id']}/attempts/{current['run_attempt']}/jobs?per_page=100")
-    matches = [job for job in jobs.get("jobs", []) if job.get("status") == "in_progress"
-               and job.get("name") == "Deploy Production Scope"
-               and job.get("run_id") == current["id"] and job.get("run_attempt") == current["run_attempt"]
-               and job.get("head_sha") == current["head_sha"] and job.get("head_branch") == "main"]
-    require(jobs.get("total_count") == len(jobs.get("jobs", [])) and len(matches) == 1,
-            "canonical active verification job is unproved")
+    rows = jobs.get("jobs")
+    require(isinstance(rows, list) and jobs.get("total_count") == len(rows)
+            and len(rows) <= 100 and all(isinstance(job, dict) for job in rows),
+            "verification job inventory is incomplete")
+    candidates = [job for job in rows
+                  if job.get("name") in production_job_names.PRODUCTION_JOB_NAME_ALIASES]
+    bound = {"run_id": current["id"], "run_attempt": current["run_attempt"],
+             "head_sha": current["head_sha"], "head_branch": "main"}
+    active = []
+    for job in candidates:
+        require(all(job.get(key) == value for key, value in bound.items()),
+                "production job is not bound to the verifier attempt")
+        if job.get("status") == "completed" and job.get("conclusion") == "skipped":
+            require(job.get("steps") == [], "skipped production job contains steps")
+            continue
+        active.append(job)
+    matches = [job for job in active
+               if job.get("status") == "in_progress"
+               and job.get("name") in production_job_names.RESTORATION_ACTIVE_JOB_NAMES]
+    require(len(active) == len(matches) == 1,
+            "canonical active restoration job is unproved")
     manual(current)
     return current
 
@@ -158,14 +182,14 @@ def validation_receipt(run_id, sha):
     return validation["verify"](run_id, sha)
 
 
-def load_original(run_id, attempt, sha, **arguments):
+def load_original(run_id, attempt, sha, *, manual_validator=None, **arguments):
     require(re.fullmatch(r"[1-9][0-9]*", str(run_id)) and type(attempt) is int
             and attempt > 0, "exact original run and attempt required")
     run = fresh_run(arguments, run_id)
     require(run.get("id") == int(run_id) and run.get("run_attempt") == attempt
             and run.get("status") == "completed", "original attempt changed")
     require(arguments["governed"](run, REPOSITORY, "production"), "original completed dispatch is not governed")
-    manual(run)
+    (manual_validator or manual)(run)
     artifact, job, content, lane = archive(run, arguments)
     release = owner.phone._document(content, "prod-release-status.json")
     record, digest = owner.source_record(sha)
@@ -334,14 +358,15 @@ def fresh_provenance(read, original):
         require(image == original["images"][lane], "fresh immutable image differs")
 
 
-def serving_context(run, release, job, content, **arguments):
+def serving_context(run, release, job, content, *, manual_validator=None, **arguments):
     require(arguments["governed"](run, REPOSITORY, "production"), "verifier completed dispatch is not governed")
-    manual(run)
+    (manual_validator or manual)(run)
     require(run.get("conclusion") == "success", "verifier did not succeed")
     origin = owner.phone._document(content, ORIGIN)
     original = origin["original"]
     require(original == load_original(original["run_id"], original["run_attempt"],
-                                      release["sha"], **arguments), "original archive binding changed")
+                                      release["sha"], manual_validator=manual_validator,
+                                      **arguments), "original archive binding changed")
     require(run["id"] != original["run_id"] and origin.get("kind") == "production-restoration-activation-origin"
             and origin.get("schema_version") == 1, "verifier and runtime identity are not distinct")
     require(origin.get("verifier") == verifier_identity(run), "verifier attempt or actors changed")

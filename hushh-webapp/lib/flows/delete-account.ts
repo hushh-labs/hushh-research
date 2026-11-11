@@ -95,7 +95,7 @@ export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE =
   "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING";
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE =
-  "Your private agent or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
+  "Agent One or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
 
 function isRecoverableAccountDeletionPrecondition(error: unknown): boolean {
   return (
@@ -183,7 +183,7 @@ export function lostVaultDeletionErrorMessage(error: unknown): string {
     case "ACCOUNT_DELETE_REVIEW_UNAVAILABLE":
       return "We couldn't review deletion right now. Try again.";
     case "PERSONAL_AGENT_DEPROVISION_REQUIRED":
-      return "Your private agent must be removed first. Contact support.";
+      return "Agent One must be removed first. Contact support.";
     default:
       return accountDeletionErrorMessage(error);
   }
@@ -306,6 +306,7 @@ export async function executeVerifiedAccountDeletion(params: {
   vaultKey?: string | null;
   owner?: AccountDeletionOwner;
   isCurrent?: () => boolean;
+  reviewedCloudPlanSha256?: string;
 }): Promise<void> {
   const owner = params.owner ?? captureAccountDeletionOwner(params.userId);
   if (params.sessionUser.uid !== owner.firebaseUid || owner.ownerId !== params.userId) {
@@ -326,7 +327,9 @@ export async function executeVerifiedAccountDeletion(params: {
     sessionUser: params.sessionUser,
     owner,
     isCurrent,
-    performDeletion: () => AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent),
+    performDeletion: () => params.reviewedCloudPlanSha256
+      ? AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent, params.reviewedCloudPlanSha256)
+      : AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent),
   });
 }
 
@@ -522,6 +525,8 @@ async function executeAccountDeletion(params: {
     dispatchAuthSessionInvalidated({
       code: result.details?.firebase_auth_user === "identity_retained"
         ? "account_deletion_identity_retained"
+        : result.ready_to_start_fresh === true && result.cloud_cleanup?.state === "pending"
+        ? "account_deleted_cloud_pending"
         : result.ready_to_start_fresh === true
         ? "account_deleted_ready_to_start_fresh"
         : result.ready_to_start_fresh === false

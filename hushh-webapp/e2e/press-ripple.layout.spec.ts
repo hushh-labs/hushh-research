@@ -224,9 +224,57 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
         .getByRole("button", { name: "Draft a reply to Sam" }),
   ],
   ["composer Send", (page) => page.getByRole("button", { name: "Send message" })],
+  ["Location Share", (page) => page.getByTestId("location-people-actions").getByRole("button", { name: "Share", exact: true })],
+  ["Location Ask", (page) => page.getByTestId("location-people-actions").getByRole("button", { name: "Ask", exact: true })],
+  ["inline text action", (page) => page.getByRole("button", { name: "Refresh results" })],
 ];
 
 const RIPPLED_CONTROLS = TARGETS.length + 4;
+
+test("Location People actions keep hover transparent with working press and focus", async ({ page, browserName }) => {
+  for (const motion of ["no-preference", "reduce"] as const) {
+    await openFixture(page, motion);
+    let clickCount = 0;
+    for (const dark of [false, true]) {
+      await page.locator("html").evaluate((element, enabled) => element.classList.toggle("dark", enabled), dark);
+      for (const width of [393, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        const actions = page.getByTestId("location-people-actions").getByRole("button");
+        for (const action of await actions.all()) {
+          await action.hover();
+          await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          await expect.poll(() => action.evaluate((button) => {
+            const host = button.querySelector(".morphy-ripple-host")!;
+            const surface = host.querySelector("md-ripple")?.shadowRoot?.querySelector(".surface");
+            const flat = host.querySelector("[data-ripple-flat]");
+            return surface ? Number(getComputedStyle(surface, "::before").opacity) : flat ? Number(getComputedStyle(flat).opacity) : -1;
+          })).toBe(0);
+          const box = (await action.boundingBox())!;
+          expect(box.height).toBeGreaterThanOrEqual(44);
+          expect(box.width).toBeGreaterThanOrEqual(44);
+          const reading = await press(page, action, (r) => motion === "reduce" ? (r.flatOpacity ?? 0) > 0 : r.materialPressed);
+          expect(motion === "reduce" ? (reading.flatOpacity ?? 0) > 0 : reading.materialPressed).toBe(true);
+          await expect(page.getByTestId("location-action-count")).toHaveText(String(++clickCount));
+        }
+        await actions.first().focus();
+        await actions.first().press(process.platform === "darwin" && browserName === "webkit" ? "Alt+Tab" : "Tab");
+        await expect(actions.nth(1)).toBeFocused();
+        expect(await actions.nth(1).evaluate((button) => button.matches(":focus-visible"))).toBe(true);
+        await expect(actions.nth(1)).not.toHaveCSS("box-shadow", "none");
+      }
+    }
+  }
+});
+
+test("inline text actions hover without a fill or underline", async ({ page }) => {
+  await openFixture(page, "no-preference");
+  const action = page.getByRole("button", { name: "Refresh results" });
+
+  await action.hover();
+  await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(action).toHaveCSS("text-decoration-line", "none");
+  await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
+});
 
 test("welcome starters keep foreground text without a hover background", async ({ page, browserName }) => {
   for (const motion of ["no-preference", "reduce"] as const) {

@@ -157,8 +157,8 @@ describe("Privacy Policy and Terms of Use pages", () => {
   it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
     const privacy = LEGAL_DOCUMENTS.privacy;
     const text = plainText(privacy);
-    expect(privacy.version).toBe("2.11");
-    expect(privacy.lastUpdated).toBe("2026-10-22");
+    expect(privacy.version).toBe("2.12");
+    expect(privacy.lastUpdated).toBe("2026-10-29");
     expect(text).toContain("Hussh selects Microsoft Azure AI or Google Gemini as the primary processor");
     expect(text).toContain("before any output");
     expect(text).toContain("No model-settings toggle or personal pilot approval is required or created");
@@ -169,8 +169,8 @@ describe("Privacy Policy and Terms of Use pages", () => {
     expect(text).toContain("Bing web search receives search terms that may include your name");
     expect(text).toContain("outside Azure's compliance and data residency boundary");
     expect(text).toContain("You review every suggested detail before it is saved");
-    expect(LEGAL_DOCUMENTS.terms.version).toBe("2.4");
-    expect(LEGAL_DOCUMENTS.terms.lastUpdated).toBe("2026-10-16");
+    expect(LEGAL_DOCUMENTS.terms.version).toBe("2.5");
+    expect(LEGAL_DOCUMENTS.terms.lastUpdated).toBe("2026-10-29");
     render(<TermsOfUsePage />);
     expect(screen.getByRole("link", { name: "Microsoft Privacy Statement" })).toHaveAttribute(
       "href", "https://privacy.microsoft.com/en-us/privacystatement",
@@ -184,6 +184,20 @@ describe("Privacy Policy and Terms of Use pages", () => {
     expect(privacy).toContain("request purposes and relevant document text");
     expect(privacy).toContain("Current file access, owner consent, payment requirements and sharing permissions still apply");
     expect(privacy).toContain("Native Google Search, public research, voice and your own-key settings have separate provider behavior");
+  });
+
+  it("discloses the in-app activity log, its exclusions and its memory boundary", () => {
+    const privacy = plainText(LEGAL_DOCUMENTS.privacy);
+    expect(privacy).toContain("While you are signed in and your vault is unlocked, One keeps a private, encrypted log on your device");
+    expect(privacy).toContain("It does not record the contents of messages, mail, or files, your coordinates, passwords, or access tokens.");
+    expect(privacy).toContain("checking in at a place (its name)");
+    expect(privacy).toContain("together with what One already remembers");
+    expect(privacy).toContain("useful details, which are encrypted before they are saved");
+    expect(privacy).toContain("Reset removes the log on the device where you reset; on your other devices it stays");
+    expect(privacy).toContain("signing out does not remove them");
+    expect(privacy).toContain("This is on by default.");
+    expect(privacy).toContain("When you chat with One, today’s recent activity is sent with your request");
+    expect(plainText(LEGAL_DOCUMENTS.terms)).toContain("useful details from your activity in One");
   });
 
   it("does not promise automatic expiry for manually created backups", () => {

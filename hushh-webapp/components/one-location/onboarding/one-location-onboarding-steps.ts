@@ -1,9 +1,8 @@
 import type { OnboardingStep } from "@/components/app-ui/onboarding-stepper";
 
 export const ONE_LOCATION_ONBOARDING_STEPS = [
-  { id: "features", label: "What One Location does" },
-  { id: "place", label: "Save a place" },
-  { id: "ready", label: "Ready" },
+  { id: "features", label: "Your place" },
+  { id: "ready", label: "Your people" },
 ] as const satisfies readonly OnboardingStep[];
 
 export type OneLocationOnboardingScreen =

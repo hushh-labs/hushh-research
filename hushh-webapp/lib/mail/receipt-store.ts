@@ -4,6 +4,7 @@ import { SecureDurableResourceService, type DurableVersion } from "@/lib/service
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { analyzeReceipts, type ReceiptFunction } from "./receipt-analysis";
+import { ReceiptSnapshotMissingError } from "./receipt-availability";
 import { receiptAccountBinding, validateReceiptSnapshot, RECEIPT_SNAPSHOT_PREFIX, LEGACY_RECEIPT_SNAPSHOT_PREFIX, type ReceiptSnapshot } from "./receipt-snapshot";
 
 export type ReceiptStoreSession = { userId: string; vaultKey: string; vaultOwnerToken: string; isCurrent?: () => boolean; signal?: AbortSignal };
@@ -61,7 +62,7 @@ export async function loadReceiptSnapshot(session: ReceiptStoreSession, account:
 export async function runReceiptFunction(session: ReceiptStoreSession, operation: ReceiptFunction, request: unknown, account: string | null = null) {
   const isCurrent = receiptStoreGuard(session);
   const snapshot = await loadReceiptSnapshot({ ...session, isCurrent }, account);
-  if (!snapshot) throw new Error("No saved receipt snapshot is available. Open Mail Receipts and sync first.");
+  if (!snapshot) throw new ReceiptSnapshotMissingError();
   const result = analyzeReceipts(operation, request, snapshot.value, snapshot.source.revision);
   if (!isCurrent()) throw new Error("Receipt authority changed.");
   const current = await SecureDurableResourceService.version(session.userId, RECEIPT_SNAPSHOT_PREFIX + snapshot.value.account_binding);

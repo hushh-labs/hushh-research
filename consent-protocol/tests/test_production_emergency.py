@@ -29,6 +29,19 @@ def _emergency_fixture(monkeypatch):
         "emergency_source_ref": "hotfix/incident-123",
         "emergency_reason": "Incident 123: restore the serving account route",
     }
+
+    def admit(env, surface, actor, *, protected=False):
+        if (
+            surface != "production"
+            or not protected
+            or any(
+                env.get(key) != "operator" for key in ("GITHUB_ACTOR", "GITHUB_TRIGGERING_ACTOR")
+            )
+        ):
+            raise ValueError("Fixture operator is outside the live authorized team")
+        return {}
+
+    monkeypatch.setattr("github_team_authority.request_operation_authority", admit)
     policy = {"production": {"manual_dispatch_users": ["operator"]}}
     return module, environment, inputs, policy
 
@@ -142,7 +155,7 @@ def test_emergency_baseline_refuses_split_traffic_and_unqualified_identity(monke
         module.baseline(service, revision, "consent-protocol")
 
 
-def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gate():
+def test_incident_admission_precedes_runtime_mutation_and_keeps_main_qualification():
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
     steps = workflow["jobs"]["deploy"]["steps"]
     incident = next(step for step in steps if step.get("id") == "dispatch-authority")
@@ -154,7 +167,7 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gat
     predecessor = next(step for step in steps if step.get("id") == "predecessor-acceptance")
     assert 'if [ "$RELEASE_MODE" = manual-emergency ]; then' in predecessor["run"]
     assert (
-        'else\n  python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require'
+        'else\n  python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" main-source'
         in predecessor["run"]
     )
     for mutation in (
@@ -166,6 +179,12 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gat
         assert "Recheck manual incident" in guard["name"]
         assert '"${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh"' in guard["run"]
         assert '"${RUNNER_TEMP}/release-tools/production_emergency.py" recheck' in guard["run"]
-    for job in workflow["jobs"].values():
+    for name, job in workflow["jobs"].items():
+        if name == "deployment-security":
+            assert job["uses"] == "./.github/workflows/deployment-security.yml"
+            continue
+        if name in {"validate-dispatch", "verify-current-production"}:
+            assert "uses" not in job
+            continue
         boundary = next(step for step in job["steps"] if step.get("id") == "dispatch-authority")
         assert "production_emergency.py dispatch" in boundary["run"]

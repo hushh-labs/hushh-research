@@ -37,6 +37,7 @@ from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
     DEPENDENCY_OK,
     PROVIDER_UNAVAILABLE,
     classify_provider_error,
+    is_transient_transport,
     summarize,
 )
 from scripts.capability_probe_failure import FAILURE_REASONS  # noqa: E402
@@ -57,6 +58,8 @@ def valid_failure_reason(capability: str, reason: object) -> bool:
             and reason.startswith("live.")
             or capability == "one_text_root"
             and reason.startswith("root.")
+            or capability in {"public_search", "compact_public_search"}
+            and reason.startswith("search.")
         )
     )
 
@@ -157,7 +160,7 @@ def capability_failure_event(report: dict) -> dict:
     }
 
 
-def readiness_event(report: dict, deployment: str) -> dict:
+def readiness_event(report: dict, deployment: str, *, attempt: int = 1) -> dict:
     """Keep the existing strict success predicate and bounded failure provenance."""
     ready = (
         report["status"] == "ready"
@@ -170,7 +173,7 @@ def readiness_event(report: dict, deployment: str) -> dict:
         "http_status": report["http_status"],
         "deployment": deployment,
         "elapsed_ms": report["latency_ms"],
-        "attempt": 1,
+        "attempt": attempt,
     }
     for key in ("phase_ms", "deadline_expired"):
         if key in report:
@@ -323,6 +326,7 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
             name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,95}", name) else "UnknownException"
         )
         report["classification"] = classify_provider_error(error)
+        report["transient"] = is_transient_transport(error)
         if report["http_status"] is None:
             report["http_status"] = _status_code(getattr(error, "status_code", None))
     finally:

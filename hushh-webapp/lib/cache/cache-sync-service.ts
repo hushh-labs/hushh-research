@@ -7,6 +7,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpFeedInvalidationEpoch, bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
@@ -31,6 +32,7 @@ import {
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { FeedListResponse } from "@/lib/services/feed-service";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import { PersonProfileService } from "@/lib/services/person-profile-service";
 import {
   dispatchOneLocationStateChanged,
   type OneLocationStateChangedDetail,
@@ -783,12 +785,22 @@ export class CacheSyncService {
    * provenance projection in the same request. Invalidate both the generic
    * connection/consent tiers and One Location's combined state resource.
    */
-  static onConnectionGraphMutated(userId: string): void {
+  static onConnectionGraphMutated(
+    userId: string,
+    options?: { broadcast?: boolean },
+  ): void {
     if (!userId) return;
+    CacheService.getInstance().invalidateMany([
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "all"),
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "ria"),
+      CACHE_KEYS.CONNECT_DIRECTORY_FIRST_PAGE(userId, "all"),
+      CACHE_KEYS.CONNECT_DIRECTORY_FIRST_PAGE(userId, "ria"),
+    ]);
+    PersonProfileService.invalidatePublicProfiles();
     this.onConnectionCapabilityMutated(userId);
     OneLocationStateResource.invalidate(userId);
     clearLocationWorkspaceMemory(userId);
-    dispatchConnectionGraphChanged(userId);
+    dispatchConnectionGraphChanged(userId, options);
   }
 
   /**
@@ -970,6 +982,8 @@ export class CacheSyncService {
   }
 
   static onAuthSignedOut(userId?: string | null): void {
+    if (userId) void MessagesDraftService.clearForUser(userId).catch(() => undefined);
+    else MessagesDraftService.clearAll();
     bumpFeedInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     if (userId) {

@@ -598,8 +598,7 @@ def test_the_receipt_passes_the_completion_judges_validator(tmp_path, monkeypatc
     judge_path = Path(__file__).resolve().parents[1] / "scripts" / "ops" / "pod_completion_judge.py"
     spec = importlib.util.spec_from_file_location("pod_completion_judge_for_drill", judge_path)
     judge = importlib.util.module_from_spec(spec)
-    # Registered before exec, as the drill itself is above: the judge's dataclasses
-    # resolve their string annotations through sys.modules[__module__].
+    # Register before exec so dataclass annotations resolve through sys.modules.
     sys.modules["pod_completion_judge_for_drill"] = judge
     spec.loader.exec_module(judge)  # type: ignore[union-attr]
 
@@ -609,10 +608,10 @@ def test_the_receipt_passes_the_completion_judges_validator(tmp_path, monkeypatc
     git("init", "-q")
     git("config", "user.email", "synthetic@example.invalid")
     git("config", "user.name", "Synthetic Fixture")
-    (tmp_path / "probe.py").write_text("print('synthetic')\n")
+    probe = tmp_path / "probe.py"
+    probe.write_text("print('synthetic')\n")
     git("add", "probe.py")
     git("commit", "-qm", "synthetic baseline")
-
     result = asyncio.run(
         drill.run_memory_learning_drill(drill.InMemoryMemoryFleet(), hushh_id="HA1RECEIPT")
     )
@@ -652,13 +651,14 @@ def test_the_receipt_passes_the_completion_judges_validator(tmp_path, monkeypatc
         },
     }
     monkeypatch.setattr(judge, "REPO_ROOT", tmp_path)
-    valid, detail = judge._validate_receipt_artifact(
-        item, _dt.datetime.now(_dt.timezone.utc).date()
-    )
+    valid, detail = judge._validate_receipt_artifact(item, _dt.datetime.now(_dt.UTC).date())
     assert valid, detail
     assert receipt["result"] == "pass" and receipt["exit_code"] == 0
     assert "<redacted>" in receipt["commands"][0]
-    text = json.dumps(receipt)
+    assert receipt["source_commit"] == git("rev-parse", "HEAD")
+    assert receipt["source_sha256"] == {"probe.py": hashlib.sha256(probe.read_bytes()).hexdigest()}
+    validated_metadata = ("source_commit", "source_sha256", "completed_at")
+    text = json.dumps({k: v for k, v in receipt.items() if k not in validated_metadata})
     for private in ("Pushkin", "4269", "HA1RECEIPT"):
         assert private not in text
     # The judged number is never granted by the drill itself.

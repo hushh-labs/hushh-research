@@ -52,7 +52,7 @@ describe("runConnectedSystemDirective", () => {
       expect.objectContaining({
         delegate_agent_id: "agent_connected_systems",
         status: "completed",
-        detail: "No CRM record was read by the private agent.",
+        detail: "No CRM record was read by Agent One.",
       }),
     );
     expect(result.display).toContain("Review the proposed lookup");
@@ -79,7 +79,7 @@ describe("runConnectedSystemDirective", () => {
     expect(result).toEqual(
       expect.objectContaining({
         status: "completed",
-        detail: "No CRM record was changed by the private agent.",
+        detail: "No CRM record was changed by Agent One.",
       }),
     );
     expect(result.display).toContain("proposed 1 field change");

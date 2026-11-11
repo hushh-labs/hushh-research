@@ -24,6 +24,8 @@ import time
 import urllib.parse
 import urllib.request
 
+import production_recovery_capacity as recorded
+
 from production_capacity_bridge_contract import (
     LEGACY_PROFILE as LEGACY_PROFILE,
     PROFILE as PROFILE,
@@ -48,6 +50,8 @@ from production_capacity_bridge_contract import (
     retired_bridge_transition as retired_bridge_transition,
     configure_clone_launcher as configure_clone_launcher,
     receipt_extensions as receipt_extensions,
+    retired_recorded_transition,
+    verify_recorded_displacement,
 )
 
 budget = importlib.import_module("runtime-capacity-budget")
@@ -78,7 +82,7 @@ def receipt_state(value, *, predecessor=False):
             r"[a-f0-9]{64}", str(value.get("serviceControlsFingerprint", ""))
         )
         or not isinstance(value.get("pins"), dict)
-        or not 1 <= len(value["pins"]) <= 100
+        or not (0 if value.get("profile") == recorded.PROFILE else 1) <= len(value["pins"]) <= 100
         or not re.fullmatch(
             r"consent-protocol-[a-z0-9-]+", str(value.get("sourceRevision", ""))
         )
@@ -90,7 +94,7 @@ def receipt_state(value, *, predecessor=False):
         or len(value["traffic"]) > 100
         or type(value.get("requested")) is not bool
         or value.get("profile", LEGACY_PROFILE)
-        not in {LEGACY_PROFILE, PROFILE, RECOVERY_PROFILE}
+        not in {LEGACY_PROFILE, PROFILE, RECOVERY_PROFILE, recorded.PROFILE}
     ):
         raise retention.UnsafeState("Invalid capacity bridge receipt")
     validate_receipt_extension(value, receipt_state)
@@ -290,7 +294,18 @@ def source_revision(inventory, release):
         r".+@sha256:[a-f0-9]{64}", source.get("status", {}).get("imageDigest", "")
     ):
         raise retention.UnsafeState("Bridge source image digest is unverified")
-    if source["metadata"].get("labels", {}).get("deploy-sha") != release["sha"]:
+    if release.get("_maintenance_recorded_recovery"):
+        if (
+            expected != recorded.SERVING_BACKEND
+            or service["metadata"].get("uid") != recorded.BACKEND_SERVICE_UID
+            or source["metadata"].get("uid") != recorded.SERVING_BACKEND_UID
+            or source["status"]["imageDigest"] != recorded.BACKEND_IMAGE
+        ):
+            raise retention.UnsafeState("Recorded bridge source changed")
+        source_sha = recorded.BACKEND_SOURCE
+    else:
+        source_sha = release["sha"]
+    if source["metadata"].get("labels", {}).get("deploy-sha") != source_sha:
         raise retention.UnsafeState("Bridge source deploy provenance changed")
     return service, source
 
@@ -514,7 +529,12 @@ def verify_superseded_predecessor(previous, source, inventory, service, profile)
 def maintain(release, checkpoint_path: Path, *, create: bool):
     state = json.loads(checkpoint_path.read_text())
     previous = receipt_state(state.get("capacity_bridge"))
-    if not create and (previous is None or previous["status"] == "verified"):
+    recorded_recovery = release.get("_maintenance_recorded_recovery") is True
+    recheck_recorded = (
+        recorded_recovery and previous is not None
+        and previous.get("profile") == recorded.PROFILE
+    )
+    if not create and (previous is None or previous["status"] == "verified" and not recheck_recorded):
         return
     if create and (
         os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch"
@@ -532,9 +552,16 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
     existing_names = {
         row["metadata"]["name"] for row in inventory["services"][SERVICE]["revisions"]
     }
-    previous, retired_predecessor = retired_bridge_transition(
-        previous, service, source, source_hash, existing_names, create
-    )
+    if recorded_recovery:
+        previous, retired_predecessor = retired_recorded_transition(
+            previous, service, existing_names, create
+        )
+    else:
+        if previous and previous.get("profile") == recorded.PROFILE:
+            raise retention.UnsafeState("Recorded recovery bridge lacks its live release evidence")
+        previous, retired_predecessor = retired_bridge_transition(
+            previous, service, source, source_hash, existing_names, create
+        )
     supersede = bool(
         create
         and previous
@@ -545,6 +572,8 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
     maintenance_profile = (
         previous.get("profile", LEGACY_PROFILE)
         if previous and not supersede
+        else recorded.PROFILE
+        if recorded_recovery
         else RECOVERY_PROFILE
         if source["metadata"]["name"] == RECOVERY_SOURCE
         else PROFILE
@@ -575,7 +604,7 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         and not supersede
         and previous["status"] == "verified"
         and not reuse
-        and previous["revision"] in existing_names
+        and (recheck_recorded or previous["revision"] in existing_names)
     ):
         raise retention.UnsafeState(
             "Retire the previous bridge through ordinary drain maintenance before another bridge"
@@ -601,12 +630,19 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
     else:
         if not create:
             return
-        pins = secret_pins(source, SecretMetadata())
+        if recorded_recovery:
+            verify_recorded_displacement(service, inventory["services"][SERVICE]["revisions"])
+            pins = {}
+        else:
+            pins = secret_pins(source, SecretMetadata())
         displaced = service["status"]["latestCreatedRevisionName"]
-    template = clone_template(source, pins, displaced, maintenance_profile)
+    template = recorded.template() if recorded_recovery else clone_template(
+        source, pins, displaced, maintenance_profile
+    )
     # Admission must reserve the actual source launcher, not merely the fixed
     # candidate profile. A changed source worker count must fail before creation.
-    verify_profile(template, profile, maintenance_profile)
+    if not recorded_recovery:
+        verify_profile(template, profile, maintenance_profile)
     name = template["metadata"]["name"]
     old_traffic = (
         previous["traffic"]
@@ -636,6 +672,8 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         "status": "intent",
         "requested": bool(reuse and previous.get("requested")),
         **receipt_extensions(maintenance_profile, retired_predecessor),
+        **({"desiredTraffic": previous["desiredTraffic"] if reuse else service["spec"]["traffic"]}
+           if recorded_recovery else {}),
         **(
             {
                 "predecessor": predecessor,
@@ -673,7 +711,8 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
             profile,
             "production",
             recovery_capacity_inventory(fresh, maintenance_profile),
-            maintenance_profile=maintenance_profile,
+            maintenance_profile=None if recorded_recovery else maintenance_profile,
+            candidate_services=frozenset() if recorded_recovery else None,
         )
         if not report["admitted"]:
             raise retention.UnsafeState(
@@ -715,6 +754,10 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
                 ],
             },
         }
+        if recorded_recovery:
+            # Keep the exact desired targets, including the serving revision's
+            # tag. Do not give the maintenance listener a tag or any route.
+            body["spec"]["traffic"] = copy.deepcopy(receipt["desiredTraffic"])
         receipt["requested"] = True
         save()  # Durable intent BEFORE the possibly successful provider call.
         with tempfile.TemporaryDirectory() as temporary:
@@ -751,23 +794,35 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         ]
     if len(revisions) != 1:
         raise retention.MutationUncertain("Bridge revision is absent or ambiguous")
-    verify_clone(
-        revisions[0],
-        template,
-        service,
-        old_traffic,
-        profile,
-        receipt["serviceControlsFingerprint"],
-        previously_verified=bool(reuse and previous["status"] == "verified"),
-        maintenance_profile=maintenance_profile,
-    )
+    if recorded_recovery:
+        status = service["status"]
+        if (
+            not recorded.verified_inert(service, revisions[0])
+            or status.get("latestCreatedRevisionName") != name
+            or status.get("latestReadyRevisionName") != name
+            or service["spec"].get("traffic") != receipt["desiredTraffic"]
+            or traffic(service) != old_traffic
+            or service_controls(service) != receipt["serviceControlsFingerprint"]
+        ):
+            raise retention.MutationUncertain("Recorded bridge readiness or unchanged traffic is unverified")
+    else:
+        verify_clone(
+            revisions[0],
+            template,
+            service,
+            old_traffic,
+            profile,
+            receipt["serviceControlsFingerprint"],
+            previously_verified=bool(reuse and previous["status"] == "verified"),
+            maintenance_profile=maintenance_profile,
+        )
     ordinary = profile["environments"]["production"]["services"]
     remaining = budget.evaluate(
         profile,
         "production",
         recovery_capacity_inventory(inventory, maintenance_profile),
         candidate_services=frozenset()
-        if maintenance_profile in {PROFILE, RECOVERY_PROFILE}
+        if maintenance_profile in {PROFILE, RECOVERY_PROFILE, recorded.PROFILE}
         else frozenset(ordinary) - {SERVICE},
     )
     if not remaining["admitted"]:

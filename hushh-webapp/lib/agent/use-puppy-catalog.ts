@@ -234,7 +234,7 @@ export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = 
   }, [catalog, owner, machine, pending]);
 
   const connectionMessage = waitingFor === "agent"
-    ? "Waking your private agent. The model list will update here."
+    ? "Waking Agent One. The model list will update here."
     : waitingFor === "machine" ? `Connecting to ${machine}. The model list will update here.` : "";
   return { catalog: catalogKey === key ? catalog : null, loading, error, connectionMessage, pending, load, applyGlobal };
 }

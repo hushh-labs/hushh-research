@@ -1,5 +1,10 @@
 "use client";
 
+import { PersonProfileButton } from "@/components/connections/person-profile-button";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { MapPersonTrayChip, MapSharingPersonRow, activeSharePeopleFromGrants, type MapSharingPerson } from "./map-connection-rows";
+
+import { isPersonProfilePreviewOpen } from "@/lib/connections/person-profile-preview";
 import {
   useCallback,
   useEffect,
@@ -24,7 +29,6 @@ import {
   MapPin,
   Search,
   UsersRound,
-  WifiOff,
 } from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
@@ -66,7 +70,10 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
-import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 import { resolvedAccentHex } from "@/lib/theme/accent";
 import {
   firstNameFromLabel,
@@ -111,7 +118,6 @@ import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-loc
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
-  OneLocationGrant,
   OneLocationNearbyAttendee,
   OneLocationNearbyPresenceState,
   PlainLocationPoint,
@@ -223,17 +229,6 @@ const MAP_ACCENT_ACTIVE_CLASSNAME =
 /** No map, nothing to act on — the resting tone, not an accent and not red. */
 const UNAVAILABLE_TONE = roleClasses("neutral");
 
-function activeShareLabels(grants: OneLocationGrant[]): string[] {
-  return grants
-    .filter((grant) => grant.status === "active")
-    .map(
-      (grant) =>
-        grant.recipientDisplayName?.trim() ||
-        grant.recipientMaskedPhone?.trim() ||
-        "Someone",
-    );
-}
-
 /**
  * The camera payload `onCameraIdle` and `onBoundsChanged` both deliver.
  *
@@ -256,6 +251,7 @@ type MapCameraEvent = {
 type RenderMarker = {
   key: string;
   avatarUrl?: string | null;
+  userId?: string;
   point: PlainLocationPoint;
   label: string;
   /**
@@ -744,8 +740,8 @@ export function LocationImmersiveMap({
   const cachedLocationState = auth.userId
     ? OneLocationStateResource.readPresentation(auth.userId)
     : null;
-  const cachedActiveShareNames = cachedLocationState
-    ? activeShareLabels(cachedLocationState.ownerGrants)
+  const cachedActiveSharePeople = cachedLocationState
+    ? activeSharePeopleFromGrants(cachedLocationState.ownerGrants)
     : null;
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
@@ -900,10 +896,10 @@ export function LocationImmersiveMap({
   // refresh — the map surfaces it as a "Sharing with N" status, since outgoing
   // shares carry no coordinate to plot.
   const [activeShareCount, setActiveShareCount] = useState<number | null>(
-    cachedActiveShareNames?.length ?? null,
+    cachedActiveSharePeople?.length ?? null,
   );
-  const [activeShareNames, setActiveShareNames] = useState<string[]>(
-    cachedActiveShareNames ?? [],
+  const [activeSharePeople, setActiveSharePeople] = useState<MapSharingPerson[]>(
+    cachedActiveSharePeople ?? [],
   );
   /**
    * The same number, resolved and named for what it is to the reader.
@@ -928,9 +924,9 @@ export function LocationImmersiveMap({
     if (!auth.userId || demoMode) return;
     const snapshot = OneLocationStateResource.readPresentation(auth.userId);
     if (!snapshot) return;
-    const names = activeShareLabels(snapshot.ownerGrants);
-    setActiveShareCount(names.length);
-    setActiveShareNames(names);
+    const people = activeSharePeopleFromGrants(snapshot.ownerGrants);
+    setActiveShareCount(people.length);
+    setActiveSharePeople(people);
   }, [auth.userId, demoMode]);
   const [sharingPopoverOpen, setSharingPopoverOpen] = useState(false);
   /** The in-sheet twin of `sharingPopoverOpen`: the header chip's popover
@@ -1258,6 +1254,7 @@ export function LocationImmersiveMap({
     (options?: {
       maxAgeMs?: number;
       fresh?: boolean;
+      requireMeasurement?: boolean;
     }): Promise<PlainLocationPoint> => {
       // A caller demanding a genuinely fresh fix must not be handed the
       // in-flight one this ref is holding — that is how the check-in anchor
@@ -1265,7 +1262,8 @@ export function LocationImmersiveMap({
       if (
         locationCaptureRef.current &&
         options?.maxAgeMs !== 0 &&
-        !options?.fresh
+        !options?.fresh &&
+        !options?.requireMeasurement
       ) {
         return locationCaptureRef.current;
       }
@@ -1292,7 +1290,7 @@ export function LocationImmersiveMap({
   // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
   // it compiled clean while the check-in anchor quietly used a cached fix.
   const captureAndRememberCurrentLocation = useCallback(
-    async (options?: { maxAgeMs?: number; fresh?: boolean }) => {
+    async (options?: { maxAgeMs?: number; fresh?: boolean; requireMeasurement?: boolean }) => {
       const point = await captureCurrentLocation(options);
       if (auth.userId) {
         const workspace = readLocationWorkspaceMemory(auth.userId);
@@ -1307,7 +1305,7 @@ export function LocationImmersiveMap({
   );
 
   const handleNearbyStateChange = useCallback(
-    (next: OneLocationNearbyPresenceState) => {
+    (next: OneLocationNearbyPresenceState, confirmedCheckIn?: true) => {
       // Keep the ref current in the same turn as the callback. The entry GPS
       // request can already be in flight here, and waiting for the state-sync
       // effect would leave a small window where its late result can still move
@@ -1317,7 +1315,7 @@ export function LocationImmersiveMap({
       if (!auth.userId) return;
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
-        paused: next.presence ? false : current.paused,
+        paused: confirmedCheckIn && next.presence ? false : current.paused,
         nearbyPresenceActive: Boolean(next.presence),
         nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
       }));
@@ -1466,6 +1464,7 @@ export function LocationImmersiveMap({
                 `${marker.grant.id}:${marker.envelope.capturedAt}`,
               point,
               avatarUrl: marker.grant.ownerPhotoUrl ?? null,
+              userId: marker.grant.ownerUserId,
               label: displayLabel(marker),
               shortLabel: displayShortLabel(marker),
               kind: "person",
@@ -1540,9 +1539,9 @@ export function LocationImmersiveMap({
         OneLocationService.getState(vaultOwnerToken),
       );
       if (!mountedRef.current) return;
-      const names = activeShareLabels(state.ownerGrants);
-      setActiveShareCount(names.length);
-      setActiveShareNames(names);
+      const people = activeSharePeopleFromGrants(state.ownerGrants);
+      setActiveShareCount(people.length);
+      setActiveSharePeople(people);
     } catch {
       // A status count is non-critical; leave the last-known value in place.
     }
@@ -1580,7 +1579,7 @@ export function LocationImmersiveMap({
 
   useEffect(() => {
     if (!sharingPopoverOpen) return;
-    const close = () => setSharingPopoverOpen(false);
+    const close = () => { if (!isPersonProfilePreviewOpen()) setSharingPopoverOpen(false); };
     window.addEventListener("scroll", close, true);
     return () => window.removeEventListener("scroll", close, true);
   }, [sharingPopoverOpen]);
@@ -2075,9 +2074,14 @@ export function LocationImmersiveMap({
       return;
     }
     entryLocationRequestedRef.current = true;
+    const userId = auth.userId;
+    if (readOneLocationControlState(userId).paused) {
+      setEntryLocationSettled(true);
+      return;
+    }
     let cancelled = false;
     const cachedPoint = readLocationWorkspaceMemory(
-      auth.userId,
+      userId,
     ).myLocationPoint;
     const shouldMoveCameraToDevice = () => {
       if (!isCheckInSurface) return true;
@@ -2101,8 +2105,9 @@ export function LocationImmersiveMap({
         });
       }
       try {
+        if (cancelled || readOneLocationControlState(userId).paused) return;
         const point = await captureCurrentLocation();
-        if (cancelled) return;
+        if (cancelled || readOneLocationControlState(userId).paused) return;
         framedInitialMarkersRef.current = true;
         initialFrameCommandRef.current = null;
         await focusSelfPoint(point, {
@@ -2163,6 +2168,9 @@ export function LocationImmersiveMap({
   const activePlaceLongitude = nearbyPresenceState.presence?.placeLng;
   const activePlaceLabel = nearbyPresenceState.presence?.placeLabel;
   const activeCheckedInAt = nearbyPresenceState.presence?.checkedInAt;
+  const activeCheckInLabel = hasActivePresence
+    ? activePlaceLabel?.trim() || "Your check-in place"
+    : nearbyPlaceFocus?.active ? nearbyPlaceFocus.label : null;
 
   /**
    * The sheet publishes selection focus only while it is open, but the active
@@ -2234,11 +2242,7 @@ export function LocationImmersiveMap({
     };
   }, [isCheckInSurface, displayedPlaceFocus, activeCheckedInAt, selfMarker]);
 
-  /**
-   * A venue pin is useful only while choosing: it lets the owner compare the
-   * candidate with their current position. After confirmation the avatar owns
-   * the venue coordinate, so a second green pin would duplicate the same fact.
-   */
+  /** A venue contributes a text label while choosing. The bridge draws people only. */
   const nearbyPlaceMarker = useMemo<RenderMarker | null>(() => {
     if (!displayedPlaceFocus) return null;
     if (isCheckInSurface && displayedPlaceFocus.active) return null;
@@ -2293,7 +2297,13 @@ export function LocationImmersiveMap({
       ? `Your check-in at ${displayedPlaceFocus.label}`
       : "Your location";
 
+  const checkInDetailsRef = useRef<HTMLDetailsElement>(null);
   const selectSelfMarker = useCallback(() => {
+    if (isCheckInSurface && displayedPlaceFocus?.active && checkInDetailsRef.current) {
+      checkInDetailsRef.current.open = true;
+      checkInDetailsRef.current.querySelector("summary")?.focus({ preventScroll: true });
+      return;
+    }
     // A cached point may exist before consent or after it is revoked. Never let
     // even a stale queued activation disclose that coordinate to the renderer.
     if (!rendererReady || !mapSelfMarker) return;
@@ -2308,7 +2318,7 @@ export function LocationImmersiveMap({
       zoom: 15,
       animate: true,
     }).catch(() => undefined);
-  }, [mapSelfMarker, moveCameraAndPublishZoom, rendererReady]);
+  }, [displayedPlaceFocus?.active, isCheckInSurface, mapSelfMarker, moveCameraAndPublishZoom, rendererReady]);
 
   /**
    * Non-owner pins managed as one renderer batch. The owner fallback is a
@@ -2317,7 +2327,7 @@ export function LocationImmersiveMap({
   const rendererMarkers = useMemo(
     () =>
       rendererReady
-        ? visibleMarkers.filter((marker) => marker.kind !== "self")
+        ? visibleMarkers.filter((marker) => marker.kind === "person")
         : [],
     [rendererReady, visibleMarkers],
   );
@@ -3095,15 +3105,8 @@ export function LocationImmersiveMap({
           : [],
       ));
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
-        // Labels stay in the local HTML tray/search index. The native Google
-        // renderer receives coordinates and a generic accessibility title,
-        // never the private recipient name.
-        const title =
-          marker.kind === "place"
-            ? // A public venue the owner picked, so its name may reach the
-              // renderer -- unlike a private recipient's label.
-              marker.label
-            : "Private location";
+        // Private names stay in the local tray and avatar overlays.
+        const title = "Private location";
         return {
           coordinate: {
             lat: marker.point.latitude,
@@ -3115,12 +3118,9 @@ export function LocationImmersiveMap({
           ...(isNative()
             ? {
                 title,
-                snippet:
-                  marker.kind === "place"
-                    ? "Your check-in place"
-                    : "Sharing privately now",
+                snippet: "Sharing privately now",
               }
-            : avatarTitles.has(marker.key)
+              : avatarTitles.has(marker.key)
               ? {
                   title: avatarTitles.get(marker.key),
                   iconUrl: webPersonMarkerPlaceholder(isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)),
@@ -3138,7 +3138,7 @@ export function LocationImmersiveMap({
           )
             ? STALE_TINT
             : marker.tint,
-          zIndex: marker.kind === "place" ? 9 : 1,
+          zIndex: 1,
         };
       });
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
@@ -3424,9 +3424,9 @@ export function LocationImmersiveMap({
       );
       // Keep the on-map "Sharing with N" status in sync off this same fetch.
       if (mountedRef.current) {
-        const names = activeShareLabels(state.ownerGrants);
-        setActiveShareCount(names.length);
-        setActiveShareNames(names);
+        const people = activeSharePeopleFromGrants(state.ownerGrants);
+        setActiveShareCount(people.length);
+        setActiveSharePeople(people);
       }
       // Nothing to send is not a failure, and it must not be reported as one.
       // It is also the one place Ghost Mode is worth mentioning on this path:
@@ -3729,6 +3729,11 @@ export function LocationImmersiveMap({
     isCheckInSurface ? ROUTES.ONE_LOCATION_CHECK_IN : ROUTES.ONE_LOCATION_MAP,
     100,
     () => {
+      const details = checkInDetailsRef.current;
+      if (details?.open) {
+        details.open = false;
+        return true;
+      }
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
         return true;
@@ -4066,7 +4071,8 @@ export function LocationImmersiveMap({
                   className="grid gap-1"
                   aria-label="People you are sharing with"
                 >
-                  {activeShareNames.map((name, index) => {
+                  {activeSharePeople.map((person, index) => {
+                    const name = person.label;
                     const pin = markerForSharedPerson(name);
                     return (
                       <li key={`${name}-${index}`}>
@@ -4085,34 +4091,8 @@ export function LocationImmersiveMap({
                           rather than pretending to do something on the map.
                           min-h-11 keeps the row a 44px touch target.
                         */}
-                        <button
-                          type="button"
-                          data-testid="one-location-map-sharing-person"
-                          data-has-pin={pin ? "true" : "false"}
-                          aria-label={
-                            pin
-                              ? `Show ${name} on your map`
-                              : `Manage your location share with ${name}`
-                          }
-                          className="flex min-h-11 w-full items-center gap-2 rounded-[12px] px-2 py-1.5 text-left text-[15px] leading-5 transition-colors hover:bg-[var(--app-accent-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                          onClick={() => void openSharedPerson(name)}
-                        >
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
-                            aria-hidden="true"
-                          />
-                          <span data-location-type-role="row-title" className="min-w-0 flex-1 truncate">
-                            {name}
-                          </span>
-                          {pin ? (
-                            <span data-location-type-role="helper"
-                              className="shrink-0 text-[11px] font-medium text-muted-foreground"
-                              aria-hidden="true"
-                            >
-                              On your map
-                            </span>
-                          ) : null}
-                        </button>
+                        <MapSharingPersonRow person={person} hasPin={Boolean(pin)} compact={false}
+                          onOpen={() => void openSharedPerson(name)} />
                       </li>
                     );
                   })}
@@ -4170,8 +4150,7 @@ export function LocationImmersiveMap({
         removing the only part of it that was answering a question.
       */}
       {rendererReady &&
-      (nearbyCheckInOpen || displayedPlaceFocus?.active) &&
-      (nearbySearchPoint || displayedPlaceFocus) ? (
+      (activeCheckInLabel || (nearbyCheckInOpen && (nearbySearchPoint || displayedPlaceFocus))) ? (
         <div
           className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
           style={{
@@ -4179,19 +4158,24 @@ export function LocationImmersiveMap({
           }}
           data-testid="one-location-nearby-search-area-legend"
         >
-          {displayedPlaceFocus?.active ? (
-            <span
-              className="flex items-center gap-2"
+          {activeCheckInLabel ? (
+            <details
+              key={activeCheckInLabel}
+              ref={checkInDetailsRef}
+              className="pointer-events-auto min-w-0"
               data-testid="one-location-nearby-place-legend"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
             >
-              <MapSelfAvatarLegend
-                avatarUrl={selfAvatarUrl}
-                displayName={selfDisplayName}
-              />
-              <span data-location-type-role="row-description" className="truncate text-foreground">
-                Checked in at {displayedPlaceFocus.label}
-              </span>
-            </span>
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+                <MapSelfAvatarLegend avatarUrl={selfAvatarUrl} displayName={selfDisplayName} />
+                <span data-location-type-role="row-description" className="min-w-0 flex-1">You’re checked in</span>
+                <ChevronDown className="size-4 shrink-0" aria-hidden />
+              </summary>
+              <p data-location-type-role="row-description" className="max-h-[30dvh] overflow-y-auto overscroll-contain pb-1 text-foreground [overflow-wrap:anywhere]">
+                {activeCheckInLabel}
+              </p>
+            </details>
           ) : nearbySearchPoint ? (
             <span className="flex items-center gap-2">
               <MapSelfAvatarLegend
@@ -4206,7 +4190,7 @@ export function LocationImmersiveMap({
               <span data-location-type-role="row-description" className="truncate text-foreground">You are here</span>
             </span>
           ) : null}
-          {displayedPlaceFocus && !displayedPlaceFocus.active ? (
+          {!activeCheckInLabel && displayedPlaceFocus ? (
             <span
               className="flex items-center gap-2"
               data-testid="one-location-nearby-place-legend"
@@ -4223,17 +4207,7 @@ export function LocationImmersiveMap({
               </span>
             </span>
           ) : null}
-          {!displayedPlaceFocus?.active &&
-          displayedPlaceFocus?.distanceMeters != null &&
-          displayedPlaceFocus.distanceMeters >= 25 ? (
-            <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
-              {displayedPlaceFocus.distanceMeters < 1_000
-                ? `${displayedPlaceFocus.distanceMeters} m`
-                : `${(displayedPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
-              from you
-            </span>
-          ) : null}
-          <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
+          {(nearbyCheckInOpen || (isCheckInSurface && displayedPlaceFocus?.active)) ? <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
             {/* "match" is the backend's word for how it pairs attendees, and it
                 also hid a real difference: the live circle is drawn around the
                 PLACE, the search circle around the PERSON (see the circle title
@@ -4241,7 +4215,7 @@ export function LocationImmersiveMap({
             {displayedPlaceFocus?.active
               ? "500 m around your place"
               : "500 m around you"}
-          </span>
+          </span> : null}
         </div>
       ) : null}
       {status !== "unavailable" && (!mapReady || rendererPreparationPending || (isCheckInSurface && nearbyCheckInOpen && !checkInStartupReady)) ? (
@@ -4399,7 +4373,7 @@ export function LocationImmersiveMap({
             willChange: "width, height, border-radius",
           }}
         >
-          <button
+          <PersonSelectionSurface preserveChildPositioning
             ref={trayHeaderRef}
             type="button"
             className={`group relative flex w-full shrink-0 touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
@@ -4452,9 +4426,9 @@ export function LocationImmersiveMap({
               }`}
               aria-hidden={!trayExpanded}
             >
-              <span className="flex shrink-0 -space-x-2" aria-hidden="true">
+              <span className="flex shrink-0 -space-x-2">
                 {markers.slice(0, 3).map((person) => (
-                  <span data-location-type-exception="avatar-initial"
+                  <PersonProfileButton userId={trayExpanded ? person.userId : undefined} label={person.label} data-location-type-exception="avatar-initial"
                     key={person.key}
                     className="grid h-8 w-8 place-items-center rounded-full border-2 border-background text-[10px] font-semibold text-white"
                     style={{
@@ -4464,13 +4438,13 @@ export function LocationImmersiveMap({
                     }}
                   >
                     {personInitials(person.label)}
-                  </span>
+                  </PersonProfileButton>
                 ))}
                 {nearbyAttendees
                   .slice(0, Math.max(0, 3 - markers.length))
                   .map((attendee) => (
                     <span data-location-type-exception="avatar-initial"
-                      key={attendee.participantAlias}
+                      key={attendee.participantAlias} aria-hidden="true"
                       className="grid h-8 w-8 place-items-center rounded-full border-2 border-background bg-[var(--app-accent)] text-[10px] font-semibold text-[var(--app-accent-fg)]"
                     >
                       {personInitials(attendee.displayName)}
@@ -4493,7 +4467,7 @@ export function LocationImmersiveMap({
                 <ChevronDown className="h-4 w-4" />
               </span>
             </span>
-          </button>
+          </PersonSelectionSurface>
 
           <div
             className={`min-h-0 flex-1 motion-reduce:transition-none ${
@@ -4547,12 +4521,12 @@ export function LocationImmersiveMap({
                           return (
                             <div
                               key={attendee.participantAlias}
-                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
+                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 focus-within:ring-2 focus-within:ring-accent/70"
                               data-testid="one-location-map-nearby-person"
                             >
                               <button
                                 type="button"
-                                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                                className="group/nearby-person flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
                                 aria-label={`Open nearby actions for ${attendee.displayName}`}
                                 onClick={openNearbyCheckIn}
                               >
@@ -4560,7 +4534,7 @@ export function LocationImmersiveMap({
                                   {personInitials(attendee.displayName)}
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium">
+                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium group-hover/nearby-person:text-[color:var(--app-accent)]">
                                     {attendee.displayName}
                                   </span>
                                   <span data-location-type-role="row-description" className="block truncate text-xs text-muted-foreground">
@@ -4651,69 +4625,9 @@ export function LocationImmersiveMap({
                         ? lastSeenLabel(person.capturedAt, staleClockMs)
                         : null;
                       return (
-                        <button
-                          key={person.key}
-                          type="button"
-                          className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
-                            selectedPerson
-                              ? MAP_ACCENT_ACTIVE_CLASSNAME
-                              : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
-                          }`}
-                          // The live case keeps its original name exactly. Only a
-                          // person who has gone quiet has anything extra worth
-                          // announcing, and saying "sharing live" on every other
-                          // row would be noise in a screen reader.
-                          aria-label={
-                            lastSeen
-                              ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
-                              : `Show ${person.label} on the map`
-                          }
-                          title={
-                            lastSeen
-                              ? `${person.label} — last seen ${lastSeen}`
-                              : `${person.label} — live now`
-                          }
-                          data-testid="one-location-map-person"
-                          data-stale={personStale ? "true" : "false"}
-                          onClick={() => void focusMarker(person)}
-                        >
-                          <span className="relative shrink-0">
-                            <span data-location-type-exception="avatar-initial"
-                              className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
-                                personStale ? "opacity-70 grayscale" : ""
-                              }`}
-                              style={{
-                                backgroundColor: person.tint
-                                  ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                                  : "var(--app-accent)",
-                              }}
-                            >
-                              {personInitials(person.label)}
-                            </span>
-                            {/* Bottom-right, over the avatar's own edge. Shape as
-                              well as colour, so it survives being read on a
-                              greyscale avatar by someone who cannot rely on
-                              the grey itself. */}
-                            {personStale ? (
-                              <span
-                                className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
-                                aria-hidden="true"
-                              >
-                                <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
-                              </span>
-                            ) : null}
-                          </span>
-                          <span className="flex min-w-0 flex-col leading-tight">
-                            <span data-location-type-role="row-title" className="max-w-28 truncate font-medium">
-                              {person.label}
-                            </span>
-                            {lastSeen ? (
-                              <span data-location-type-role="row-description" className={cn("max-w-28 truncate text-[11px]", selectedPerson ? "text-white" : "text-muted-foreground")}>
-                                {lastSeen}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
+                          <MapPersonTrayChip key={person.key} person={person}
+                            initials={personInitials(person.label)} selectedPerson={selectedPerson} personStale={personStale}
+                            lastSeen={lastSeen} selectedClassName={MAP_ACCENT_ACTIVE_CLASSNAME} onFocus={() => void focusMarker(person)} />
                       );
                     })}
                     {filteredPeople.length === 0 ? (
@@ -4873,33 +4787,16 @@ export function LocationImmersiveMap({
                           className="grid gap-0.5 px-2 pb-2"
                           aria-label="People you are sharing with privately"
                         >
-                          {activeShareNames.map((name, index) => {
+                          {activeSharePeople.map((person, index) => {
+                    const name = person.label;
                             const pin = markerForSharedPerson(name);
                             return (
                               <li key={`${name}-${index}`}>
                                 {/* Same two destinations as the header popover,
                                   for the same reason: a row that names a person
                                   has to go to that person. */}
-                                <button
-                                  type="button"
-                                  data-testid="one-location-map-private-share-person"
-                                  data-has-pin={pin ? "true" : "false"}
-                                  aria-label={
-                                    pin
-                                      ? `Show ${name} on your map`
-                                      : `Manage your location share with ${name}`
-                                  }
-                                  className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
-                                  onClick={() => void openSharedPerson(name)}
-                                >
-                                  <span
-                                    className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
-                                    aria-hidden="true"
-                                  />
-                                  <span data-location-type-role="row-title" className="min-w-0 flex-1 truncate">
-                                    {name}
-                                  </span>
-                                </button>
+                        <MapSharingPersonRow person={person} hasPin={Boolean(pin)} compact={true}
+                          onOpen={() => void openSharedPerson(name)} />
                               </li>
                             );
                           })}
@@ -4983,20 +4880,20 @@ export function LocationImmersiveMap({
                         variant="link"
                         aria-label={
                           nearbyPresenceState.presence
-                            ? `Checked in${
+                            ? `View check-in${
                                 nearbyPresenceState.attendees.length > 0
                                   ? `, ${nearbyPresenceState.attendees.length} nearby`
                                   : ""
                               }`
-                            : "Want to check in?"
+                            : "Check in"
                         }
                 data-testid="one-location-map-nearby-check-in"
                         onClick={openNearbyCheckIn}
                       >
                         <span data-location-type-role="compact-action" className="truncate">
                           {nearbyPresenceState.presence
-                            ? "Checked in"
-                            : "Want to check in?"}
+                            ? "View check-in"
+                            : "Check in"}
                         </span>
                       </Button>
                     ) : null}

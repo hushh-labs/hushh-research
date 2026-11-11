@@ -237,10 +237,10 @@ identified provider rates and remains an estimate rather than an invoice total.
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
 | Local | `hushh-pda-uat` | `gemini-3.8-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| Dev / Production | `hushh-gemini-bridge` | same | same | same |
-| UAT | `hushh-gemini-bridge` | same text; PWM uses Azure GPT-5 mini | same | same |
+| Dev | `hushh-gemini-bridge` | `gemini-3.7-flash` | same | same |
+| UAT / Production | `hushh-gemini-bridge` | `gemini-3.8-flash` | same | same |
 
-The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
+The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. With Azure selected (today), UAT still uses its Vertex row for the release's Vertex readiness job and as the per-call alternate for Drive document requests; One chat, PWM, Live and embeddings use the selected managed Azure account; list its deployments with `python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account`. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
 
 `ONE_PROFILE_RESEARCH_ENABLED` controls the research kill switch. UAT deployment
 reads `ONE_PROFILE_RESEARCH_ENABLED_UAT` (default false); enabling it still requires

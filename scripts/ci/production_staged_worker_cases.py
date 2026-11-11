@@ -39,6 +39,7 @@ class StagedWorkerFixture:
             "status": "completed",
             "conclusion": "success",
             "head_sha": "c" * 40,
+            "head_branch": "main",
             "path": worker.WORKFLOW,
             "repository": {"id": 7},
             "head_repository": {"id": 7},
@@ -132,7 +133,7 @@ class StagedWorkerFixture:
                 "started_at": self.instant(windows.get(name, (-120, -110))[0]),
                 "completed_at": self.instant(windows.get(name, (-120, -110))[1]),
             }
-            for name in worker.STEPS
+            for name in (*worker.STEPS, worker.SOURCE_GATES[0])
         ]
         return {
             "total_count": 1,
@@ -272,6 +273,19 @@ class ProductionStagedWorkerCases(StagedWorkerFixture, unittest.TestCase):
                 ),
             ):
                 self.load()
+
+    def test_worker_requires_exactly_one_successful_source_gate(self):
+        steps = self.jobs["jobs"][0]["steps"]
+        legacy = next(step for step in steps if step["name"] == worker.SOURCE_GATES[0])
+        legacy["name"] = worker.SOURCE_GATES[1]
+        self.load()
+        steps.append({**legacy, "name": worker.SOURCE_GATES[0]})
+        with self.assertRaisesRegex(worker.receipts.retention.UnsafeState, "gates"):
+            self.load()
+        steps.pop()
+        legacy["conclusion"] = "failure"
+        with self.assertRaisesRegex(worker.receipts.retention.UnsafeState, "gates"):
+            self.load()
 
     def test_failed_gates_or_late_intent_never_authorize_staging(self):
         for change in ("intent", "stage-order", "job", "ungoverned", "attempt"):

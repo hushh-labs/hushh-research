@@ -63,7 +63,9 @@ elif command[:3] == ["run", "services", "describe"]:
     if "--format=value(status.url)" in command:
         print("https://consent-protocol-drive-worker-abc.a.run.app")
     else:
-        print(json.dumps({"status": {"traffic": traffic, "url": "https://consent-protocol-drive-worker-abc.a.run.app"}}))
+        print(json.dumps({"metadata": {"annotations": {
+            "run.googleapis.com/minScale": "2", "run.googleapis.com/maxScale": "2",
+        }}, "status": {"traffic": traffic, "url": "https://consent-protocol-drive-worker-abc.a.run.app"}}))
 elif command[:3] == ["scheduler", "jobs", "list"]:
     print(os.environ["MOCK_SCHEDULER_JOB"])
 elif command[:3] == ["scheduler", "jobs", "describe"]:
@@ -76,6 +78,8 @@ elif command[:2] == ["run", "deploy"]:
         subprocess.run([shutil.which("bash") or "bash", "-c", 'kill -TERM "$1"', "signal", os.environ["MOCK_WORKER_PARENT_PID"]], check=True)
         sys.exit(0)
     sys.exit(79)
+elif command[:3] == ["run", "services", "update"]:
+    pass
 else:
     sys.exit(80)
 """,
@@ -135,8 +139,12 @@ elif args[:3] == ["run", "services", "describe"]:
     elif "--format=value(status.url)" in args:
         print(os.environ["MOCK_WORKER_ORIGIN"])
     elif "--format=json" in args:
-        print(json.dumps({"status": {"url": os.environ["MOCK_WORKER_ORIGIN"],
-                         "traffic": [{"revisionName": "worker-previous-00001", "percent": 100}]}}))
+        scale = state.get("service_scale", {"--min": "2", "--max": "2"})
+        print(json.dumps({"metadata": {"annotations": {
+            "run.googleapis.com/minScale": scale["--min"],
+            "run.googleapis.com/maxScale": scale["--max"],
+        }}, "status": {"url": os.environ["MOCK_WORKER_ORIGIN"],
+                       "traffic": [{"revisionName": "worker-previous-00001", "percent": 100}]}}))
     else:
         sys.exit(70)
 elif args[:3] == ["run", "revisions", "describe"]:
@@ -156,6 +164,10 @@ elif args[:3] == ["run", "revisions", "describe"]:
                       "value": state.get("deployed_drain_enabled", "true")},
                      {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER",
                       "value": state["deployed_semantic_model_provider"]},
+                     {"name": "DRIVE_REQUEST_ACTIVITY_UNION_ENABLED",
+                      "value": state["deployed_activity_union_enabled"]},
+                     {"name": "DRIVE_REQUEST_ACTIVITY_UNION_PAUSED",
+                      "value": state["deployed_activity_union_paused"]},
                      {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
                       "value": state["deployed_managed_text_provider"]},
                      {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
@@ -169,10 +181,16 @@ elif args[:2] == ["run", "deploy"]:
     state["deployed_managed_ai_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_AI_PROVIDER=", 1)[1].split("|", 1)[0]
     state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
     state["deployed_semantic_model_provider"] = flag("--set-env-vars").split("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=", 1)[1].split("|", 1)[0]
+    state["deployed_activity_union_enabled"] = flag("--set-env-vars").split("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=", 1)[1].split("|", 1)[0]
+    state["deployed_activity_union_paused"] = flag("--set-env-vars").split("DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=", 1)[1].split("|", 1)[0]
     state["deployed_scaling"] = {
         name: flag(name)
         for name in ("--concurrency", "--max-instances", "--min-instances", "--max", "--min")
     }
+    state["service_scale"] = {name: flag(name) for name in ("--min", "--max")}
+    save()
+elif args[:3] == ["run", "services", "update"]:
+    state["service_scale"] = {name: flag(name) for name in ("--min", "--max")}
     save()
 elif args[:3] in (
     ["run", "services", "add-iam-policy-binding"],

@@ -225,6 +225,10 @@ POST /api/one/commands/location/circle-name/{run_id}/submit
 GET /api/one/connections
 POST /api/one/connections/contact-sync
 GET /api/one/connections/directory
+GET /api/one/connections/mutuals
+GET /api/one/connections/network
+GET /api/one/connections/network/summary
+GET,PATCH /api/one/connections/network/visibility
 GET,PUT /api/one/connections/directory-presence
 POST /api/one/connections/link-circle-invite
 GET,POST /api/one/connections/requests
@@ -301,6 +305,7 @@ POST /api/one/location/requests/{request_id}/approve
 POST /api/one/location/requests/{request_id}/deny
 POST /api/one/location/requests/{request_id}/withdraw
 POST /api/one/location/retention/purge
+GET /api/one/location/sms-alerts/recent
 GET,POST /api/one/location/sms-contacts
 DELETE /api/one/location/sms-contacts/{recipient_user_id}
 POST /api/one/location/sos-email-recipients
@@ -318,6 +323,8 @@ POST /api/one/marketplace/requests/{request_id}/approve
 POST /api/one/marketplace/requests/{request_id}/deny
 GET /api/one/marketplace/requests/{request_id}/recipient-key
 POST /api/one/marketplace/requests/{request_id}/revoke
+GET /api/one/messages/calls/capabilities
+POST /api/one/messages/calls/{operation}
 POST /api/one/messages
 POST /api/one/messages/route-token
 DELETE,POST /api/one/messages/blocks

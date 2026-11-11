@@ -17,7 +17,7 @@ const DialogContent = withLocationTypography(UnscopedDialogContent);
 
 export function ContactDiscoverabilityConsentDialog({
   open,
-  ready,
+  takeover = false,  ready,
   loading,
   savingChoice,
   error,
@@ -25,13 +25,14 @@ export function ContactDiscoverabilityConsentDialog({
   onOpenChange,
   onChoose,
   onRetry,
-}: ContactDiscoverabilityConsentDialogProps) {
+}: ContactDiscoverabilityConsentDialogProps & { takeover?: boolean }) {
   const saving = savingChoice !== null;
 
   return (
     <Dialog modal open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="gap-5 sm:max-w-md"
+        overlayClassName={takeover ? "z-[9200]" : undefined}
+        className={takeover ? "z-[9201] gap-5 sm:max-w-md" : "gap-5 sm:max-w-md"}
         showCloseButton={!saving}
         srDescription="Choose whether verified people who have your verified phone number may find and automatically connect with you."
       >

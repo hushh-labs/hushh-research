@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -25,6 +26,16 @@ _STAGES = frozenset(
         "document_upload",
         "document_key_proof",
         "document_payment",
+        "checkout_state",
+        "checkout_total",
+        "checkout_sources",
+        "checkout_acceptance",
+        "checkout_payout",
+        "checkout_access",
+        "checkout_reserve",
+        "checkout_stripe",
+        "checkout_bind",
+        "checkout_wake",
         "document_release",
         "document_revoke",
         "document_cleanup",
@@ -109,7 +120,33 @@ def drive_operation(*, job_key: str | None = None):
     return decorate
 
 
+def drive_trace_enabled() -> bool:
+    """Verbose Drive timelines use deployment identity, never a client override."""
+    normalize = {
+        "dev": "development",
+        "development": "development",
+        "local": "development",
+        "uat": "uat",
+        "test": "test",
+    }
+    declared = os.getenv("ENVIRONMENT", "").strip().lower()
+    release = os.getenv("HUSSH_RELEASE_ENVIRONMENT", "").strip().lower()
+    if declared:
+        mode = normalize.get(declared)
+        if mode is None or release and normalize.get(release) != mode:
+            return False
+        return os.getenv("DRIVE_VERBOSE_DIAGNOSTICS_ENABLED", "true").strip().lower() == "true"
+    return (
+        not release
+        and not os.getenv("K_SERVICE")
+        and os.getenv("TESTING", "").strip().lower() == "true"
+    )
+
+
 class _DriveLogger(logging.LoggerAdapter):
+    def isEnabledFor(self, level):
+        return (level >= logging.WARNING or drive_trace_enabled()) and super().isEnabledFor(level)
+
     def process(self, message, kwargs):
         # Tags are generated hex, appended to the format string, never treated
         # as identity-like standalone arguments by the global redaction filter.

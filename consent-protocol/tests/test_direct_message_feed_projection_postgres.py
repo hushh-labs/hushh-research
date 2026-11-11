@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import io
 import os
+import time
 import uuid
 import wave
 from concurrent.futures import ThreadPoolExecutor
@@ -13,15 +13,255 @@ from pathlib import Path
 from threading import Barrier, Event
 from types import SimpleNamespace
 
-import asyncpg
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
-from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
+from tests.feed_fixture_support import add_followup_fence_relations, apply_fixture_migrations
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_inbox_continuation_reaches_101st_unread_and_survives_removed_anchor(
+    projection_db, monkeypatch
+):
+    _seed_people(projection_db)
+    service = _message_service(projection_db, monkeypatch)
+    peers = [f"pagination-peer-{index:03d}" for index in range(101)]
+    with projection_db.engine.begin() as connection:
+        for peer in peers:
+            connection.execute(
+                text("INSERT INTO actor_profiles(user_id) VALUES(:peer)"), {"peer": peer}
+            )
+            connection.execute(
+                text("INSERT INTO actor_identity_cache(user_id,display_name) VALUES(:peer,:peer)"),
+                {"peer": peer},
+            )
+            connection.execute(
+                text("INSERT INTO connections(user_a_id,user_b_id) VALUES('alice',:peer)"),
+                {"peer": peer},
+            )
+    oldest = service.send_message(peers[0], recipient_user_id="alice", content="Oldest unread")
+    for peer in peers[1:]:
+        service.send_message("alice", recipient_user_id=peer, content="Outgoing")
+    first = service.list_conversations("alice")
+    assert len(first["items"]) == 100 and first["unreadCount"] == 1 and first["nextCursor"]
+    assert sum(item["unreadCount"] for item in first["items"]) == 0
+    anchor = first["items"][-1]["id"]
+    service.delete_conversation("alice", anchor)
+    last = service.list_conversations("alice", cursor=first["nextCursor"])
+    assert [item["id"] for item in last["items"]] == [oldest["conversation"]["id"]]
+    assert last["items"][0]["unreadCount"] == last["unreadCount"] == 1
+    assert last["nextCursor"] is None
+
+    # Tied timestamps still have one stable UUID order, including limit=1.
+    with projection_db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE conversations SET last_message_at=(SELECT max(last_message_at) + interval '1 second' FROM conversations)"
+            )
+        )
+    seen = []
+    cursor = None
+    while True:
+        page = service.list_conversations("alice", limit=7, cursor=cursor)
+        seen.extend(item["id"] for item in page["items"])
+        cursor = page["nextCursor"]
+        if cursor is None:
+            break
+    assert len(seen) == len(set(seen)) == 100
+    assert seen == sorted(seen, reverse=True)
+    assert service.list_conversations("alice", limit=1)["nextCursor"]
+
+
+def test_global_delete_atomically_clears_reactions_but_private_delete_preserves_them(
+    projection_db, monkeypatch
+):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesError
+
+    _seed_people(projection_db)
+    service = _message_service(projection_db, monkeypatch)
+    sent = service.send_message("alice", recipient_user_id="bob", content="Reacted message")
+    conversation, message = sent["conversation"]["id"], sent["message"]["id"]
+    service.react_to_message("bob", conversation, message, emoji="👍")
+    service.delete_message("bob", conversation, message, scope="me")
+    assert service.list_messages("alice", conversation)["items"][0]["reactions"]
+    with pytest.raises(DirectMessagesError):
+        service.delete_message("outsider", conversation, message, scope="everyone")
+    deleted = service.delete_message("alice", conversation, message, scope="everyone")
+    assert deleted["message"]["reactions"] == []
+    assert service.list_messages("alice", conversation)["items"][0]["reactions"] == []
+    with projection_db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM direct_message_reactions WHERE message_id=CAST(:id AS UUID)"
+                ),
+                {"id": message},
+            ).scalar_one()
+            == 0
+        )
+    with pytest.raises(DirectMessagesError) as caught:
+        service.react_to_message("alice", conversation, message, emoji="👍")
+    assert caught.value.code == "DIRECT_MESSAGE_DELETED"
+
+
+@pytest.mark.parametrize("delete_first", [False, True])
+def test_reaction_and_global_delete_serialize_without_retained_rows(
+    projection_db, monkeypatch, delete_first
+):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesError
+
+    _seed_people(projection_db)
+    first = _message_service(projection_db, monkeypatch)
+    second = _message_service(projection_db, monkeypatch)
+    sent = first.send_message("alice", recipient_user_id="bob", content="Race")
+    conversation, message = sent["conversation"]["id"], sent["message"]["id"]
+    admitted, release, attempted = Event(), Event(), Event()
+    pids = {}
+    original = first._message_action_row
+
+    def hold(*args, **kwargs):
+        row = original(*args, **kwargs)
+        pids["leader"] = first._transaction_connection.execute(
+            text("SELECT pg_backend_pid()")
+        ).scalar_one()
+        admitted.set()
+        assert release.wait(10)
+        return row
+
+    monkeypatch.setattr(first, "_message_action_row", hold)
+
+    def mutate(service, deleting):
+        try:
+            return (
+                service.delete_message("alice", conversation, message, scope="everyone")
+                if deleting
+                else service.react_to_message("bob", conversation, message, emoji="👍")
+            )
+        except DirectMessagesError as error:
+            return error.code
+
+    original_second = second._message_action_row
+
+    def competing_row(*args, **kwargs):
+        pids["contender"] = second._transaction_connection.execute(
+            text("SELECT pg_backend_pid()")
+        ).scalar_one()
+        attempted.set()
+        return original_second(*args, **kwargs)
+
+    monkeypatch.setattr(second, "_message_action_row", competing_row)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leading = pool.submit(mutate, first, delete_first)
+        try:
+            assert admitted.wait(10)
+            trailing = pool.submit(mutate, second, not delete_first)
+            assert attempted.wait(10)
+            deadline = time.monotonic() + 5
+            with projection_db.engine.connect() as monitor:
+                while time.monotonic() < deadline:
+                    blockers = monitor.execute(
+                        text("SELECT pg_blocking_pids(:pid)"), {"pid": pids["contender"]}
+                    ).scalar_one()
+                    if pids["leader"] in blockers:
+                        break
+                    time.sleep(0.02)
+                else:
+                    pytest.fail("Contending mutation never waited for the message lock")
+        finally:
+            release.set()
+        assert isinstance(leading.result(timeout=10), dict)
+        result = trailing.result(timeout=10)
+    assert result == "DIRECT_MESSAGE_DELETED" if delete_first else isinstance(result, dict)
+    assert first.list_messages("alice", conversation)["items"][0]["reactions"] == []
+    with projection_db.engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM direct_message_reactions")).scalar_one()
+            == 0
+        )
+
+
+def test_failed_reaction_cleanup_rolls_back_the_global_tombstone(projection_db, monkeypatch):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesError
+
+    _seed_people(projection_db)
+    service = _message_service(projection_db, monkeypatch)
+    sent = service.send_message("alice", recipient_user_id="bob", content="Keep on rollback")
+    conversation, message = sent["conversation"]["id"], sent["message"]["id"]
+    service.react_to_message("bob", conversation, message, emoji="👍")
+    original = service._execute_one
+
+    def fail_cleanup(sql, params=None):
+        if "DELETE FROM direct_message_reactions" in sql:
+            raise RuntimeError("Synthetic cleanup failure")
+        return original(sql, params)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(service, "_execute_one", fail_cleanup)
+        with pytest.raises(DirectMessagesError):
+            service.delete_message("alice", conversation, message, scope="everyone")
+    history = service.list_messages("bob", conversation)["items"][0]
+    assert history["deletedForEveryoneAt"] is None
+    assert history["content"] == "Keep on rollback" and history["reactions"]
+
+
+def test_reaction_and_whole_chat_delete_use_parent_first_lock_order(projection_db, monkeypatch):
+    _seed_people(projection_db)
+    reacting = _message_service(projection_db, monkeypatch)
+    deleting = _message_service(projection_db, monkeypatch)
+    sent = reacting.send_message("alice", recipient_user_id="bob", content="Concurrent chat delete")
+    conversation, message = sent["conversation"]["id"], sent["message"]["id"]
+    admitted, release, attempted = Event(), Event(), Event()
+    pids = {}
+    original = reacting._message_action_row
+
+    def hold(*args, **kwargs):
+        row = original(*args, **kwargs)
+        pids["reaction"] = reacting._transaction_connection.execute(
+            text("SELECT pg_backend_pid()")
+        ).scalar_one()
+        admitted.set()
+        assert release.wait(10)
+        return row
+
+    monkeypatch.setattr(reacting, "_message_action_row", hold)
+    original_delete = deleting._execute_one
+
+    def observe_delete(sql, params=None):
+        if "FOR UPDATE" in sql:
+            pids["delete"] = deleting._transaction_connection.execute(
+                text("SELECT pg_backend_pid()")
+            ).scalar_one()
+            attempted.set()
+        return original_delete(sql, params)
+
+    monkeypatch.setattr(deleting, "_execute_one", observe_delete)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reaction = pool.submit(reacting.react_to_message, "bob", conversation, message, emoji="👍")
+        try:
+            assert admitted.wait(10)
+            deletion = pool.submit(deleting.delete_conversation, "alice", conversation)
+            assert attempted.wait(10)
+            deadline = time.monotonic() + 5
+            with projection_db.engine.connect() as monitor:
+                while time.monotonic() < deadline:
+                    blockers = monitor.execute(
+                        text("SELECT pg_blocking_pids(:pid)"), {"pid": pids["delete"]}
+                    ).scalar_one()
+                    if pids["reaction"] in blockers:
+                        break
+                    time.sleep(0.02)
+                else:
+                    pytest.fail("Chat deletion never waited for the reaction transaction")
+        finally:
+            release.set()
+        assert reaction.result(timeout=10)["message"]["reactions"]
+        assert deletion.result(timeout=10)["deleted"] is True
+    assert reacting.list_messages("alice", conversation)["items"] == []
+    peer = reacting.list_messages("bob", conversation)["items"][0]
+    assert peer["content"] == "Concurrent chat delete" and peer["reactions"]
 
 
 @pytest.mark.parametrize("viewer,peer", [("alice", "bob"), ("bob", "alice")])
@@ -378,8 +618,7 @@ def projection_db():
                     CREATE TABLE circle_chat_messages(id UUID PRIMARY KEY);
                     CREATE TABLE circle_chat_recipients(push_due_at TIMESTAMPTZ);
                     CREATE TABLE feed_events (
-                      id BIGSERIAL PRIMARY KEY,
-                      user_id TEXT NOT NULL,
+                      id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL,
                       source_domain TEXT NOT NULL,
                       event_type TEXT NOT NULL,
                       actor_label TEXT,
@@ -400,20 +639,10 @@ def projection_db():
             )
 
         def apply_migrations(filenames):
-            async def run():
-                connection = await asyncpg.connect(
-                    engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
-                )
-                try:
-                    return await apply_manifest_entries(
-                        connection,
-                        build_manifest_entries(ROOT / "db/migrations", filenames),
-                        mode=MigrationMode.REPLAY,
-                    )
-                finally:
-                    await connection.close()
+            return apply_fixture_migrations(engine, filenames)
 
-            return asyncio.run(run())
+        with engine.begin() as connection:
+            add_followup_fence_relations(connection)
 
         for _ in range(2):
             apply_migrations(
@@ -425,6 +654,7 @@ def projection_db():
                     "282_direct_message_actions.sql",
                     "284_direct_message_multiple_reactions.sql",
                     "290_chat_push_delivery.sql",
+                    "441_sms_alarm_capability.sql",
                     "295_direct_message_attachments.sql",
                     "327_direct_message_delivery_receipts.sql",
                 ]

@@ -24,6 +24,27 @@ async def _files_current(current, registry: Any) -> None:
         raise ProvisionReconciliationRequired("Managed Files recovery schema is not ready")
 
 
+def _managed_upgrade_deployment(
+    placement, source: str, attempt: dict, model: dict
+) -> PrivateGcpDeployment:
+    return PrivateGcpDeployment(
+        owner=placement.hushh_id,
+        hosting_mode="hussh_hosted",
+        environment="dev",
+        project=placement.project,
+        project_number=placement.project_number,
+        region=placement.region,
+        service_uid=placement.service_uid,
+        image=f"{placement.region}-docker.pkg.dev/{placement.project}/one-pod/consent-protocol-pod@{source.rsplit('@', 1)[-1]}",
+        hub_principal=attempt["hostedAdmission"]["assignment"]["bootstrapContract"]["plan"][
+            "federation"
+        ]["impersonation"]["granted_to"],
+        inference_project=model["project"],
+        inference_model=model["model"],
+        inference_profile_hash=model["profileHash"],
+    )
+
+
 async def bind_managed_upgrade(
     spec: PodSpec, row: dict, *, registry: Any, lease: str | None
 ) -> PodSpec:
@@ -43,22 +64,7 @@ async def bind_managed_upgrade(
     metadata = row["backend_metadata"]
     attempt = metadata["provisionAttempt"]
     model = attempt["hostedAdmission"]["modelBinding"]
-    deployment = PrivateGcpDeployment(
-        owner=placement.hushh_id,
-        hosting_mode="hussh_hosted",
-        environment="dev",
-        project=placement.project,
-        project_number=placement.project_number,
-        region=placement.region,
-        service_uid=placement.service_uid,
-        image=f"{placement.region}-docker.pkg.dev/{placement.project}/one-pod/consent-protocol-pod@{source.rsplit('@', 1)[-1]}",
-        hub_principal=attempt["hostedAdmission"]["assignment"]["bootstrapContract"]["plan"][
-            "federation"
-        ]["impersonation"]["granted_to"],
-        inference_project=model["project"],
-        inference_model=model["model"],
-        inference_profile_hash=model["profileHash"],
-    )
+    deployment = _managed_upgrade_deployment(placement, source, attempt, model)
     approval = metadata["upgradeApproval"]
 
     async def current() -> None:

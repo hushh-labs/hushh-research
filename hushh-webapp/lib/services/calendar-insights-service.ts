@@ -32,6 +32,7 @@ export type MeetingArtifact = {
   file_id: string; kind: "recording" | "notes" | "transcript"; state: string;
   title?: string; url?: string; text?: string; text_format?: "plain" | "markdown";
   truncated?: boolean; can_download?: boolean; mime_type?: string; preview_state?: string;
+  download_reason?: "owner_restricted" | "app_permission" | "link_unavailable";
   provenance?: "calendar_linked" | "approved_request";
 };
 export type MeetingDetail = {
@@ -50,8 +51,12 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export class CalendarInsightsRequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
+  constructor(message: string, readonly status: number, readonly code?: string, readonly reason?: string) { super(message); }
 }
+
+// The API sends a closed diagnostic `reason`; accept only that shape so a
+// surprising value can never reach the UI as free text.
+const REFUSAL_REASON = /^[a-z][a-z_]{0,39}$/;
 
 function validLibrary(value: unknown): value is MeetingLibrary {
   if (!record(value) || !Array.isArray(value.meetings) || !Array.isArray(value.limitations) ||
@@ -106,7 +111,8 @@ export class CalendarInsightsService {
     if (!response.ok) {
       const detail = record(value) && record(value.detail) ? value.detail : null;
       throw new CalendarInsightsRequestError(detail && typeof detail.message === "string" ? detail.message : "Meeting request could not be checked. Try again.", response.status,
-        detail && typeof detail.code === "string" ? detail.code : undefined);
+        detail && typeof detail.code === "string" ? detail.code : undefined,
+        detail && typeof detail.reason === "string" && REFUSAL_REASON.test(detail.reason) ? detail.reason : undefined);
     }
     if (!record(value)) throw new Error("Meeting request response was incomplete.");
     return value as T;
@@ -178,7 +184,11 @@ export class CalendarInsightsService {
     const value: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const detail = record(value) && record(value.detail) ? value.detail : null;
-      throw new Error(detail && typeof detail.message === "string" ? detail.message : "Download could not be checked. Try again.");
+      throw new CalendarInsightsRequestError(
+        detail && typeof detail.message === "string" ? detail.message : "Google file access could not be checked. Try again.",
+        response.status,
+        detail && typeof detail.code === "string" ? detail.code : undefined,
+      );
     }
     const url = safeMeetingProviderUrl(record(value) ? value.url : null);
     if (!url) throw new Error("Google did not return a safe download link.");

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or update a GCP Secret Manager secret from file or stdin."""
+"""Create or update a secret without removing versions needed for recovery."""
 
 from __future__ import annotations
 

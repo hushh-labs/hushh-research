@@ -84,7 +84,7 @@ function OwnerBrowserTasks({
           >
             <h3 className="text-sm font-semibold">Browser needs review</h3>
             <p className="text-sm text-muted-foreground">
-              The private agent restarted. Check the website before starting
+              Agent One restarted. Check the website before starting
               again; the last action won’t be repeated.
             </p>
           </section>

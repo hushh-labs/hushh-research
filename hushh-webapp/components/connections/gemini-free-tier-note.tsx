@@ -2,7 +2,7 @@ import { HelperText } from "@/components/app-ui/typography";
 import type { GeminiRuntimeTransport } from "@/lib/services/personal-knowledge-model-service";
 
 export const GEMINI_FREE_TIER_NOTE =
-  "Use a paid Gemini key for a private agent. On Google's free tier, Google may use your messages and memories to improve its products, and its reviewers may read them.";
+  "Use a paid Gemini key for Agent One. On Google's free tier, Google may use your messages and memories to improve its products, and its reviewers may read them.";
 
 /**
  * Shown, unconditionally, wherever a person enters a Google AI Studio Gemini key.

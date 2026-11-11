@@ -7,6 +7,7 @@ gets a new SDK invocation ID. Voice/proposals never get typed-chat admission.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from google.adk.models.llm_response import LlmResponse
@@ -14,11 +15,15 @@ from google.genai import types
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
+logger = logging.getLogger(__name__)
+
 STATE_EXECUTION_SURFACE = "temp:one_execution_surface"
 STATE_EXTERNAL_READ = "temp:one_external_read_invocation"
 STATE_EXTERNAL_READ_CONTINUATION = "temp:one_external_read_model_continuation"
 STATE_DRIVE_READ_OUTCOME = "temp:one_drive_read_outcome"
 STATE_SELECTED_DRIVE_SHARE = "temp:one_selected_drive_share"
+STATE_RECEIPT_HANDBACK = "temp:one_receipt_handback_invocation"
+STATE_READ_CALL_REFUSED = "temp:one_read_call_refused_invocation"
 _DRIVE_READ_FAILED_ANSWER = (
     "I couldn’t complete a fresh Drive check. Earlier filenames and links in this chat "
     "have not been verified again, so I can’t confirm the current result. Please try again."
@@ -150,6 +155,31 @@ def _selected_share_requested(context: Any) -> bool:
     return isinstance(selection, dict) and selection.get("shareAllowed") is True
 
 
+def _receipt_handback_tool(tool: Any, context: Any) -> bool:
+    # After this turn's Email call handed a receipts request back: One's per-run
+    # device receipt proxies (the Chat route admits only their exact contract) and
+    # the host clock a relative period needs without a declared zone. The proxies
+    # work over the device's receipt copy built from Gmail, but their values return
+    # only in a later turn, after a closed-schema check, where every tool is refused
+    # (receipt_result_turn_is_read_only) and tool calling is NONE. The clock writes
+    # only this invocation's host clock receipt. before_receipt_tool still checks each
+    # receipt call against its closed request contract.
+    invocation = getattr(context, "invocation_id", None)
+    if not invocation or context.state.get(STATE_RECEIPT_HANDBACK) != invocation:
+        return False
+    if getattr(tool, "name", None) == "get_current_time":
+        from google.adk.tools import FunctionTool
+
+        from hushh_mcp.one_adk.action_tools import get_current_time
+
+        return type(tool) is FunctionTool and tool.func is get_current_time
+    from ag_ui_adk.client_proxy_tool import ClientProxyTool
+
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+
+    return type(tool) is ClientProxyTool and tool.name in RECEIPT_TOOL_NAMES
+
+
 def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     from hushh_mcp.one_adk.scheduled_one_agent import (
         admitted_scheduled_surface,
@@ -179,19 +209,21 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
                     _reviewable_selected_drive_share_tool(tool)
                     and _selected_share_ready(tool_context)
                 )
+                or _receipt_handback_tool(tool, tool_context)
             )
             and tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
             and tool_context.state.get(STATE_EXTERNAL_READ_CONTINUATION)
             == tool_context.invocation_id
         ):
             return None
+        # Never claim a read ran (a receipts hand-back reads no mail) and never point
+        # at other tools: after a real read, untrusted provider text is in context.
         return {
             "status": "blocked",
             "reason": "connector_read_complete",
             "message": (
-                "A connector read already ran in this chat turn. Answer from that result, "
-                "or ask the owner for a new message if another read is needed. "
-                "This blocked call did not reach the provider."
+                "Answer from what this chat turn already returned, or ask the owner for a "
+                "new message. This blocked call did not reach the provider."
             ),
         }
     if (
@@ -205,19 +237,57 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
         invocation = getattr(tool_context, "invocation_id", None)
         if not isinstance(invocation, str) or not invocation:
             return {"status": "blocked", "reason": "invocation_required"}
+        if _missing_required_argument(tool, args):
+            # A schema violation reads nothing, so it need not end the turn's
+            # tools: One retries once with the owner's words (2026-10-29, UAT).
+            # A second one closes them like a read, so the turn can't loop.
+            retried = tool_context.state.get(STATE_READ_CALL_REFUSED) == invocation
+            tool_context.state[STATE_READ_CALL_REFUSED] = invocation
+            if retried:
+                tool_context.state[STATE_EXTERNAL_READ] = invocation
+            logger.info("one.read_call_refused reason=missing_argument tool=%s", tool.name)
+            return {
+                "status": "blocked",
+                "reason": "missing_argument",
+                "message": "Nothing was read. Ask the owner what they want, in one short question."
+                if retried
+                else "Nothing was read. Call this tool again with the owner's request.",
+            }
         # Set before any await/dispatch so parallel tool calls cannot race the
         # receipt of retrieved text into a second action.
         tool_context.state[STATE_EXTERNAL_READ] = invocation
     return None
 
 
+def _missing_required_argument(tool: Any, args: dict) -> bool:
+    try:
+        declaration = tool._get_declaration()
+    except Exception:  # noqa: BLE001 - an undeclared tool keeps the existing barrier
+        return False
+    schema = getattr(declaration, "parameters_json_schema", None)
+    required = schema.get("required") if isinstance(schema, dict) else None
+    if required is None:
+        required = getattr(getattr(declaration, "parameters", None), "required", None)
+    values = [args.get(name) for name in required or ()]
+    return any(value is None or (isinstance(value, str) and not value.strip()) for value in values)
+
+
 def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_response: dict) -> None:
-    """Remember only the current, executed Drive read's evidence outcome.
+    """Remember an Email receipts hand-back or the current, executed Drive read's outcome.
 
     A blocked parallel/repeated call did not execute a read and cannot erase a
     successful first result. This state contains no provider text or file IDs.
     """
     name = getattr(tool, "name", "")
+    if (
+        name == MAIL_TOOL
+        and tool_response.get("status") == "receipt_functions_required"
+        and external_read_active(tool_context)
+    ):
+        # The Email specialist read no mail and handed receipts back to One. Never
+        # clear the barrier: a reviewed MCP read in this batch writes the same marker.
+        tool_context.state[STATE_RECEIPT_HANDBACK] = tool_context.invocation_id
+        return
     if name not in {"ask_documents_agent", "read_selected_drive_search_result"} and not (
         name == "read_workspace_tool" and args.get("provider") == "drive"
     ):
@@ -227,7 +297,8 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
         not isinstance(invocation, str)
         or not invocation
         or tool_context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat"
-        or tool_response.get("reason") == "connector_read_complete"
+        # Neither refusal read anything, so neither may record a Drive outcome.
+        or tool_response.get("reason") in {"connector_read_complete", "missing_argument"}
     ):
         return
     if (
@@ -314,6 +385,7 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
                 _selected_share_ready(callback_context)
                 and _reviewable_selected_drive_share_tool(tool)
             )
+            or _receipt_handback_tool(tool, callback_context)
         }
         declarations = [tool._get_declaration() for tool in admitted.values()]
         llm_request.tools_dict.clear()

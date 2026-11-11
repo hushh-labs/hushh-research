@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from tests.helpers.deployment_cli import executable_manifest
+from tests.helpers.drive_worker_staging import existing_worker_revision
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
@@ -30,63 +31,9 @@ SNAPSHOT = {"schema": "drive.scheduler.prod.snapshot.v1", "jobs": {"sharing": "u
 
 
 def _revision():
-    return {
-        "metadata": {
-            "name": OLD,
-            "uid": "old-uid",
-            "creationTimestamp": "2026-10-27T00:00:00Z",
-            "labels": {"deploy-sha": "b" * 40},
-            "annotations": {
-                "autoscaling.knative.dev/maxScale": "2",
-                "run.googleapis.com/cloudsql-instances": "hushh-pda:us-central1:hushh-vault-db",
-            },
-        },
-        "spec": {
-            "containerConcurrency": 1,
-            "timeoutSeconds": 240,
-            "serviceAccountName": WORKER.RUNTIME,
-            "containers": [
-                {
-                    "name": "drive-worker",
-                    "image": IMAGE,
-                    "command": ["gunicorn"],
-                    "args": [
-                        "server_drive_worker:app",
-                        "-w",
-                        "1",
-                        "-k",
-                        "uvicorn.workers.UvicornWorker",
-                        "--timeout",
-                        "220",
-                        "--worker-tmp-dir",
-                        "/tmp",  # noqa: S108 - exact reviewed worker launcher contract
-                        "-b",
-                        "0.0.0.0:8080",
-                    ],
-                    "startupProbe": {"httpGet": {"path": "/ready", "port": 8080}},
-                    "resources": {"limits": {"cpu": "2", "memory": "4Gi"}},
-                    "env": [
-                        {"name": key, "value": value}
-                        for key, value in {
-                            "DRIVE_WORK_DRAIN_ENABLED": "true",
-                            "DRIVE_WORKER_MODE": "true",
-                            "DB_POOL_MIN_SIZE": "0",
-                            "DB_POOL_MAX_SIZE": "2",
-                            "DB_SQLALCHEMY_POOL_SIZE": "1",
-                            "DB_SQLALCHEMY_MAX_OVERFLOW": "0",
-                            "PROTECTED_DOCUMENT_DELIVERY_ENABLED": "false",
-                        }.items()
-                    ],
-                },
-                {
-                    "name": "clamav",
-                    "image": "clamav/clamav@" + WORKER.SCANNER_INDEX,
-                    "resources": {"limits": {"cpu": "2", "memory": "4Gi"}},
-                },
-            ],
-        },
-        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
-    }
+    return existing_worker_revision(
+        name=OLD, image=IMAGE, runtime=WORKER.RUNTIME, scanner_index=WORKER.SCANNER_INDEX
+    )
 
 
 class Ports:
@@ -119,6 +66,9 @@ class Ports:
                 "url": "https://consent-protocol-drive-worker-abc.a.run.app",
             },
         }
+        old["spec"]["containers"][1]["image"] = (
+            "mirror.gcr.io/clamav/clamav@" + WORKER.SCANNER_AMD64
+        )
         self.policy = {
             "etag": "policy-1",
             "bindings": [{"role": "roles/run.invoker", "members": ["serviceAccount:scheduler"]}],
@@ -214,6 +164,13 @@ def _stage(path, monkeypatch):
     monkeypatch.setenv("DRIVE_WORKER_STAGE_INTENT_SHA256", digest)
     WORKER.stage(path)
     return digest
+
+
+def test_preparation_accepts_the_resolved_pinned_scanner(stage_ports, tmp_path):
+    path = tmp_path / "intent.json"
+    WORKER.prepare(path)
+    assert json.loads(path.read_bytes())["status"] == "prepared"
+    assert stage_ports.mutations == []
 
 
 @pytest.mark.parametrize("scheduler_drift", [False, True])

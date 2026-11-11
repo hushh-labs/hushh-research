@@ -48,6 +48,17 @@ ERASURE_REPORTING_EXCEPTIONS = (
     "api/routes/account.py",
     "hushh_mcp/services/account_deletion_lifecycle_service.py",
 )
+CLEANUP_UPGRADE_BASELINE = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+CLEANUP_UPGRADE_REVIEWED = "49dafdc2f1b6e1dcd87e7badd7cf850a6e1494fc"
+CLEANUP_UPGRADE_PATHS = (
+    "api/routes/account.py",
+    "db/contracts/prod_core_schema.json",
+    "hushh_mcp/services/account_cleanup_runtime.py",
+    "hushh_mcp/services/support_email_service.py",
+    "hushh_mcp/services/account_deletion_lifecycle_service.py",
+    "uv.lock",
+)
+SETTLEMENT_MIGRATION = "db/migrations/437_account_legacy_generation_settlement.sql"
 
 
 def _source(sha: str, path: str) -> bytes:
@@ -64,6 +75,19 @@ def _reviewed_change(path: str, previous: bytes, current: bytes) -> bool:
     return previous == _source(before, path) and current == _source(after, path)
 
 
+def _reviewed_cleanup_upgrade(fallback: str, primary: str) -> bool:
+    """Require the complete reviewed upgrade; partial combinations stay unqualified."""
+    for path in CLEANUP_UPGRADE_PATHS:
+        previous, current = _source(fallback, path), _source(primary, path)
+        if (
+            previous == current
+            or previous != _source(CLEANUP_UPGRADE_BASELINE, path)
+            or current != _source(CLEANUP_UPGRADE_REVIEWED, path)
+        ):
+            return False
+    return True
+
+
 def qualify_consumers(fallback: str, primary: str) -> dict:
     """Require identical consumers or an ordered, reviewed whole-file change.
 
@@ -71,11 +95,25 @@ def qualify_consumers(fallback: str, primary: str) -> dict:
     facade. It does not qualify old migration replay or a frontend rollback.
     No authority-bearing module is excluded from the hash inventory.
     WorkOS non-activation remains an independent, live release requirement.
+
+    The coupled cleanup upgrade preserves phone admission while moving the same
+    guarded drain, adding wake/notice support and the dormant 437 capability.
+    Its migration must match the reviewed source too; the release manifest seals
+    the installed migration independently. This qualifies neither replay of the old
+    migration adapter nor automatic production legacy settlement.
     """
+    cleanup_upgrade = _reviewed_cleanup_upgrade(fallback, primary)
     checked = {}
     for path in (*UNCHANGED, *REVIEWED_EXCEPTIONS):
         previous, current = _source(fallback, path), _source(primary, path)
-        if previous != current and not _reviewed_change(path, previous, current):
+        if previous != current and not (
+            (cleanup_upgrade and path in CLEANUP_UPGRADE_PATHS)
+            or _reviewed_change(path, previous, current)
+        ):
             raise ValueError("phone_rollback_consumer_change_unqualified")
         checked[path] = hashlib.sha256(current).hexdigest()
+    if cleanup_upgrade:
+        migration = _source(primary, SETTLEMENT_MIGRATION)
+        if migration != _source(CLEANUP_UPGRADE_REVIEWED, SETTLEMENT_MIGRATION):
+            raise ValueError("phone_rollback_consumer_change_unqualified")
     return {"fallback": fallback, "primary": primary, "source_sha256": checked}

@@ -22,7 +22,7 @@ function scriptIn(tree: unknown, id: string): Record<string, unknown> | undefine
 describe("root layout metadata", () => {
   afterEach(() => { vi.unstubAllEnvs(); });
   it("keeps the canonical Hussh One title and base URL", () => {
-    expect(metadata.title).toBe("Hussh One | Your Private Agent");
+    expect(metadata.title).toBe("Hussh One | Agent One");
     expect(metadata.metadataBase?.toString()).toBe("https://one.hussh.si/");
   });
 

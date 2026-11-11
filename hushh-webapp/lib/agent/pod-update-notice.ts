@@ -15,7 +15,7 @@ export function completedPodNotice(status: PersonalAgentStatus): ReleaseNotice |
   const changes = notes ? [...notes.improvements, ...notes.fixes, ...notes.security].slice(0, 3) : [];
   return {
     id: `pod:${receipt.podIncarnation}:${receipt.operationId}:${receipt.releaseId}:${receipt.imageDigest}`,
-    title: "Your private agent is updated",
+    title: "Agent One is updated",
     description: receipt.version ? `Installed version: ${releaseLabel(receipt.version, receipt.releasedAt)}` : "Your installed version is verified.",
     changes: changes.length ? changes : ["The installed version has been verified."],
   };

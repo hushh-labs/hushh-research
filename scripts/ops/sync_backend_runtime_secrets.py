@@ -287,6 +287,41 @@ def _connector_rollout_config(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def _hosted_custody_runtime_config(args: argparse.Namespace) -> dict[str, str]:
+    profile = str(getattr(args, "hosted_custody_profile", "") or "")
+    dev_target = str(getattr(args, "dev_target", "") or "")
+    if not profile and not dev_target:
+        return {}
+    if profile != "dev_control_plane_owner":
+        raise ValueError("A Dev custody target requires the explicit owner profile")
+
+    expected = {
+        "environment": "dev",
+        "project": "hushh-pda-dev",
+        "dev_target": "shared-dev",
+        "db_name": "postgres",
+        "cloudsql_instance_connection_name": "hushh-pda-dev:us-central1:hushh-dev-pg",
+    }
+    mismatches = [
+        name
+        for name, expected_value in expected.items()
+        if str(getattr(args, name, "") or "") != expected_value
+    ]
+    if mismatches:
+        raise ValueError(
+            "Dev hosted custody profile requires exact shared-Dev runtime configuration: "
+            + ", ".join(mismatches)
+        )
+    return {
+        "dev_target": dev_target,
+        "hosted_custody_profile": profile,
+        # This is an expected principal, not a credential. The direct Secret
+        # Manager DB_USER binding remains authoritative when present; runtime
+        # hydration uses setdefault and cannot replace a mismatched secret.
+        "db_user": "hushh_uat_app",
+    }
+
+
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
         raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
@@ -298,6 +333,12 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_plg_activity_all_registered": False,
         "one_plg_audience_enabled": False,
         "one_plg_subscription_enabled": False,
+        "one_plg_dev_export_enabled": False,
+        "one_plg_activity_dev_enabled": False,
+        "one_plg_uat_export_enabled": False,
+        "one_plg_activity_uat_enabled": False,
+        "one_plg_owner_export_enabled": False,
+        "one_plg_attempt_email_enabled": False,
         "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
         "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
         "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",
@@ -305,6 +346,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "hushh_genai_auth_mode": "vertex_adc",
         "google_genai_use_vertexai": True,
         "google_cloud_project": args.project,
+        "gcp_project_id": args.project,
         "google_cloud_location": "global",
         "db_host": args.db_host,
         "db_port": args.db_port,
@@ -380,6 +422,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
             args, "one_magic_intelligence_senior_team_emails", ""
         ),
         "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
+        **_hosted_custody_runtime_config(args),
     }
     return _scope_commerce_runtime_policy()["apply_policy"](
         _drop_empty(config), getattr(args, "scope_commerce_policy", {})
@@ -485,6 +528,8 @@ def main() -> int:
     parser.add_argument("--db-name", required=True)
     parser.add_argument("--db-unix-socket", default="")
     parser.add_argument("--cloudsql-instance-connection-name", default="")
+    parser.add_argument("--hosted-custody-profile", default="")
+    parser.add_argument("--dev-target", default="")
     parser.add_argument("--consent-sse-enabled", required=True)
     parser.add_argument("--sync-remote-enabled", required=True)
     parser.add_argument("--developer-api-enabled", required=True)

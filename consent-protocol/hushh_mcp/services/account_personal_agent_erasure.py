@@ -212,6 +212,11 @@ def assert_external_resources_absent(
     )
     if not any(table_presence.values()):
         return table_presence
+    if finalize_erasure:
+        from hushh_mcp.services.account_cloud_retirement import local_erasure_ready
+
+        if local_erasure_ready(conn, params["user_id"]):
+            return table_presence
     registry = dict((registry_row or {}).get("registry") or {})
     status = str(registry.get("status") or "").strip().lower()
     erasure = (registry.get("backend_metadata") or {}).get("erasure")
@@ -278,7 +283,8 @@ def personal_agent_erasure_queries() -> dict:
             "DELETE FROM personal_agent_registry WHERE user_id = :user_id"
         ),
         "personal_agent_cloud_removals": text(
-            "DELETE FROM personal_agent_cloud_removals WHERE user_id = :user_id"
+            "DELETE FROM personal_agent_cloud_removals op WHERE user_id = :user_id "
+            "AND coalesce(to_jsonb(op)->'retirement_handoff','null'::jsonb)='null'::jsonb"
         ),
     }
 

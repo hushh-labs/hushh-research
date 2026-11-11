@@ -1,8 +1,7 @@
 """Circle chat authority, retry and lifecycle contracts on isolated PostgreSQL.
 
-The CI PostgreSQL role must be able to create a disposable database. No live
-tables or credentials are used. ONE_COMMAND_TEST_DATABASE_URL is the existing
-protocol CI service; local runs may point it at a disposable PostgreSQL server.
+The PostgreSQL role must create disposable databases; no live tables or credentials
+are used. ONE_COMMAND_TEST_DATABASE_URL selects the CI or local test service.
 """
 
 from __future__ import annotations
@@ -76,6 +75,7 @@ def chat_db():
                     (ROOT / "db/migrations/266_circle_chat_presentation.sql").read_text()
                 )
                 cursor.execute((ROOT / "db/migrations/290_chat_push_delivery.sql").read_text())
+                cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
                 cursor.execute(
                     (ROOT / "db/migrations/296_circle_chat_reactions_events.sql").read_text()
                 )
@@ -672,6 +672,8 @@ def test_full_emoji_migration_preserves_rows_and_refuses_lossy_rollback(chat_db)
 def test_membership_history_images_retries_read_and_erasure(chat_db):
     service = CircleChatService(chat_db)
     circle = _seed(chat_db)
+    original_membership = service.state("bob", circle)["membershipJoinedAt"]
+    alice_membership = service.state("alice", circle)["membershipJoinedAt"]
     payload = _payload(service, circle)
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: service.send("alice", circle, payload), range(4)))
@@ -730,6 +732,8 @@ def test_membership_history_images_retries_read_and_erasure(chat_db):
         )
     with pytest.raises(CircleChatError):
         service.messages("bob", circle)
+    with pytest.raises(CircleChatError):
+        service.state("bob", circle)
     with chat_db.engine.begin() as conn:
         conn.execute(
             text(
@@ -737,6 +741,8 @@ def test_membership_history_images_retries_read_and_erasure(chat_db):
             )
         )
     assert service.messages("bob", circle)["items"] == []
+    assert service.state("bob", circle)["membershipJoinedAt"] != original_membership
+    assert service.state("alice", circle)["membershipJoinedAt"] == alice_membership
     # Negative control: breaking generation matching would expose this old wrap.
     with chat_db.engine.begin() as conn:
         assert (

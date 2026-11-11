@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
+import { useAttemptEmail } from "@/components/account/use-attempt-email";
+import { resolveAndroidBack } from "@/lib/navigation/android-back";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const mocks = vi.hoisted(() => ({ token: vi.fn(), fetch: vi.fn(), toast: vi.fn(), dismiss: vi.fn(), native: false, active: true, epoch: 0 }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { getFirebaseIdTokenForOwner: mocks.token, apiFetch: mocks.fetch } }));
@@ -16,6 +20,7 @@ const empty = { enabled: false, frequency: "weekly", revision: 0, generation: nu
   disclosureVersion: "one-email-updates-v1", consentAt: null, chosenAt: null };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 function Form() { return <MarketingPreferencePanel model={useMarketingPreference("owner", "setup")} />; }
+function AccountForm() { return <MarketingPreferencePanel model={useMarketingPreference("owner", "account")} />; }
 beforeEach(() => {
   publishValidatedAuthSessionOwner(null);
   publishValidatedAuthSessionOwner("owner");
@@ -26,18 +31,112 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
 
+const attemptChoice = { enabled: false, available: true, frequency: "one_per_attempt", revision: 0, disclosureVersion: "one-attempt-email-v1" };
+describe("separate activity email choice", () => {
+  it("requires a fresh manual choice and sends no marketing, recipient or frequency override", async () => {
+    mocks.fetch.mockImplementation(async () => response(attemptChoice));
+    render(<AttemptEmailPanel owner="owner" />);
+    const toggle = await screen.findByRole("switch");
+    expect(toggle).not.toBeChecked();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(toggle);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    mocks.fetch.mockResolvedValueOnce(response({ ...attemptChoice, enabled: true, revision: 1 }));
+    fireEvent.click(screen.getByRole("button", { name: "Save activity email choice" }));
+    await screen.findByText("Activity email choice saved.");
+    expect(mocks.fetch.mock.calls[1][0]).toBe("/api/one/plg/attempt-email/preferences");
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toEqual({ enabled: true, expectedRevision: 0, disclosureVersion: "one-attempt-email-v1" });
+  });
+
+  it.each(["unmount", "same-owner-relogin", "other-owner", "native-background"])("cannot use a captured activity-email Save after %s", async (departure) => {
+    mocks.fetch.mockImplementation(async () => response(attemptChoice));
+    const view = renderHook(({ owner }) => useAttemptEmail(owner), { initialProps: { owner: "owner" } });
+    await waitFor(() => expect(view.result.current.value).not.toBeNull());
+    const old = view.result.current;
+    if (departure === "unmount") view.unmount();
+    if (departure === "same-owner-relogin") {
+      publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner");
+      view.rerender({ owner: "owner" });
+      await waitFor(() => expect(view.result.current.value).not.toBeNull());
+    }
+    if (departure === "other-owner") {
+      publishValidatedAuthSessionOwner("other"); view.rerender({ owner: "other" });
+      await waitFor(() => expect(view.result.current.value).not.toBeNull());
+    }
+    if (departure === "native-background") { mocks.native = true; mocks.active = false; mocks.epoch++; }
+    await act(() => old.save(true));
+    expect(mocks.fetch.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+  });
+
+  it("keeps opt-out usable while rollout is disabled and requires refresh after ambiguous save", async () => {
+    mocks.fetch.mockResolvedValueOnce(response({ ...attemptChoice, enabled: true, available: false, revision: 3 }));
+    render(<AttemptEmailPanel owner="owner" />);
+    const toggle = await screen.findByRole("switch");
+    fireEvent.click(toggle);
+    mocks.fetch.mockResolvedValueOnce(response({}, 503));
+    fireEvent.click(screen.getByRole("button", { name: "Save activity email choice" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Refresh before choosing again");
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(mocks.fetch.mock.calls.filter(([, options]) => options.method === "PUT")).toHaveLength(1);
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body).enabled).toBe(false);
+  });
+});
+
 describe("explicit email preference", () => {
+  it("keeps account frequency changes tied to an enabled draft and preserves the saved frequency on opt-out", async () => {
+    const saved = { ...empty, enabled: true, frequency: "daily", revision: 3 };
+    mocks.fetch.mockResolvedValueOnce(response(saved));
+    render(<AccountForm />);
+    const toggle = await screen.findByRole("switch", { name: "Email updates" });
+    const save = () => screen.queryByRole("button", { name: "Save email preference" });
+    const frequency = () => screen.queryByRole("combobox", { name: "Email frequency" });
+    expect(save()).toBeNull();
+    fireEvent.keyDown(frequency()!, { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "Weekly digest" }), { key: "Enter" });
+    expect(save()).toBeEnabled();
+
+    fireEvent.click(toggle);
+    expect(frequency()).toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    mocks.fetch.mockResolvedValueOnce(response({ ...saved, enabled: false, revision: 4 }));
+    fireEvent.click(save()!);
+    await screen.findByText("Email preference saved.");
+    expect(save()).toBeNull();
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toMatchObject({ enabled: false, frequency: "daily", surface: "account" });
+
+    fireEvent.click(toggle);
+    expect(frequency()).toHaveTextContent("Daily tips");
+    fireEvent.click(toggle);
+    expect(frequency()).toBeNull();
+    expect(save()).toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("loads the real saved choice, stages edits, and saves only after a physical submit", async () => {
     render(<Form />);
     const toggle = await screen.findByRole("switch");
     expect(toggle).not.toBeChecked();
     expect(mocks.fetch.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Email frequency" }), { key: "ArrowDown" });
+    await screen.findByRole("listbox");
+    const navigateParent = vi.fn(() => true), minimize = vi.fn();
+    act(() => { expect(resolveAndroidBack(false, { navigateParent, minimize })).toBe("screen"); });
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(navigateParent).not.toHaveBeenCalled();
+    expect(minimize).not.toHaveBeenCalled();
+    expect(unwindBackLayer(window.location.pathname)).toBe(false);
+    expect(screen.getByRole("combobox", { name: "Email frequency" })).toHaveTextContent("Weekly digest");
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Email frequency" }), { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "Daily tips" }), { key: "Enter" });
+    expect(screen.getByRole("combobox", { name: "Email frequency" })).toHaveTextContent("Daily tips");
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
     fireEvent.click(toggle);
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
-    mocks.fetch.mockResolvedValueOnce(response({ ...empty, enabled: true, revision: 1 }));
+    mocks.fetch.mockResolvedValueOnce(response({ ...empty, enabled: true, frequency: "daily", revision: 1 }));
     fireEvent.click(screen.getByRole("button", { name: "Save email preference" }));
     await screen.findByText("Email preference saved.");
-    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toEqual({ enabled: true, frequency: "weekly",
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toEqual({ enabled: true, frequency: "daily",
       expectedRevision: 0, disclosureVersion: "one-email-updates-v1", surface: "setup" });
   });
 
@@ -52,6 +151,24 @@ describe("explicit email preference", () => {
     expect(result.current.value).toBeNull();
     await act(() => result.current.save(false, "weekly"));
     expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("retires an open frequency menu while a replacement session loads its saved choice", async () => {
+    const view = render(<Form />);
+    fireEvent.keyDown(await screen.findByRole("combobox", { name: "Email frequency" }), { key: "ArrowDown" });
+    await screen.findByRole("listbox");
+    let release!: (value: Response) => void;
+    mocks.fetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { release = resolve; }));
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
+    view.rerender(<Form />);
+    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(unwindBackLayer(window.location.pathname)).toBe(false);
+    await act(async () => { release(response(empty)); });
+    await screen.findByRole("combobox", { name: "Email frequency" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(mocks.fetch.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
   });
 
   it.each(["unmount", "same-owner-relogin", "other-owner", "native-background"])("retires a captured Save after %s", async (departure) => {

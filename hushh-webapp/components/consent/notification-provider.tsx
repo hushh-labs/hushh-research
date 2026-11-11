@@ -1,6 +1,6 @@
 "use client";
 
-import { stopOneLocationNotificationSound } from "@/lib/one-location/notification-sound";
+import { isSmsAlarmAcknowledged } from "@/lib/one-location/sms-alarm-state";
 import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
 import { chatAlertIsVisible } from "@/lib/notifications/chat-alert-visibility";
 import { ChatSystemNotifications } from "@/lib/notifications/chat-system-notifications";
@@ -97,7 +97,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notification-reconciliation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
-import { useEmergencySmsAlarm } from "@/components/consent/use-emergency-sms-alarm";
+import { useEmergencySmsAlarm, useEmergencySmsDeliveryRecovery } from "@/components/consent/use-emergency-sms-alarm";
 import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import {
@@ -785,7 +785,12 @@ export function ConsentNotificationProvider({
     [getVaultOwnerToken, isNativePlatform, applicationOwnerId],
   );
 
-  const { startEmergencySms, stopEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(applicationOwnerId ?? undefined, isNativePlatform);
+  const { startEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(
+    applicationOwnerId ?? undefined,
+    isNativePlatform,
+    isNativePlatform ? fcmInitStatus : null,
+    isNativePlatform ? deliveryDetail : null,
+  );
 
   const showOneLocationShareNotification = useCallback(
     (
@@ -830,6 +835,7 @@ export function ConsentNotificationProvider({
       // Routine notification cards are owned by Feed. The only foreground
       // popup retained here is the safety-critical Save My Soul alarm.
       if (options.present === false || !isEmergencySms ||
+          isSmsAlarmAcknowledged(applicationOwnerId, grantId) ||
           isOneLocationGrantOpened(applicationOwnerId, grantId) ||
           isOneLocationGrantUnwatched(applicationOwnerId, grantId)) return true;
       // Feed reconciliation is silent and must not consume the live alarm.
@@ -873,8 +879,7 @@ export function ConsentNotificationProvider({
         data.share_point_lat,
         data.share_point_lng,
       );
-      const alarmExpiresAt = expiry ? Date.parse(expiry) : undefined;
-      const sounded = startEmergencySms(grantId, alarmExpiresAt);
+      const sounded = startEmergencySms(grantId);
       rememberSmsPresentation(smsPresentationRef.current, grantId, sounded);
       if (!sounded) markOneLocationNotificationSeen(applicationOwnerId, fallbackId);
       markOneLocationNotificationSeen(applicationOwnerId, presentationId);
@@ -895,7 +900,7 @@ export function ConsentNotificationProvider({
         {
           id: toastKey,
           duration: Infinity,
-          onDismiss: () => stopEmergencySms(grantId),
+          dismissible: false,
           position: "top-center",
           className:
             "one-location-emergency-toast !border-red-500 !bg-red-600 !text-white !shadow-xl !shadow-red-950/25",
@@ -903,7 +908,7 @@ export function ConsentNotificationProvider({
       );
       return sounded;
     },
-    [dismissEmergencySms, router, startEmergencySms, stopEmergencySms, applicationOwnerId],
+    [dismissEmergencySms, router, startEmergencySms, applicationOwnerId],
   );
 
   const showOneLocationWorkflowNotification = useCallback(
@@ -982,14 +987,13 @@ export function ConsentNotificationProvider({
         if (grantId) {
           rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
           markOneLocationNotificationSeen(applicationOwnerId, `share-ended:${grantId}`);
-          dismissEmergencySms(grantId);
         }
         if (grantId && isOneLocationGrantUnwatched(applicationOwnerId, grantId)) {
           publishStateMutation();
           return true;
         }
         if (grantId) {
-          toast.dismiss(`one-location-share:${grantId}`);
+          // Ending access never acknowledges a recipient's emergency alarm.
           dismissOneLocationShareNotification(grantId);
         }
       }
@@ -1109,7 +1113,7 @@ export function ConsentNotificationProvider({
       });
       return true;
     },
-    [dismissEmergencySms, showOneLocationShareNotification, applicationOwnerId],
+    [showOneLocationShareNotification, applicationOwnerId],
   );
 
   useEffect(() => {
@@ -1313,7 +1317,6 @@ export function ConsentNotificationProvider({
     };
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
       if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") refresh();
-      else stopOneLocationNotificationSound();
     });
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
@@ -2047,7 +2050,9 @@ export function ConsentNotificationProvider({
         });
         // Unsounded alerts keep the OS fallback eligible after a display
         // failure. The worker owns successful system-presentation deduplication.
-        if (!isNativePlatform && sounded === false) detail.accepted = false;
+        if (!isNativePlatform && (sounded === false || (smsCreation && !shouldPresent))) {
+          detail.accepted = false;
+        }
         return;
       }
 
@@ -2229,6 +2234,18 @@ export function ConsentNotificationProvider({
     applicationOwnerId,
   ]);
 
+  useEmergencySmsDeliveryRecovery({
+    userId: isVaultUnlocked ? applicationOwnerId ?? undefined : undefined,
+    isNativePlatform,
+    getVaultOwnerToken,
+    present: (alert) => {
+      if (!isVaultUnlocked || !applicationOwnerId || alert.user_id !== applicationOwnerId ||
+          !alert.grant_id || smsPresentationRef.current.has(alert.grant_id) ||
+          hasSeenOneLocationNotification(applicationOwnerId, `sms-presented:${alert.grant_id}`)) return;
+      showOneLocationWorkflowNotification(alert, { present: true, source: "live" });
+    },
+  });
+
   const reconcileOneLocationNotifications = useCallback(async () => {
     if (!applicationOwnerId || !isVaultUnlocked || !fcmInitStatus) return;
     if (oneLocationReconcilePromiseRef.current) {
@@ -2248,7 +2265,6 @@ export function ConsentNotificationProvider({
         if (grant.status === "revoked" || grant.status === "expired") {
           rememberSmsPresentation(smsPresentationRef.current, grant.id, "ended");
           markOneLocationNotificationSeen(applicationOwnerId, `share-ended:${grant.id}`);
-          dismissEmergencySms(grant.id);
         }
       }
       // Location owns a single memory-only server-state resource. Publishing
@@ -2289,7 +2305,6 @@ export function ConsentNotificationProvider({
     oneLocationReconcilePromiseRef.current = request;
     return request;
   }, [
-    dismissEmergencySms,
     fcmInitStatus,
     getVaultOwnerToken,
     isVaultUnlocked,

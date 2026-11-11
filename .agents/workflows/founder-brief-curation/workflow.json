@@ -17,7 +17,7 @@
     "docs/reference/operations/documentation-architecture-map.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task founder-brief-curation",
+    "./bin/hushh agents route-task founder-brief-curation",
     "./bin/hushh docs verify",
     "python3 .agents/skills/docs-governance/scripts/doc_inventory.py tier-a"
   ],

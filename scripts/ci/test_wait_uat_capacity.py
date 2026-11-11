@@ -39,7 +39,41 @@ class FakeClock:
 
 
 class ApplicationAuthorityTests(unittest.TestCase):
-    def test_application_authority_matches_deploy_for_main_and_curated_uat(self):
+    def test_isolated_capacity_requires_pinned_main_qualification_and_approval(self):
+        candidate, base, authority, head = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
+        approval = f"{base}:{base}:8821={head}"
+        environment = {
+            "GITHUB_REF_NAME": "main",
+            "UAT_SOURCE_BRANCH": "uat-isolated",
+            "RELEASE_TOOLING_SHA": authority,
+            "CI_RUN_ID": "42",
+            "CI_ATTEMPT": "2",
+            "CI_BASE_SHA": base,
+            "APPROVED_SCOPE": approval,
+            "RELEASE_APPLICATION_SHA": candidate,
+        }
+        for code in (0, 1):
+            with (
+                self.subTest(code=code),
+                patch.dict(wait.os.environ, environment),
+                patch("deployment_security.verify_forwarded_authorization"),
+                patch.object(wait, "command", side_effect=[
+                    subprocess.CompletedProcess([], code, "", "qualification refused" if code else ""),
+                ]) as run,
+            ):
+                if code:
+                    with self.assertRaisesRegex(wait.AdmissionError, "qualification refused"):
+                        wait.verify_request(candidate)
+                else:
+                    wait.verify_request(candidate)
+                self.assertEqual(run.call_args.args[0], [
+                    sys.executable, str(ROOT / "scripts/ci/uat_release_prerequisites.py"),
+                    "validate-deployment", "--source-branch", "uat-isolated", "--sha", candidate,
+                    "--authority-sha", authority, "--ci-run-id", "42", "--ci-attempt", "2",
+                    "--base-sha", base, "--approved-scope", approval,
+                ])
+
+    def test_application_authority_requires_protected_uat_history(self):
         for history in ("main", "uat", "unplaced"):
             with self.subTest(history=history):
                 target = "a" * 40
@@ -52,19 +86,36 @@ class ApplicationAuthorityTests(unittest.TestCase):
                         output = target if arguments[-1] == f"origin/{history}" else "b" * 40
                     return subprocess.CompletedProcess(arguments, 0, output, "")
 
-                with patch.dict(wait.os.environ, {"GITHUB_REF_NAME": "main", "GITHUB_ACTOR": "operator"}), patch.object(wait, "command", side_effect=run):
-                    if history == "unplaced":
+                with patch.dict(wait.os.environ, {"GITHUB_REF_NAME": "main", "GITHUB_ACTOR": "operator", "RELEASE_APPLICATION_SHA": target}), patch("deployment_security.verify_forwarded_authorization") as authorize, patch.object(wait, "command", side_effect=run):
+                    if history == "uat":
+                        wait.verify_request(target)
+                        authority = calls[-1][1]
+                        self.assertEqual(authority["REQUIRED_BRANCH"], "uat")
+                        self.assertEqual(authority["REQUIRE_CI_SUCCESS"], "1")
+                        self.assertEqual(authority["REQUIRED_CHECK_NAME"],
+                            "CI Status Gate,Queue Validation,Branch Validation Gate")
+                    else:
                         with self.assertRaisesRegex(wait.AdmissionError, "source history"):
                             wait.verify_request(target)
                         self.assertFalse(any(item[1] for item in calls))
-                    else:
-                        wait.verify_request(target)
-                        authority = calls[-1][1]
-                        self.assertEqual(authority["REQUIRED_BRANCH"], history)
-                        self.assertEqual(authority["REQUIRE_CI_SUCCESS"], "1")
-                        self.assertEqual(authority["REQUIRED_CHECK_NAME"],
-                            "Main Post-Merge Smoke Gate" if history == "main"
-                            else "CI Status Gate,Queue Validation,Branch Validation Gate")
+                    authorize.assert_called_once()
+                    self.assertFalse(any("assert-governed-actor.py" in " ".join(item[0]) for item in calls))
+
+    def test_read_only_admission_refuses_missing_or_invalid_forwarded_authority(self):
+        target = "a" * 40
+        for raw, application in (("", target), ("not json", target), ("{}", target), ("{}", "b" * 40)):
+            with (
+                self.subTest(raw=raw, application=application),
+                patch.dict(wait.os.environ, {
+                    "GITHUB_REF_NAME": "main", "GITHUB_ACTIONS": "true",
+                    "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
+                    "RELEASE_AUTHORIZATION": raw, "RELEASE_APPLICATION_SHA": application,
+                }),
+                patch.object(wait, "command") as command,
+            ):
+                with self.assertRaisesRegex(wait.AdmissionError, "current-attempt release authorization"):
+                    wait.verify_request(target)
+                command.assert_not_called()
 
 
 class CapacityAdmissionTests(unittest.TestCase):
@@ -97,6 +148,10 @@ class CapacityAdmissionTests(unittest.TestCase):
              "--candidate-service", "consent-protocol-drive-worker"],
         )
         self.assertEqual(wait.capacity_args("full", frontend)[-1], "--frontend-only")
+        target = "a" * 40
+        bound = wait.capacity_args("full", backend, target)
+        self.assertEqual(bound[bound.index("--target-sha") + 1], target)
+        self.assertNotIn("--target-sha", wait.capacity_args("full", frontend, target))
         self.assertEqual(
             wait.capacity_args("one-chat", None)[-2:],
             ["--inherit-candidate-service", "consent-protocol"],
@@ -346,8 +401,8 @@ class CapacityAdmissionTests(unittest.TestCase):
 
 
 class WorkflowWiringTests(unittest.TestCase):
-    def test_both_requests_wait_outside_shared_mutation_lock(self) -> None:
-        for filename in ("deploy-uat.yml", "deploy-uat-one-chat.yml"):
+    def test_uat_requests_wait_outside_shared_mutation_lock(self) -> None:
+        for filename in ("deploy-uat-implementation.yml",):
             with self.subTest(workflow=filename):
                 source = (ROOT / ".github/workflows" / filename).read_text()
                 self.assertIn("group: uat-release-requests-", source)
@@ -361,11 +416,17 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("group: deploy-uat", wait_job)
                 self.assertIn("group: deploy-uat", deploy_job)
                 self.assertIn("scripts/ci/wait-uat-capacity.py", wait_job)
+                # Read-only admission uses only the same attempt's Main output.
+                self.assertIn("actions: read", wait_job)
+                self.assertNotIn("actions: write", wait_job)
+                self.assertIn("RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}", wait_job)
+                self.assertIn("RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}", wait_job)
+                self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", wait_job)
                 self.assertIn("timeout-minutes: 7", wait_job)
                 self.assertIn("--environment uat", deploy_job)
-        full = (ROOT / ".github/workflows/deploy-uat.yml").read_text()
+        full = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
         self.assertIn("inputs.scope == 'frontend' && 'frontend' || 'backend'", full)
-        self.assertIn("needs: [select-target, wait-capacity]", full)
+        self.assertIn("needs: [select-target, wait-capacity, deployment-security]", full)
         self.assertLess(
             full.index(
                 "- name: Enforce UAT database connection budget before deployment"
@@ -415,13 +476,6 @@ class WorkflowWiringTests(unittest.TestCase):
                 'gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}"'
             ),
         )
-        one_chat = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
-        self.assertIn("group: uat-release-requests-backend", one_chat)
-        self.assertIn("needs: wait-capacity", one_chat)
-        self.assertLess(
-            one_chat.index("- name: Enforce UAT database connection budget"),
-            one_chat.index("- name: Deploy and verify only the backend service"),
-        )
 
     def test_hourly_cleanup_has_no_waiting_followup(self):
         source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
@@ -437,6 +491,55 @@ class WorkflowWiringTests(unittest.TestCase):
         for group in ("deploy-uat", "deploy-production"):
             self.assertIn("group: " + group, source)
         self.assertIn("steps.retention.outputs.checkpoint_ready == 'true'", source)
+
+    def test_manual_inspection_runs_at_each_boundary_without_forcing_the_clock(self):
+        source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
+        guards = [line.strip() for line in source.splitlines() if "--force-inspection" in line]
+        self.assertEqual(len(guards), 6)  # Select, under-lock recheck, execution; both environments.
+        for guard in guards:
+            for event in ["workflow_dispatch", "schedule", "repository_dispatch"]:
+                with self.subTest(guard=guard, event=event):
+                    result = subprocess.run(
+                        ["/bin/bash", "-eu", "-c", 'flags=(); ' + guard + '; printf "%s" "${flags[*]-}"'],
+                        env={"GITHUB_EVENT_NAME": event}, capture_output=True, text=True, timeout=5,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "--force-inspection" if event == "workflow_dispatch" else "")
+
+
+class InspectionPublicationTests(unittest.TestCase):
+    def test_failed_inspection_is_not_mistaken_for_a_failed_mutation(self):
+        import retention_publication as publication
+        class UnsafeState(RuntimeError):
+            pass
+        workflow = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
+        for environment, label in (("uat", "UAT"), ("production", "Production")):
+            self.assertIn(f"name: {label} revision maintenance", workflow)
+            self.assertIn("name: 'Maintenance mode: inspection'", workflow)
+            self.assertIn("name: 'Maintenance mode: cleanup'", workflow)
+            job = {"name": f"{label} revision inspection", "status": "completed", "conclusion": "failure", "steps": [
+                {"name": f"Prepare or finish eligible {environment} revision cleanup", "conclusion": "failure"},
+                {"name": f"Save {environment} cleanup checkpoint", "conclusion": "skipped"}]}
+            owner = types.SimpleNamespace(retention=types.SimpleNamespace(UnsafeState=UnsafeState),
+                api=lambda *args: {"jobs": [job], "total_count": 1}, guard_only_preflight_proof=lambda *args: None)
+            self.assertFalse(publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment))
+            job["name"] = f"{label} bounded revision cleanup"
+            with self.assertRaisesRegex(UnsafeState, "without publishing"):
+                publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+            job["name"] = f"{label} revision maintenance"
+            original = job["steps"].copy()
+            for modes, expected in ((["inspection"], False), (["cleanup"], "without publishing"),
+                                    ([], "mode"), (["inspection", "cleanup"], "mode")):
+                with self.subTest(environment=environment, modes=modes):
+                    job["steps"] = original + [{"name": f"Maintenance mode: {mode}",
+                                                "conclusion": "success" if mode in modes else "skipped"}
+                                                for mode in ("inspection", "cleanup")]
+                    if expected is False:
+                        self.assertFalse(publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment))
+                    else:
+                        with self.assertRaisesRegex(UnsafeState, expected):
+                            publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+
 
 
 if __name__ == "__main__":

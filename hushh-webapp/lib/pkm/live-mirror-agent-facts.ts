@@ -56,7 +56,7 @@ export const LIVE_MIRROR_PACKET_MAX_CHARS = 1_800;
 /** Below this the packet says too little to be honest, so it is omitted. */
 export const LIVE_MIRROR_PACKET_MIN_CHARS = 300;
 /** The server keeps at most this many characters of the consented memory field. */
-export const CONSENTED_MEMORY_MAX_CHARS = 20_000;
+export const CONSENTED_MEMORY_MAX_CHARS = 128_000;
 const SOUL_SEPARATOR = "\n\n";
 
 export interface LiveMirrorFactsPacket {

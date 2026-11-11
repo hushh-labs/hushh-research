@@ -11,7 +11,7 @@ import { presentationMotionDuration, renderedDrawerOffset } from "@/components/a
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
-import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import { nativeDrawers, nativeDrawerAcknowledged, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 
 import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
@@ -84,26 +84,48 @@ function markProfilePane(name: string): void {
  * waits for that frame (two animation frames: the first runs just before it
  * paints, the second just after), then builds the page in a transition React
  * may interrupt. The slide itself is transform and opacity only, so it keeps
- * moving on the compositor while the page renders underneath it.
+ * moving on the compositor while the page renders underneath it. If the
+ * document becomes hidden before those frames run, there is no visible slide
+ * to protect, so the admitted page can mount without waiting on rAF.
  *
  * Reduced motion has no slide to protect, so the page mounts at once.
  */
-function useProfilePaneFirstFramePainted(): boolean {
+function useProfilePaneFirstFramePainted(active: boolean): boolean {
   const [painted, setPainted] = useState(prefersReducedMotion);
   useEffect(() => {
-    if (painted) return;
+    if (painted || !active) return;
+    let first = 0;
     let second = 0;
-    const first = window.requestAnimationFrame(() => {
-      markProfilePane("hushh:profile-pane-first-frame");
-      second = window.requestAnimationFrame(() => {
-        startTransition(() => setPainted(true));
-      });
-    });
+    let completed = false;
+    const complete = (withoutTransition = false) => {
+      if (completed) return;
+      completed = true;
+      if (withoutTransition) setPainted(true);
+      else startTransition(() => setPainted(true));
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") complete(true);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (document.visibilityState === "hidden") {
+      complete(true);
+    } else {
+      const paintFirstFrame = () => {
+        if (completed) return;
+        markProfilePane("hushh:profile-pane-first-frame");
+        second = window.requestAnimationFrame(() => {
+          complete();
+        });
+      };
+      first = window.requestAnimationFrame(paintFirstFrame);
+    }
     return () => {
+      completed = true;
       window.cancelAnimationFrame(first);
       window.cancelAnimationFrame(second);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [painted]);
+  }, [active, painted]);
   return painted;
 }
 
@@ -139,10 +161,10 @@ function ProfilePaneShell() {
  * after each close: every open starts from the shell, and a close (or a move
  * between panels while open) never shows it again.
  */
-function ProfilePaneBody({ location, nativeControlsEligible }: {
-  location: ProfilePaneLocation; nativeControlsEligible: boolean;
+function ProfilePaneBody({ active, location, nativeControlsEligible }: {
+  active: boolean; location: ProfilePaneLocation; nativeControlsEligible: boolean;
 }) {
-  const firstFramePainted = useProfilePaneFirstFramePainted();
+  const firstFramePainted = useProfilePaneFirstFramePainted(active);
   // Mounted once per open, inside the committed sheet content: the evidence a
   // requested open is actually showing (voice settles on this, not the ask).
   useEffect(() => {
@@ -168,7 +190,23 @@ type ProfilePaneProps = {
  * right-side presentation used by the shell and native edge gesture.
  */
 export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
-  return customNativePresentationEnabled() && nativeDrawersPlatformEligible() ? <NativeProfilePane {...props} /> : <WebProfilePane {...props} />;
+  const nativeEligible = customNativePresentationEnabled() && nativeDrawersPlatformEligible();
+  const [nativeScore, setNativeScore] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!nativeEligible) return;
+    let current = true;
+    void (async () => {
+      try {
+        const capabilities = await nativeDrawerAcknowledged(nativeDrawers().getCapabilities());
+        if (current) setNativeScore(capabilities.profileNetWorthScore === true);
+      } catch {
+        if (current) setNativeScore(false);
+      }
+    })();
+    return () => { current = false; };
+  }, [nativeEligible]);
+  if (nativeEligible && nativeScore === null) return null;
+  return nativeEligible && nativeScore ? <NativeProfilePane {...props} /> : <WebProfilePane {...props} />;
 });
 
 function NativeProfilePane({ open, onOpenChange }: ProfilePaneProps) {
@@ -296,7 +334,9 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
   }, [panePresentationKey, open, isVaultUnlocked]);
   const canGoBack = canGoBackProfilePane(location);
   const panelTitle = location.panel
-    ? location.panel === "my-data"
+    ? location.panel === "net-worth-score"
+      ? "Net Worth Score"
+      : location.panel === "my-data"
       ? "Memory"
       : location.panel === "world-model"
         ? "Personal World Model"
@@ -455,7 +495,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
           className="profile-pane-scroll-root min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePaneBody location={location} nativeControlsEligible={false} />
+          <ProfilePaneBody active={open} location={location} nativeControlsEligible={false} />
         </div>
       </SheetContent>
     </Sheet>

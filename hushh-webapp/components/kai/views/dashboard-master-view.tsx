@@ -1982,6 +1982,7 @@ export function DashboardMasterView({
               testId="portfolio-source-upload-statement"
             />
           </SettingsGroup>
+          <FinancePortfolioSharing />
           {deletePortfolioDialog}
           {deleteStatementSnapshotDialog}
         </AppPageContentRegion>
@@ -1998,7 +1999,7 @@ export function DashboardMasterView({
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
           <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel} onImport={onReupload}
-            briefing={<PortfolioBriefing model={model} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
+            briefing={<PortfolioBriefing model={model} portfolio={displayedPortfolio} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
             sharing={<FinancePortfolioSharing presentation={presentation} model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
             period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}

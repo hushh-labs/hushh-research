@@ -1,24 +1,15 @@
 #!/usr/bin/env python3
-"""The split web lanes must still run everything the unsplit lanes ran.
+"""Check focused CI roles and preserve explicit local diagnostic commands.
 
-PR Validation runs two web lanes as matrices to shorten the critical path:
+Hosted CI has an unsharded ``node`` targeted job, one
+affected unit-contract job, and two database jobs for backend changes. The
+node/browser selector remains a disjoint partition of selected packs; unknown
+browser selection stays conservative. Safari layout and web performance remain
+developer-local diagnostics, while native lanes run for native surfaces.
 
-* ``Web Targeted Contracts`` as a ``node`` leg and four native Playwright
-  browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
-* ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
-* 100 KB editor latency and History motion as a macOS browser job, outside Linux's
-  software-rendered WebKit layout pack, scheduled and required whenever the
-  ``editor`` path filter matches.
-
-A split is only safe while it is a partition: every matched pack runs in exactly
-one leg, the legs together run what a single ``all`` run does, every shard of
-the matrix is scheduled, and the contract verifiers run exactly once. This
-drives the real scripts with a stub ``npm`` that records what would have run,
-so the assertion is about the scripts' behaviour, not about their text.
-
-With web dependencies installed, ``--collect-browser-shards`` also uses native
-Playwright ``--list`` to prove that all four shards partition every browser command
-selected for this diff. It never starts a browser or runs test hooks.
+Historical Playwright shard collection and full-suite shard verification remain
+available only as explicit local diagnostics. ``--collect-browser-shards`` uses
+Playwright ``--list`` and never starts a browser or runs test hooks.
 """
 
 from __future__ import annotations
@@ -26,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import shlex
 import stat
 import subprocess
@@ -36,6 +28,8 @@ from pathlib import Path
 from web_ci_lane_fixture import (
     ROOT,
     _bash,
+    test_browser_plan_skips_only_known_no_browser_selection,
+    test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
     _run,
     test_layout_overlap_retains_selected_coverage_and_failure_propagation,
     verify_connections_collection,
@@ -47,6 +41,25 @@ WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TARGETED = ROOT / "scripts/ci/web-targeted-check.sh"
 FULL_SUITE = ROOT / "scripts/ci/web-full-suite-check.sh"
 PACKAGE_JSON = ROOT / "hushh-webapp/package.json"
+BROWSER_CORE = runpy.run_path(str(ROOT / "scripts/ci/web-browser-core.py"))
+
+
+def test_presentation_filter_preserves_interaction_and_lifecycle_cases() -> None:
+    presentation = re.compile(BROWSER_CORE["PRESENTATION"])
+    for name in ("@presentation Calendar account portraits and fallback initials",
+                 "explicit Feed typography survives outside the page shell",
+                 "Reset icon colors only its arrowhead and keeps native geometry in the account pane",
+                 "shows four distinct activity portraits while animations load at 390px",
+                 "retains painted artwork through delayed loads and interrupted transitions",
+                 "keeps brief activities perceptible in both locations and recovers from an animation load failure",
+                 "keeps header and profile presence in sync through all four native Rive states",
+                 "One profile keeps its header and tabs stationary while switching at 390px"):
+        assert presentation.search(name), name
+    for name in ("keeps hover, press and tap clear",
+                 "keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes",
+                 "History preserves full long titles at 320px",
+                 "cancelling the Calendar card while Google is open ends quietly and ignores the late callback"):
+        assert not presentation.search(name), name
 
 
 def _one_matching_file_per_pack() -> str:
@@ -133,7 +146,8 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
     runs: dict[str, list[str]] = {}
     for part in ("all", "node", "browser"):
         code, calls, output = _run(
-            TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed}
+            TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed,
+                       "WEB_TARGETED_FULL_SUITE_OWNED": "0"}
         )
         assert code == 0, (
             f"web-targeted-check.sh ({part}) exited {code}:\n{output[-2000:]}"
@@ -159,6 +173,43 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         name = call.split()[1]
         assert not _reaches_playwright(name, scripts, set()), f"{name} needs a browser"
 
+    static_commands = {
+        f"run {name}" for name in (
+            "verify:voice-gateway", "verify:capability-graph",
+            "verify:surface-map", "verify:capacitor:plugins",
+        )
+    }
+    assert static_commands <= set(node), "fixture must exercise every static owner"
+    code, owned, output = _run(TARGETED, {
+        "WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": changed,
+        "WEB_TARGETED_FULL_SUITE_OWNED": "static",
+    })
+    assert code == 0, output[-2000:]
+    assert owned == [call for call in node if call not in static_commands]
+    # A local or unfamiliar caller retains every static and functional check.
+    for ownership in ("0", "unknown"):
+        code, retained, output = _run(TARGETED, {
+            "WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": changed,
+            "WEB_TARGETED_FULL_SUITE_OWNED": ownership,
+        })
+        assert code == 0, output[-2000:]
+        assert retained == node
+
+    # Extra arguments change a verifier's contract and must not inherit reuse.
+    with tempfile.TemporaryDirectory() as temporary:
+        script = Path(temporary) / "targeted.sh"
+        script.write_text(TARGETED.read_text().replace(
+            'run_full_suite_check "workflow catalog compiler" npm run verify:capability-graph',
+            'run_full_suite_check "workflow catalog compiler" npm run verify:capability-graph --changed',
+        ))
+        code, calls, output = _run(script, {
+            "WEB_TARGETED_PART": "node",
+            "WEB_TARGETED_CHANGED_FILES": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
+            "WEB_TARGETED_FULL_SUITE_OWNED": "static",
+        })
+        assert code == 0, output[-2000:]
+        assert "run verify:capability-graph --changed" in calls
+
     # Hosted Vitest replaces only its own cases, never the Node-only remainder.
     analytics = "hushh-webapp/lib/observability/schema.ts"
     remainder = ["scripts/observability/verify-android-scope.mjs",
@@ -170,6 +221,98 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         })
         assert code == 0, output[-2000:]
         assert calls == expected, (part, calls)
+
+
+def test_targeted_pack_stops_after_interruption() -> None:
+    code, calls, output = _run(TARGETED, {
+        "WEB_TARGETED_CHANGED_FILES": "hushh-webapp/app/globals.css",
+        "WEB_TARGETED_PART": "browser",
+        "NPM_STUB_FAIL": "test:layout-contracts",
+        "NPM_STUB_EXIT": "130",
+    })
+    assert code == 130, output
+    assert calls[-1] == "run test:layout-contracts", calls
+
+
+def test_browser_commands_report_all_failures_but_stop_on_cancellation() -> None:
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    selected = [["first"], ["second"], ["third"]]
+    execute = BROWSER_CORE["run_selected"]
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=1), SimpleNamespace(returncode=2),
+        SimpleNamespace(returncode=0),
+    ]) as runner:
+        assert execute(selected, {}) == 1
+        assert [call.args[0][-1] for call in runner.call_args_list] == ["first", "second", "third"]
+    for status in (-15, 130, 143, 124):
+        with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=status)) as runner:
+            assert execute(selected, {}) >= 124
+            assert runner.call_count == 1
+
+
+def test_functional_browser_plans_keep_chromium_from_multi_project_packs() -> None:
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    plan = BROWSER_CORE["plan"]
+    expected_specs = {
+        "test:account-session:browser": "e2e/account-session-recovery.spec.ts",
+        "test:drive-sharing-layout": "e2e/document-share-review.layout.spec.ts",
+        "test:connections-layout": "e2e/connections-drawer.layout.spec.ts",
+        "test:connections-layout:without-covered": "e2e/connections-drawer.layout.spec.ts",
+        "test:one-voice-panel-layout": "e2e/one-voice-panel.layout.spec.ts",
+        "test:one-voice-mail-open-layout": "e2e/one-voice-mail-open.layout.spec.ts",
+        "test:calendar-workspace-layout": "e2e/calendar-connected-workspace.layout.spec.ts",
+        "test:agent-surface-layout": "e2e/agent-surface-model-authority.layout.spec.ts",
+    }
+    for script, expected_spec in expected_specs.items():
+        rows = plan(script, scripts, [])
+        chromium = [row for row in rows if "--project=chromium" in row]
+        assert chromium, f"{script} lost its functional Chromium pack"
+        assert any(expected_spec in row for row in chromium), (script, expected_spec)
+        assert not any("--project=webkit" in row for row in rows), script
+        if script == "test:account-session:browser":
+            assert any("--project=mobile-chrome" in row for row in rows)
+
+
+def test_functional_browser_plan_accumulates_project_syntax_and_fails_closed() -> None:
+    plan = BROWSER_CORE["plan"]
+    spec = "e2e/agent-markdown.layout.spec.ts"
+    scripts = {
+        "synthetic": (
+            f"CI=1 playwright test {spec} {spec} --project=chromium --project webkit "
+            "--project=mobile-chrome --project chromium --workers=1 "
+            "--grep-invert 'One profile artwork and animated presence'"
+        )
+    }
+    rows = plan("synthetic", scripts, [])
+    projects = [next(token for token in row if token.startswith("--project=")) for row in rows]
+    assert projects == ["--project=chromium", "--project=mobile-chrome"]
+    for row in rows:
+        assert row.count(spec) == 1 and "--workers=1" in row
+        assert "--grep-invert" in row
+        assert "One profile artwork and animated presence" in row[-1]
+        assert "100 KB paste" in row[-1]
+
+    invalid = (
+        (
+            "unknown",
+            f"playwright test {spec} --project=chromium --project=unknown",
+            "Unrecognized browser project",
+        ),
+        (
+            "missing",
+            "playwright test e2e/missing-contract.spec.ts --project=chromium",
+            "Unresolved browser contract",
+        ),
+    )
+    for script, body, expected_error in invalid:
+        try:
+            plan(script, {script: body}, [])
+        except ValueError as error:
+            assert expected_error in str(error), (expected_error, error)
+        else:
+            raise AssertionError(f"invalid browser plan {script!r} was accepted")
 
 
 def test_agent_surface_layout_runs_once_without_losing_the_focused_gate() -> None:
@@ -259,6 +402,7 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         "hushh-webapp/components/icons/ui/shortcut-action-icons.tsx",
         "hushh-webapp/components/icons/ui/shortcut-icon-motion.module.css",
         "hushh-webapp/lib/navigation/web-history-back.ts",
+        "hushh-webapp/lib/connections/person-profile-preview.ts",
         "hushh-webapp/lib/navigation/profile-pane.ts",
         "hushh-webapp/lib/morphy-ux/hooks/use-shortcut-icon-motion.ts",
         "hushh-webapp/app/globals.css",
@@ -270,9 +414,12 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         "hushh-webapp/components/connections/person-profile-page.module.css",
         "hushh-webapp/components/connections/person-profile-hero.tsx",
         "hushh-webapp/e2e/person-profile-actions.layout.spec.ts",
+        "hushh-webapp/e2e/person-profile-preview.layout.spec.ts",
         "hushh-webapp/e2e/fixtures/person-profile.tsx",
         "hushh-webapp/e2e/fixtures/person-profile-requests.tsx",
         "hushh-webapp/e2e/fixtures/person-profile-request-ports.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-preview.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-preview-ports.tsx",
         "hushh-webapp/components/app-ui/illustrated-request-dialog.tsx",
         "hushh-webapp/components/app-ui/illustrated-request-dialog.module.css",
         "hushh-webapp/components/consent/document-file-request.tsx",
@@ -288,6 +435,15 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         overlap_owner = "run test:drive-sharing-layout" in calls
         expected = "run test:connections-layout:without-covered" if overlap_owner else "run test:connections-layout"
         assert calls.count(expected) == 1, (changed, calls)
+        if "person-profile-preview" in changed:
+            assert "run test:connections-web" not in calls, (changed, calls)
+            node_code, node_calls, node_output = _run(
+                TARGETED,
+                {"WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": changed},
+            )
+            assert node_code == 0, node_output[-2000:]
+            assert node_calls.count("run test:connections-web") == 1, (changed, node_calls)
+            assert not any("connections-layout" in call for call in node_calls), (changed, node_calls)
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     pack = scripts["test:connections-layout"]
     for spec in ("e2e/profile-confirmation-back.spec.ts", "e2e/shortcut-icons.motion.spec.ts", "e2e/person-profile-actions.layout.spec.ts"):
@@ -329,38 +485,107 @@ def test_full_suite_shards_run_verifiers_once() -> None:
         assert code == 2 and not calls, f"shard spec {bad!r} was accepted"
 
 
-def test_workflow_schedules_every_leg_and_shard() -> None:
+def test_unit_lane_reports_independent_failures_and_stops_on_interruption() -> None:
+    for status in (23, 124, 130):
+        code, calls, output = _run(FULL_SUITE, {
+            "NPM_STUB_FAIL": "verify:voice-gateway", "NPM_STUB_EXIT": str(status),
+        })
+        assert code == (1 if status == 23 else status), output[-2000:]
+        if status == 23:
+            assert "run verify:capability-graph" in calls, calls
+            assert "run test:ci -- --maxWorkers=2" in calls, calls
+            assert "Voice gateway (exit 23)" in output, output[-2000:]
+        else:
+            assert calls == ["run verify:voice-gateway"], calls
+
+
+def test_full_suite_bootstraps_parser_before_plan_and_skips_when_available() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        stub_dir = Path(tmp) / "bin"
+        stub_dir.mkdir()
+        log = Path(tmp) / "bootstrap.log"
+        node = stub_dir / "node"
+        node.write_text(
+            "#!/usr/bin/env bash\nset -eu\n"
+            'if [ "${1:-}" = "-e" ]; then\n'
+            '  case "${2:-}" in\n'
+            '    *ui-source-index.mjs*) echo "parser-probe:$PWD" >> "$BOOTSTRAP_LOG"; '
+            '      [ "$PARSER_AVAILABLE" = "1" ];;\n'
+            '    *effectiveLevel*) echo "effective-level:$PWD" >> "$BOOTSTRAP_LOG"; '
+            '      printf focused;;\n'
+            '    *) echo "unexpected-node-eval:$2" >&2; exit 91;;\n'
+            '  esac\n'
+            'elif [[ "${1:-}" == */affected-tests.mjs && "${2:-}" == plan ]]; then\n'
+            '  echo "plan:$PWD" >> "$BOOTSTRAP_LOG"\n'
+            '  printf \'{"effectiveLevel":"focused"}\\n\'\n'
+            'else echo "unexpected-node-call:$*" >&2; exit 92; fi\n',
+            encoding="utf-8",
+        )
+        node.chmod(node.stat().st_mode | stat.S_IEXEC)
+        npm = stub_dir / "npm"
+        npm.write_text(
+            "#!/usr/bin/env bash\nset -eu\n"
+            'echo "npm:$PWD:$*" >> "$BOOTSTRAP_LOG"\n',
+            encoding="utf-8",
+        )
+        npm.chmod(npm.stat().st_mode | stat.S_IEXEC)
+
+        tools_dir = ROOT / "hushh-webapp/scripts/architecture/ui-contract-tools"
+        expected = {
+            "available": ["parser-probe", "plan", "effective-level"],
+            "missing": ["parser-probe", "npm", "plan", "effective-level"],
+        }
+        for parser_state, events in expected.items():
+            log.unlink(missing_ok=True)
+            env = dict(os.environ)
+            env.update({
+                "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
+                "BOOTSTRAP_LOG": str(log),
+                "PARSER_AVAILABLE": "1" if parser_state == "available" else "0",
+                "CI_VALIDATION_LEVEL": "focused",
+                "WEB_FULL_SUITE_SHARD": "2/3",
+            })
+            proc = subprocess.run(
+                [_bash(), str(FULL_SUITE)], cwd=ROOT, env=env,
+                capture_output=True, text=True, check=False, timeout=15,
+            )
+            assert proc.returncode == 0, proc.stderr[-2000:]
+            observed = log.read_text(encoding="utf-8").splitlines()
+            assert [line.split(":", 1)[0] for line in observed] == events, observed
+            assert observed[0] == f"parser-probe:{ROOT / 'hushh-webapp'}"
+            assert observed[-2] == f"plan:{ROOT}", observed
+            assert observed[-1] == f"effective-level:{ROOT}", observed
+            if parser_state == "missing":
+                assert observed[1] == f"npm:{tools_dir}:ci --ignore-scripts --no-audit --progress=false"
+            assert "shard 2/3 is not scheduled for affected tests" in proc.stdout
+
+
+def test_workflow_schedules_focused_jobs_and_database_pair() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
     assert_web_lane_topology(workflow, scripts, playwright)
-    # Keep evidence confined to these synthetic fixtures, never protected reviewers.
-    evidence = re.search(
-        r"- name: Upload synthetic layout failure evidence\n(.*?)(?=\n      - name:)",
-        workflow, re.S,
+    governance = re.search(
+        r"(?ms)^  repo-governance:\n(.*?)(?=^  [a-z][a-z0-9_-]*:\n)", workflow
     )
-    assert evidence, "retain the failing synthetic layout trace before runner teardown"
-    assert "if: failure() && matrix.part == 'browser'" in evidence[1]
-    assert "name: synthetic-layout-failures-${{ matrix.label }}" in evidence[1]
-    paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
-    assert paths
-    assert [line.strip() for line in paths[1].splitlines()] == [
-        "hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip",
-        "hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png",
-        "hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md",
-        "hushh-webapp/test-results/calendar-connected-*/trace.zip",
-        "hushh-webapp/test-results/calendar-connected-*/test-failed-*.png",
-        "hushh-webapp/test-results/calendar-connected-*/error-context.md",
-    ], "do not broaden synthetic evidence into protected browser artifacts"
-    shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
-    broken = workflow.replace(shard, shard + shard, 1)
+    assert governance, "the parser bootstrap must belong to the governance job"
+    parser_install = governance[1].find("- name: Install UI contract parser for governance")
+    governance_checks = governance[1].find("- name: Run repo governance checks")
+    assert 0 <= parser_install < governance_checks, (
+        "install the isolated parser before the affected-tests Node owner runs"
+    )
+    assert "working-directory: hushh-webapp/scripts/architecture/ui-contract-tools" in governance[1]
+    assert "run: npm ci --ignore-scripts --no-audit --progress=false" in governance[1]
+    # Ordinary validation has no browser installation or artifact-producing job.
+    # Keep the negative control focused on a real aggregate/selection boundary.
+    broken = workflow.replace("WEB_TARGETED_PART: node", "WEB_TARGETED_PART: all")
     assert broken != workflow
     try:
         assert_web_lane_topology(broken, scripts, playwright)
-    except AssertionError as error:
-        assert "duplicate PLAYWRIGHT_SHARD" in str(error)
+    except AssertionError:
+        pass
     else:
-        raise AssertionError("duplicated workflow environment was accepted")
+        raise AssertionError("required Node lane accepted automatic browser execution")
 
 
 def test_browser_shard_setting_is_validated_before_any_pack() -> None:
@@ -510,8 +735,15 @@ def collect_browser_shards() -> None:
 
 def main() -> int:
     tests = (
+        test_presentation_filter_preserves_interaction_and_lifecycle_cases,
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
+        test_functional_browser_plans_keep_chromium_from_multi_project_packs,
+        test_browser_commands_report_all_failures_but_stop_on_cancellation,
+        test_targeted_pack_stops_after_interruption,
+        test_functional_browser_plan_accumulates_project_syntax_and_fails_closed,
+        test_browser_plan_skips_only_known_no_browser_selection,
+        test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
         test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
         test_targeted_rejects_an_unknown_part,
         test_node_leg_leaves_diagram_rendering_to_browser_leg,
@@ -519,7 +751,9 @@ def main() -> int:
         test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
         test_layout_overlap_retains_selected_coverage_and_failure_propagation,
         test_full_suite_shards_run_verifiers_once,
-        test_workflow_schedules_every_leg_and_shard,
+        test_unit_lane_reports_independent_failures_and_stops_on_interruption,
+        test_full_suite_bootstraps_parser_before_plan_and_skips_when_available,
+        test_workflow_schedules_focused_jobs_and_database_pair,
         test_browser_shard_setting_is_validated_before_any_pack,
     )
     for test in tests:

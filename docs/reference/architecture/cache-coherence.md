@@ -89,7 +89,19 @@ per transcript and 64 verified route-token mappings. No message body or route
 mapping is written to device storage. Cached send permission is always false;
 the existing authenticated history/relationship request checks it on each entry.
 
-Revisits render the matching transcript while revalidation runs. Cold entries
+Selecting an inbox person updates the thread immediately, before route-token
+minting. The server-verified token mapping is retained in owner-scoped memory
+before navigation, avoiding a second resolution request. A newer tap or Back
+retires the pending opening; an earlier client transition cannot replace a newer
+selection. New chat carries the selected connection's known name and photo as
+presentation only.
+
+Revisits render the matching transcript while revalidation runs. Without a
+transcript, the authenticated inbox's latest message is presentation only until
+history arrives. It never narrows the initial history page or replaces newer
+cached edits or deletions, including confirmed empty transcripts. Tapping the
+active conversation refreshes history directly while retaining the transcript.
+Cold entries
 retain the shell and known contact header without a blocking loading panel or
 premature empty state. Transport failures retain readable history; authoritative
 401/403/404 responses clear it. Focus, resume, polling and message signals use
@@ -100,6 +112,22 @@ Pending optimistic reactions are excluded from snapshot publication.
 received message-change signals and connection changes. Read receipts keep them warm. Sign-out,
 account deletion and cache clear purge snapshots and verified route mappings;
 request-session fences prevent late responses from restoring purged entries.
+
+## Circle message working state
+
+The Messages Circles pane retains up to four recently visited threads in React
+memory, including their history, sequence/version fences and uncertain send state.
+Each thread keeps its original session object. Switching back shows its latest
+available transcript while the existing state/history requests revalidate it.
+Cold entries keep the circle header and an accessible busy state without separate
+connection or message-loading panels.
+
+Only the selected thread polls and acknowledges reads. Hidden threads release
+file/video viewers and keep the existing revocation listener. Owner, owner-token
+or vault-key changes synchronously discard the retained working set; directory
+removal prunes a thread, and a changed membership incarnation resets its editor
+and transcript. No thread contents or credentials are added to device storage.
+Existing live membership, roster and mutation checks remain authoritative.
 
 ## Mail receipt snapshots
 
@@ -175,6 +203,15 @@ refresh control. A fixed-height status line reports background activity; settled
 failures offer Retry. Existing list identity, focus and reading position survive
 refreshes, and refreshed rows do not repeat entrance motion. Display snapshots and
 opaque routing locators never authorize live reads or submissions.
+
+One's chat welcome Mail stack is a read-only consumer of this resource. It
+subscribes to `MailReceiptResourceService`, hydrates from memory or the
+encrypted device copy only after unlock with Gmail connected, and never starts
+provider work. Its Remind me later / Mark as done choices are device-local per
+owner and are cleared by Reset and account deletion, not by sign-out. Each
+choice re-reads the stored record before writing, and open tabs follow another
+tab's change through storage events, so one tab never overwrites another's
+choice or resurrects a Reset.
 
 Provider semantics: [Gmail synchronization](https://developers.google.com/workspace/gmail/api/guides/sync)
 and [history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list).

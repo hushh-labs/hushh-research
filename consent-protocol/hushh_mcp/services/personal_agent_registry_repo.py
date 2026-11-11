@@ -32,6 +32,13 @@ from hushh_mcp.services.compute_backend import (
 from hushh_mcp.services.placement_observation import read_placement_row
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
+from . import upgrade_host_binding as _binding
+from .personal_agent_registry_hosted_files import HostedFilesRegistryMixin
+
+_UPGRADE_HOST_METADATA_KEYS = _binding._UPGRADE_HOST_METADATA_KEYS
+_UPGRADE_HOST_BINDING_REGISTRY_KEYS = _binding._UPGRADE_HOST_BINDING_REGISTRY_KEYS
+_UPGRADE_HOST_BINDING_METADATA_KEYS = _binding._UPGRADE_HOST_BINDING_METADATA_KEYS
+
 _REGISTRY = "personal_agent_registry"
 _TOMBSTONES = "personal_agent_deletion_tombstones"
 
@@ -177,51 +184,8 @@ def registry_host_snapshot(row: Optional[dict]) -> Optional[dict]:
     )
 
 
-_UPGRADE_HOST_METADATA_KEYS = (
-    "project",
-    "region",
-    "service",
-    "serviceUid",
-    "url",
-    "runtime_service_account",
-    "tenancy",
-    "ingress",
-    "substrateReceipt",
-    "filesUpgradeCheckpoint",
-    "hostKind",
-    "vmHost",
-    "vmConfigurationSha256",
-    "vmUpdateModuleSha256",
-    "image",
-    "image_digest",
-    "runtime_principal_id",
-    "runtime_client_id",
-    "vmPower",
-)
-
-
 def upgrade_host_snapshot(row: Optional[dict]) -> Optional[dict]:
-    snapshot = registry_host_snapshot(row)
-    if row is None or snapshot is None:
-        return None
-    # Reuse the host authority projection and include the remaining PodSpec inputs.
-    snapshot.update(
-        {
-            key: row.get(key)
-            for key in (
-                "phone_e164_hash",
-                "placement_epoch",
-                "pod_pubkey",
-                "pod_key_id",
-                "pod_signing_key_id",
-                "pod_signing_pubkey",
-                "liveness_mode",
-            )
-        }
-    )
-    metadata = snapshot["backend_metadata"] or {}
-    snapshot["host_metadata"] = {key: metadata.get(key) for key in _UPGRADE_HOST_METADATA_KEYS}
-    return snapshot
+    return _binding.upgrade_host_snapshot(row, registry_snapshot=registry_host_snapshot)
 
 
 def _upgrade_snapshot_params(snapshot: dict, *, publishing: bool = False) -> dict:
@@ -251,7 +215,20 @@ def _upgrade_snapshot_params(snapshot: dict, *, publishing: bool = False) -> dic
     }
 
 
-class PersonalAgentRegistryRepo:
+def upgrade_host_binding_json(snapshot: dict) -> str:
+    return _binding.upgrade_host_binding_json(snapshot, dump_json=json.dumps)
+
+
+def upgrade_lease_host_binding_matches(row: dict) -> bool:
+    return _binding.upgrade_lease_host_binding_matches(
+        row,
+        snapshot_for_row=upgrade_host_snapshot,
+        binding_json=upgrade_host_binding_json,
+        load_json=json.loads,
+    )
+
+
+class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
     """CRUD over the personal-agent registry and deletion tombstones."""
 
     def __init__(self, client: Any = None) -> None:

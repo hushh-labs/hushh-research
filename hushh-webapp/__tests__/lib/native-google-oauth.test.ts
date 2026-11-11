@@ -3,11 +3,12 @@ import type { User } from "firebase/auth";
 
 const mocks = vi.hoisted(() => ({
   appListener: vi.fn(), browserListener: vi.fn(), launch: vi.fn(), open: vi.fn(), close: vi.fn(),
-  complete: vi.fn(), byoc: vi.fn(), remove: vi.fn(), navigate: vi.fn(),
+  complete: vi.fn(), followupPost: vi.fn(), byoc: vi.fn(), remove: vi.fn(), navigate: vi.fn(),
 }));
 vi.mock("@capacitor/app", () => ({ App: { addListener: mocks.appListener, getLaunchUrl: mocks.launch } }));
 vi.mock("@capacitor/browser", () => ({ Browser: { addListener: mocks.browserListener, open: mocks.open, close: mocks.close } }));
 vi.mock("@/lib/services/google-calendar-service", () => ({ GoogleCalendarService: { completeConnect: mocks.complete } }));
+vi.mock("@/lib/services/calendar-followups-service", () => ({ CalendarFollowupsService: { post: mocks.followupPost } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { completeByocAuthorize: mocks.byoc } }));
 
 const callback = "https://dev.one.hushh.ai/one/profile/google/oauth/return";
@@ -28,7 +29,7 @@ beforeEach(async () => {
   mocks.appListener.mockResolvedValue({ remove: mocks.remove });
   mocks.browserListener.mockResolvedValue({ remove: mocks.remove });
   mocks.open.mockResolvedValue(undefined); mocks.close.mockResolvedValue(undefined);
-  mocks.complete.mockResolvedValue({ connected: true }); mocks.byoc.mockResolvedValue({});
+  mocks.complete.mockResolvedValue({ connected: true }); mocks.followupPost.mockResolvedValue({ completed_account_id: "account_B" }); mocks.byoc.mockResolvedValue({});
   flow = await import("@/lib/google/native-google-oauth");
   // Generation-0 principal: the validated application owner equals the Firebase UID.
   (await import("@/lib/auth/session-owner")).publishValidatedAuthSessionPrincipal({
@@ -40,6 +41,21 @@ beforeEach(async () => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe("native Calendar OAuth authority and continuity", () => {
+  it("completes B Mail authorization against B without changing the default Calendar flow", async () => {
+    const result = flow.connectNativeGoogleFollowupMail({
+      ownerUid: "owner", accountId: "account_B",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=followup-b&redirect_uri=${encodeURIComponent(callback)}`,
+      redirectUri: callback, expiresAt: new Date(Date.now() + 600000).toISOString(),
+    });
+    await flush();
+    flow.receiveNativeGoogleOAuthReturn(returned("followup-b"));
+    await result;
+    expect(mocks.followupPost).toHaveBeenCalledWith("mail/connect/complete", {
+      user_id: "owner", account_id: "account_B", code: "synthetic-code",
+      state: "followup-b", redirect_uri: callback,
+    }, "synthetic-id-token");
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
   it("completes once for launch/event duplicates without putting codes in navigation", async () => {
     const result = start(); await flush();
     flow.receiveNativeGoogleOAuthReturn(returned());

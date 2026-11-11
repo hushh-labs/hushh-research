@@ -104,7 +104,7 @@ function WelcomeForOwner({ user, userId, vaultOwnerToken }: { user: User; userId
       return ReferralService.getSummary({ idToken });
     })
       .then((summary) => {
-        if (active && currentOwner()) setPersonalInvite({ title: "Join me on One", text: "Join me on One, your private agent.",
+        if (active && currentOwner()) setPersonalInvite({ title: "Join me on One", text: "Join me on One, Agent One.",
           dialogTitle: "Invite to One", url: summary.link });
       }).catch(() => { if (active && currentOwner()) setPersonalInvite(buildInviteToOneShare()); });
     return () => { active = false; };

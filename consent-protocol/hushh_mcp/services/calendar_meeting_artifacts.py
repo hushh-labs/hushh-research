@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 from http.client import HTTPSConnection
-from urllib.parse import parse_qsl, urlencode, urlparse
+from urllib.parse import urlencode
 
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
 from hushh_mcp.services.calendar_meeting_common import ArtifactUnavailable
+from hushh_mcp.services.calendar_meeting_download import browse_file_access, source_url
 from hushh_mcp.services.calendar_meeting_provider import collect_meet_pages, meet_request
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -24,11 +25,7 @@ from hushh_mcp.services.google_connection_service import (
 from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH as LIVE_POLICY_HASH,
 )
-from hushh_mcp.services.google_drive_adapter import (
-    RESOURCE_KEY,
-    DriveReadError,
-    GoogleDriveAdapter,
-)
+from hushh_mcp.services.google_drive_adapter import DriveReadError, GoogleDriveAdapter
 
 MEET_SCOPES = {CALENDAR_MEET_READ_SCOPE, "https://www.googleapis.com/auth/meetings.space.created"}
 
@@ -45,32 +42,6 @@ def _drive_error_state(error: DriveReadError) -> str:
     if error.retryable or str(error) == "provider_response_invalid":
         return "temporarily_unavailable"
     return "unavailable"
-
-
-def source_url(value, resource_key=None):
-    try:
-        parsed = urlparse(value or "")
-        if not (
-            parsed.scheme == "https"
-            and parsed.hostname in {"drive.google.com", "docs.google.com"}
-            and not parsed.username
-            and not parsed.password
-            and parsed.port in (None, 443)
-        ):
-            return None
-        if resource_key and RESOURCE_KEY.fullmatch(resource_key):
-            query = parse_qsl(parsed.query, keep_blank_values=True)
-            parsed = parsed._replace(
-                query=urlencode(
-                    [
-                        *((key, value) for key, value in query if key.casefold() != "resourcekey"),
-                        ("resourcekey", resource_key),
-                    ]
-                )
-            )
-        return parsed.geturl()
-    except ValueError:
-        return None
 
 
 async def inspect_token(token, subject):
@@ -110,6 +81,9 @@ def _fold_availability(states, artifacts, discovery):
     for kind in ("recording", "notes", "transcript"):
         files = [a for a in artifacts if a["kind"] == kind and not a.get("linked_only")]
         if files:
+            if any(file["state"] == "available" for file in files):
+                states[kind] = "available"
+                continue
             states[kind] = next(
                 (
                     state
@@ -125,9 +99,7 @@ def _fold_availability(states, artifacts, discovery):
                     )
                     if any(a["state"] == state for a in files)
                 ),
-                states.get(kind, "available")
-                if any(a["state"] == "available" for a in files)
-                else files[0]["state"],
+                files[0]["state"],
             )
         else:
             states.setdefault(kind, discovery if discovery != "checked" else "unavailable")
@@ -141,7 +113,9 @@ class CalendarMeetingArtifacts:
         # separately verified Drive connector authority.
         self.oauth = oauth or get_external_connector_oauth_service().drive()
 
-    async def _selected_token(self, user_id, grant, *, force_refresh=False, approved=False):
+    async def _selected_token(
+        self, user_id, grant, *, force_refresh=False, approved=False, with_scopes=False
+    ):
         """Verify the selected account's live scopes, refreshing one rejected bearer."""
         await self.insights.calendar._check_read_binding(user_id, grant.binding)
         token = await self.insights.calendar.connections.access_token(
@@ -181,7 +155,7 @@ class CalendarMeetingArtifacts:
             )
         ):
             raise ArtifactUnavailable("permission_required")
-        return token
+        return (token, scopes) if with_scopes else token
 
     async def _meet(self, token, path, params=None):
         return await meet_request(token, path, params)
@@ -291,7 +265,9 @@ class CalendarMeetingArtifacts:
 
             await check()
             approved = ref.get("provenance") == "approved_request"
-            token = await self._selected_token(user_id, grant, approved=approved)
+            token, scopes = await self._selected_token(
+                user_id, grant, approved=approved, with_scopes=True
+            )
             await check()
             try:
                 (
@@ -314,8 +290,12 @@ class CalendarMeetingArtifacts:
                 elif str(error) != "reconnect_required":
                     raise
                 else:
-                    token = await self._selected_token(
-                        user_id, grant, force_refresh=True, approved=approved
+                    token, scopes = await self._selected_token(
+                        user_id,
+                        grant,
+                        force_refresh=True,
+                        approved=approved,
+                        with_scopes=True,
                     )
                     (
                         source_facts,
@@ -336,22 +316,12 @@ class CalendarMeetingArtifacts:
             ):
                 raise ArtifactUnavailable("unsupported_format")
             file_resource_key = target_kwargs.get("resource_key") or facts.get("resourceKey")
-            link = source_url(facts.get("viewUrl"), file_resource_key)
-            can_download = (facts.get("capabilities") or {}).get("canDownload") is True
             result.update(
-                state="available",
-                title=facts["title"],
-                url=link,
-                mime_type=mime,
-                can_download=can_download,
-                download_url=source_url(facts.get("downloadUrl"), file_resource_key)
-                if can_download
-                else None,
-                pdf_export_url=source_url(facts.get("pdfExportUrl"), file_resource_key)
-                if can_download
-                else None,
+                browse_file_access(
+                    facts, ref, scopes, approved=approved, resource_key=file_resource_key
+                )
             )
-            if content and not approved and ref["kind"] == "notes" and can_download:
+            if content and not approved and ref["kind"] == "notes" and result["can_download"]:
                 await self._preview_browse_note(ref, token, check, result, shortcut_source)
             # A file can stay viewable when download or text extraction is prohibited.
             if await self.drive.get_file_facts(**target_kwargs) != facts or (

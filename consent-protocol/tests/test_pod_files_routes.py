@@ -12,6 +12,7 @@ from api.routes.one import pod_files
 from hushh_mcp.services.pod_files import jobs, runtime
 from hushh_mcp.services.pod_files.library import FilesLibrary, FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesLocalStore
+from tests.hosted_files_authority_cases import *  # noqa: F403 -- bounded selected case exports
 from tests.test_pod_files_jobs import queued_library as queued_library
 from tests.test_pod_session_authority import Subject, World, _binding
 from tests.test_pod_session_authority import hub_key as hub_key

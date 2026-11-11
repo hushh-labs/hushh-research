@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       security_run:
-        description: Exact W4 CI source run bound to the protected security worker
+        description: Exact W4 CI source run
         required: true
         type: string
       security_attempt:
@@ -18,6 +18,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
 
@@ -26,13 +27,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+    with:
+      application_ref: ${{ inputs.sha }}
+      environment_name: validation
+      scope: ${{ 'validation' }}
+
   admit:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+    needs: deployment-security
     name: Admit PLG frontend source
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       sha: ${{ steps.admit.outputs.sha }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Require Main workflow dispatch
         shell: bash
         run: |
@@ -50,6 +77,10 @@ jobs:
 
       - name: Require governed production actors
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           [[ "$(git -C authority rev-parse HEAD)" == "$GITHUB_SHA" ]]
@@ -74,7 +105,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           [[ "$REQUESTED_SHA" == 2a860818549f2d6c16d1f98bd8fb9cebe01a1f84 ]]
@@ -89,7 +120,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
           SECURITY_RUN: ${{ inputs.security_run }}
           SECURITY_ATTEMPT: ${{ inputs.security_attempt }}
         run: |
@@ -132,10 +163,20 @@ jobs:
 
   frontend:
     name: Verify frontend candidate
-    needs: [admit]
+    needs: [admit, deployment-security]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Checkout pinned frontend source
         uses: actions/checkout@v6
         with:
@@ -252,10 +293,24 @@ jobs:
 
   gate:
     name: PLG Frontend Source Validation Gate
-    needs: [admit, frontend]
+    needs: [admit, frontend, deployment-security]
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Checkout Main authority
         uses: actions/checkout@v6
         with:

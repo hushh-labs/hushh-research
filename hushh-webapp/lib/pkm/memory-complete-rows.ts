@@ -76,6 +76,13 @@ function excluded(
   return shouldSkipPkmMemoryKey(key);
 }
 
+/** Deleted and conflicted change only with a source. Verified and stale move
+ * with the reading clock and belong to the Live Mirror; naming them, or the
+ * verification time, here rewrote memory.md every time a source was re-read. */
+function sourceState(status: string): string {
+  return status === "deleted" || status === "conflicted" ? ` · ${status}` : "";
+}
+
 function humanize(segment: string): string {
   const text = String(segment || "")
     .replace(/[_-]+/g, " ")
@@ -356,17 +363,17 @@ export function collectDomainRows(params: {
           const source = node.provenance;
           if (!pushSourceRow({
             path: `facts.${encodeURIComponent(node.key)}`,
-            label: `${node.predicate} · ${node.status} · ${source.kind}:${source.sourceId} · revision ${source.revision} · captured ${source.capturedAt} · verified ${source.verifiedAt ?? "unknown"}`,
+            label: `${node.predicate}${sourceState(node.status)} · ${source.kind}:${source.sourceId} · revision ${source.revision} · captured ${source.capturedAt}`,
             value: node.value === null
               ? node.status === "deleted" ? "Removed" : "Unresolved source conflict"
               : String(node.value),
           })) break;
         }
       }
-      const statusByRecord = new Map(
+      const stateByRecord = new Map(
         (factIndex?.nodes ?? [])
           .filter(node => node.predicate.endsWith(".__record"))
-          .map(node => [JSON.stringify([node.provenance.kind, node.provenance.sourceId]), node.status] as const),
+          .map(node => [JSON.stringify([node.provenance.kind, node.provenance.sourceId]), sourceState(node.status)] as const),
       );
       if (Array.isArray(inventory.records)) {
         const orderedRecords = [...inventory.records].sort((a, b) => {
@@ -385,7 +392,7 @@ export function collectDomainRows(params: {
           }
           // The schema has no credentials or raw provider payloads.
           const key = `${String(record.kind)}:${String(record.id)}`;
-          const status = statusByRecord.get(JSON.stringify([record.kind, record.id]));
+          const state = stateByRecord.get(JSON.stringify([record.kind, record.id])) ?? "";
           for (const field of [
             "kind",
             "id",
@@ -399,7 +406,7 @@ export function collectDomainRows(params: {
             const value = renderScalar(record[field]);
             if (value && !pushSourceRow({
                 path: `${key}.${field}`,
-                label: `${key}${status ? ` · ${status}` : ""} › ${humanize(field)}`,
+                label: `${key}${state} › ${humanize(field)}`,
                 value,
               })) break;
           }

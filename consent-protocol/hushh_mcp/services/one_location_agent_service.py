@@ -39,7 +39,9 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import finance_advisor_directory as finance_directory
+from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+from hushh_mcp.services.directory_candidate_statement import build_directory_candidate_statement
 from hushh_mcp.services.directory_identity_service import (
     DirectoryIdentityUnavailableError,
     active_directory_user_ids,
@@ -61,12 +63,17 @@ from hushh_mcp.services.one_location_share_lifecycle import (
     _share_duration_change_direction,
 )
 from hushh_mcp.services.people_search_sql import (
+    TYPED_DIRECTORY_IGNORED_CHARS,
     directory_contact_match_params,
     directory_search_rank,
     mask_directory_phone,
     people_query_match_params,
+    typed_directory_name_query,
 )
-from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
+from hushh_mcp.services.push_tokens_service import (
+    PUSH_SMS_DEVICES_FOR_USER_SQL,
+    remove_stale_push_token,
+)
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -1714,15 +1721,10 @@ class OneLocationAgentService:
             )
             if receipt is not None:
                 return receipt > 0
-            rows = (
-                get_db()
-                .execute_raw(
-                    PUSH_TOKENS_FOR_USER_SQL,
-                    {"user_id": user_id},
-                )
-                .data
-                or []
+            registrations = get_db().execute_raw(
+                PUSH_SMS_DEVICES_FOR_USER_SQL, {"user_id": user_id}
             )
+            rows = registrations.data or []
             if not rows:
                 return False
             configured, _ = ensure_firebase_admin()
@@ -1764,6 +1766,7 @@ class OneLocationAgentService:
                     request_url=request_url,
                     notification_tag=notification_tag,
                     show_alert=show_alert,
+                    sms_alarm_version=int(row.get("sms_alarm_version") or 0),
                 )
                 queued = _submit_notification_send(
                     messaging=messaging,
@@ -4711,6 +4714,11 @@ class OneLocationAgentService:
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
         name_only: bool = False,
+        typed_search: bool = False,
+        verified_email_lookup: list[str] | None = None,
+        mutual_target_user_id: str | None = None,
+        network_user_ids: list[str] | None = None,
+        include_recommendations: bool = True,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4722,6 +4730,8 @@ class OneLocationAgentService:
 
         Contact fragments follow the existing name tiers. ``name_only`` keeps
         voice/chat person resolution independent of email and phone matches.
+        ``typed_search`` enables literal name fragments and spacing variants
+        in Find people. Email searches in that field include an @.
 
         A named, active profile with a current enabled auth account is eligible
         when EITHER its active ``vault_keys`` row has ``environment_enrolled_at``
@@ -4777,6 +4787,24 @@ class OneLocationAgentService:
         # here, so it cannot use this to request an unbounded directory.
         limit = max(1, min(int(limit or 20), 100))
         offset = (page - 1) * limit
+        # Internal Calendar enrichment only. The public directory never exposes
+        # a person's exact email, and a name hit cannot identify an attendee.
+        lookup_emails = (
+            None
+            if verified_email_lookup is None
+            else sorted({str(email).strip().lower() for email in verified_email_lookup if email})
+        )
+        if lookup_emails is not None:
+            if (
+                query
+                or candidate_user_id
+                or candidate_user_ids
+                or page != 1
+                or len(lookup_emails) > 100
+            ):
+                raise ValueError("Invalid verified-email directory lookup")
+            if not lookup_emails:
+                return {"items": [], "page": 1, "hasMore": False}
         # Fold the typed query exactly the way the stored name is folded.
         #
         # Only one side of the comparison used to be folded. The statement
@@ -4794,8 +4822,19 @@ class OneLocationAgentService:
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
         raw_query = (query or "").strip().lower()
-        contact_params = directory_contact_match_params(raw_query, name_only=name_only)
+        contact_params = directory_contact_match_params(
+            raw_query, name_only=name_only, typed_search=typed_search
+        )
         needle = " ".join(raw_query.translate(_DIRECTORY_SEPARATOR_FOLD).split())
+        typed_name_sql = None
+        typed_name_params: dict[str, str] = {}
+        typed_query = typed_directory_name_query(raw_query) if typed_search else None
+        if typed_query is not None:
+            needle, compact = typed_query
+            typed_name_sql = "LOWER(a.display_name)"
+            if compact:
+                typed_name_sql = "TRANSLATE(LOWER(a.display_name), :typed_name_separators, '')"
+                typed_name_params["typed_name_separators"] = TYPED_DIRECTORY_IGNORED_CHARS
 
         def match_rank(row: dict[str, Any]) -> int | None:
             return directory_search_rank(
@@ -4805,6 +4844,7 @@ class OneLocationAgentService:
                 phone_number=row.get("phone_number"),
                 phone_verified=bool(row.get("phone_verified")),
                 name_only=name_only,
+                typed_search=typed_search,
             )
 
         target = (candidate_user_id or "").strip() or None
@@ -4817,6 +4857,8 @@ class OneLocationAgentService:
             return {"items": [], "page": page, "hasMore": False}
         if targets is not None and len(targets) > 100:
             raise ValueError("Directory profile lookup is limited to 100 people")
+        if network_user_ids is not None and len(network_user_ids) > 4000:
+            raise ValueError("Network discovery is limited to 4000 people")
 
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -4862,6 +4904,26 @@ class OneLocationAgentService:
             WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
         )"""  # nosec B608 # static SQL fragments only; every value is a bound parameter.
 
+        # This clause applies to named and recovered-name rows alike. It uses
+        # the same contact-listing rule as Connect's email search, and rejects
+        # conflicting verified claims before the directory projection is cut.
+        verified_email_clause = (
+            ""
+            if lookup_emails is None
+            else """
+              a.contact_listed = TRUE
+              AND a.email_verified = TRUE
+              AND LOWER(BTRIM(a.email)) = ANY(CAST(:verified_emails AS TEXT[]))
+              AND NOT EXISTS (
+                SELECT 1 FROM actor_identity_cache duplicate
+                WHERE duplicate.user_id <> a.user_id
+                  AND duplicate.email_verified = TRUE
+                  AND LOWER(BTRIM(duplicate.email)) = LOWER(BTRIM(a.email))
+              )
+              AND
+        """
+        )
+
         # Use the same technical-label contract as the projection. A legacy
         # raw UID/UUID must not hide a usable marketplace or adviser name.
         def usable_name(column: str) -> str:
@@ -4877,180 +4939,33 @@ class OneLocationAgentService:
                 )
                 THEN BTRIM({column}) END"""  # nosec B608 # literal column names only.
 
-        directory_sql = f"""
-            SELECT
-              a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
-              a.public_person_ref, a.photo_url, a.role_label,
-              k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
-            FROM (
-              SELECT
-                profile.user_id, profile.public_person_ref, profile.role_label,
-                COALESCE(
-                  {usable_name("identity.display_name")},
-                  {usable_name("marketplace.display_name")},
-                  {usable_name("ria.display_name")},
-                  ''
-                ) AS display_name,
-                identity.email,
-                CASE WHEN identity.phone_verified = TRUE
-                  THEN identity.phone_number ELSE NULL END AS phone_number,
-                COALESCE(identity.phone_verified, FALSE) AS phone_verified,
-                COALESCE(
-                  NULLIF(BTRIM(identity.custom_photo_url), ''),
-                  NULLIF(BTRIM(identity.photo_url), '')
-                ) AS photo_url,
-                -- Whether an email or phone fragment may find this person. A
-                -- name is public in the directory; an email or phone is not, so
-                -- an explicit opt-out keeps a person out of contact lookups for
-                -- strangers. Someone the viewer is already connected to or
-                -- trusts stays findable.
-                (
-                  EXISTS (
-                    SELECT 1
-                    FROM trusted_connections tc
-                    WHERE tc.status = 'active'
-                      AND tc.owner_user_id = :owner_user_id
-                      AND tc.trusted_user_id = profile.user_id
-                  )
-                  OR EXISTS (
-                    SELECT 1
-                    FROM connections known
-                    WHERE known.status = 'active'
-                      AND (
-                        (known.user_a_id = :owner_user_id AND known.user_b_id = profile.user_id)
-                        OR (known.user_b_id = :owner_user_id AND known.user_a_id = profile.user_id)
-                      )
-                  )
-                  OR (
-                    marketplace.is_discoverable IS DISTINCT FROM FALSE
-                    AND (
-                      (
-                        COALESCE(profile.contact_sync_consent_rule_version, 0) = 0
-                        AND profile.contact_sync_consent_enabled_at IS NULL
-                        AND profile.contact_sync_consent_contract_version IS NULL
-                      )
-                      OR (
-                        profile.contact_discoverable = TRUE
-                        AND profile.contact_sync_consent_enabled_at IS NOT NULL
-                        AND profile.contact_sync_consent_rule_version > 0
-                        AND profile.contact_sync_consent_contract_version = :contact_sync_contract_version
-                      )
-                    )
-                  )
-                ) AS contact_listed
-              FROM actor_profiles profile
-              LEFT JOIN actor_identity_cache identity
-                ON identity.user_id = profile.user_id
-              LEFT JOIN marketplace_public_profiles marketplace
-                ON marketplace.user_id = profile.user_id
-              LEFT JOIN ria_profiles ria ON ria.user_id = profile.user_id
-              WHERE profile.user_id <> :owner_user_id
-                AND profile.public_profile_status = 'active'
-                AND (
-                  profile.directory_listed = TRUE
-                  OR (profile.directory_listed IS NULL AND EXISTS (
-                    SELECT 1 FROM vault_keys vault
-                    WHERE vault.user_id = profile.user_id
-                      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
-                  ))
-                  OR EXISTS (
-                    SELECT 1
-                    FROM connections related
-                    WHERE related.status = 'active'
-                      AND (
-                        (related.user_a_id = :owner_user_id AND related.user_b_id = profile.user_id)
-                        OR (related.user_b_id = :owner_user_id AND related.user_a_id = profile.user_id)
-                      )
-                  )
-                  OR EXISTS (
-                    SELECT 1
-                    FROM connection_requests pending
-                    WHERE pending.status = 'pending'
-                      AND (
-                        (pending.requester_user_id = :owner_user_id
-                          AND pending.addressee_user_id = profile.user_id)
-                        OR (pending.addressee_user_id = :owner_user_id
-                          AND pending.requester_user_id = profile.user_id)
-                      )
-                  )
-                  OR EXISTS (
-                    SELECT 1
-                    FROM trusted_connections edge
-                    WHERE edge.status = 'active'
-                      AND (
-                        (edge.owner_user_id = :owner_user_id
-                          AND edge.trusted_user_id = profile.user_id)
-                        OR (edge.trusted_user_id = :owner_user_id
-                          AND edge.owner_user_id = profile.user_id)
-                      )
-                  )
-                )
-                AND (:candidate_user_id IS NULL OR profile.user_id = :candidate_user_id)
-                AND (CAST(:candidate_user_ids AS TEXT[]) IS NULL
-                     OR profile.user_id = ANY(CAST(:candidate_user_ids AS TEXT[])))
-            ) a
-            LEFT JOIN LATERAL (
-              SELECT key_id, public_key_jwk, algorithm, created_at
-              FROM one_location_recipient_keys
-              WHERE user_id = a.user_id
-                AND status = 'active'
-              ORDER BY created_at DESC
-              LIMIT 1
-            ) k ON TRUE
-            WHERE (
-              (:missing_names_only = TRUE AND a.display_name = '')
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND a.contact_listed AND (
-                LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
-                OR (a.phone_verified = TRUE
-                    AND (
-                      REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains
-                      OR REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g')
-                           LIKE ANY(CAST(:phone_alternates AS TEXT[]))
-                    ))
-              ))
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
-                :query = ''
-                OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
-                OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
-                OR {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!'
-                OR (:query <> '' AND {all_tokens_match_sql})
-              )))
-              AND (
-                :audience = 'all'
-                OR (
-                  :audience = 'ria'
-                ) = EXISTS (
-                  SELECT 1
-                  FROM ria_profiles rp_audience
-                  WHERE rp_audience.user_id = a.user_id
-                    AND rp_audience.verification_status
-                          IN ('active', 'verified', 'finra_verified')
-                )
-              )
-            ORDER BY
-              CASE
-                WHEN :name_search = FALSE THEN 4
-                WHEN :query = '' THEN 0
-                WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
-                WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
-                WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!' THEN 2
-                WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
-                ELSE 4
-              END,
-              LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
-              a.user_id
-            LIMIT :fetch_limit OFFSET :offset
-            """  # nosec B608 # static SQL fragments only; every value is a bound parameter.
+        # Mutual-connection scope: applied inside the canonical directory,
+        # before live-account filtering and pagination.
+        mutual_filter_clause = MUTUAL_DIRECTORY_FILTER_SQL if mutual_target_user_id else "TRUE"
+        if network_user_ids is not None:
+            mutual_filter_clause += " AND profile.user_id = ANY(CAST(:network_user_ids AS TEXT[]))"
+
+        directory_sql = build_directory_candidate_statement(
+            usable_name=usable_name,
+            separator_sql=_DIRECTORY_SEPARATOR_SQL,
+            all_tokens_match_sql=all_tokens_match_sql,
+            verified_email_clause=verified_email_clause,
+            mutual_filter_clause=mutual_filter_clause,
+            typed_name_sql=typed_name_sql,
+        )
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
             "candidate_user_id": target,
             "candidate_user_ids": targets,
+            "mutual_target_user_id": mutual_target_user_id,
+            "network_user_ids": network_user_ids,
             "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
             "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
             "missing_names_only": False,
             "query": needle,
             **contact_params,
+            **typed_name_params,
             "exact_name": needle,
             "name_prefix": name_prefix_pattern,
             "word_prefix": word_prefix_pattern,
@@ -5059,6 +4974,8 @@ class OneLocationAgentService:
             "fetch_limit": 100,
             "offset": 0,
         }
+        if lookup_emails is not None:
+            params["verified_emails"] = lookup_emails
         # The cache is not account authority. Scan ordered SQL batches until
         # the requested logical page plus one current account is available.
         # Applying auth filtering after SQL OFFSET would permanently skip real
@@ -5135,18 +5052,42 @@ class OneLocationAgentService:
         )
         has_more = len(eligible_rows) > offset + limit
         page_rows = eligible_rows[offset : offset + limit]
+        if lookup_emails is not None:
+            # Exact emails stay inside this server-side Calendar read. They are
+            # never added to Connect's public directory response.
+            return {
+                "items": [
+                    {
+                        "userId": payload["userId"],
+                        "email": str(row.get("email") or "").strip().lower(),
+                        "displayName": payload["displayName"],
+                        "photoUrl": payload["photoUrl"],
+                    }
+                    for row, payload in (
+                        (row, self._recipient_payload(row, directory_phone_mask=True))
+                        for row in page_rows
+                    )
+                    if payload
+                ],
+                "page": page,
+                "hasMore": has_more,
+            }
         recipients = [
             payload
             for row in page_rows
             if (payload := self._recipient_payload(row, directory_phone_mask=True))
         ]
-        items = self._apply_kai_circle_recommendations(
-            owner_user_id=owner_user_id,
-            recipients=recipients,
-            # SQL matches plus resolved provider names were already merged and
-            # ranked before the logical page. Recommendation scores must not
-            # shuffle that stable order.
-            preserve_order=True,
+        items = (
+            self._apply_kai_circle_recommendations(
+                owner_user_id=owner_user_id,
+                recipients=recipients,
+                # SQL matches plus resolved provider names were already merged and
+                # ranked before the logical page. Recommendation scores must not
+                # shuffle that stable order.
+                preserve_order=True,
+            )
+            if include_recommendations
+            else recipients
         )
         return {"items": items, "page": page, "hasMore": has_more}
 
@@ -7691,7 +7632,7 @@ class OneLocationAgentService:
         if not row:
             raise OneLocationAgentError(
                 "LOCATION_SOS_VOICE_PREFERENCE_UPDATE_FAILED",
-                "Could not update the SOS voice default.",
+                "Could not update the SMS voice default.",
                 status_code=500,
             )
         return self._sos_voice_preference_payload(row)
@@ -9701,6 +9642,54 @@ class OneLocationAgentService:
             {"recipient_user_id": recipient_user_id},
         )
         return [payload for row in rows if (payload := self._grant_payload(row))]
+
+    def list_recent_received_sms_alerts(self, *, recipient_user_id: str) -> list[dict[str, Any]]:
+        # The durable share event is created at first encrypted publication.
+        # Neither grant creation nor subsequent location heartbeats qualify.
+        rows = self._execute_many(
+            """
+            SELECT g.id, g.owner_user_id, g.recipient_user_id, g.expires_at,
+                   o.display_name AS owner_display_name
+            FROM one_location_share_grants g
+            JOIN system_push_outbox p
+              ON p.source_kind = 'share' AND p.source_id = g.id
+              AND p.source_revision = '' AND p.recipient_user_id = g.recipient_user_id
+            LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+            WHERE g.recipient_user_id = :recipient_user_id
+              AND g.owner_user_id <> g.recipient_user_id
+              AND g.status = 'active'
+              AND (g.expires_at IS NULL OR g.expires_at > now())
+              AND g.latest_envelope_id IS NOT NULL
+              AND p.created_at >= now() - interval '2 minutes'
+              AND p.expires_at > now()
+              AND COALESCE(NULLIF(BTRIM(g.metadata->>'share_kind'), ''),
+                CASE WHEN g.metadata->>'reason' = 'sos_panic' THEN 'sos' ELSE 'share' END) = 'sos'
+              AND EXISTS (
+                SELECT 1 FROM one_location_recipient_keys k
+                WHERE k.user_id = g.recipient_user_id AND k.key_id = g.recipient_key_id
+                  AND k.status = 'active'
+              )
+            ORDER BY p.created_at DESC, g.id
+            LIMIT 20
+            """,
+            {"recipient_user_id": recipient_user_id},
+        )
+        alerts = []
+        for row in rows:
+            alert = {
+                "type": "location_share_created",
+                "grant_id": str(row["id"]),
+                "owner_user_id": row["owner_user_id"],
+                "user_id": row["recipient_user_id"],
+                "share_kind": "sos",
+                "owner_display_label": _identity_notification_label(
+                    {"user_id": row["owner_user_id"], "display_name": row.get("owner_display_name")}
+                ),
+            }
+            if expiry := _iso(row.get("expires_at")):
+                alert["expires_at"] = expiry
+            alerts.append(alert)
+        return alerts
 
     def list_pending_owner_requests(self, *, owner_user_id: str) -> list[dict[str, Any]]:
         """The owner's own pending access requests -- see list_active_owner_grants."""

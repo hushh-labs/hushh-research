@@ -43,6 +43,7 @@ vi.mock("@/lib/services/kai-profile-service", () => ({
 }));
 
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 
 const USER_ID = "uid-sync";
 const VAULT_KEY = "ab".repeat(32);
@@ -105,5 +106,15 @@ describe("KaiProfileSyncService pre-vault migration", () => {
     expect(
       syncOnboardingAndNavStateMock.mock.invocationCallOrder[0],
     ).toBeLessThan(completeAfterVaultCommitMock.mock.invocationCallOrder[0]);
+  });
+
+  it("does not resubmit the same terminal 422 or retire the pending draft", async () => {
+    syncOnboardingAndNavStateMock.mockRejectedValue(new PkmStoreDomainError(422, "Vault sync failed."));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(KaiProfileSyncService.syncPendingToVault({ userId: USER_ID, vaultKey: VAULT_KEY }))
+      .rejects.toBeInstanceOf(PkmStoreDomainError);
+    expect(syncOnboardingAndNavStateMock).toHaveBeenCalledTimes(1);
+    expect(completeAfterVaultCommitMock).not.toHaveBeenCalled();
+    expect(navMarkSyncedMock).not.toHaveBeenCalled();
   });
 });

@@ -17,6 +17,429 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
+## Current decision — 9 November 2026
+
+**UAT application acceptance passed; installed-owner pod acceptance remains a
+separate workstream.** The [accepted release](https://github.com/hushh-labs/hushh-research/actions/runs/42645497579)
+serves application `0896c68f7d5e`: backend `02851-hoj` and frontend `02470-r56`,
+both at 100% traffic. Published acceptance and direct Cloud Run readback agree.
+Schema, provenance, core health, cleanup activation and Drive-worker attestation
+passed. The disposable Azure probe is absent. This does not certify installed
+Browser journeys or public managed hosting.
+
+Reviewed operations [#9153](https://github.com/hushh-labs/hushh-research/pull/9153)
+and its UAT/Dev syncs preserve frozen qualified source after descendant merges.
+[The operating guide](../operations/ci.md#main-owned-release-control) owns current
+team authorization, explicit Main-owned deployment and isolated application
+sources. Source synchronization never deploys an environment.
+
+Full UAT qualification took 18m19s; deployment execution took 38m16s, including
+worker rollout 7m55s and migration checks 4m35s. Deployment remains above the
+15–25-minute optimization target. Unqualified worker reuse or migration-ledger
+activation is not a valid shortcut. No production application rollout or new
+native publication is claimed by this checkpoint.
+
+## Dev deletion incident — 10 November 2026
+
+**Source implemented; Dev deployment authorized after required checks.**
+[Dev PR #9228](https://github.com/hushh-labs/hushh-research/pull/9228) passed
+[exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42818597779)
+on `23a03973f2f4`; subsequent accepted Dev changes require combined-source
+qualification before landing. No candidate deployment or account erasure is claimed.
+PR #9008 is merged to UAT as source only and is not a Dev-retirement blocker.
+ The isolated Dev
+candidate adds migration 988 and the existing-worker handoff described in the
+[canonical deletion runbook](../operations/account-deletion-rollout.md#current-dev-application--10-november-2026).
+Account retirement and fresh signup are separated from native cloud erasure; the
+original cleanup retains immutable custody after ordinary owner rows are removed.
+The qualified Files family is preserved during 420/421 replay and rollback. New
+placements cannot overlap a project still owned by retired cleanup. No live account
+or Firebase mutation, provider destruction or deployment occurred for this candidate.
+
+| Outcome | Current live result |
+|---|---|
+| Dev account deleted | Not yet; current deployed account/vault remain |
+| Fresh journey | Not yet measured on the candidate |
+| Physical cloud erasure | Pending native provider evidence |
+
+The candidate passed 159 focused backend/database/operator checks, 283 frontend
+deletion/session checks, 522 navigation cases, typecheck and UI contract verification.
+The real PostgreSQL rehearsal erased ordinary owner rows, rejected old-owner writes,
+advanced the existing HusshID allocator, admitted a separate fresh placement and
+resumed the original cleanup through an actual joined child process. Failed but
+settled executions remain retryable; ambiguous requests do not. The existing drain
+uses native deadlines and the child's release/session guard. The broad quality
+diagnostic has two inherited direct-DB route failures, with identical findings on
+Dev `dbc4e4b3cb7b`; it is not a green full-quality claim. CI policy and those
+unrelated routes remain owned by the existing CI workstream.
+The earlier local core attempt stopped at `skill-lint` and the architecture
+baseline ratchet; later stages were not reached. Current landed CI policy treats
+those global hygiene checks as diagnostics. The 38 candidate-owned size findings
+remain recorded debt; no policy or finding is suppressed here. Secret scanning
+passed with pinned Gitleaks 8.24.2. Finished-candidate affected checks, exact-source
+CI and governed Dev deployment remain pending; local evidence is not live acceptance.
+
+Fresh read-only Dev evidence at 10 November 08:31:20 UTC identifies source
+`84692d554b6f`, schema through 987, the original profile/vault and no admitted
+full-account deletion. Its removal remains incomplete (70 dispatches, 70 matching
+acknowledgements, four exits). The older full browser/revision receipt below is
+historical; no new browser or deployed-candidate acceptance is claimed.
+
+The candidate was refreshed against Dev `26f4156f5796`, including its new encrypted
+message-draft integration. A reproduced failure showed local cleanup swallowing
+draft-removal errors. Confirmed Reset/delete now keeps departure retryable until
+that purge settles; ordinary sign-out remains nonblocking. The regression failed
+on the prior behavior; 188 focused client cases and typecheck passed after the
+correction. UI generation and its 522 navigation cases passed. Backend/SQL
+contracts are unchanged, so their prior evidence is retained. The user lifted the
+Dev deployment hold on 10 November, conditional on required checks passing. The candidate incorporates
+Dev `233d1471e9f6` without changing its CI pipeline or current phone-deletion flow.
+PR [9008](https://github.com/hushh-labs/hushh-research/pull/9008) has green exact-head
+source CI and remains in the UAT merge queue; it neither deploys UAT nor completes
+the separate Dev retirement journey. No candidate deployment is claimed.
+
+These are separate acceptance gates. Local candidate checks do not change the
+live measurements below. Managed pilot, UAT and production remain outside this release.
+
+**Dev account erasure only.** Separate UAT Auth preparation does not gate this
+acceptance; no UAT erasure rollout is part of this task.
+
+**Operational, cleanup pending.** PR [9057](https://github.com/hushh-labs/hushh-research/pull/9057)
+passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42317327082)
+and the governed [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42322308693).
+The later [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42619172270)
+serves source `bc03cfb74802`, backend `consent-protocol-00362-8jk` and frontend
+`hushh-webapp-00312-q9k`, observed at 100% traffic. Its
+[exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42615919865)
+passed. Earlier complete migration-987, checksum, cleanup-activation and Scheduler
+receipts remain retained. The removal executor stays pinned to `9dcabd53478f`.
+
+Dev Google login was blocked by its inherited internal-only `Hushh Metrics Dev`
+OAuth brand. The provider now reuses the established `Hushh` client while keeping
+Firebase tokens and administrator authority in `hushh-pda-dev`. Native callback
+checks pass and reject an unapproved domain. Fresh owner Google sign-in is now
+verified by the Dev issuer/audience and backend session response, preserving the
+original UID and generation zero. The vault remains present. The secure interface
+shows the original 10/17 removal progress, provider retention time, Refresh and
+Close through normal Delete account confirmation, without a new provider execution. Decrypted history and
+native acceptance remain separate checks.
+
+Both new domains serve the Firebase auth handler and iframe over strict HTTPS;
+native certificates are `CERT_ACTIVE` at 16:25 UTC. The Dev app still uses
+its working default Firebase auth domain; the frontend cutover remains held
+while the separate CI repairs are active. Google, Microsoft and Apple callback/provider
+configuration is prepared for both realms, reusing the existing registrations
+and retaining production callbacks. The reported Dev India SMS failure exposed
+an empty region allowlist; both new realms now admit `IN`, with actual delivery
+pending one retry. No SMS, identity mutation, CI run or application build was
+triggered by these configuration repairs.
+
+Production's `id.hussh.ai` and the metrics brand are preserved. UAT's staged
+domain/Auth setup remains separate and its application still uses production
+Auth; this work makes no UAT identity or schema mutations. The out-of-scope UAT
+preflight was removed from the active candidate, with its unpublished history
+retained. The [sign-in domain contract](../operations/account-deletion-rollout.md#environment-specific-sign-in-domains)
+owns those separate boundaries. Landed Dev phone hardening is preserved without
+an application deployment or CI/protected-source edit.
+
+Fresh Dev SQL qualifies the installed Firebase-erasure contract and original
+owner/generation. The normal Dev Delete account confirmation now reaches the
+expected GCP prerequisite screen: 10/17, exact retention time, Sign out, Refresh
+and Close, with Delete hidden/disabled. Full account deletion remains unadmitted;
+cloud removal is not finalizable. There are no unjoined executor starts or
+unacknowledged provider dispatches, and no unsettled owner Firebase mutations.
+The next eligible provider read is 13 November 07:03:50.404 UTC (12 November
+11:03:50 PM Pacific). Native readback and finalization are still required afterward;
+the clock does not establish erasure. No UAT work is required to unblock this Dev
+flow.
+
+Fresh owner approval and append-only operator-source adoption preserved the
+original removal plan. The resumed worker used the existing compute-first writer
+port and exited zero with genuine supervised exit. Compute and native Memory
+are deleted; attached scheduler, queue and applicable messaging resources are
+removed or absent. All 70 provider requests have matching acknowledgements and
+all four executions have retained exits. Temporary IAM grants are removed.
+
+Cleanup is **10/17**, with **144 provider-retained object generations**. The
+next eligible native observation is **2026-11-13 07:03:50.404 UTC**; later key or
+bucket retention may extend completion. Native KMS readback on 9 November now
+confirms one **ENABLED** version with an immutable **30-day** destruction period;
+destruction has not started. The pinned executor starts that period after Storage
+settles. The full-account request is not yet admitted or automatically queued.
+The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
+records the exact continuation and source-adoption boundary. No remaining fence
+is released by elapsed time. The current interface passed server-verified owner/generation, normal password
+unlock, waiting state, exact provider date and Close/reopen checks through
+background Apple Events with foreground focus unchanged. No approval or
+continuation control is available during retention. Sign out retains its earlier
+unchanged qualification. The original request keeps the
+account. Full erasure is not complete.
+
+The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
+owns the exact continuation and phone-audit boundaries. Its
+[Auth separation section](../operations/account-deletion-rollout.md#firebase-auth-separation)
+records the installed project-bound erasure contract 987 and native fixture proof.
+Dev browser and backend now select isolated Auth in `hushh-pda-dev`. The active cohort is 156;
+three retired identities and one providerless, event-only identity are excluded
+from ordinary import. 156 identities passed disabled import and activation with exact native readback. The iOS configuration follow-up
+binds Google's client and callback to the selected Firebase plist; focused tests
+and the downloaded Dev configuration passed locally, without device sign-in.
+That fix is now merged through #9063 after exact-source CI and Team Authorization.
+Dev Sandbox APNs configuration also survived a fresh Firebase reload, using one
+topic-specific `com.hushh.app` key backed up directly to Dev Secret Manager;
+all 17 prior Apple keys remain present. Production-channel and actual device
+phone/push checks remain unqualified. These steps imported no personal identity.
+The restartable Dev Auth operator passed 34 focused cases and actual disposable
+Dev staging/activation with original-password sign-in, UID/hash/salt continuity
+and verified fixture cleanup. It imports disabled records without overwrite;
+activation updates only enabled state and the temporary claim. Native dispatch
+checkpoints prevent stale local receipts from replaying uncertain requests.
+All 156 personal identities passed disabled staging on operator source `eb338d1cccdb`;
+one HTTP-200 import request settled, and the native fences and proxy are removed.
+The activation manifest additionally pins WorkOS attribution without creating a binding.
+Activation completed on executor `cdc2cabca6cd`: all 156 original UIDs and credential
+postimages verified, worker exit zero, fences removed and SQL proxy released.
+No source/production identities changed. PR [9101](https://github.com/hushh-labs/hushh-research/pull/9101)
+merged at `7e02cfe58395` after [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/42448729098)
+passed on `843ce2e1a165`. The configuration rollout retains the earlier application
+source and builds no pod image. Native SDK checks grant Dev user management and
+no tested production Auth permissions; the shipped browser asset selects Dev.
+The existing Dev SDK client has only gmail.send Workspace delegation; token
+minting passed, no mail was sent and all seven previous grants are unchanged.
+No duplicate service account, project or mailbox was created. Two unused Dev
+copies of the production credential are disabled. Previous canonical version 423
+and old Dev revisions remain for paired rollback pending fresh owner acceptance;
+complete credential containment is not yet established. Fresh Google sign-in,
+vault/history and pending-removal interface proof on the new realm remain open,
+as do native/device/provider acceptance and unresolved historical owner mappings.
+UAT application/identities and production provider/domain were not changed.
+Phone-only or missing source identities do not
+authorize deletion.
+The managed pilot/PR workflow remains paused. Earlier GCP/Azure journey receipts
+below are historical acceptance; this owner-requested GCP removal does not establish
+managed-pilot or production readiness.
+
+## Dev owner-cloud acceptance — 2 November 2026
+
+The existing GCP and Azure storage/custody architecture is retained. Configured
+durable pods refuse startup if identity or session-authority recovery fails,
+before Browser, heartbeat or background consumers start. Legacy flag-off startup
+is unchanged. Checkpoint-budget overflow shares one complete verified replay;
+it never truncates history. An ambiguous gateway response after a chat POST is
+unconfirmed, not permission to resend. Pre-send wake probes remain retryable.
+
+Source `6a2bd2afa7e2` passed the complete [hosted CI run](https://github.com/hushh-labs/hushh-research/actions/runs/41286934214).
+The Main-owned [Dev preparation](https://github.com/hushh-labs/hushh-research/actions/runs/41289451998)
+built image `sha256:5d8f7243ff5d10c1f3596fdb66f95c337c3637afcd997808fe62cf13152b46aa`.
+Exact-image synthetic recovery from installed predecessor `sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423`
+passed on GCP Cloud Run and Azure Container Apps: unchanged identity, six log
+records, memory, revocation, processing consent, rebuilt PKM and 245,763 file
+bytes. Azure's 15 ciphertext objects retained their exact hashes and ETags;
+GCP's ciphertext inventory also matched. Dev 36 admitted this measured
+predecessor and reused the prepared image for metadata publication. The existing Dev build bucket
+archives `qualification-format-recovery-gcp.json` (generation `1793524876545163`)
+and `qualification-format-recovery-azure.json` (generation `1793524876814412`)
+under `pod-releases/6a2bd2afa7e2cbaf27f98d4735d25d0af1f5a400/41289451998/`.
+The archived format probe has SHA-256 `bd529ea0e3e6e136f46f39802c8c0988ca3732ca72377b30e63a33c737e86559`.
+
+Explicit owner CLI sessions read the registered GCP service and both Azure apps.
+The earlier admin-ADC GCP denial and Azure broker-assertion HTTP 403 describe
+specific credential paths, not general cloud-access failure. CLI defaults were
+preserved; every target was explicit. The recovery probes use isolated synthetic
+resources. Temporary compute and image cleanup is verified on both clouds; Azure
+fixture storage and its deleted vault are absent. GCP active object versions are
+absent; retained ciphertext follows the existing seven-day provider soft-delete
+policy, which was not overridden.
+
+[PR #8727](https://github.com/hushh-labs/hushh-research/pull/8727) landed on Dev as
+`fd295fe12942` through the explicitly authorized Admin SOP after exact-head
+[CI](https://github.com/hushh-labs/hushh-research/actions/runs/41292995163) passed.
+The Main-owned [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/41295442148)
+successfully serves application source `1454be7511aa`: backend `00340-5h8` and
+frontend `00298-2dz`, both at 100% traffic. Runtime parity, schema, semantic
+verification and immutable Dev acceptance passed. The live catalog published
+Dev 36 with the qualified `5d8f7243…b46aa` image.
+
+The approved Azure owner installed Dev 36 through Software updates and normal
+Microsoft OAuth in the existing Chrome profile. Native readback confirms
+`ca-hussh-one-pod--u9be8bf4905b5`, the exact image and 100% traffic; the app reports
+the completed update. A synthetic owner chat reached that pod but was rejected
+with HTTP 400 before model execution. The normal frontend advertises global
+career actions; this pod leaves careers disabled. Pod admission rejects these
+known disabled actions whereas shared chat filters them out. Dev 37 corrects
+that admission mismatch while retaining unknown-tool refusal. It requires a new
+image, so the Dev 36 reuse pin is removed. Storage, identity, replay and custody
+code remain unchanged; the retained format evidence covers their unchanged
+contract, not a new exact-image recovery run. Both Dev 30 and Dev 36 are compatible
+predecessors under that unchanged format.
+
+[PR #8731](https://github.com/hushh-labs/hushh-research/pull/8731) landed on Dev as
+`4371eaabd914` after exact-head CI passed and the separately authorized Admin SOP.
+The [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/41307277003)
+passed and serves backend `00341-crm` from source `351d975545b4`, at 100% traffic.
+The frontend remains `00298-2dz`. The published Dev 37 pod digest is
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+
+The GCP owner approved Dev 37 through Software updates. Its attempt stopped at
+notification checkpoint publication before Cloud Run replacement: the installed
+SQL validator permits at most 29 service-account characters, while the existing
+renderer emits a valid 30-character runtime account for a full HusshID. A focused
+PostgreSQL reproduction using the real renderer confirms the refusal. The five
+notification resources in the plan, including operator OAuth custody, are intentional.
+Native readback retains generation 22 and revision `00020-nzx`; the unresolved
+operation retains its reservation. Forward schema correction and evidence-bound
+recovery remain pending; neither a missing acknowledgement nor elapsed time
+authorizes clearing that reservation.
+
+The Azure owner subsequently installed Dev 37 through the normal update and
+Microsoft authorization flow. Native revision `ca-hussh-one-pod--ud27099ccbeb7`
+is ready at 100% traffic with the exact `3c3615f2…42610` digest. The registry
+published the completed-update receipt at `2026-11-01T14:41:10Z`. A synthetic
+owner turn returned `private-ready`; after a cold reload and ordinary vault
+unlock, reopening that conversation fetched native history with HTTP 200 and
+retained both the prompt and reply. The completed receipt binds the owner
+HusshID, operation and pod incarnation. This proves installation and chat/history continuity;
+it does not independently qualify every capability or stale-writer race.
+
+The latest retained Dev acceptance receipt records both selected owner journeys
+as passed. The GCP owner is on revision
+`one-pod-ha1-5oadpcws3ckh5ljoldnpujq5s6xmbox5-00021-zkp`; Azure is on
+`ca-hussh-one-pod--ud27099ccbeb7`. Both use digest
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+Owner chat and reload restored persisted history on both. The retained
+`final-acceptance-20261102.json` receipt is in the private Dev handoff.
+The earlier follow-up hub deployment `consent-protocol-00344-5zc` did not
+rebuild or replace either pod image. The later Main-owned [Dev run
+41472919116](https://github.com/hushh-labs/hushh-research/actions/runs/41472919116)
+serves backend revision `consent-protocol-00345-z7h` from source
+`293aa0b01d3695bb57c7e144f0f8058ead4333df` at 100% traffic. It published a new
+Dev 37 offer, but neither accepted owner pod was updated: both still serve
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+
+This accepts those two owner-cloud journeys only. It does not prove process
+replacement durability, stale-writer refusal, active-work drain, Browser
+qualification, or the managed-pilot lifecycle below. The GCP owner lease was
+absent in its retained registry receipt. Azure's selected subscription still
+reports `Enabled` in an explicit read scoped to its subscription ID.
+
+## Managed Dev pilot — operational, acceptance pending
+
+Two retained synthetic projects have one Cloud Run service each in
+`us-central1`, each at 100% latest-revision traffic with max 1 and effective
+minimum 0. The latest scale receipt records image
+`sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1`,
+not the current owner-pod image. These scale-policy observations do not prove
+owner setup, Files, Memory Bank, encrypted-state isolation or lifecycle
+acceptance. No hosted owner has passed that full checklist yet.
+
+The refreshed native-location contract is sourced from Google's Agent Platform
+[location documentation](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations),
+retrieved 2 November and valid through 9 November. It excludes adopted projects;
+the two 27 October projects cannot use the new-project `ca` exception. Their
+Cloud Run services are in listed region `us-central1`. A fresh read-only central
+registry query maps both retained owners to the existing projects and services;
+both are provisioned and have no active upgrade lease or host binding. Fresh
+Cloud Run reads show revisions `...-00001-q6w` and `...-00001-j6p`, 100% traffic,
+Ready conditions, min 0 / max 1, and the older hosted image digest above.
+
+The last retained native Agent Platform `reasoningEngines.list` responses (2
+November) returned HTTP 403 in both projects with an explicit outstanding-
+billing message. Fresh read-only attempts during this continuation, using the
+locally available ADC, operator and named account identities, returned HTTP 403
+permission denied for both hosted projects; those credentials could not
+re-read project billing information, Engine inventory or location. The earlier
+billing read recorded both projects as billing-enabled and linked to open
+account `014D7F-FD970D-D2459E`, but neither that linkage nor the older provider
+error proves the present balance or Engine state. Keep billing, Engine inventory
+and data-path location unverified, not empty. No billing, project, IAM or runtime
+changes were made.
+
+The two pilot allocations reserve $200 of work and $50 of cleanup per owner,
+totalling the existing $500 ceiling with $100 held for cleanup. This is an
+allocation ceiling, not provider-enforced spending or measured usage; actual
+pilot spend is unknown. The retained cleanup receipt still has 44 soft-deleted
+object generations and scheduled KMS destruction without physical-absence
+confirmation. Eligible readbacks remain 3 November 2026 20:05 PDT and 4 November
+2026 14:24 PDT; do not poll before then.
+
+The candidate integrates the recovered hosted Files executor, the collision-free
+979–981 migration chain and the refreshed native-location contract. Its local
+core run passed the main suite (26,414 passed, 142 skipped) and 2,192 shared-DB
+cases, then failed seven older fixture cases at the new lease-binding boundary.
+The production guard was retained; the fixtures were corrected to use canonical
+lease claims and guarded CAS. The three related PostgreSQL files then passed
+32/32 in 16.32 seconds. Targeted Ruff, documentation verification, repository
+governance and architecture fitness passed; the earlier full local core result
+remains red, not green. Independent Sol review found no blocker.
+
+[PR #8753](https://github.com/hushh-labs/hushh-research/pull/8753) merged to Dev
+as `3bf818e08edae7805ea441777b3f0796e56aff4c` at 15:33:48 UTC through the
+explicitly authorized Admin SOP. Exact-head PR Validation
+[41464156269](https://github.com/hushh-labs/hushh-research/actions/runs/41464156269),
+attempt 2, and its `CI Status Gate` passed on source
+`293aa0b01d3695bb57c7e144f0f8058ead4333df`; unresolved review threads were
+empty. Change-aware UAT, web, Android and iOS lanes were intentionally skipped.
+The Main-owned Dev deployment used `scope=auto`, which resolved to backend only;
+frontend revision `hushh-webapp-00299-lxt` stayed on source
+`1454be7511aa4bcfb85f5c52f992028991025da6`. Backend revision
+`consent-protocol-00345-z7h`, image
+`gcr.io/hushh-pda-dev/consent-protocol@sha256:56dd4c98be0576d98380c0cce270b32c6687d0e505ab00d3aed450cd3629e4cf`,
+has 100% traffic and matching live Dev source/run provenance. Schema, runtime
+parity, semantic verification and exact-SHA Dev acceptance passed. The deploy
+job took 29m29s; backend Cloud Build took 761 seconds. No UAT or Production
+change occurred.
+
+The deploy log records the Dev-only `dev-extra` lane applying migrations 979,
+980 and 981. Their source SQL SHA-256 values, which the migration writer stores
+in `schema_migrations`, are `3db2bbe1a5547d5328d45df3efb8f4d764c1e3c30877f7a5ae11c084d3f60111`,
+`1a6604bc6bbbd31607e5a8950715e20bd1065a593e9a98373f83238fef0c36dc`, and
+`4ebcb057cbca9c40271464f4f73f0f8f8b19a68a8bf44ebc68c8042444dcf779`.
+Migration 976's source checksum remains
+`ff518e4e4f7141c2a2f046799d1a872ce2080dd335d93eef3b0c3f5857a61cd8`; the
+Dev migration runner refused any applied-checksum mismatch. The post-deploy
+release schema guard passed. The 979–981 ledger rows were not separately queried
+after this run.
+
+The same Dev run built and published pod image
+`gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:61e177da29626c040b6a9d93f7c8d395f6a987bde7402f5e336ce8578499391f`.
+Its release descriptor is bound to source `293aa0b01d3695bb57c7e144f0f8058ead4333df`
+and run `41472919116`, version `2026.11-dev.37+293aa0b01d36.61e177da`. The
+Azure release repository returned the same digest, and the live Dev backend
+revision exposes that exact `HUSSH_ONE_POD_IMAGE` offer. Browser qualification
+remains false. This is artifact publication, not owner installation or image
+qualification.
+
+Both existing hosted GCP services were freshly read after deployment. They
+remain Ready at 100% traffic, min 0 / max 1, on their original
+`sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1`
+image. `HUSSH_POD_FILES_ENABLED` and `HUSSH_HOSTED_POD_TIER_ENABLED` were already
+true on the preceding shared-Dev revision and were preserved; this deploy did
+not change either flag. The deployed source still hard-refuses new managed pod
+creation, and no hosted owner update or Files operation was submitted. Managed
+pilot acceptance remains 0/2. The last retained Engine responses reported
+outstanding billing; fresh checks could not distinguish a billing block from
+missing project authorization. No payment, billing change, project creation,
+IAM grant or owner-project mutation was made.
+
+The GCP/Azure owner-cloud journey result remains 2/2 on the retained receipts;
+their owner pods remain on digest
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+The separate hosted lifecycle, process-replacement durability, stale-writer refusal,
+active-work drain, owner isolation, Files CRUD/restart and Memory Bank checks
+remain open. Existing allocation remains $200 work + $50 cleanup per owner
+under the $500 ceiling; actual spend is unknown. Cleanup still has 44
+soft-deleted generations and scheduled KMS destruction; next eligible native
+readbacks are 3 November 2026 20:05 PDT and 4 November 2026 14:24 PDT.
+
+The existing installed Browser/Puppy and lifecycle checklist remains carried
+forward, including update/removal, hosted-memory recovery and delete/re-enroll
+cycles. This candidate and the owner chat receipts above do not close those
+items; reuse prior evidence only when its owner, image and lifecycle match.
+
+<a id="current-decision--27-october-2026"></a>
+
+## Historical decision — 27 October 2026
+
 ## Durable owner recovery — 31 October 2026 source correction
 
 The existing GCP and Azure storage/custody architecture is retained. Configured
@@ -44,6 +467,8 @@ stale-writer refusal and an authenticated completed turn. Do not use process
 health, historical receipts or an offline lifecycle simulation as that proof.
 
 ## Previous release decision — 27 October 2026
+## Previous release decision — 27 October 2026
+
 
 **Production recovery is verified. Release-system activation and installed-owner
 Browser acceptance remain open.** The compatible pre-pod Shared application
@@ -671,6 +1096,23 @@ from dev/UAT. Preserve the existing UID/vault/device/pod bindings and qualify th
 explicit lifecycle before promising a fresh start.
 
 ## Security
+
+The 11 November 2026 dependency review found **18 open records across 11
+advisories and seven packages**. The compatible correction updates pyasn1 to
+0.6.5, joserfc to 1.7.6 and fast-xml-parser to 5.12.0; rimraf's 6.1.4 parent
+patch supplies patched Glob. A consumer-scoped typescript-estree override uses
+Minimatch 11 while preserving ESLint's unrelated Minimatch 3 contracts. These
+source changes address 15 records; closure requires landed-lock readback and
+GitHub's refreshed inventory, and running services need separate deployment.
+
+Three records retain their mitigation gates: ADK 2.9 caps OpenTelemetry below
+the fixed 1.45.1; ADK 2.14 permits it but documents runtime behavior changes.
+AG-UI 1.x removes its nested Zod dependency but is a major upgrade; no patched
+Zod 3 exists. Neither upgrade is silently forced by a dependency-only repair.
+Actual instrumented incoming-tracestate and bounded AG-UI transport checks
+remain required; mitigations do not close the advisories.
+
+The following figures are the historical 25 October assessment:
 
 At 07:48 UTC on 25 October, GitHub reports **3 open dependency alerts**
 (1 high and 2 moderate), down from 15 after PR #8437 landed. These are the

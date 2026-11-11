@@ -26,7 +26,17 @@ throughput is a separate provider allocation decision.
 reviewed database connection budget. The
 [capacity checker](../../../scripts/ci/runtime-capacity-budget.py) inventories
 retained revisions, workers, deployment candidates, job overlap and administrative
-reserve. Run it with the approved project identity:
+reserve.
+
+Ordinary UAT/production admission inspects the declared application services,
+their retained revisions, the release-owned frontend and declared jobs. Other
+services or jobs in the project do not join or block this release. Missing
+required application resources and unsafe application SQL bindings still refuse.
+The receipt states `admission_scope: profiled-application`: it does not certify
+all project workloads or unrelated consumers of the same database. Keep those
+consumers on separate databases or reconcile their demand before increasing the
+application ceiling. The fixed isolated-Dev qualification retains its complete
+project routing and execution checks. Run it with the approved project identity:
 
 ```bash
 python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
@@ -101,7 +111,7 @@ minutes. Investigate query/lock/pool wait and user impact before adding applicat
 replicas. Provider 429/5xx alerts observe availability, not usage entitlements.
 Diagnostic-only policies remain distinct from actionable notifications.
 
-Chat first-answer and first-visible timing exclude missing marks. Compare answer samples with terminal-turn coverage; missing answers include approval-only turns and remain diagnostic. The actionable stream-failure policy counts any unexpected terminal failure in five minutes, including low traffic. Azure call logs separately measure authentication, first output, total time and reasoning-token usage without prompts or owner identifiers. One UAT text chat uses Azure only, cached credential suppliers and minimal default reasoning; its native public-search child uses low reasoning. The SDK read-idle budget is 60 seconds, separate from the 10-second first-output budget. No failed One turn changes to Gemini.
+Chat first-answer and first-visible timing exclude missing marks. Compare answer samples with terminal-turn coverage; missing answers include approval-only turns and remain diagnostic. The actionable stream-failure policy counts any unexpected terminal failure in five minutes, including low traffic. Azure call logs separately measure authentication, first output, total time and reasoning-token usage without prompts or owner identifiers. One UAT text chat uses the centrally selected managed provider. Azure retains cached credential suppliers, minimal default reasoning and low reasoning for its native public-search child. Its SDK read-idle budget is 60 seconds, separate from the 10-second first-output budget. Native Vertex uses its separately qualified budgets. No failed One turn changes provider; see [managed AI configuration](./env-and-secrets.md#managed-ai-configuration-and-quota-recovery).
 
 Chat first-visible timing excludes missing marks. Its sample-rate panel makes
 sparse observations visible; it is not an active-stream gauge. Keep provider

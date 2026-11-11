@@ -2,6 +2,7 @@ import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
+import { recordCurrentSectionVisit } from "@/components/observability/live-activity-section-subject";
 
 const mocks = vi.hoisted(() => ({
   pathname: "/",
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   setLastKaiPath: vi.fn(),
   setLastRiaPath: vi.fn(),
   setObservabilityUserId: vi.fn().mockResolvedValue(true),
+  recordLiveActivity: vi.fn(),
   user: null as { uid: string } | null,
   userId: null as string | null,
   loading: false,
@@ -29,6 +31,13 @@ vi.mock("@/lib/observability/adapters/web-gtm", () => ({
 
 vi.mock("@/lib/observability/growth", () => ({
   captureGrowthAttribution: mocks.captureGrowthAttribution,
+}));
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({
+  recordLiveActivity: mocks.recordLiveActivity,
+}));
+// The CRM section is local-only; enable it so its hyphenated id is exercised.
+vi.mock("@/lib/connected-systems/crm-product-availability", () => ({
+  isLocalCrmBuildEnabled: () => true,
 }));
 vi.mock("@/lib/observability/identity", () => ({
   setObservabilityUserId: mocks.setObservabilityUserId,
@@ -153,5 +162,106 @@ describe("ObservabilityRouteObserver", () => {
     await waitFor(() => expect(mocks.trackPageView).toHaveBeenCalledWith("/one", "initial_load"));
     expect(mocks.setObservabilityUserId).toHaveBeenCalledWith(`acct_${"b".repeat(32)}`);
     expect(mocks.setObservabilityUserId).not.toHaveBeenCalledWith("firebase-uid-of-deleted-account");
+  });
+
+  describe("live activity section visits", () => {
+    const owner = `acct_${"c".repeat(32)}`;
+    const visit = (pathname: string, view: ReturnType<typeof render>) => {
+      mocks.pathname = pathname;
+      view.rerender(<ObservabilityRouteObserver />);
+    };
+
+    beforeEach(() => {
+      mocks.user = { uid: owner };
+      mocks.userId = owner;
+      mocks.recordLiveActivity.mockReset();
+    });
+
+    it("counts a revisit through the One home, and the unlock catch-up never repeats a stored visit", () => {
+      mocks.recordLiveActivity.mockReturnValue(true);
+      mocks.pathname = "/one/location";
+      const view = render(<ObservabilityRouteObserver />);
+      visit("/one", view);
+      visit("/one/location", view);
+      recordCurrentSectionVisit(owner, "location");
+
+      expect(mocks.recordLiveActivity.mock.calls).toEqual([
+        [{ kind: "section_opened", subject: "location" }],
+        [{ kind: "section_opened", subject: "location" }],
+      ]);
+    });
+
+    it("records one entry per section visit, never for a sub-screen of the same section", () => {
+      mocks.pathname = "/one/location";
+      const view = render(<ObservabilityRouteObserver />);
+      visit("/one/location/onboarding", view);
+      visit("/one/connect", view);
+      visit("/one/connect/settings", view);
+      visit("/one/location", view);
+
+      expect(mocks.recordLiveActivity.mock.calls).toEqual([
+        [{ kind: "section_opened", subject: "location" }],
+        [{ kind: "section_opened", subject: "connect" }],
+        [{ kind: "section_opened", subject: "location" }],
+      ]);
+    });
+
+    it("names an allowlisted section id, never the raw path", () => {
+      mocks.pathname = "/one/profile/world-model";
+      const view = render(<ObservabilityRouteObserver />);
+      visit("/one/connected-systems", view);
+
+      expect(mocks.recordLiveActivity.mock.calls).toEqual([
+        [{ kind: "section_opened", subject: "profile_world_model" }],
+        [{ kind: "section_opened", subject: "connected_systems" }],
+      ]);
+      for (const [input] of mocks.recordLiveActivity.mock.calls) {
+        expect(JSON.stringify(input)).not.toContain("/");
+      }
+    });
+
+    it("never journals the One home between sections", () => {
+      mocks.pathname = "/one/location";
+      const view = render(<ObservabilityRouteObserver />);
+      visit("/one", view);
+      visit("/one/connect", view);
+      visit("/one/", view);
+
+      expect(mocks.recordLiveActivity.mock.calls).toEqual([
+        [{ kind: "section_opened", subject: "location" }],
+        [{ kind: "section_opened", subject: "connect" }],
+      ]);
+    });
+
+    it.each(["/c/tok_abc123", "/one/no-such-screen", "/people/person_ref_123"])(
+      "records nothing for a share, unknown or non-section route at %s",
+      (pathname) => {
+        renderAt(pathname);
+
+        expect(mocks.recordLiveActivity).not.toHaveBeenCalled();
+      },
+    );
+
+    it("records nothing without a validated owner", () => {
+      mocks.user = null;
+      mocks.userId = null;
+      renderAt("/one/location");
+
+      mocks.user = { uid: "firebase-uid-of-deleted-account" };
+      renderAt("/one/location");
+
+      expect(mocks.recordLiveActivity).not.toHaveBeenCalled();
+    });
+
+    it("records before the analytics identity binds", () => {
+      mocks.setObservabilityUserId.mockReturnValue(new Promise<boolean>(() => {}));
+      renderAt("/one/location");
+
+      expect(mocks.trackPageView).not.toHaveBeenCalled();
+      expect(mocks.recordLiveActivity).toHaveBeenCalledWith({
+        kind: "section_opened",
+        subject: "location",
+      });
+    });
   });
 });

@@ -7,6 +7,22 @@ import type { OneLocationCircleEligibleConnection } from "@/lib/one-location/typ
 import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
 import { cn } from "@/lib/utils";
 
+export function CirclePersonSelectionDetail({
+  person,
+}: {
+  person: Parameters<typeof connectPersonSelectionDetail>[0];
+}) {
+  const detail = connectPersonSelectionDetail(person);
+  return (
+    <>
+      {detail}
+      {person.connectedFromContacts ? (
+        <span className="sr-only">{detail ? " · " : ""}Connected from your contacts</span>
+      ) : null}
+    </>
+  );
+}
+
 /** Shared presentation; each Circle flow retains its eligibility and mutation owner. */
 export function CirclePersonSelectionRow({
   person,
@@ -27,8 +43,10 @@ export function CirclePersonSelectionRow({
   return (
     <SettingsRow
       layout="person"
+      leadingInteractive
       leading={
         <ConnectionPersonAvatar
+          userId={person.userId}
           size="list"
           photoUrl={person.photoUrl}
           label={name}
@@ -37,9 +55,9 @@ export function CirclePersonSelectionRow({
         />
       }
       title={name}
-      description={connectPersonSelectionDetail(person)}
+      description={<CirclePersonSelectionDetail person={person} />}
       ariaPressed={selected}
-      ariaLabel={ariaLabel}
+      ariaLabel={ariaLabel ?? `${selected ? "Deselect" : "Select"} ${name}`}
       describeContent
       disabled={disabled}
       trailing={

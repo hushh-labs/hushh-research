@@ -21,6 +21,17 @@ describe("advisor source integrity", () => {
     const saved = await readSavedFinance(context, source, true);
     expect(saved.portfolio.holdings).toHaveLength(1);
   });
+  it.each([
+    { market_value: -100 },
+    { is_short: true },
+    { is_short_position: true },
+    { is_liability_position: true },
+    { position_side: "short" },
+    { position_side: "liability" },
+  ])("refuses a statement with unsupported exposure %j before advisor review", async position => {
+    mocks.load.mockResolvedValue(financial({ holdings: [{ ...holding, ...position }], total_value: 100 }));
+    await expect(readSavedFinance(context, source, true)).rejects.toThrow("cannot be verified accurately");
+  });
   it("checks the V7 source before normalization and rejects foreign currency", async () => {
     const v7 = { pkm_contract_version: "7.0.0", financial_core_v7: { active_source: "statement", accounts: { account: { account_id: "account", currency: "USD" } },
       securities: { sec: { symbol: "AAPL", name: "Apple" } }, positions: { one: { security_id: "sec", account_id: "account", quantity: 1, price: 100, market_value: 100 } },
@@ -35,12 +46,14 @@ describe("advisor source integrity", () => {
     mocks.load.mockResolvedValue({ ...v7, financial_core_v7: { ...v7.financial_core_v7, securities: { sec: { symbol: "AAPL", currency: "EUR" } }, positions: { one: { ...v7.financial_core_v7.positions.one, currency: "USD" } } } });
     await expect(readSavedFinance(context, active, true)).rejects.toThrow();
   });
-  it("does not borrow currency evidence from an unrelated V7 account", () => {
-    const v7 = { financial_core_v7: { account_summary: { currency: "USD" }, accounts: { a: { currency: "USD" }, b: {} },
+  it("reads an untagged V7 position as USD but never hides another account's foreign currency", () => {
+    const v7 = (other: Record<string, unknown>) => ({ financial_core_v7: { account_summary: { currency: "USD" }, accounts: { a: other, b: {} },
       securities: { sec: { symbol: "AAPL" } },
-      positions: { one: { security_id: "sec", account_id: "b", quantity: 1, price: 100, market_value: 100 } } } };
+      positions: { one: { security_id: "sec", account_id: "b", quantity: 1, price: 100, market_value: 100 } } } });
     const portfolio = { holdings: [holding] } as PortfolioData;
-    expect(() => assertAdvisorSourceIntegrity(v7, { kind: "statement", snapshotId: null, representation: "current-v7" }, portfolio)).toThrow();
+    const active = { kind: "statement", snapshotId: null, representation: "current-v7" } as const;
+    expect(() => assertAdvisorSourceIntegrity(v7({ currency: "USD" }), active, portfolio)).not.toThrow();
+    expect(() => assertAdvisorSourceIntegrity(v7({ currency: "EUR" }), active, portfolio)).toThrow();
   });
   it("validates the V7 fallback rather than stale linked records", () => {
     const v7 = { connections_v1: { item: { item_id: "item" } },
@@ -58,6 +71,11 @@ describe("advisor source integrity", () => {
     mocks.load.mockResolvedValue(saved);
     const result = await readSavedFinance(context, { kind: "plaid", snapshotId: null }, true);
     expect(result.portfolio.holdings?.length).toBeGreaterThan(0);
+    const short = structuredClone(saved);
+    Object.assign(Object.values(short.holdings_v1 ?? {})[0]!, { is_short_position: true });
+    mocks.load.mockResolvedValue(short);
+    await expect(readSavedFinance(context, { kind: "plaid", snapshotId: null }, true))
+      .rejects.toThrow("cannot be verified accurately");
     const foreign = structuredClone(saved);
     const first = Object.values(foreign.holdings_v1 ?? {})[0]!;
     first.iso_currency_code = "EUR";
@@ -74,9 +92,12 @@ describe("advisor source integrity", () => {
     { currency: "USD", holdings: [{ ...holding, symbol: "", name: "Cash" }], total_value: 100 },
     { currency: "USD", holdings: [{ ...holding, market_value: undefined }], total_value: 100 },
     { currency: "USD", holdings: [{ ...holding, iso_currency_code: "USD", currency: "EUR" }], total_value: 100 },
-    { holdings: [holding], total_value: 100 },
-  ])("refuses foreign, omitted, missing, or unknown source information before preview", async portfolio => {
+  ])("refuses foreign, omitted, or missing source information before preview", async portfolio => {
     mocks.load.mockResolvedValue(financial(portfolio));
     await expect(readSavedFinance(context, source, true)).rejects.toThrow();
+  });
+  it("reads a statement with no currency tag as USD", async () => {
+    mocks.load.mockResolvedValue(financial({ holdings: [holding], total_value: 100 }));
+    expect((await readSavedFinance(context, source, true)).portfolio.holdings).toHaveLength(1);
   });
 });

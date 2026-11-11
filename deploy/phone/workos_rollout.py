@@ -157,7 +157,9 @@ def revision_inventory(
     return result
 
 
-def _audit_templates(event: dict, *, kind="Service") -> list[tuple[dict, str | None, bool]]:
+def _audit_templates(
+    event: dict, *, kind="Service", project=None
+) -> list[tuple[dict, str | None, bool]]:
     """Accept the observed v1 request/completion envelopes, never a guessed v2."""
     payload = event.get("protoPayload") or {}
     methods = (
@@ -171,8 +173,18 @@ def _audit_templates(event: dict, *, kind="Service") -> list[tuple[dict, str | N
     request, response = payload.get("request") or {}, payload.get("response") or {}
     field = kind.lower()
     service = request.get(field)
+    if "parent" in request and not (
+        kind == "Service"
+        and project in TARGETS
+        and payload.get("methodName") == "google.cloud.run.v1.Services.CreateService"
+        and request.get("@type") == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
+        and request["parent"] == f"namespaces/{project}"
+        and isinstance(service, dict)
+        and service.get("metadata", {}).get("namespace") in (None, project)
+    ):
+        raise ValueError("workos_audit_request_parent_unknown")
     if request and (
-        not set(request).issubset({"@type", "name", field})
+        not set(request).issubset({"@type", "name", "parent", field})
         or not isinstance(service, dict)
         or not isinstance((service.get("spec") or {}).get("template"), dict)
     ):
@@ -242,22 +254,21 @@ def review_history(
             or container_name is not None
         ):
             raise ValueError("workos_historical_observation_scope_invalid")
+        context = (inventory, restoration_sha, start, until, SOURCE_ANCHOR)
         if historical_observation is not None:
-            validate_scope(
-                historical_observation, inventory, restoration_sha, start, until, SOURCE_ANCHOR
-            )
+            validate_scope(historical_observation, *context)
         if operational_observation is not None:
-            from operational_workos_observation import validate_scope as validate_operational
-
-            validate_operational(
-                operational_observation, inventory, restoration_sha, start, until, SOURCE_ANCHOR
+            from operational_workos_observation import (
+                validate_scope as validate_operational,
             )
+
+            validate_operational(operational_observation, *context)
     from workos_history import audit_scope, require_closed, revision_name
 
     templates, completions = [], {}
     for event in events:
         stamp = audit_scope(event, project, service, start, until, _instant)
-        for template, completed_name, completion in _audit_templates(event):
+        for template, completed_name, completion in _audit_templates(event, project=project):
             metadata = template.get("metadata") or {}
             sha = _source(metadata.get("labels") or {}, check)
             name = revision_name(metadata, completed_name, service)

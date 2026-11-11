@@ -215,6 +215,26 @@ remain Drive-only. B must prove the exact key and accept the exact current T/D
 before Checkout. Stripe's signed callback must match the allocated order,
 attempt, amount, currency and mode before paid authority is established.
 
+Pay immediately enters an explicit Checkout pending state. Active hosted panels
+revalidate terms and payment readiness through the existing visible-page periodic
+task owner without a reload. Quiet refresh preserves price/deadline drafts and
+acceptance of unchanged terms; changed terms revoke that acceptance. Session
+withdrawal aborts owned reads and prevents late results from updating the panel.
+
+Drive-only Checkout access checks request source metadata and the embedded ACL
+together. A complete, validated My Drive ACL replaces the separate permission
+list and second metadata read; absent, unusable or shared-drive ACLs retain the
+existing fenced listing path. Every check remains fresh; no prior ACL is cached.
+See Google's [File permissions contract](https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File.FIELDS.permissions).
+`drive_stage.timing` records `checkout_total`, `checkout_state`,
+`checkout_acceptance`, `checkout_payout`, `checkout_sources`, `checkout_access`,
+`checkout_reserve`, `checkout_stripe`, `checkout_bind` and `checkout_wake` with
+safe operation/request tags and elapsed milliseconds. Total includes the other
+stages and must not be added to them. Missing stages indicate that branch was not
+executed, not a measured zero. Browser `[DRIVE_REQUEST][CHECKOUT]` provides the
+correlated HTTP duration. Neither diagnostics nor a browser return establishes
+payment success; the signed webhook and durable order remain authoritative.
+
 All status, payout, refund and erasure readers use the same mode-aware delivery
 summary. In One mode a fulfilled file records hosted key release. In Both mode
 the same file also requires the real durable Drive permission receipt. Partial

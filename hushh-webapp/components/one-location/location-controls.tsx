@@ -1,3 +1,6 @@
+"use client";
+
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { cn } from "@/lib/utils";
 
 export type ShareMode = "share" | "request";
@@ -21,18 +24,21 @@ function avatarColor(_index: number): string {
 }
 
 export function AvatarBubble({
+  userId,
   label,
   index,
   size = "md",
   muted = false,
 }: {
+  userId?: string | null;
   label: string;
   index: number;
   size?: "sm" | "md" | "lg";
   muted?: boolean;
 }) {
+  const Root = userId ? "button" : "span";
   return (
-    <span
+    <Root
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full font-semibold uppercase",
         size === "sm" && "h-9 w-9 text-[15px]",
@@ -42,10 +48,13 @@ export function AvatarBubble({
           ? "bg-[#e5e5ea] text-[#8e8e93] dark:bg-white/10 dark:text-white/55"
           : `${avatarColor(index)} text-[color:var(--app-accent-deep)]`,
       )}
-      aria-hidden="true"
+      type={userId ? "button" : undefined}
+      aria-hidden={userId ? undefined : true}
+      aria-label={userId ? `View ${label}'s profile` : undefined}
+      onClick={userId ? event => { event.preventDefault(); event.stopPropagation(); openPersonProfilePreview({ userId }, event.currentTarget); } : undefined}
     >
       {initialsForLabel(label)}
-    </span>
+    </Root>
   );
 }
 

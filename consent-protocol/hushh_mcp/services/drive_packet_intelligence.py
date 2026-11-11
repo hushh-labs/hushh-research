@@ -6,7 +6,6 @@ The caller supplies current, consented, version-bound evidence and owns leases.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import time
@@ -23,6 +22,7 @@ from hushh_mcp.services.drive_citation_references import (
     resolve_references,
 )
 from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
+from hushh_mcp.services.drive_facts_policy import facts_policy_digest
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
@@ -88,9 +88,9 @@ def facts_policy_version() -> str:
     return (
         FACTS_SCHEMA_VERSION
         + ":"
-        + hashlib.sha256(
-            manifest.read_bytes()
-            + b"\0"
+        + facts_policy_digest(
+            manifest.read_bytes(),
+            b"\0"
             + contract.read_bytes()
             + b"\0"
             + references.read_bytes()
@@ -99,8 +99,8 @@ def facts_policy_version() -> str:
             + b"\0"
             + FACTS_SCHEMA_VERSION.encode()
             + b"\0"
-            + EXTRACTION_PROFILE.encode()
-        ).hexdigest()
+            + EXTRACTION_PROFILE.encode(),
+        )
     )
 
 

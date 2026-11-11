@@ -149,6 +149,12 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("beforeEffect: guard.assertCurrent");
     expect(workspace).toContain("const facts = markdownFactsFromCards(prepared.cards, candidates)");
     expect(workspace).toContain('memoryProfile: "soul_markdown_v1"');
+    // Recent in-app activity rides in the turn packet for the current owner only,
+    // composed between Soul.md and its Live Mirror block within the server's limit
+    // (composeAgentPkmContext), so the mirror's END line still closes the packet.
+    expect(workspace).toMatch(
+      /pkmContext: composeAgentPkmContext\(\{[\s\S]{0,240}memory: agentPkmContext\.text \|\| "", events: peekLiveActivity\(userId\)/,
+    );
     expect(workspace).not.toContain("Long paste detected — choose where it belongs.");
     expect(workspace).not.toContain("composerPurpose");
     expect(workspace).not.toContain("Review for Memory");

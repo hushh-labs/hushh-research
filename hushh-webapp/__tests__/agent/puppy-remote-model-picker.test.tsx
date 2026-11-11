@@ -138,7 +138,7 @@ describe("Puppy remote model picker", () => {
       // The remembered list shows at once while the machine is asked again.
       expect(screen.getByRole("button", { name: "local/other" })).toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_CATALOG_TIMEOUT_MS); });
-      expect(screen.getByText("Waking your private agent. The model list will update here.")).toBeInTheDocument();
+      expect(screen.getByText("Waking Agent One. The model list will update here.")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "local/other" })).toBeEnabled();
       await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_READINESS_TIMEOUT_MS - PUPPY_CATALOG_TIMEOUT_MS); });
@@ -210,7 +210,7 @@ describe("Puppy remote model picker", () => {
       expect(screen.getByText("Checking the models on your Mac…")).toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_CATALOG_TIMEOUT_MS); });
       expect(screen.queryByText("Checking the models on your Mac…")).not.toBeInTheDocument();
-      expect(screen.getByText("Waking your private agent. The model list will update here.")).toBeInTheDocument();
+      expect(screen.getByText("Waking Agent One. The model list will update here.")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_READINESS_TIMEOUT_MS - PUPPY_CATALOG_TIMEOUT_MS); });
       expect(screen.getByText("Waking your agent… This can take a minute after a break.")).toBeInTheDocument();
@@ -264,7 +264,7 @@ describe("Puppy remote model picker", () => {
     api.getPuppyDirectModels.mockRejectedValue(new Error("POD_DIRECT_UNAVAILABLE:POD_NOT_REACHED"));
     render(<PuppyRemoteModelPicker {...baseProps} machine="your Mac" />);
     fireEvent.click(screen.getByRole("button", { name: /^Choose Puppy model/ }));
-    expect(await screen.findByText("Couldn't reach your private agent for the list. Try again in a moment.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't reach Agent One for the list. Try again in a moment.")).toBeInTheDocument();
   });
 
   it("keeps the memory grant reachable mid-answer and with no linked device", async () => {

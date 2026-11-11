@@ -111,7 +111,7 @@ export function ConnectCircleRow({
           onClick={onDestructive}
         >
           {action === "delete" ? (
-            <Trash2 aria-hidden="true" className="size-4" />
+            <Trash2 inheritColor aria-hidden="true" className="size-4" />
           ) : (
             <LogOut aria-hidden="true" className="size-4" />
           )}
@@ -133,8 +133,7 @@ export function ConnectCircleRow({
         </button>
         <Button
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           size="icon-touch"
           aria-label={`Open ${title}`}
           onClick={onOpen}
@@ -172,10 +171,9 @@ export function ConnectCircleHeading({
       </h2>
       <Button
         type="button"
-        variant={create ? "blue" : "none"}
-        effect={create ? "fill" : "fade"}
+        variant={create ? "blue" : "plain"}
         size="compact"
-        className={create ? "min-h-11 rounded-full" : `${styles.utilityAction} ${styles.joinAction}`}
+        className={create ? "min-h-11 rounded-full" : styles.utilityAction}
         showRipple={create}
         onClick={onAction}
         data-testid={`connect-circle-${action}`}

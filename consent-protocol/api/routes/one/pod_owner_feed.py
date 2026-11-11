@@ -35,7 +35,7 @@ from fastapi import APIRouter, Body, Header, HTTPException, Path, Query, Request
 from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.pod_command_reads import MetadataCommandReadOptions
-from hushh_mcp.services.pod_consent_read import ConsentReadOptions
+from hushh_mcp.services.pod_consent_read import ConsentReadOptions, ConsentReadReference
 from hushh_mcp.services.pod_information_discovery import InformationDiscoveryOptions
 from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
 
@@ -253,7 +253,7 @@ async def owner_feed_route(
     query: Optional[str] = Query(None, max_length=160),
     page: Optional[int] = Query(None, ge=1, le=250),
     limit: Optional[int] = Query(None, ge=1, le=100),
-    bundle_id: Optional[str] = Query(None, min_length=36, max_length=36),
+    bundle_id: Optional[ConsentReadReference] = Query(None),
     read_nonce: Optional[str] = Query(None, pattern=r"^[0-9a-f]{32}$"),
     submission_key: Optional[str] = Query(None, min_length=16, max_length=256),
     authorization: Optional[str] = Header(default=None),

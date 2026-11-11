@@ -111,6 +111,14 @@ def test_pod_execution_is_derived_from_service_for_not_from_the_manifest(matrix:
             assert row["declared"]["information_source"] == "owner_bucket"
             assert row["derived"]["pod_dispatchable"] is False
             continue
+        if row["derived"]["pod_memory_helper"]:
+            assert agent_id in generator.local_memory_helpers()
+            assert row["declared"]["executes_in_pod"] is True
+            assert row["declared"]["information_source"] == "pkm_projection"
+            assert row["declared"]["write_scope"] == "proposal_only"
+            assert row["declared"]["confirmation_owner"] == "owner_browser"
+            assert agent_id not in dispatchable
+            continue
         assert row["declared"]["executes_in_pod"] is (agent_id in dispatchable), agent_id
         assert row["derived"]["pod_dispatchable"] is (agent_id in dispatchable)
     # Every pod-dispatchable id is a registered specialist; otherwise dispatch KeyErrors.
@@ -152,6 +160,83 @@ def test_live_evidence_is_null_until_a_receipt_is_recorded(matrix: dict) -> None
 
 
 # -- negative controls: the generator must be able to say no -----------------------
+
+
+@pytest.mark.parametrize("surface", ["route", "service"])
+def test_memory_helper_requires_the_actual_route_and_manifest(monkeypatch, tmp_path, surface):
+    assert generator.local_memory_helpers() == {"agent_chat_memory_manager"}
+    attribute = "MEMORY_ROUTE_PATH" if surface == "route" else "MEMORY_SERVICE_PATH"
+    original = getattr(generator, attribute)
+    source = original.read_text()
+    source = (
+        source.replace(
+            "await rewrite_chat_memory(body, model=model)", "await unrelated(body, model=model)"
+        )
+        if surface == "route"
+        else source.replace("agents/chat_memory_manager/agent.yaml", "agents/unrelated/agent.yaml")
+    )
+    assert source != original.read_text()
+    changed = tmp_path / original.name
+    changed.write_text(source)
+    monkeypatch.setattr(generator, attribute, changed)
+    assert generator.local_memory_helpers() == set()
+    matrix = generator.build_matrix()
+    assert any(
+        line.startswith("agent_chat_memory_manager:") and "refuses" in line
+        for line in matrix["disagreements"]
+    )
+
+
+def test_memory_helper_requires_bound_execution_and_manifest(monkeypatch, tmp_path):
+    route = tmp_path / "route.py"
+    service = tmp_path / "service.py"
+    monkeypatch.setattr(generator, "MEMORY_ROUTE_PATH", route)
+    monkeypatch.setattr(generator, "MEMORY_SERVICE_PATH", service)
+    route.write_text("# Preparation is unavailable on this runtime.\n")
+    assert generator.local_memory_helpers() == set()
+
+    bound_route = (
+        "from hushh_mcp.services.chat_memory_manager import rewrite_chat_memory\n"
+        "async def rewrite_memory(body, model):\n"
+        "    return await rewrite_chat_memory(body, model=model)\n"
+    )
+    route.write_text(bound_route)
+    with pytest.raises(FileNotFoundError):
+        generator.local_memory_helpers()
+    service.write_text(
+        "def rewrite_chat_memory():\n"
+        "    return ManifestLoader.load('agents/chat_memory_manager/agent.yaml')\n"
+    )
+    assert generator.local_memory_helpers() == {"agent_chat_memory_manager"}
+    route.write_text(bound_route.replace("await rewrite_chat_memory(", "await unrelated("))
+    assert generator.local_memory_helpers() == set()
+    route.write_text(bound_route)
+    service.write_text(service.read_text().replace("chat_memory_manager/", "unrelated/"))
+    assert generator.local_memory_helpers() == set()
+
+
+def test_memory_helper_cannot_gain_write_or_dispatch_authority():
+    declared = {
+        "executes_in_pod": True,
+        "information_source": "pkm_projection",
+        "write_scope": "proposal_only",
+        "confirmation_owner": "owner_browser",
+        "why": "Preparation proposes information; the owner commits it in the browser.",
+    }
+    derived = {"pod_memory_helper": True, "pod_dispatchable": False}
+    assert generator._check_row("agent_chat_memory_manager", declared, derived) == []
+    for field, value in (
+        ("executes_in_pod", False),
+        ("information_source", "owner_bucket"),
+        ("write_scope", "none"),
+        ("confirmation_owner", "none"),
+    ):
+        assert generator._check_row(
+            "agent_chat_memory_manager", {**declared, field: value}, derived
+        )
+    assert generator._check_row(
+        "agent_chat_memory_manager", declared, {**derived, "pod_dispatchable": True}
+    )
 
 
 def test_a_declaration_that_contradicts_service_for_is_a_disagreement() -> None:

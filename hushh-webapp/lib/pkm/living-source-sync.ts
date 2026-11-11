@@ -19,6 +19,9 @@ import {
   appendJournalGapMarkers,
   appendVerifiedLivingSourceChanges,
   incompleteLivingSourceKinds,
+  LIVING_DOMAIN_REPLACE,
+  LIVING_VERIFICATION_PERSIST_MS,
+  livingSourceWriteDue,
   parseLivingJournalPending,
   parseLivingSourceHealth,
   reconcileLivingSources,
@@ -122,7 +125,7 @@ function canReuseVerifiedScan(params: {
     ? Date.parse(params.observedAt) - Date.parse(cached.completedAt)
     : Infinity;
   return !params.forced && cached?.epoch === params.epoch &&
-    cached.verifiedAt === params.previousAt && age >= 0 &&
+    cached.verifiedAt === params.previousAt && age >= -LIVING_VERIFICATION_PERSIST_MS &&
     (age < params.maxAge || (cooldownAge >= 0 && cooldownAge < params.maxAge));
 }
 
@@ -144,6 +147,18 @@ const SCAN_CACHES: Record<RetriedKind, Map<string, CompletedScan>> = {
   payout_activity: lastPayoutActivityScan,
   document_request_payment: lastDocumentRequestPaymentsScan,
 };
+/** Record revisions and history position each owner's tab last stored or
+ * confirmed in a vault epoch. Another tab or device can move the stored
+ * inventory; a pass that then writes nothing still rebuilds this tab's mirror
+ * and never vouches for the kinds that moved under it. */
+const LAST_SEEN = new Map<string, { epoch: number; revisions: Map<string, string>; history: number }>();
+// capturedAt moves with every revision, so two lineages that both reached a
+// revision (concurrent first writes on two devices) still differ.
+const recordRevisions = (inventory: LivingSourceInventory | undefined) => new Map((inventory?.records ?? [])
+  .map((r) => [`${r.kind}:${r.id}`, `${r.revision}:${r.capturedAt}:${r.deletedAt ?? ""}`]));
+/** Drops what a tab saw, with the session verification, when the tab's bridge stops. */
+export const clearLivingSourceLastSeen = (userId?: string) =>
+  userId === undefined ? LAST_SEEN.clear() : LAST_SEEN.delete(userId);
 
 /** Thrown after the verified sources were stored, when at least one source
  * is still unavailable or outside its freshness window. */
@@ -628,6 +643,10 @@ export async function syncLivingSources(params: {
   // Whether the encrypted write changed anything. An unchanged sync still
   // verified its sources, which the session verification map records.
   let storedChange = false;
+  // A skipped write keeps these stored verification times; scan caches match them.
+  let storedVerifiedAt: Record<string, string> = {};
+  let movedElsewhere = false;
+  let lastSeen: typeof LAST_SEEN extends Map<string, infer V> ? V | undefined : never;
   // Kinds whose records or history this write changed. The cached mirror
   // still shows their old values, so this check cannot vouch for them.
   let changedKinds = new Set<SourceKind>();
@@ -1076,6 +1095,14 @@ export async function syncLivingSources(params: {
         storedSnapshotAt,
       );
       changedKinds = changedSourceKinds(previous ?? null, inventory, history, priorHistory?.nextSequence ?? 1);
+      const seen = LAST_SEEN.get(params.userId);
+      const storedRevisions = recordRevisions(previous);
+      if (seen?.epoch === epoch) {
+        for (const key of new Set([...seen.revisions.keys(), ...storedRevisions.keys()]))
+          if (seen.revisions.get(key) !== storedRevisions.get(key)) changedKinds.add(key.split(":")[0] as SourceKind);
+        movedElsewhere = seen.history !== (priorHistory?.nextSequence ?? 1);
+      }
+      lastSeen = { epoch, revisions: recordRevisions(inventory), history: history.nextSequence };
       // A cursor moves past a hint only in this same write, which either
       // verifies the hint's source or keeps that source pending.
       const journalPending: LivingJournalPending = { version: 1, kinds: {} };
@@ -1108,28 +1135,15 @@ export async function syncLivingSources(params: {
           events: eventsHead === null ? persisted.stored.events ?? "0"
             : nextJournalCursor(persisted.cursors.events, eventsHead, eventsReset),
         };
-      const unchanged = Boolean(previous) && JSON.stringify({
-        records: previous?.records,
-        complete: previous?.complete,
-        unavailable: previous?.unavailable,
-        verifiedAt: previous?.verifiedAt,
-        history: privateData.observed_history,
-        journalCursors: privateData.journal_cursors,
-        journalPending: privateData.journal_pending,
-        sourceHealth: privateData.source_health,
-      }) === JSON.stringify({
-        records: inventory.records,
-        complete: inventory.complete,
-        unavailable: inventory.unavailable,
-        verifiedAt: inventory.verifiedAt,
-        history,
-        journalCursors,
-        journalPending,
-        sourceHealth,
-      });
+      const unchanged = !livingSourceWriteDue({
+        inventory: previous, history: privateData.observed_history, journalCursors: privateData.journal_cursors,
+        journalPending: privateData.journal_pending, sourceHealth: privateData.source_health,
+      }, { inventory, history, journalCursors, journalPending, sourceHealth });
       storedChange = !unchanged;
+      storedVerifiedAt = previous?.verifiedAt ?? {};
       return {
         unchanged,
+        mergeDecision: LIVING_DOMAIN_REPLACE,
         domainData: {
           ...current,
           _private: {
@@ -1150,40 +1164,26 @@ export async function syncLivingSources(params: {
   });
   if (!result.success)
     throw new Error("Encrypted source projection not stored");
-  if (earningsScanned)
-    lastDocumentEarningsScan.set(params.userId, {
-      epoch, verifiedAt: earningsVerifiedAt!, completedAt: storedSnapshotAt,
-    });
-  if (payoutActivityScanned)
-    lastPayoutActivityScan.set(params.userId, {
-      epoch, verifiedAt: payoutActivityVerifiedAt!, completedAt: storedSnapshotAt,
-    });
+  if (lastSeen && isVaultSessionEpochCurrent(epoch)) LAST_SEEN.set(params.userId, lastSeen);
+  // Reuse needs the cached time to equal the stored one (canReuseVerifiedScan),
+  // so a skipped write caches the time it kept, never this unwritten renewal.
+  const scanned = (kind: RetriedKind, verifiedAt: string): CompletedScan => storedChange
+    ? { epoch, verifiedAt, completedAt: storedSnapshotAt }
+    : { epoch, verifiedAt: storedVerifiedAt[kind] ?? verifiedAt, completedAt: storedVerifiedAt[kind] ?? verifiedAt };
+  if (earningsScanned) lastDocumentEarningsScan.set(params.userId, scanned("document_earning", earningsVerifiedAt!));
+  if (payoutActivityScanned) lastPayoutActivityScan.set(params.userId, scanned("payout_activity", payoutActivityVerifiedAt!));
   if (documentRequestPaymentsScanned)
-    lastDocumentRequestPaymentsScan.set(params.userId, {
-      epoch, verifiedAt: documentRequestPaymentsVerifiedAt!, completedAt: storedSnapshotAt,
-    });
+    lastDocumentRequestPaymentsScan.set(params.userId, scanned("document_request_payment", documentRequestPaymentsVerifiedAt!));
   if (documentRequestPaymentsScanned || documentRequestPaymentOverflowCleared)
     lastDocumentRequestPaymentOverflow.delete(params.userId);
   if (documentRequestPaymentOverflowed)
-    lastDocumentRequestPaymentOverflow.set(params.userId, {
-      epoch, at: storedSnapshotAt,
-    });
-  if (connectionsScanned)
-    lastConnectionScan.set(params.userId, {
-      epoch, verifiedAt: connectionVerifiedAt!, completedAt: storedSnapshotAt,
-    });
-  if (consentScanned)
-    lastConsentScan.set(params.userId, {
-      epoch, verifiedAt: consentVerifiedAt!, completedAt: storedSnapshotAt,
-    });
+    lastDocumentRequestPaymentOverflow.set(params.userId, { epoch, at: storedSnapshotAt });
+  if (connectionsScanned) lastConnectionScan.set(params.userId, scanned("connection", connectionVerifiedAt!));
+  if (consentScanned) lastConsentScan.set(params.userId, scanned("consent", consentVerifiedAt!));
   if (consentScanned) lastConsentOverflow.delete(params.userId);
-  if (consentOverflowed) lastConsentOverflow.set(params.userId, {
-    epoch, at: storedSnapshotAt,
-  });
+  if (consentOverflowed) lastConsentOverflow.set(params.userId, { epoch, at: storedSnapshotAt });
   if (curatedConnectorsScanned)
-    lastCuratedConnectorScan.set(params.userId, {
-      epoch, verifiedAt: curatedConnectorsVerifiedAt!, completedAt: storedSnapshotAt,
-    });
+    lastCuratedConnectorScan.set(params.userId, scanned("curated_oauth_connector", curatedConnectorsVerifiedAt!));
   // A failed scan is never reused as current. A later wake rescans it, after
   // its retry delay unless a new hint or owner event arrives first.
   for (const failure of scanFailures) SCAN_CACHES[failure.kind].delete(params.userId);
@@ -1226,7 +1226,7 @@ export async function syncLivingSources(params: {
   // and neither does a session locked or switched during the awaited write.
   if (isVaultSessionEpochCurrent(epoch))
     emitLiveMemorySourceTelemetry(sourceChecks, { stored: storedChange });
-  const recordsChanged = changedKinds.size > 0;
+  const recordsChanged = changedKinds.size > 0 || movedElsewhere;
   if (incompleteKinds.length)
     throw new LivingSourcesIncompleteError(incompleteKinds, recordsChanged);
   return { stored: storedChange, recordsChanged };

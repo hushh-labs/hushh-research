@@ -37,7 +37,7 @@ it("rejects another owner's voice step", () => {
 
 it("keeps the selected event, account, original request and read window together", () => {
   render(<CalendarVoiceChatBridge />); const report = vi.fn();
-  const invitation = { ownerId: "owner", accountEmail: "owner@example.com", calendarId: "shared@example.com", eventId: "instance", decision: "offer_times", timeZone: "UTC", startAt: "2027-03-01T00:00:00Z", endAt: "2027-03-02T00:00:00Z" };
+  const invitation = { ownerId: "owner", accountId: "account-c", accountEmail: "owner@example.com", calendarId: "shared@example.com", eventId: "instance", decision: "offer_times", timeZone: "UTC", startAt: "2027-03-01T00:00:00Z", endAt: "2027-03-02T00:00:00Z" };
   act(() => { useVoiceSessionStore.getState().emitClientStep({ stepId: "selection", kind: "continue_calendar_in_chat", timeoutS: 30, payload: { owner_id: "owner", request: "Ask for next Friday after 3 PM", invitation } }, report); });
   expect(useOneConversationSession.getState().pendingHandoff?.calendarInvitation).toEqual({ ...invitation, request: "Ask for next Friday after 3 PM" });
   expect(report).toHaveBeenCalledWith("ok", { review_queued: true });

@@ -24,6 +24,46 @@ from tests.helpers.predecessor_acceptance import _serving_receipt as _serving_re
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("environment,run_id", [("dev", 10), ("uat", 20)])
+def test_matching_branch_receipt_binds_caller_and_main_implementation(environment, run_id):
+    module, client, receipts, responses, pins = _acceptance_fixture()
+    run = responses[f"runs/{run_id}/attempts/2"]
+    run["head_branch"] = environment
+    implementation = f".github/workflows/deploy-{environment}-implementation.yml"
+    run["referenced_workflows"] = [
+        {
+            "path": f"{module.REPOSITORY}/{implementation}@{'d' * 40}",
+            "ref": "refs/heads/main",
+            "sha": "d" * 40,
+        }
+    ]
+    receipt = receipts[environment]
+    receipt["workflow_authority"] = module._provenance.deployment_authority(run, environment)
+    archive = BytesIO()
+    with ZipFile(archive, "w") as bundle:
+        bundle.writestr("acceptance.json", json.dumps(receipt))
+    raw = archive.getvalue()
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    responses[f"artifacts/{run_id + 1}/zip"] = raw
+    responses[f"artifacts/{run_id + 1}"].update(digest=digest, size_in_bytes=len(raw))
+    pins[environment]["artifact_digest"] = digest
+    assert client.accept(pins[environment], environment, SHA, "frontend")["run_id"] == run_id
+    reference = run["referenced_workflows"][0]
+    for field, invalid in (
+        ("ref", f"refs/heads/{environment}"),
+        ("sha", "e" * 40),
+        ("path", f"other/repo/{implementation}@main"),
+    ):
+        original = reference[field]
+        reference[field] = invalid
+        with pytest.raises(ValueError):
+            client.accept(pins[environment], environment, SHA, "frontend")
+        reference[field] = original
+    run["head_sha"] = "f" * 40
+    with pytest.raises(ValueError, match="provenance"):
+        client.accept(pins[environment], environment, SHA, "frontend")
+
+
 def test_distinct_main_approval_requires_identical_uat_content_and_incorporation(
     tmp_path, monkeypatch
 ):
@@ -53,12 +93,15 @@ def test_distinct_main_approval_requires_identical_uat_content_and_incorporation
     git("merge", "--no-ff", "uat", "-m", "approve identical application")
     accepted = git("rev-parse", "HEAD")
     git("update-ref", "refs/remotes/origin/main", accepted)
+    with pytest.raises(ValueError, match="not in protected UAT history"):
+        approval.uat_source(accepted, resolve=git)
+    # Main source qualification must not require a UAT ref/deployment. The
+    # distinct merge still needs immutable complete-tree equivalence.
+    git("update-ref", "-d", "refs/remotes/origin/uat")
     record = approval.verify(application, accepted, resolve=git)
-    assert approval.uat_source(application, resolve=git) == ("main", "Main Post-Merge Smoke Gate")
-    assert approval.uat_source(accepted, resolve=git) == ("main", "Main Post-Merge Smoke Gate")
     assert record["application_sha"] == application
     assert record["main_approval_sha"] == accepted
-    assert record["predecessor_acceptance_required"] == "uat-exact-application-sha"
+    assert record["predecessor_acceptance_required"] == "main-qualified-source"
     with pytest.raises(ValueError, match="incorporate"):
         approval.verify(application, base, resolve=git)
     # Even an incorporated UAT source cannot cover additional Main content.
@@ -186,7 +229,7 @@ def test_backend_image_is_bound_to_the_selected_accepted_attempt(case, tmp_path,
 
 def test_discovery_keeps_qualified_attempt_after_a_failed_rerun():
     module, client, _, responses, pins = _acceptance_fixture()
-    query = "workflows/deploy-dev.yml/runs?branch=main&event=workflow_dispatch&per_page=50&page=1"
+    query = "workflows/deploy-dev.yml/runs?event=workflow_dispatch&per_page=50&page=1"
     responses[query] = {
         "workflow_runs": [{"id": 10, "run_attempt": 3, "conclusion": "failure"}],
     }
@@ -298,9 +341,15 @@ def test_predecessor_refuses_untrusted_or_changed_github_artifacts(failure):
         client.accept(pins["dev"], "dev", SHA, "backend")
 
 
-@pytest.mark.parametrize("environment", ["uat", "production", "uat-one-chat"])
+@pytest.mark.parametrize("environment", ["uat", "production"])
 def test_every_release_image_mode_requires_predecessor_before_mutation(environment):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    source = (
+        "deploy-"
+        + environment
+        + ("-implementation" if environment in {"dev", "uat"} else "")
+        + ".yml"
+    )
+    workflow = yaml.safe_load((ROOT / ".github/workflows" / source).read_text())
     steps = workflow["jobs"]["deploy"]["steps"]
     gate = next(step for step in steps if step.get("id") == "predecessor-acceptance")
     if environment == "production":
@@ -326,7 +375,9 @@ def test_every_release_image_mode_requires_predecessor_before_mutation(environme
         assert mapping["if"] == "inputs.main_approval_sha != ''"
         assert '--sha "$APPLICATION_SHA"' in gate["run"]
         assert gate["env"]["APPLICATION_SHA"] == "${{ inputs.sha }}"
-        assert "main_approval_sha" not in gate["run"]
+        assert "main-source" in gate["run"]
+        assert "--environment production" in gate["run"]
+        assert '--approval-sha "$MAIN_APPROVAL_SHA"' in gate["run"]
     else:
         assert "if" not in gate
     scoped = environment == "uat-one-chat"
@@ -372,7 +423,13 @@ def test_every_release_image_mode_requires_predecessor_before_mutation(environme
 def test_release_status_never_treats_a_missing_classifier_as_healthy(
     environment, classified, tmp_path
 ):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    source = (
+        "deploy-"
+        + environment
+        + ("-implementation" if environment in {"dev", "uat"} else "")
+        + ".yml"
+    )
+    workflow = yaml.safe_load((ROOT / ".github/workflows" / source).read_text())
     steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
     step = next(step for step in steps if "release status artifact" in step.get("name", ""))
     script = str(step["run"]).split("export STATUS", 1)[0]
@@ -498,3 +555,63 @@ def test_cli_capability_probe_shares_the_original_read_deadline(monkeypatch):
         assert reader.bounded_github_read("jobs/200/logs", 5, allow_escape_sequences=True) == b"log"
     assert read.call_args_list[0].args[1] == 5
     assert read.call_args_list[1].args[1] == 4
+
+
+@pytest.mark.parametrize("failed_kind", [None, "functional", "smoke", "changed"])
+def test_direct_main_requires_functional_ci_and_smoke_without_uat(monkeypatch, failed_kind):
+    module, *_ = _acceptance_fixture()
+    monkeypatch.setenv("GH_TOKEN", "synthetic-token")
+    current = {"id": 21, "run_attempt": 2}
+    monkeypatch.setattr(
+        module.GitHub,
+        "read",
+        lambda self, path: {**current, "run_attempt": 3} if failed_kind == "changed" else current,
+    )
+    calls = []
+
+    def run(arguments, **kwargs):
+        env = kwargs["env"]
+        kind = (
+            "smoke" if env["REQUIRED_CHECK_NAME"] == "Main Post-Merge Smoke Gate" else "functional"
+        )
+        calls.append(kind)
+        assert env["REQUIRED_BRANCH"] == "main"
+        assert env["REQUIRE_LATEST_FUNCTIONAL_CI"] == ("1" if kind == "functional" else "0")
+        if kind == failed_kind:
+            return SimpleNamespace(returncode=1)
+        Path(env["DEPLOY_SHA_EVIDENCE_OUTPUT"]).write_text(
+            json.dumps(
+                {
+                    "repository": module.REPOSITORY,
+                    "sha": SHA,
+                    "source_branch": "main",
+                    "checks": [{"run_id": 21, "run_attempt": 2}],
+                    "authority_reads": {
+                        "runs/21": hashlib.sha256(
+                            json.dumps(current, sort_keys=True, separators=(",", ":")).encode()
+                        ).hexdigest()
+                    },
+                }
+            )
+        )
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(
+        module.GitHub, "find", mock.Mock(side_effect=AssertionError("No UAT fallback"))
+    )
+    args = SimpleNamespace(environment="production", sha=SHA, scope="all", approval_sha="")
+    if failed_kind:
+        reason = (
+            "changed during verification"
+            if failed_kind == "changed"
+            else f"Main {failed_kind} qualification"
+        )
+        with pytest.raises(module.Refused, match=reason):
+            module.main_source(args)
+    else:
+        proof = module.main_source(args)
+        assert proof["kind"] == "main-qualified-source"
+        assert proof["resolved_services"] == ["backend", "frontend"]
+        assert set(proof["qualification"]) == {"functional", "smoke"}
+    assert calls == (["functional"] if failed_kind == "functional" else ["functional", "smoke"])

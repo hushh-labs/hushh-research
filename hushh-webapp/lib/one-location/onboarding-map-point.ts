@@ -110,3 +110,20 @@ export function resolveOnboardingFinaleMapPoint(sources: {
   }
   return null;
 }
+
+export interface OnboardingPlaceSnapshot {
+  point: PlainLocationPoint | null;
+  address: string | null;
+  loadingAddress: boolean;
+  saving: boolean;
+  rendererDisclosureAccepted: boolean;
+}
+
+/** Fence private place copy before account-reset effects can run. */
+export function resolveOwnedOnboardingPlace(
+  userId: string | null | undefined,
+  sessionUserId: string | null | undefined,
+  place: OnboardingPlaceSnapshot,
+): OnboardingPlaceSnapshot | null {
+  return userId && userId === sessionUserId ? place : null;
+}

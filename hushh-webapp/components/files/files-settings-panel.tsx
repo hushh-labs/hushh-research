@@ -77,7 +77,7 @@ export function FilesSettingsPanel({
               settings.backgroundAvailable && settings.backgroundProvider
                 ? "New uploads only. View provider details below."
                 : settings.foregroundOnly
-                  ? "Set up your private agent for unattended organization."
+                  ? "Set up Agent One for unattended organization."
                   : "Unavailable. You can still turn it off."
             }
             trailing={

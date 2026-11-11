@@ -60,6 +60,7 @@ from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.stripe_connect_bank_payouts import StripeConnectBankPayouts
+from tests.helpers.drive_permission_claims import hold_uncertain_bulk_effect
 from tests.services.test_drive_request_bulk_postgres import (  # noqa: F401
     FILE_ACTIVITY_SELECTION,
     _recipient,
@@ -2544,7 +2545,9 @@ async def test_requester_payment_projection_does_not_expose_payout_owner():
 
 
 @pytest.mark.asyncio
-async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(monkeypatch):
+async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(monkeypatch, caplog):
+    caplog.set_level("INFO")
+
     def create_session(**params):
         # UAT Stripe rejected this legacy argument before opening Checkout.
         if "payment_method_types" in params:
@@ -2593,6 +2596,17 @@ async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(m
         if call.args[1].get("type") == "document_share_payment_ready"
     )
     assert create.call_args.kwargs["expires_at"] == binding["expires"]
+    timings = [r.getMessage() for r in caplog.records if "drive_stage.timing" in r.getMessage()]
+    for stage in (
+        "checkout_total",
+        "checkout_state",
+        "checkout_acceptance",
+        "checkout_reserve",
+        "checkout_stripe",
+        "checkout_bind",
+    ):
+        assert any(f"stage={stage} outcome=ok duration_ms=" in line for line in timings)
+    assert all(request_id not in line and "checkout.stripe.com" not in line for line in timings)
 
 
 @pytest.mark.asyncio
@@ -3719,11 +3733,7 @@ async def test_withdraw_and_decline_refuse_a_paid_or_shared_request(sharing, mon
 
     # A grant Google may already have applied is never withdrawable.
     with sharing.db.engine.begin() as connection:
-        connection.execute(
-            text("""UPDATE drive_bulk_share_effects SET state='dispatching'
-              WHERE share_id=:share AND position=1"""),
-            {"share": share_id},
-        )
+        hold_uncertain_bulk_effect(connection, sharing.sharing_cipher, share_id)
     for decision in ("cancelled", "declined"):
         with pytest.raises(DriveSharingError, match="request_paid"):
             await close(decision)

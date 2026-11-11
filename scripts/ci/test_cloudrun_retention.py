@@ -435,7 +435,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
     def production_cleanup_failure(self):
         run = {
             **self.trusted_source(123, "deploy-production.yml"),
-            "actor": {"login": "kushaltrivedi5"},
+            "actor": {"login": "kushaltrivedi5", "id": 2, "type": "User"},
             "conclusion": "failure",
         }
         steps = [
@@ -1184,7 +1184,8 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             "path": f".github/workflows/{workflow}",
             "head_branch": "main",
             "event": "workflow_dispatch",
-            "actor": {"login": "ankitkumarsingh1702"},
+            "actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
+            "triggering_actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
             "status": "completed",
             "conclusion": "success",
             "repository": {"full_name": "org/repo"},
@@ -1810,8 +1811,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
     def test_deployments_check_pending_mutations_inside_the_environment_lock(self):
         root = pathlib.Path(__file__).resolve().parents[2]
         for filename, environment in (
-            ("deploy-uat.yml", "uat"),
-            ("deploy-uat-one-chat.yml", "uat"),
+            ("deploy-uat-implementation.yml", "uat"),
             ("deploy-production.yml", "production"),
         ):
             with self.subTest(workflow=filename):
@@ -1847,7 +1847,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                     if permissions is None:
                         permissions = block(document, "permissions:")
                     self.assertIsNotNone(permissions)
-                    self.assertRegex(permissions, r"(?m)^\s+actions: read\s*$")
+                    self.assertRegex(permissions, r"(?m)^\s+actions: (?:read|write)\s*$")
                     guards = [step for step in re.split(r"(?m)(?=^      - )", job)
                               if "--check-mutations" in step]
                     self.assertEqual(len(guards), 1)
@@ -1861,12 +1861,13 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 )
                 with self.assertRaises(AssertionError):
                     check_actions_read(missing_read)
-                missing_token = source.replace(
+                prefix = source[:source.index("  deploy:\n") + len("  deploy:\n")]
+                missing_token = prefix + deploy.replace(
                     "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n", "", 1
                 )
                 with self.assertRaises(AssertionError):
                     check_actions_read(missing_token)
-                wrong_token = source.replace(
+                wrong_token = prefix + deploy.replace(
                     "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
                     "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}suffix\n", 1
                 )
@@ -2023,6 +2024,19 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             with self.subTest(event=event), mock.patch.object(MAINTENANCE, "api", return_value=jobs):
                 self.assertIs(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production", artifact), trusted)
 
+    def test_static_maintenance_label_requires_explicit_cleanup_for_checkpoint(self):
+        run = {**self.trusted_source(123, "capacity-maintenance.yml"), "conclusion": "failure"}
+        names = ("Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock",
+                 "Authenticate to production", "Save production cleanup checkpoint")
+        for modes, expected in ((["cleanup"], True), (["inspection"], False),
+                                ([], False), (["inspection", "cleanup"], False)):
+            job = {"name": "Production revision maintenance", "status": "completed", "steps": [
+                {"name": name, "conclusion": "success"} for name in names] + [
+                {"name": f"Maintenance mode: {mode}", "conclusion": "success" if mode in modes else "skipped"}
+                                                for mode in ("inspection", "cleanup")]}
+            with self.subTest(modes=modes), mock.patch.object(MAINTENANCE, "api", return_value={"jobs": [job], "total_count": 1}):
+                self.assertIs(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production"), expected)
+
     def test_maintenance_is_hourly_and_independent_of_deployments(self):
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
         source = (workflows / "capacity-maintenance.yml").read_text()
@@ -2043,7 +2057,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             # authority. Ordinary ticks retain the quiet due check.
             for line in text.splitlines():
                 if "--force-inspection" in line:
-                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true(?: \|\| -n "\$\{OPERATIONAL_RUN_ID:-\}\$\{STAGED_WORKER_RUN_ID:-\}")? \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+                    self.assertRegex(line.strip(), r'^if \[\[ "\$GITHUB_EVENT_NAME" = workflow_dispatch \]\]; then flags(?:=|\+=)\(--force-inspection\); fi$')
             self.assertIn('"$OPERATIONAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$OPERATIONAL_ATTEMPT" =~ ^[1-9][0-9]*$', text)
             self.assertIn('[[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1', text)
             concurrency = text.split("\nconcurrency:\n", 1)[1].split(
@@ -2101,6 +2115,24 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)
 
+    def test_capacity_clock_checkout_fetches_full_history_for_source_qualification(
+        self,
+    ):
+        workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        clock_source = (workflows / "capacity-maintenance-clock.yml").read_text()
+
+        def assert_full_history(text):
+            checkout = text.split("      - name: Checkout authority tooling\n", 1)[1]
+            checkout = checkout.split("\n      - name:", 1)[0]
+            self.assertRegex(checkout, r"(?m)^          fetch-depth: 0$")
+
+        assert_full_history(clock_source)
+        shallow_checkout = clock_source.replace(
+            "          fetch-depth: 0\n", "          fetch-depth: 1\n", 1
+        )
+        with self.assertRaises(AssertionError):
+            assert_full_history(shallow_checkout)
+
     def test_only_the_capacity_workflows_emit_its_dispatch_events(self):
         # A deploy workflow sending a tick would re-couple maintenance to releases.
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
@@ -2120,7 +2152,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         for path in sorted(workflows.glob("*.y*ml")):
             with self.subTest(workflow=path.name):
                 check_policy(path.name, path.read_text())
-        observer = (workflows / "release-cadence.yml").read_text()
+        observer = "name: Retired observer\non: {}\n"
         for broken in (observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-clock\n",
                        observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-tick\n",
                        observer + "\n  repository_dispatch:\n    types: [capacity-maintenance-clock, another]\n"):
@@ -2141,7 +2173,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 self.assertIn(prefix + "python3 scripts/ci/runtime-capacity-budget.py", line)
                 self.assertNotIn("--foreground", line)
 
-        for name in ("deploy-uat.yml", "deploy-uat-one-chat.yml", "deploy-production.yml"):
+        for name in ("deploy-uat-implementation.yml", "deploy-production.yml"):
             with self.subTest(workflow=name):
                 source = (workflow_dir / name).read_text()
                 check_deadlines(source)
@@ -2204,13 +2236,14 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                                 "org/repo", "123", pathlib.Path(temporary)
                             )
 
-    def test_source_is_authorized_before_any_cloud_access(self):
+    def test_historical_source_origin_is_verified_before_any_cloud_access(self):
+        human = {"login": "future-maintainer", "id": 3, "type": "User"}
         cases = (
-            ("uat", "ankitkumarsingh1702", "", "deploy-uat.yml", "org/repo", True),
-            ("uat", "unapproved-actor", "", "deploy-uat.yml", "org/repo", False),
+            ("uat", human, "", "deploy-uat.yml", "org/repo", True),
+            ("uat", {"login": "missing-identity"}, "", "deploy-uat.yml", "org/repo", False),
             (
                 "production",
-                "kushaltrivedi5",
+                human,
                 "123",
                 "deploy-production.yml",
                 "org/repo",
@@ -2218,16 +2251,16 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             ),
             (
                 "production",
-                "Roopmann30",
+                {"login": "missing-identity"},
                 "123",
                 "deploy-production.yml",
                 "org/repo",
                 False,
             ),
-            ("production", "kushaltrivedi5", "123", "untrusted.yml", "org/repo", False),
+            ("production", human, "123", "untrusted.yml", "org/repo", False),
             (
                 "production",
-                "kushaltrivedi5",
+                human,
                 "123",
                 "deploy-production.yml",
                 "fork/repo",
@@ -2248,7 +2281,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 output = directory / "output"
                 run = {
                     **self.trusted_source(123, workflow),
-                    "actor": {"login": actor},
+                    "actor": actor,
                     "head_repository": {"full_name": repository},
                 }
 
@@ -2731,7 +2764,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                         checkpoint = json.loads((state_dir / "completed.json").read_text())
                         self.assertEqual(checkpoint["pass_status"], "in_progress")
                     self.assertEqual(
-                        output.read_text(), ("checkpoint_ready=true\n" if release else "") + "cleanup_outcome=no_live_source\n"
+                        output.read_text(), ("checkpoint_ready=true\n" * 2 if release else "") + "cleanup_outcome=no_live_source\n"
                     )
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
@@ -2746,7 +2779,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             )
 
         for file, label in (
-            ("deploy-uat.yml", "UAT"),
+            ("deploy-uat-implementation.yml", "UAT"),
             ("deploy-production.yml", "production"),
         ):
             with self.subTest(environment=label):
@@ -2755,10 +2788,10 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 with self.assertRaises(AssertionError):
                     assert_separate(source.replace("--tags-only", ""), label)
 
-    def test_production_release_rejects_uat_source_and_uat_only_actor(self):
+    def test_production_release_rejects_foreign_source_and_malformed_identity(self):
         good = {
             **self.trusted_source(123, "deploy-production.yml"),
-            "actor": {"login": "kushaltrivedi5"},
+            "actor": {"login": "future-maintainer", "id": 3, "type": "User"},
         }
         healthy = {
             "status": "healthy",
@@ -3162,11 +3195,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             self.assertIn("--verify-source-only", check)
             self.assertIn("--release-run-id", check)
             if "--force-inspection" in check:
-                self.assertIn("CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}", check)
-                inspected = 'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi'
+                inspected = 'if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi'
                 self.assertIn(inspected, check)
                 self.assertNotIn("--force-inspection", check.replace(inspected, ""))
-                self.assertIn('OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}', check)
             self.assertNotIn("--apply", check)
             for i, step in enumerate(steps):
                 protected = any(
@@ -3202,7 +3233,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 assert_guarded(broken)
             if "--force-inspection" in job:
                 broken = job.replace(
-                    'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi',
+                    'if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi',
                     'if true; then flags=(--force-inspection); fi',
                 )
                 with self.assertRaises(AssertionError):

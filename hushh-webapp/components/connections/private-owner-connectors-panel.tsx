@@ -44,7 +44,7 @@ export function PrivateOwnerConnectorsPanel(props: {
     const entry = google.entries.find(item => item.connector === selected);
     const disabled = !google.enabled || google.busy !== null;
     const detail: ConnectorDetailPresentation | null = entry ? { kind: "private-google", status: entry.status, purpose: entry.purpose,
-      message: google.message, notes: ["Connect Google directly to your private agent. Your agent asks you to confirm changes."], busy: google.busy !== null,
+      message: google.message, notes: ["Connect Google directly to Agent One. Your agent asks you to confirm changes."], busy: google.busy !== null,
       actions: [
         ...(entry.allowChanges ? [{ label: "Allow changes", disabled, run: () => { void google.run(entry.connector, false); } }] : []),
         { label: google.busy === entry.connector ? "Working…" : entry.connected ? "Disconnect" : "Connect", disabled,
@@ -66,7 +66,7 @@ export function PrivateOwnerConnectorsPanel(props: {
       catalog: { query, search: value => { if (props.open && value.length <= 256) setQuery(value); }, show: () => select(null),
         status: access ? "ready" : "locked", groups: (["Connected", "Available"] as const).map(title => ({ title, entries: entries.filter(item => item.connected === (title === "Connected")) })),
         retry: async () => { await google.refresh(); return google.isCurrent(); } },
-      confirmation: review ? { title: "Replace Google access?", description: `This replaces all Google grants in the affected Google projects. Existing Google connections, including your private agent, will need sign-in again. ${review.services.join(", ")}`,
+      confirmation: review ? { title: "Replace Google access?", description: `This replaces all Google grants in the affected Google projects. Existing Google connections, including Agent One, will need sign-in again. ${review.services.join(", ")}`,
         action: "Replace and sign in", busy: false, confirm: google.transition.approveTransition, cancel: google.transition.cancelReview } : null,
       webBody });
   };

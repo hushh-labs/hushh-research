@@ -26,9 +26,12 @@ type MorphyButtonSize =
 export interface ButtonProps
   extends
     Omit<React.ComponentProps<typeof StockButton>, "variant" | "size">,
-    MorphyButtonBaseProps {
+    Omit<MorphyButtonBaseProps, "variant"> {
+  variant?: MorphyButtonBaseProps["variant"] | "plain";
   asChild?: boolean;
   size?: MorphyButtonSize;
+  /** Keep press feedback without painting a hover state layer. */
+  disableHoverRipple?: boolean;
   icon?: {
     icon: React.ComponentType<{ className?: string; weight?: IconWeight }>;
     title?: string;
@@ -38,7 +41,7 @@ export interface ButtonProps
 }
 
 function mapToStockVariant(variant: ButtonProps["variant"]) {
-  if (variant === "link") return "link" as const;
+  if (variant === "link" || variant === "plain") return variant;
   if (variant === "destructive") return "destructive" as const;
   return "ghost" as const;
 }
@@ -75,6 +78,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size = "default",
       asChild = false,
       showRipple = true,
+      disableHoverRipple = false,
       icon,
       fullWidth,
       loading = false,
@@ -87,7 +91,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const iconWeight = useIconWeight();
     const IconComponent = icon?.icon;
     const isDisabled = Boolean(disabled || loading);
-    const variantStyles = getVariantStyles(variant, effect);
+    const plain = variant === "plain";
+    const variantStyles = plain ? "" : getVariantStyles(variant, effect);
 
     const stockVariant = mapToStockVariant(variant);
     const stockSize = mapToStockSize(size);
@@ -152,8 +157,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         </span>
         {shouldShowRipple ? (
           <MaterialRipple
-            variant={variant}
+            variant={plain ? "none" : variant}
             effect={effect}
+            disableHover={disableHoverRipple || plain || (variant === "link" && effect === "fill")}
             disabled={isDisabled}
             className="z-10"
           />
@@ -181,7 +187,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           className={cn(
             "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
             variantStyles,
-            effect === "fill" && variant !== "none" && variant !== "link"
+            effect === "fill" && !plain && variant !== "none" && variant !== "link"
               ? "border border-transparent"
               : "border-transparent",
             isXl ? "h-16 px-12 text-lg" : "",
@@ -214,7 +220,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         className={cn(
           "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
           variantStyles,
-          effect === "fill" && variant !== "none" && variant !== "link"
+          effect === "fill" && !plain && variant !== "none" && variant !== "link"
             ? "border border-transparent"
             : "border-transparent",
           isXl ? "h-16 px-12 text-lg" : "",

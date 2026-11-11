@@ -29,7 +29,7 @@ const manifest = {
     {
       json_path: "seat_preferences",
       path_type: "object",
-      exposure_eligibility: true,
+      exposure_eligibility: false,
       segment_id: "seat_preferences",
     },
     {

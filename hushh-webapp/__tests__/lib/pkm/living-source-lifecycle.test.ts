@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   appendJournalGapMarkers,
   appendVerifiedLivingSourceChanges,
+  LIVING_VERIFICATION_PERSIST_MS,
+  livingSourceWriteDue,
   MAX_RETAINED_LIVING_SOURCE_CHANGES,
   reconcileLivingSources,
   type LivingJournalPending,
   type LivingSourceInput,
+  type LivingSourceInventory,
+  type LivingSourceWriteView,
 } from "@/lib/pkm/living-source-records";
 import { sourceReceipts } from "@/lib/pkm/living-source-receipts";
 import { collectDomainRows } from "@/lib/pkm/memory-complete-rows";
@@ -338,5 +342,56 @@ it("retains provenance backfill for an unchanged source", () => {
     createdAt: T1,
     updatedAt: T2,
     revision: 1,
+  });
+});
+
+it("keeps the first source time for an unchanged value, so a restamped read changes nothing", () => {
+  const first = reconcileLivingSources(null, [profile("Owner")], ["profile"], [], T1);
+  // Identity refresh restamps updated_at on every forced read.
+  const next = reconcileLivingSources(first, [{ ...profile("Owner"), updatedAt: T3 }], ["profile"], [], T2);
+  expect(next.records).toEqual(first.records);
+});
+
+describe("living source write decision", () => {
+  const at = (seconds: number) => new Date(Date.parse(T1) + seconds * 1000).toISOString();
+  const inventory = reconcileLivingSources(null, [profile("Owner"), consent], ["profile", "consent"], [], T1);
+  const view = (inv: LivingSourceInventory | undefined, extra: Partial<LivingSourceWriteView> = {}): LivingSourceWriteView => ({
+    inventory: inv, history: null, journalCursors: { connectors: "0", events: "0" },
+    journalPending: { version: 1, kinds: {} }, sourceHealth: { version: 1, kinds: {} }, ...extra,
+  });
+  const renewed = (seconds: number, kinds: string[] = []): LivingSourceInventory => ({
+    ...inventory, observedAt: at(seconds),
+    verifiedAt: { ...inventory.verifiedAt, ...Object.fromEntries(kinds.map(kind => [kind, at(seconds)])) },
+  });
+  const stored = view(inventory);
+
+  it("writes nothing when a pass only re-checked unchanged sources inside the window", () => {
+    expect(livingSourceWriteDue(stored, view(renewed(60, ["consent"])))).toBe(false);
+    expect(livingSourceWriteDue(stored, view(renewed(119)))).toBe(false);
+    // Health samples are bookkeeping too.
+    expect(livingSourceWriteDue(stored, view(inventory, { sourceHealth: { version: 1, kinds: {
+      consent: { lastLagMs: 5, lagSamplesMs: [5], lastVerifiedAt: T1 } } } }))).toBe(false);
+  });
+
+  it("writes a renewal two minutes from the stored time in either direction", () => {
+    expect(LIVING_VERIFICATION_PERSIST_MS).toBe(120_000);
+    expect(livingSourceWriteDue(stored, view(renewed(120)))).toBe(true);
+    // A stored time ahead of this clock within the tolerance (ordinary skew) is left alone;
+    // one further ahead is rewritten, because readers no longer call it current.
+    expect(livingSourceWriteDue(view(renewed(300, ["consent"])), view(renewed(200, ["consent"])))).toBe(false);
+    expect(livingSourceWriteDue(view(renewed(300, ["consent"])), view(renewed(180, ["consent"])))).toBe(true);
+  });
+
+  it("always writes content, a missing stored time and unreadable stored health", () => {
+    expect(livingSourceWriteDue(view(undefined), view(inventory))).toBe(true);
+    const edited = reconcileLivingSources(inventory, [profile("New"), consent], ["profile", "consent"], [], at(1));
+    expect(livingSourceWriteDue(stored, view(edited))).toBe(true);
+    expect(livingSourceWriteDue(stored, view({ ...inventory, complete: false }))).toBe(true);
+    expect(livingSourceWriteDue(stored, view({ ...inventory, unavailable: ["consent"] }))).toBe(true);
+    expect(livingSourceWriteDue(stored, view(inventory, { history: { version: 1, changes: [], nextSequence: 2 } }))).toBe(true);
+    expect(livingSourceWriteDue(stored, view(inventory, { journalCursors: { connectors: "1", events: "0" } }))).toBe(true);
+    expect(livingSourceWriteDue(stored, view(inventory, { journalPending: { version: 1, kinds: { consent: {} } } }))).toBe(true);
+    expect(livingSourceWriteDue(view(inventory, { sourceHealth: { version: 1, kinds: { consent: "bad" } } }), view(inventory))).toBe(true);
+    expect(livingSourceWriteDue(view({ ...inventory, verifiedAt: {} }), view(renewed(1, ["consent"])))).toBe(true);
   });
 });

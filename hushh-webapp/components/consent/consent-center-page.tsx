@@ -691,6 +691,8 @@ function buildConnectionEntries(
       counterpart_label: connection.displayName || "Someone",
       counterpart_email: connection.email || null,
       counterpart_image_url: connection.photoUrl || null,
+      counterpart_is_ria: connection.isRia,
+      counterpart_connected_from_contacts: connection.connectedFromContacts,
       issued_at: connection.createdAt,
     }),
   );
@@ -1657,7 +1659,7 @@ function ConsentEntryDetail({
             <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
               <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
                 onCheckedChange={(checked) => setModelApproval(checked === true ? { review: modelReviewBinding, epoch: snapshotVaultSessionEpoch() } : null)} />
-              <span>Allow this recipient’s private agent and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
+              <span>Allow this recipient’s Agent One and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
             </label>
           ) : null}
           {showDurationChoice ? (

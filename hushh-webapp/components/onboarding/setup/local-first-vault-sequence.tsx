@@ -80,7 +80,7 @@ export function GuidedConnectionScreen({
       icon={Cloud}
       titleId="one-setup-guided-connection-title"
       testId="one-setup-guided-connection"
-      title={agentReady ? "Your private agent is ready" : "One last connection"}
+      title={agentReady ? "Agent One is ready" : "One last connection"}
       body="What you told us is on this device, encrypted. Next it moves into your private records, which only your agent reads."
     >
       <Button

@@ -4,7 +4,6 @@
 """Read-only GitHub release observation and notification regressions."""
 import unittest
 import importlib.util
-import json
 import os
 import sys
 import tempfile
@@ -19,40 +18,19 @@ from test_release_cadence import REPOSITORY, NEW_POLICY, GOVERNANCE, FakeLedger,
 
 
 class MonitorTest(unittest.TestCase):
-    def test_disabled_cli_reports_certified_history_without_advancing_work(self):
-        policy = {**NEW_POLICY, "enabled": False}
-        ledger = FakeLedger(counted(10))
-        checkpoint = {"ledger_sha": "f" * 40, "state_sha256": core.state_digest(ledger.state),
-                      "checkpoint_at": "2026-10-22T09:14:34Z"}
-        before = deepcopy(ledger.state)
-        controller = run(100, core.CONTROLLER)
+    def test_retired_cli_refuses_before_ledger_access_or_dispatch(self):
         spec = importlib.util.spec_from_file_location("cadence_cli", Path(__file__).with_name("release-cadence.py"))
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)
-        with tempfile.TemporaryDirectory() as directory:
-            event = Path(directory, "event.json")
-            event.write_text("{}")
-            with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_RUN_ID": "100",
-                                         "GITHUB_EVENT_PATH": str(event), "RUNNER_TEMP": directory}), \
-                    patch.object(sys, "argv", ["release-cadence.py", "reconcile"]), \
-                    patch.object(cli, "configuration", return_value=(policy, GOVERNANCE)), \
-                    patch.object(github, "configuration", return_value=(policy, GOVERNANCE)), \
-                    patch.object(github, "run_info", return_value=controller), \
-                    patch.object(github, "Ledger", return_value=ledger), \
-                    patch.object(ledger, "verify_checkpoint", return_value=checkpoint), \
-                    patch.object(ledger, "save") as save, \
-                    patch.object(cli, "reconcile") as reconcile, \
-                    patch.object(github, "dispatch_pending") as dispatch:
-                self.assertEqual(cli.main(), 0)
-                snapshot = json.loads(Path(directory, "release-cadence-monitor.json").read_text())
-                self.assertEqual(snapshot, {"mode": "disabled", "state": before, "checkpoint": checkpoint})
-                save.assert_not_called()
-                reconcile.assert_not_called()
-                dispatch.assert_not_called()
-                with patch.object(ledger, "verify_checkpoint", side_effect=core.UnsafeRelease("checkpoint mismatch")):
-                    with self.assertRaisesRegex(core.UnsafeRelease, "checkpoint mismatch"):
-                        cli.main()
-        self.assertEqual(ledger.state, before)
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPOSITORY}), \
+                patch.object(sys, "argv", ["release-cadence.py", "reconcile"]), \
+                patch.object(github, "Ledger") as ledger, \
+                patch.object(github, "dispatch_pending") as dispatch:
+            with self.assertRaises(SystemExit) as refusal:
+                cli.main()
+            self.assertEqual(refusal.exception.code, 2)
+            ledger.assert_not_called()
+            dispatch.assert_not_called()
 
     def test_disabled_and_resumed_notifications_preserve_release_journal(self):
         state = counted(10)
@@ -343,7 +321,7 @@ class TestFlightCompletionTest(unittest.TestCase):
         original["run_attempt"] = 2
         stale = run(302, testflight.RESUME)
         stale_value = testflight.bind_recovery(run(201), upload, 302, 1, value)
-        recovery.update(run_attempt=2, triggering_actor={"login": "maintainer"})
+        recovery.update(run_attempt=2, triggering_actor={"login": "maintainer", "type": "User", "id": 1})
         value = testflight.bind_recovery(original, upload, 301, 2, value)
         inventory = {"total_count": 2, "workflow_runs": [stale, recovery]}
         def artifact(repo, identity, *args, **kwargs):
@@ -379,10 +357,14 @@ class TestFlightCompletionTest(unittest.TestCase):
 
     def test_original_requires_both_positive_steps_and_active_distribution(self):
         original, upload, _, _, _ = self.fixture()
-        for invalid in (None, "skipped-job", "skipped-step", "inactive"):
+        for invalid in (None, "legacy-label", "skipped-job", "skipped-step", "inactive"):
+            distribution_step = (
+                "Attach the same valid build to both TestFlight groups"
+                if invalid == "legacy-label" else "Attach the valid build to internal TestFlight testers"
+            )
             jobs = {"total_count": 1, "jobs": [{"name": "Process and distribute uploaded TestFlight build", "conclusion": "success",
                     "steps": [{"name": name, "conclusion": "success"} for name in (
-                        "Wait for valid TestFlight processing", "Attach the same valid build to both TestFlight groups")]}]}
+                        "Wait for valid TestFlight processing", distribution_step)]}]}
             distribution = {"internal": "active", "build_id": "apple-build-159"}
             if invalid == "skipped-job": jobs["jobs"][0]["conclusion"] = "skipped"
             if invalid == "skipped-step": jobs["jobs"][0]["steps"][0]["conclusion"] = "skipped"
@@ -391,8 +373,9 @@ class TestFlightCompletionTest(unittest.TestCase):
             with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
                     patch.object(github, "api", side_effect=lambda path: inventory if "/workflows/" in path else jobs), \
                     patch.object(github, "artifact_json", side_effect=lambda repo, identity, name, *args, **kwargs: upload if name == "testflight-upload-receipt" else distribution):
-                if invalid:
-                    with self.assertRaises(core.UnsafeRelease): testflight.completion(REPOSITORY, original, upload["source_sha"])
+                if invalid and invalid != "legacy-label":
+                    with self.assertRaises(core.UnsafeRelease):
+                        testflight.completion(REPOSITORY, original, upload["source_sha"])
                 else:
                     self.assertEqual(testflight.completion(REPOSITORY, original, upload["source_sha"]), {})
 

@@ -19,8 +19,8 @@
     "docs/reference/kai/kai-runtime-smoke-checklist.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task bug-triage",
-    "./bin/hushh codex impact bug-triage",
+    "./bin/hushh agents route-task bug-triage",
+    "./bin/hushh agents impact bug-triage",
     "./bin/hushh ci --include-advisory"
   ],
   "verification_bundle": {

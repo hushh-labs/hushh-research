@@ -1,10 +1,14 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { RequestScopeButton } from "@/components/consent/request-scope-button";
-const mocks = vi.hoisted(() => ({ gates: vi.fn(), create: vi.fn() }));
+const mocks = vi.hoisted(() => ({ gates: vi.fn(), create: vi.fn(), setup: vi.fn(), uid: "requester", unlocked: true, epoch: 0 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: "requester" } }),
+  useAuth: () => ({ user: { uid: mocks.uid }, userId: mocks.uid }),
 }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultOwnerToken: mocks.unlocked ? "owner-token" : null }) }));
+vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => mocks.epoch, isVaultSessionEpochCurrent: (epoch: number) => epoch === mocks.epoch }));
+vi.mock("@/lib/one-marketplace/key-bootstrap", () => ({ bootstrapCurrentUserMarketplaceRecipientKey: mocks.setup }));
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ({ open, onSuccess }: { open: boolean; onSuccess: () => void }) => open ? <div role="dialog" aria-label="Unlock receiving"><button onClick={() => { mocks.unlocked = true; mocks.epoch++; onSuccess(); }}>Unlock fixture</button></div> : null }));
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getIdToken: async () => "token" },
 }));
@@ -15,6 +19,58 @@ vi.mock("@/lib/services/answer-request-service", async (original) => ({
 beforeEach(() => {
   mocks.gates.mockReset();
   mocks.create.mockReset();
+  mocks.setup.mockReset().mockResolvedValue({ keyId: "local-key" });
+  mocks.uid = "requester";
+  mocks.unlocked = true;
+  mocks.epoch = 0;
+});
+
+it("does not send until secure receiving is published and retains the draft on failure", async () => {
+  mocks.gates.mockResolvedValue({ requests: true });
+  mocks.setup.mockRejectedValueOnce(new Error("Secure receiving is unavailable"));
+  render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
+  fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
+  const question = await screen.findByLabelText("Your question");
+  fireEvent.change(question, { target: { value: "What are your preferences?" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Secure receiving is unavailable");
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(question).toHaveValue("What are your preferences?");
+});
+
+it("fences publication across owner, vault and person changes", async () => {
+  mocks.gates.mockResolvedValue({ requests: true });
+  let finish!: () => void;
+  mocks.setup.mockReturnValue(new Promise<void>(resolve => { finish = resolve; }));
+  const view = render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
+  fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
+  fireEvent.change(await screen.findByLabelText("Your question"), { target: { value: "What are your preferences?" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  await waitFor(() => expect(mocks.setup).toHaveBeenCalled());
+  const guard = mocks.setup.mock.calls[0]![0].isCurrent;
+  expect(guard()).toBe(true);
+  mocks.epoch++;
+  expect(guard()).toBe(false);
+  mocks.uid = "other-owner";
+  view.rerender(<RequestScopeButton personRef="different-person" personName="Dev" />);
+  await act(async () => finish());
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Your question")).toHaveValue("");
+});
+
+it("keeps the question through unlock and waits for an intentional send", async () => {
+  mocks.unlocked = false;
+  mocks.gates.mockResolvedValue({ requests: true });
+  render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
+  fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
+  fireEvent.change(await screen.findByLabelText("Your question"), { target: { value: "What are your preferences?" } });
+  fireEvent.click(screen.getByRole("button", { name: "Unlock to send" }));
+  expect(await screen.findByRole("dialog", { name: "Unlock receiving" })).toBeVisible();
+  expect(mocks.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Unlock fixture" }));
+  expect(await screen.findByLabelText("Your question")).toHaveValue("What are your preferences?");
+  expect(mocks.setup).not.toHaveBeenCalled();
+  expect(mocks.create).not.toHaveBeenCalled();
 });
 
 // The regression: an unavailable deployment rendered a permanently disabled

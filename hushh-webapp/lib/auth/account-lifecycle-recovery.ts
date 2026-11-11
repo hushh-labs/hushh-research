@@ -4,7 +4,7 @@ import { parseAccountRegistrationRecovery, type AccountRegistrationRecovery } fr
 import type { AuthSessionInvalidationCode } from "./session-invalidation";
 import { hasJsonResponseContentType, readBoundedAccountSessionStatusBody, withinAccountSessionValidationBudget } from "./account-session-status";
 
-type Terminal = { outcome: "terminal"; code: AuthSessionInvalidationCode };
+type Terminal = { outcome: "terminal"; code: AuthSessionInvalidationCode; confirmedCleanup?: AccountCleanupOperation };
 // A registration result names the terminal evidence it replaces, so the caller
 // still runs that departure's device purge before offering a new account.
 type Recovery = Terminal | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery; departure?: AuthSessionInvalidationCode; confirmedCleanup?: AccountCleanupOperation };
@@ -15,12 +15,13 @@ const TERMINAL_REGISTRATION_REFUSALS: ReadonlySet<unknown> = new Set(["AUTH_ACCO
 const REPLACEMENT_OWNER = /^acct_[0-9a-f]{32}$/;
 
 /** Purpose-bound reads only. The AuthProvider caller retains owner/episode authority. */
-export async function resolveAccountLifecycleRecovery(idToken: string, deadlineMs: number, terminal: Terminal, departingOwner?: string): Promise<Recovery> {
+export async function resolveAccountLifecycleRecovery(idToken: string, deadlineMs: number, terminal: Terminal, departingOwner?: string, cleanupOperationId?: string): Promise<Recovery> {
   let knownTerminal = terminal;
   let confirmedCleanup: AccountCleanupOperation | undefined;
   if (terminal.code === "account_not_found" || terminal.code === "account_deleted") {
     try {
-      const response = await withinAccountSessionValidationBudget(ApiService.getAccountCleanupStatus(idToken), deadlineMs);
+      const response = await withinAccountSessionValidationBudget(
+        cleanupOperationId ? ApiService.getAccountCleanupStatus(idToken, cleanupOperationId) : ApiService.getAccountCleanupStatus(idToken), deadlineMs);
       if (response.ok && hasJsonResponseContentType(response)) {
         const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
         const operation = parseAccountCleanupOperation(body?.operation);
@@ -28,6 +29,9 @@ export async function resolveAccountLifecycleRecovery(idToken: string, deadlineM
         if (operation?.state === "complete") {
           knownTerminal = {outcome: "terminal", code: "account_deleted"};
           confirmedCleanup = operation;
+          if (operation.identity_removed) return { ...knownTerminal,
+            code: operation.cloud_cleanup?.state === "pending" ? "account_deleted_cloud_pending" : "account_deleted",
+            confirmedCleanup: operation };
         }
         else if (operation) return {outcome: "unavailable", cleanup: operation};
       }

@@ -23,14 +23,18 @@ describe("agent welcome prompts", () => {
       "Find 30 free minutes tomorrow afternoon",
       "Draft a thank-you email",
       "What do you remember about me?",
+      "Brief me on my mail",
+      "What did I spend last month?",
+      "Any overdue invoices?",
     ]);
   });
 
   it("never advertises a capability with no working chat tool", () => {
     // Portfolio review invents numbers (finance lane has no tools), Drive reads
     // show the wrong never-connected copy, and One has no bank-spending tool.
+    // Receipt spending is answered on the device from synced Mail receipts.
     const text = ALL_WELCOME_PROMPTS.join("\n").toLowerCase();
-    for (const unsupported of ["portfolio", "drive", "spend", "bank", "analyze", "share my"]) {
+    for (const unsupported of ["portfolio", "drive", "bank", "analyze", "share my"]) {
       expect(text).not.toContain(unsupported);
     }
   });

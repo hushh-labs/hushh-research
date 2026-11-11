@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Deploy a personal backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      sandbox:
+        description: Approved personal sandbox
+        type: choice
+        default: ankit
+        options:
+          - ankit
+          - akshat
+      sha:
+        description: Full commit SHA used to create the git archive
+        required: true
+        type: string
+      source:
+        description: Legacy pinned source object with its GCS generation
+        required: false
+        type: string
+      source_sha256:
+        description: SHA-256 of the legacy pinned source archive
+        required: false
+        type: string
+      reuse_build_id:
+        description: Successful Ankit sandbox Cloud Build ID for the same source (optional)
+        required: false
+        type: string
+
+permissions:
+  pull-requests: read
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-backend-dev-${{ inputs.sandbox }}
+  cancel-in-progress: false
+
+jobs:
+  deployment-security:
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha }}
+      environment_name: uat
+      scope: backend
+  deploy:
+    needs: deployment-security
+    if: >-
+      github.repository == 'hushh-labs/hushh-research' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: uat
+    env:
+      RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+      RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+    permissions:
+      contents: read
+      actions: write
+      id-token: write
+    steps:
+      - name: Require current-attempt deployment security
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Confirm deploy authority
+        env:
+          SANDBOX: ${{ inputs.sandbox }}
+          SOURCE_SHA: ${{ inputs.sha }}
+          REUSE_BUILD_ID: ${{ inputs.reuse_build_id }}
+          SOURCE_OBJECT: ${{ inputs.source }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+        shell: bash
+        run: |
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+          mode="$(bash deploy/deploy-personal-sandbox.sh --authorize)"
+          if [[ "$mode" == qualified ]]; then
+            python3 scripts/ci/qualify-akshat-sandbox-deploy-source.py "$SOURCE_SHA"
+            git -c tar.umask=0000 archive --format=tar "$SOURCE_SHA" consent-protocol contracts |
+              gzip -n > "$RUNNER_TEMP/hushh-sandbox-qualified-source.tar.gz"
+          fi
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Build and deploy the isolated revision
+        env:
+          SANDBOX: ${{ inputs.sandbox }}
+          SOURCE_SHA: ${{ inputs.sha }}
+          SOURCE_OBJECT: ${{ inputs.source }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          REUSE_BUILD_ID: ${{ inputs.reuse_build_id }}
+        run: bash deploy/deploy-personal-sandbox.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-dev-${{ inputs.sandbox }}-receipt
+          path: ${{ runner.temp }}/hushh-personal-backend
+          if-no-files-found: error

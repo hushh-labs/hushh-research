@@ -11,9 +11,9 @@ budget. PR-scoped saves of the Swift package clone (~4.5GB each) evicted the
 npm cache until that cache was removed on 2026-09-27, and at 20:00Z on
 2026-10-14 PR-scoped Next.js entries were 5.50GB of a 10.65GB budget.
 
-So PR Validation restores these two caches and never saves them, and one
-main-scoped workflow saves each. Both ways this breaks are silent, so this
-test checks them:
+So PR Validation restores the Next.js and Swift binary-download caches
+and never saves them, and trusted Main-owned workflows save each. Both ways
+this breaks are silent, so this test checks them:
 
 * a PR lane saves again (``actions/cache@`` instead of
   ``actions/cache/restore@``), which brings the eviction back;
@@ -36,14 +36,14 @@ SPM_SAVER = ".github/workflows/ios-swift-package-cache.yml"
 # (cache path, the PR Validation job that restores it, the workflow that saves it)
 CACHES = (
     ("hushh-webapp/.next/cache", "web-core-check", SMOKE),
-    ("${{ runner.temp }}/spm", "ios-native-check", SPM_SAVER),
+    ("${{ runner.temp }}/spm-cache/artifacts", "ios-native-check", SPM_SAVER),
 )
 MAIN_ONLY = "github.ref == 'refs/heads/main'"
 # The Xcode version in the Swift package key must be the Xcode that resolved.
 XCODE_FROM_KEY = "xcode-version: ${{ env.XCODE_VERSION }}"
 
 STEP_FIELD = re.compile(r"^(?:      - |        )(uses|id|if): (.*)$", re.M)
-WITH_FIELD = re.compile(r"^          (path|key): (.*)$", re.M)
+WITH_FIELD = re.compile(r"^          (path|key|lookup-only): (.*)$", re.M)
 RESTORE_KEYS = re.compile(r"^          restore-keys: \|\n((?:            .*\n?)+)", re.M)
 
 
@@ -83,6 +83,12 @@ def cache_scope_errors(read: Callable[[str], str] = _read) -> list[str]:
     errors: list[str] = []
     ci = read(CI)
     ci_cache_steps = [step for step in _steps(ci) if step.get("uses", "").startswith("actions/cache")]
+    # Restoring archives beside the obsolete multi-GiB clone cache defeats the fix.
+    for workflow_path in (CI, SPM_SAVER):
+        for step in _steps(read(workflow_path)):
+            if (step.get("uses", "").startswith("actions/cache")
+                    and step.get("path") == "${{ runner.temp }}/spm"):
+                errors.append(f"{workflow_path}: full Swift clone cache must not be restored or saved")
     for cache_path, job, saver_path in CACHES:
         for step in ci_cache_steps:
             if step.get("path") == cache_path and not step["uses"].startswith("actions/cache/restore@"):
@@ -110,7 +116,9 @@ def cache_scope_errors(read: Callable[[str], str] = _read) -> list[str]:
                 errors.append(f"{cache_path}: {field} differs between {CI} {job} and {saver_path}")
         if save.get("key") != f"${{{{ steps.{lookup.get('id')}.outputs.cache-primary-key }}}}":
             errors.append(f"{saver_path}: save {cache_path} under the key its lookup step resolved")
-        job_if = re.search(r"^    if: (.*)$", saver, re.M)
+        saver_job_name = {"hushh-webapp/.next/cache": "smoke-gate", "${{ runner.temp }}/spm-cache/artifacts": "save"}[cache_path]
+        saver_job = _job(saver, saver_job_name)
+        job_if = re.search(r"^    if: (.*)$", saver_job, re.M)
         if MAIN_ONLY not in save.get("if", "") and not (job_if and MAIN_ONLY in job_if.group(1)):
             errors.append(f"{saver_path}: save {cache_path} only from main ({MAIN_ONLY})")
 
@@ -136,6 +144,16 @@ def test_build_caches_are_saved_on_main_and_only_restored_by_prs() -> None:
     errors = cache_scope_errors()
     assert errors == [], "\n".join(errors)
 
+    saver = _read(SPM_SAVER)
+    spm_job = _job(saver, "save")
+    spm_condition = re.search(r"^    if: (.*)$", spm_job, re.M)
+    assert spm_condition and "github.event_name == 'schedule'" in spm_condition.group(1)
+    assert "github.event_name == 'workflow_dispatch'" in spm_condition.group(1)
+    triggers = saver.split("\njobs:\n", 1)[0]
+    assert "\n  pull_request:" not in triggers
+    assert "warm-playwright" not in saver
+    assert "ms-playwright" not in _read(CI)
+
 
 def test_guard_rejects_a_pr_save_and_a_drifted_key() -> None:
     """Negative control: each mutation is a regression the guard must catch."""
@@ -148,9 +166,19 @@ def test_guard_rejects_a_pr_save_and_a_drifted_key() -> None:
         mutated[path] = real[path].replace(old, new)
         return cache_scope_errors(mutated.__getitem__)
 
-    spm_restore = "uses: actions/cache/restore@v5\n        with:\n          path: ${{ runner.temp }}/spm"
+    spm_restore = "uses: actions/cache/restore@v5\n        with:\n          path: ${{ runner.temp }}/spm-cache/artifacts"
     errors = errors_after(CI, spm_restore, spm_restore.replace("cache/restore@", "cache@"))
     assert any("must use actions/cache/restore" in error for error in errors), errors
+
+    old_cache = """
+      - uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/spm
+          key: obsolete-clone-cache
+"""
+    mutated = dict(real)
+    mutated[CI] += old_cache
+    assert any("full Swift clone cache" in error for error in cache_scope_errors(mutated.__getitem__))
 
     errors = errors_after(SPM_SAVER, 'XCODE_VERSION: "26.3"', 'XCODE_VERSION: "26.4"')
     assert any("XCODE_VERSION, part of the key" in error for error in errors), errors
@@ -162,10 +190,25 @@ def test_guard_rejects_a_pr_save_and_a_drifted_key() -> None:
     assert any("only from main" in error for error in errors), errors
 
 
+
+def test_draft_fidelity_is_advisory_only() -> None:
+    ci = _read(CI)
+    advisory = _job(ci, "merge-fidelity-gate")
+    condition = re.search(r"^    if: (.*)$", advisory, re.M)
+    assert condition, "advisory merge-fidelity job must retain its event/base guard"
+    assert "github.event.pull_request.draft != true" in condition.group(1), (
+        "draft PRs should not spend a runner on this non-required advisory"
+    )
+    assert "merge-fidelity-gate" not in _job(ci, "ci-status"), (
+        "merge-fidelity must remain outside the required aggregate"
+    )
+
+
 def main() -> int:
     tests = (
         test_build_caches_are_saved_on_main_and_only_restored_by_prs,
         test_guard_rejects_a_pr_save_and_a_drifted_key,
+        test_draft_fidelity_is_advisory_only,
     )
     for test in tests:
         test()

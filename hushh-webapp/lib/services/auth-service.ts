@@ -12,29 +12,27 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import type { PhoneLinkIntent } from "@/lib/capacitor/types/auth";
 import {
   startDeletionPhoneProof, confirmDeletionPhoneProof, cancelDeletionPhoneProof, mintPhoneClaimIdToken,
-  startManualPhoneProof, isManualPhoneProof, withNativePhoneProofStart,
+  startManualPhoneProof, readManualPhoneLinkChallenge, withNativePhoneProofStart,
   type PhoneDeletionContext, type PhoneDeletionConfirmation, type PhoneClaimConfirmation,
 } from "./phone-deletion-verification";
+import { linkFirebasePhone, type PhoneLinkConflict } from "./firebase-phone-link";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
-import { getPhoneReliabilityFlags } from "@/lib/auth/phone-reliability";
 import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
 import {
   type ApplicationVerifier,
-  type ConfirmationResult,
   GoogleAuthProvider,
   getAdditionalUserInfo,
   OAuthProvider,
   PhoneAuthProvider,
-  linkWithCredential,
   linkWithPopup,
   signInWithCredential,
   signInWithPopup,
   reauthenticateWithPopup,
   reauthenticateWithCredential,
   signOut as firebaseSignOut,
-  updatePhoneNumber,
   User,
   onAuthStateChanged,
 } from "firebase/auth";
@@ -76,12 +74,16 @@ export interface AuthResult {
 
 export interface PhoneVerificationStartResult {
   autoVerified: boolean;
-  confirmationResult?: ConfirmationResult;
   verificationId?: string;
   user?: User | null;
 }
 
-type PhoneVerificationIntent = "link" | "replace";
+type PhoneLinkConfirmation = PhoneClaimConfirmation & {
+  expectedUserId: string;
+  phoneNumber: string;
+  requireCurrent?: () => void;
+  onConflictProof?: (phoneIdToken: string) => void;
+};
 const LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX = "local-dev-phone:";
 const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set([
   "localhost",
@@ -1498,7 +1500,7 @@ export class AuthService {
       resendCode?: boolean;
       timeout?: number;
       signal?: AbortSignal;
-      allowLinkedPhoneProof?: boolean;
+      expectedUserId?: string;
     },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("link", phoneNumber, options);
@@ -1520,21 +1522,21 @@ export class AuthService {
       resendCode?: boolean;
       timeout?: number;
       signal?: AbortSignal;
-      allowLinkedPhoneProof?: boolean;
+      expectedUserId?: string;
     },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("replace", phoneNumber, options);
   }
 
   private static async startPhoneVerification(
-    intent: PhoneVerificationIntent,
+    intent: PhoneLinkIntent,
     phoneNumber: string,
     options?: {
       recaptchaVerifier?: ApplicationVerifier;
       resendCode?: boolean;
       timeout?: number;
       signal?: AbortSignal;
-      allowLinkedPhoneProof?: boolean;
+      expectedUserId?: string;
     },
   ): Promise<PhoneVerificationStartResult> {
     const normalizedPhoneNumber = String(phoneNumber ?? "").trim();
@@ -1542,51 +1544,29 @@ export class AuthService {
       throw new Error("Phone number is required.");
     }
 
-    const currentPhoneNumber = String(
-      auth.currentUser?.phoneNumber ?? "",
-    ).trim();
-    const allowLinkedPhoneProof =
-      options?.allowLinkedPhoneProof === true &&
-      getPhoneReliabilityFlags().recovery;
-    if (
-      currentPhoneNumber &&
-      currentPhoneNumber === normalizedPhoneNumber &&
-      !allowLinkedPhoneProof
-    ) {
-      throw this.createPhoneVerificationError(
-        "phone-already-linked-to-current-user",
-        "This phone number is already linked to your account.",
-      );
-    }
-
-    if (
-      intent === "link" &&
-      currentPhoneNumber &&
-      currentPhoneNumber !== normalizedPhoneNumber
-    ) {
-      throw this.createPhoneVerificationError(
-        "phone-replace-required",
-        "Use Change phone number to replace the current number.",
-      );
-    }
-
     if (Capacitor.isNativePlatform()) {
-      try { return await withNativePhoneProofStart(options?.signal, async signal => {
-        const current = await this.restoreNativeSession({ nativeOnly: true });
-        if (signal.aborted) throw Object.assign(new Error("Your signed-in account changed. Start phone verification again."), { code: "session_changed" });
-        if (!current) throw new Error("Sign in before verifying a phone number.");
-        return startManualPhoneProof(normalizedPhoneNumber, current.uid, signal, options?.resendCode, options?.signal);
-      }); }
-      catch (error) { throw this.normalizePhoneVerificationError(error, "link_start"); }
+      try {
+        return await withNativePhoneProofStart(options?.signal, async signal => {
+          const current = await this.restoreNativeSession({ nativeOnly: true });
+          if (signal.aborted || !current || (options?.expectedUserId && current.uid !== options.expectedUserId)) {
+            throw this.createPhoneVerificationError("session_changed", "Your signed-in account changed.");
+          }
+          this.requirePhoneLinkIntent(intent, current, normalizedPhoneNumber);
+          return startManualPhoneProof({
+            phoneNumber: normalizedPhoneNumber, expectedUserId: current.uid, intent,
+            signal, resendCode: options?.resendCode, ownerSignal: options?.signal,
+          });
+        });
+      } catch (error) {
+        throw this.normalizePhoneVerificationError(error, intent === "replace" ? "replace_start" : "link_start");
+      }
     }
 
-    if (!auth.currentUser) {
-      throw new Error(
-        intent === "replace"
-          ? "You must be signed in before changing the phone number."
-          : "You must be signed in before linking a phone number.",
-      );
+    const current = auth.currentUser;
+    if (!current || (options?.expectedUserId && current.uid !== options.expectedUserId)) {
+      throw this.createPhoneVerificationError("session_changed", "Your signed-in account changed.");
     }
+    this.requirePhoneLinkIntent(intent, current, normalizedPhoneNumber);
 
     if (this.shouldUseLocalDevPhoneVerification(normalizedPhoneNumber)) {
       this.debugLog("[AuthService] Using local dev phone verification", {
@@ -1614,6 +1594,9 @@ export class AuthService {
         normalizedPhoneNumber,
         options?.recaptchaVerifier,
       );
+      if (auth.currentUser !== current) {
+        throw this.createPhoneVerificationError("session_changed", "Your signed-in account changed.");
+      }
 
       return {
         autoVerified: false,
@@ -1627,100 +1610,89 @@ export class AuthService {
     }
   }
 
-  static async confirmPhoneLinkVerification(params: {
-    verificationCode: string;
-    confirmationResult?: ConfirmationResult | null;
-    verificationId?: string | null;
-  }): Promise<User> {
+  private static requirePhoneLinkIntent(intent: PhoneLinkIntent, user: User, phone: string): void {
+    if (user.phoneNumber === phone) {
+      throw this.createPhoneVerificationError("phone-already-linked-to-current-user", "This phone number is already linked to your account.");
+    }
+    if (intent === "link" && user.phoneNumber) {
+      throw this.createPhoneVerificationError("phone-replace-required", "Use Change phone number to replace the current number.");
+    }
+  }
+
+  static async confirmPhoneLinkVerification(params: PhoneLinkConfirmation): Promise<User> {
     return this.confirmPhoneVerification("link", params);
   }
 
-  static getPhoneClaimIdToken(params: PhoneClaimConfirmation): Promise<string> {
+  static getPhoneClaimIdToken(params: PhoneClaimConfirmation | PhoneLinkConflict): Promise<string> {
     return mintPhoneClaimIdToken(params, (error) => this.normalizePhoneVerificationError(error, "link_confirm"));
   }
 
-  static isManualPhoneProof = isManualPhoneProof;
-
-  static async confirmPhoneReplacementVerification(params: {
-    verificationCode: string;
-    confirmationResult?: ConfirmationResult | null;
-    verificationId?: string | null;
-  }): Promise<User> {
+  static async confirmPhoneReplacementVerification(params: PhoneLinkConfirmation): Promise<User> {
     return this.confirmPhoneVerification("replace", params);
   }
 
-  private static async confirmPhoneVerification(
-    intent: PhoneVerificationIntent,
-    params: {
-      verificationCode: string;
-      confirmationResult?: ConfirmationResult | null;
-      verificationId?: string | null;
-    },
-  ): Promise<User> {
-    const verificationCode = String(params.verificationCode ?? "").trim();
-    if (!verificationCode) {
-      throw new Error("Verification code is required.");
-    }
-
+  static async reloadPhoneVerificationUser(expectedUserId: string): Promise<User | null> {
     if (Capacitor.isNativePlatform()) {
-      const verificationId = String(params.verificationId ?? "").trim();
-      if (!verificationId) {
-        throw new Error("Verification ID is required.");
-      }
-
-      try {
-        await FirebaseAuthentication.confirmVerificationCode({
-          verificationId,
-          verificationCode,
-        });
-      } catch (error) {
-        throw this.normalizePhoneVerificationError(
-          error,
-          intent === "replace" ? "replace_confirm" : "link_confirm",
-        );
-      }
-
-      const restoredUser = await this.restoreNativeSession();
-      if (!restoredUser) {
-        throw new Error(
-          "Phone verification completed but the native session could not be refreshed.",
-        );
-      }
-
-      return restoredUser;
+      const current = await this.restoreNativeSession({ nativeOnly: true });
+      if (current?.uid !== expectedUserId) return null;
+      await FirebaseAuthentication.reload();
+      return this.restoreNativeSession({ nativeOnly: true });
     }
+
+    const current = auth.currentUser;
+    if (current?.uid !== expectedUserId) return null;
+    await current.reload();
+    return auth.currentUser === current ? current : null;
+  }
+
+  private static async confirmPhoneVerification(
+    intent: PhoneLinkIntent,
+    params: PhoneLinkConfirmation,
+  ): Promise<User> {
+    const verificationCode = params.verificationCode.trim();
+    const verificationId = params.verificationId?.trim();
+    if (!verificationCode) throw new Error("Verification code is required.");
+    if (!verificationId) throw new Error("Verification ID is required.");
 
     try {
-      if (!auth.currentUser) {
-        throw new Error(
-          intent === "replace"
-            ? "You must be signed in before changing the phone number."
-            : "You must be signed in before linking a phone number.",
-        );
+      const isNative = Capacitor.isNativePlatform();
+      const current = isNative ? await this.restoreNativeSession({ nativeOnly: true }) : auth.currentUser;
+      const { expectedUserId, phoneNumber } = params;
+      if (current?.uid !== expectedUserId) {
+        throw this.createPhoneVerificationError("session_changed", "Your signed-in account changed.");
+      }
+      this.requirePhoneLinkIntent(intent, current, phoneNumber);
+
+      const nativeChallenge = isNative ? readManualPhoneLinkChallenge({
+        verificationId, expectedUserId, phoneNumber, intent,
+      }) : null;
+      const requireCurrent = () => {
+        params.requireCurrent?.();
+        if (nativeChallenge ? !nativeChallenge.isCurrent() : auth.currentUser !== current) {
+          throw this.createPhoneVerificationError("session_changed", "Your signed-in account changed.");
+        }
+      };
+      const idToken = await current.getIdToken();
+      requireCurrent();
+      const conflict = await linkFirebasePhone({
+        apiKey: auth.app.options.apiKey, tenantId: current.tenantId, idToken,
+        uid: expectedUserId, phoneNumber,
+        sessionInfo: nativeChallenge?.providerVerificationId ?? verificationId, code: verificationCode,
+      });
+      requireCurrent();
+      if (conflict) {
+        const phoneIdToken = await this.getPhoneClaimIdToken(conflict);
+        requireCurrent();
+        params.onConflictProof?.(phoneIdToken);
+        throw this.createPhoneVerificationError("credential-already-in-use", PHONE_CONFLICT_COPY.inApp);
       }
 
-      const verificationId = String(params.verificationId ?? "").trim();
-      if (!verificationId) {
-        throw new Error("Verification ID is required.");
+      const linked = await this.reloadPhoneVerificationUser(expectedUserId);
+      requireCurrent();
+      if (!linked || linked.phoneNumber !== phoneNumber) {
+        throw this.createPhoneVerificationError("phone_verification_failed", "The linked phone could not be confirmed.");
       }
-
-      const credential = PhoneAuthProvider.credential(
-        verificationId,
-        verificationCode,
-      );
-
-      if (intent === "replace") {
-        await updatePhoneNumber(auth.currentUser, credential);
-        await auth.currentUser.reload().catch(() => undefined);
-        return auth.currentUser;
-      }
-
-      const linkedCredential = await linkWithCredential(
-        auth.currentUser,
-        credential,
-      );
-      await linkedCredential.user.reload().catch(() => undefined);
-      return linkedCredential.user;
+      return linked;
     } catch (error) {
       throw this.normalizePhoneVerificationError(
         error,
@@ -1776,6 +1748,8 @@ export class AuthService {
       return this.createPhoneVerificationError("phone-verification-required", "This device no longer has the verification session. Request a new code.");
     if (code === "network-request-failed")
       return this.createPhoneVerificationError(code, "Phone verification is temporarily unavailable. Check your connection and retry.");
+    if (code === "phone-link-upgrade-required")
+      return this.createPhoneVerificationError(code, "Update the app to verify a phone number.");
     if (code === "phone_manual_sms_required")
       return this.createPhoneVerificationError(code, "A fresh manually entered SMS code is required. Request another code.");
     if (code === "session_changed")

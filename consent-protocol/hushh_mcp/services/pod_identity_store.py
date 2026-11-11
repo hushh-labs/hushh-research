@@ -240,10 +240,26 @@ async def restore_durable_private_key(*, storage: Any, dek: Any, log: logging.Lo
         log.warning("pod.durable_identity_unavailable", exc_info=True)
 
 
+async def initialize_pod_identity(*, storage: Any, dek: Any, log: logging.Logger) -> None:
+    """Restore and qualify identity before authority or background consumers start."""
+    from hushh_mcp.services.pod_self_registration import pod_key_is_durable, pod_keypair
+
+    await restore_durable_private_key(storage=storage, dek=dek, log=log)
+    pod_keypair()
+    try:
+        durable = pod_key_is_durable()
+    except Exception:  # noqa: BLE001 - an unreadable identity is never durable
+        durable = False
+    log.info("pod.identity durable=%s", durable)
+    if durable_identity_enabled() and not durable:
+        raise RuntimeError("POD_DURABLE_IDENTITY_UNAVAILABLE")
+
+
 __all__ = [
     "IDENTITY_KEY_OBJECT",
     "PodIdentityStoreError",
     "durable_identity_enabled",
+    "initialize_pod_identity",
     "load_or_create_private_key",
     "open_private_key",
     "resolve_durable_private_key_b64",

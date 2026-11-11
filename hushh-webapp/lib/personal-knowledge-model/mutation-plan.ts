@@ -53,8 +53,10 @@ export type PkmOwnerAutoSaveAuthorization = {
 
 /**
  * Product-default automatic capture for information a person intentionally
- * enters into One. This is not an owner-confirmed preference: audit records
- * must preserve that distinction until the owner actively changes the setting.
+ * enters into One, and for durable details the memory agents draw from the
+ * owner's in-app activity on this device (app_activity_*). This is not an
+ * owner-confirmed preference: audit records must preserve that distinction
+ * until the owner actively changes the setting.
  */
 export type PkmProductDefaultAutoSaveAuthorization = {
   authorizationMode: "product_default_auto_save_policy";
@@ -62,7 +64,8 @@ export type PkmProductDefaultAutoSaveAuthorization = {
   surface: "chat" | "web";
   source:
     | "agent_chat_product_default_auto_save"
-    | "kyc_identity_product_default_auto_save";
+    | "kyc_identity_product_default_auto_save"
+    | "app_activity_product_default_auto_save";
   autoSavePolicyVersion: 1;
   productDefaultEffectiveAt: string;
 };
@@ -444,7 +447,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
             : automatic
               ? params.confirmation.authorizationMode ===
                 "product_default_auto_save_policy"
-                ? `An eligible detail intentionally entered into One was saved under the product-default automatic capture policy in ${titleize(domain)} / ${titleize(scope)}.`
+                ? params.confirmation.source === "app_activity_product_default_auto_save"
+                  ? `Useful details from the owner's in-app activity on this device were saved under the product-default automatic capture policy in ${titleize(domain)} / ${titleize(scope)}.`
+                  : `An eligible detail intentionally entered into One was saved under the product-default automatic capture policy in ${titleize(domain)} / ${titleize(scope)}.`
                 : `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
               : `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`),
     affected_grant_ids: sharingImpact?.affectedGrantIds || [],

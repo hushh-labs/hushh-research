@@ -127,9 +127,9 @@ export default function DeleteAccountPage() {
           </li>
         </ul>
 
-        <h2 className={sectionHeading}>If you set up a private agent in your own cloud</h2>
+        <h2 className={sectionHeading}>If you set up Agent One in your own cloud</h2>
         <p className={bodyText}>
-          If your private agent runs in your own cloud account, the app asks you
+          If Agent One runs in your own cloud account, the app asks you
           to remove it before your account can be deleted. If that step doesn’t
           finish, email {SUPPORT_EMAIL} and we’ll help you remove it.
         </p>

@@ -94,6 +94,7 @@ def read_claim(run, artifact, command, **_):
                     "head_sha": run["head_sha"],
                     "head_branch": "main",
                     "status": "completed",
+                    "conclusion": "failure",
                     "steps": [
                         {
                             "name": "Upload production deploy artifacts",

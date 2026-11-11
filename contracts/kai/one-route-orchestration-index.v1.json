@@ -15,7 +15,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.chat.root",
-        "purpose": "Welcome anonymous visitors and provide the authenticated private-agent chat workspace.",
+        "purpose": "Welcome anonymous visitors and provide the authenticated Agent One chat workspace.",
         "screen": "chat",
         "entry_cue": "Ask One anything whenever you are ready.",
         "proactivity": "ambient",
@@ -1133,6 +1133,8 @@
       "canonical_screen": "login",
       "voice_contract_file": "app/login/page.voice-action-contract.json",
       "action_ids": [
+        "auth.deletion_done",
+        "auth.deletion_start_fresh",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",
@@ -1614,7 +1616,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.connect",
-        "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+        "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue. Multiple mutual connections open a paginated list on the mutuals query; a single mutual opens its profile directly. Profile Back returns to the same list, and list Back restores Find people. Explore your network opens the shared person preview journey with exact viewer-relative 1st, 2nd and 3rd filters. Consented profile connection lists and mutual lists can open further profiles in the same dialog, without growing route URLs.",
         "screen": "connect",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -1642,6 +1644,7 @@
       "action_ids": [
         "connect.accept_request",
         "connect.cancel_request",
+        "connect.explore_network",
         "connect.open_connections",
         "connect.open_nearby",
         "connect.open_people",
@@ -3545,7 +3548,7 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.pkm",
-        "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Private-agent memory remains private; editing and encrypted persistence retain their existing authority.",
+        "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Agent One memory remains private; editing and encrypted persistence retain their existing authority.",
         "screen": "pkm",
         "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
         "proactivity": "on_entry",
@@ -3786,6 +3789,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -3942,6 +3946,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -4012,6 +4017,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -4085,7 +4091,7 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.profile.connectors",
-        "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for the private agent.",
+        "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for Agent One.",
         "screen": "profile_connectors",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -4189,7 +4195,7 @@
         "completion_boundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
         "next_route": null,
         "return_policy": "stay",
-        "out_of_scope_behavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+        "out_of_scope_behavior": "Agent One may explain the screen; claim decisions require the person's protected review controls."
       },
       "interaction_layer_policy": {
         "allowed_families": []
@@ -4605,7 +4611,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.payouts",
-        "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
+        "purpose": "Help the person manage payout setup, earnings and transaction history without changing consent or financial authority.",
         "screen": "profile_payouts",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -4830,7 +4836,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.preferences.gemini",
-        "purpose": "Help the person manage the selected AI connection without exposing a credential to the private agent.",
+        "purpose": "Help the person manage the selected AI connection without exposing a credential to Agent One.",
         "screen": "profile_preferences",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -5886,7 +5892,7 @@
         "playbook_id": "route.one.setup.cloud",
         "purpose": "Choose verified hosting, then configure AI access in the same agent setup wizard.",
         "screen": "one_setup_cloud",
-        "entry_cue": "Choose where your private agent lives, then choose its AI access.",
+        "entry_cue": "Choose where Agent One lives, then choose its AI access.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.finish_cloud",
         "happy_path_action_ids": [
@@ -5931,7 +5937,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.setup.cloud.azure.return",
-        "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+        "purpose": "Finish the Microsoft sign-in that sets up or updates the person's Agent One in their own Azure subscription, without exposing credentials.",
         "screen": "one_setup_cloud",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -6025,7 +6031,7 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.connections",
-        "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to the private agent.",
+        "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to Agent One.",
         "screen": "one_setup_connections",
         "entry_cue": "Use the verified cloud connection, or validate a supported owner key.",
         "proactivity": "on_entry",
@@ -6341,7 +6347,7 @@
           "callback_error": "Use the verified current route and its generated actions only.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "The Location introduction finishes when its completion marker is saved and the setup hub settles. Device location access is requested later from the Location workspace.",
+        "completion_boundary": "The two-screen Location introduction finishes when its completion marker is saved and the setup hub settles. Your place requests foreground access on entry, offers a retry if needed, saves through the existing transaction, or advances with Set up later. Denial never blocks completion. Optional details, contacts and join tasks use sheets; no sharing starts implicitly.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6425,7 +6431,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.todos",
-        "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+        "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",

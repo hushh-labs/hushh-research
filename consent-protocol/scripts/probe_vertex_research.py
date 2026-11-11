@@ -85,6 +85,7 @@ async def _probe_attribution(client) -> dict:
                 },
             },
             max_output_tokens=2048,
+            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
         ),
     )
     if not response.candidates or response.candidates[0].finish_reason != types.FinishReason.STOP:

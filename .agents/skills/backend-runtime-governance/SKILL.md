@@ -58,7 +58,7 @@ Non-owned surfaces:
 4. Treat consent validation, trust, and audit rules as `security-audit` concerns when they become the primary boundary.
 5. Treat `uv` as the canonical Python toolchain for contributor and CI flows; `requirements*.txt` are generated runtime artifacts, not the source of dependency truth.
 6. For backend bootstrap, packaging, or runtime-governance changes, rerun the authoritative service checks once directly and once again through the canonical repo entrypoint.
-7. When a backend runtime failure is visible in UAT or CI, use `./bin/hushh codex rca --surface runtime --text` or `--surface uat --text` first so service fixes are anchored to the blocking runtime classification instead of log-chasing.
+7. When a backend runtime failure is visible in UAT or CI, use `./bin/hushh agents rca --surface runtime --text` or `--surface uat --text` first so service fixes are anchored to the blocking runtime classification instead of log-chasing.
 8. For slow or intermittently "unreachable" endpoints, run the async runtime performance health check before editing: confirm whether the asyncio event loop is blocked by a synchronous call (DB client, external SDK) rather than a slow DB, then apply the `run_in_threadpool`/`asyncio.to_thread` offload and the layered caching strategy in `references/async-runtime-performance.md`. Never call the synchronous `db/db_client.py` client or a blocking SDK directly from an `async def` handler.
 
 ## Handoff Rules
@@ -72,5 +72,5 @@ Non-owned surfaces:
 
 ```bash
 cd consent-protocol && python3 -m pytest tests/services -q
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 ```

@@ -148,7 +148,7 @@ def _check_agents(errors: list[str]) -> None:
     if not AGENTS_DIR.exists():
         errors.append(f"missing directory: {AGENTS_DIR.relative_to(REPO_ROOT)}")
         return
-    for path in sorted(AGENTS_DIR.glob("*.toml")):
+    for path in sorted(AGENTS_DIR.glob("*.md")):
         text = _read(path)
         required = ["Truth-first protocol:", *CLAIM_LABELS, *HANDOFF_TOKENS]
         for phrase in required:

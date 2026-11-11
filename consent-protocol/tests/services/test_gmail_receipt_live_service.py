@@ -589,9 +589,8 @@ async def test_unverified_category_is_rejected(confidence, quote):
         }
 
     service._extractor = extract
-    with pytest.raises(GmailApiError) as caught:
-        await _scan(service)
-    assert caught.value.code == "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"
+    counts = (await _scan(service))["coverage"]["rejection_counts"]
+    assert counts["extractor_not_receipt"] == 1  # Excluded and counted; the page still returns.
 
 
 def _service(messages: list[dict], calls: list[httpx.Request] | None = None):
@@ -1147,10 +1146,8 @@ async def test_one_message_model_failure_is_asked_once_more(monkeypatch, failure
     assert result["items"][0]["amount"] == 10.0
 
 
-@pytest.mark.parametrize(
-    "code", ["GMAIL_RECEIPT_EXTRACTION_INVALID", "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"]
-)
-async def test_permanent_extraction_failure_is_not_retried(code):
+async def test_permanent_extraction_failure_is_not_retried():
+    code = "GMAIL_RECEIPT_EXTRACTION_INVALID"  # Unverified answers are asked once more.
     service = _service(
         [
             _message(

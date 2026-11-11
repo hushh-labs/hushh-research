@@ -1,71 +1,116 @@
-"""Pure CI topology assertions shared by the existing lane-partition gate."""
+"""Pure assertions for the required split web and database CI topology."""
+
 from collections.abc import Mapping
 import re
 
-def _job_block(workflow: str, job: str, next_job: str) -> str:
+
+def _job_block(workflow: str, job: str) -> str:
     start = workflow.index(f"  {job}:\n")
-    end = workflow.index(f"\n  {next_job}:\n", start)
+    following = re.search(r"\n  [a-z][a-z0-9-]*:\n", workflow[start + 1 :])
+    end = start + 1 + following.start() if following else len(workflow)
     return workflow[start:end]
 
 
-def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwright: str) -> None:
+def _assert_job_name(block: str, name: str) -> None:
+    assert f'    name: "{name}"' in block, f"job name must be {name}"
 
-    job_ids = re.findall(r"^  ([a-z][a-z0-9-]*):$", workflow, re.M)
-    assert len(job_ids) == len(set(job_ids)), "CI workflow has duplicate job IDs"
 
-    targeted = _job_block(workflow, "web-targeted-check", "web-full-suite-check")
-    entries = re.findall(
-        r'- part: (node|browser)\n\s+label: ([\w-]+)\n\s+shard: "([^"]*)"', targeted
+def _assert_targeted_node(workflow: str) -> None:
+    node = _job_block(workflow, "web-targeted-check")
+    _assert_job_name(node, "Web Targeted Contracts (node)")
+    assert "WEB_TARGETED_PART: node" in node
+    assert "WEB_TARGETED_FULL_SUITE_OWNED: ${{ inputs.production_recovery_sha == '' && 'static' || '0' }}" in node
+    assert "needs['preflight-gate'].outputs.frontend == 'true'" in node
+    assert "run: bash scripts/ci/orchestrate.sh web-targeted" in node
+    assert "playwright install" not in workflow
+    assert "web-targeted-browser:" not in workflow
+    assert "document-webkit-check:" not in workflow
+    assert "WEB_BROWSER" not in workflow and "DOCUMENT_WEBKIT" not in workflow
+    assert "run: bash scripts/ci/integration-check.sh --ci-core" in workflow
+
+
+def _assert_unit_job(workflow: str) -> None:
+    unit = _job_block(workflow, "web-full-suite-check")
+    _assert_job_name(unit, "Web Unit Contracts")
+    assert "fail-fast: false" in unit and "max-parallel: 3" in unit
+    assert "needs: [preflight-gate, ui-contracts]" in unit
+    assert "needs['preflight-gate'].outputs.frontend == 'true'" in unit
+    assert "fromJSON(needs.ui-contracts.outputs.unit_matrix" in unit
+    assert "WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}" in unit
+    assert "run: bash scripts/ci/orchestrate.sh web-full-suite" in unit
+    for shard in ("1/1", "1/3", "2/3", "3/3"):
+        assert f"name: Verify unit shard ({shard})" in unit
+        assert f"if: matrix.shard == '{shard}'" in unit
+    planner = _job_block(workflow, "ui-contracts")
+    assert "unit_matrix: ${{ steps.unit-plan.outputs.matrix }}" in planner
+    assert "affected-tests.mjs unit-matrix" in planner
+    assert 'CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"' in planner
+    assert "- *ci_impact" in planner
+    assert "fetch-depth: 0" in planner
+
+
+def _assert_database_pair(workflow: str) -> None:
+    first = _job_block(workflow, "protocol-database-check")
+    second = _job_block(workflow, "protocol-database-check-two")
+    _assert_job_name(first, "Protocol Database (1/2)")
+    _assert_job_name(second, "Protocol Database (2/2)")
+    assert 'CI_DATABASE_SHARD: "1"' in first
+    assert 'CI_DATABASE_SHARD: "2"' in second
+    assert "strategy:" not in first and "strategy:" not in second
+    assert "PROTOCOL_TEST_PARTITION: database" in first
+    assert 'PROTOCOL_DATABASE_SHARD_COUNT: "2"' in first
+    assert "run: bash scripts/run-test-ci.sh" in first
+    assert "services: *database_services" in second
+    assert "steps: *database_steps" in second
+
+
+def _assert_status_gate(workflow: str) -> None:
+    gate = _job_block(workflow, "ci-status")
+    required_jobs = (
+        "web-targeted-check",
+        "web-full-suite-check",
+        "protocol-database-check",
+        "protocol-database-check-two",
     )
-    assert [(part, shard) for part, _, shard in entries] == [
-        ("node", ""), ("browser", "1/4"), ("browser", "2/4"),
-        ("browser", "3/4"), ("browser", "4/4")
-    ], "run node once and all four browser shards"
-    assert len({label for _, label, _ in entries}) == 5, "matrix names must be unique"
-    assert 'name: "Web Targeted Contracts (${{ matrix.label }})"' in targeted
-    assert "name: web-targeted-npm-audit-report-${{ matrix.label }}" in targeted
-    assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
-    assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
-    execution = targeted.split("      - name: Run targeted web contract checks\n", 1)[1].split("\n      - name:", 1)[0]
-    assert execution.count("PLAYWRIGHT_SHARD:") == 1, "duplicate PLAYWRIGHT_SHARD environment key"
-    assert "timeout-minutes: 30" in targeted
-    assert "fail-fast: false" in targeted
-
-    editor_perf = _job_block(
-        workflow, "web-editor-performance-check", "web-full-suite-check"
-    )
-    assert "runs-on: macos-15" in editor_perf
-    assert "npm run test:layout-editor-performance" in editor_perf
-    assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]
-    # Absolute motion timing remains mandatory on macOS in both engines;
-    # Linux keeps the companion semantic/geometry case, not a disabled test.
-    motion = scripts["test:layout-editor-performance"]
-    assert "e2e/history-motion.layout.spec.ts" in motion
-    assert "100 KB paste|@motion-performance" in motion
-    assert "--project=chromium --project=webkit" in motion
-    assert "--workers=1" in motion
-    assert r"/history-motion\.layout\.spec\.ts/" in playwright
-    assert "e2e/history-motion.layout.spec.ts" not in scripts["test:connections-layout"]
-
-    full = _job_block(workflow, "web-full-suite-check", "ios-native-check")
-    shards = re.search(r"shard: \[([0-9, ]+)\]", full)
-    assert shards, "web-full-suite-check has no shard matrix"
-    indexes = [int(value) for value in shards.group(1).split(",")]
-    count = len(indexes)
-    assert indexes == list(range(1, count + 1)), f"shards must be 1..N, got {indexes}"
-    assert f"WEB_FULL_SUITE_SHARD: ${{{{ matrix.shard }}}}/{count}" in full
-    assert f'${{{{ matrix.shard }}}}/{count}"' in full, (
-        "the job name must show the shard count"
-    )
-    assert "fail-fast: false" in full
-
-    gate = workflow[workflow.index("  ci-status:") :]
-    assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
+    needs = gate.split("    needs:\n", 1)[1].split("\n    if:", 1)[0]
+    for job in required_jobs:
+        assert f"- {job}" in needs, f"ci-status must need {job}"
     assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
-    assert '[ "$WEB_TARGETED" != "success" ]' in gate
+    assert "WEB_FULL_SUITE=\"${{ needs['web-full-suite-check'].result }}\"" in gate
     assert (
-        "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\""
+        "PROTOCOL_DATABASE=\"${{ needs['protocol-database-check'].result }}\"" in gate
+    )
+    assert (
+        "PROTOCOL_DATABASE_TWO=\"${{ needs['protocol-database-check-two'].result }}\""
         in gate
     )
-    assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
+    assert (
+        'if [ "${{ needs[\'preflight-gate\'].outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then'
+        in gate
+    )
+    assert (
+        'if [ "${{ needs[\'preflight-gate\'].outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then'
+        in gate
+    )
+    assert (
+        'if [ "${{ needs[\'preflight-gate\'].outputs.backend }}" = "true" ] && [ "$PROTOCOL_DATABASE" != "success" ]; then'
+        in gate
+    )
+    assert (
+        'if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi'
+        in gate
+    )
+    assert not re.search(r"^  web-editor-performance-check:$", workflow, re.M)
+    assert "WEB_EDITOR_PERF" not in gate
 
+
+def assert_web_lane_topology(
+    workflow: str, scripts: Mapping[str, str], playwright: str
+) -> None:
+    job_ids = re.findall(r"^  ([a-z][a-z0-9-]*):$", workflow, re.M)
+    assert len(job_ids) == len(set(job_ids)), "CI workflow has duplicate job IDs"
+    _assert_targeted_node(workflow)
+    _assert_unit_job(workflow)
+    _assert_database_pair(workflow)
+    _assert_status_gate(workflow)
+    assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]

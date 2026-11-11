@@ -2,7 +2,7 @@ import type { User } from "firebase/auth";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
-import { PhoneRecoveryService, type LinkedDeletionProof, type LinkedDeletionReceipt } from "@/lib/services/phone-recovery-service";
+import { PhoneRecoveryService, type LinkedDeletionReceipt } from "@/lib/services/phone-recovery-service";
 
 export type LinkedDeletionInput = { operationId: string; phoneNumber: string; testCode?: string; readbackOnly?: boolean };
 type RetainedProof = { token: string; userId: string; epoch: number } | null;
@@ -36,7 +36,7 @@ const MESSAGES: Record<string, string> = {
   PHONE_TRANSFER_IN_PROGRESS: "A phone transfer is still finishing. Verify this number again in a moment.",
   PHONE_LINKED_DELETION_SUPPORT_REQUIRED: "We couldn’t confirm the deletion. Check again, or contact one@hushh.ai.",
   PHONE_LINKED_DELETION_PREPARED: "Couldn’t reach One. Try again.",
-  PHONE_LINKED_CLAIM_REQUIRED: "The other account was deleted. Verify this number again to continue.",
+  PHONE_LINKED_CLAIM_REQUIRED: "Deletion requested. Verify this number again to continue.",
   PHONE_LINKED_CLAIM_UNCONFIRMED: "We couldn’t confirm that this number was linked. Verify it again, or contact one@hushh.ai.",
 };
 
@@ -59,12 +59,12 @@ function linkedError(code: string): ApiError {
 
 const unsettled = (receipt: LinkedDeletionReceipt | null) => !receipt || ["prepared", "pending", "action_required"].includes(receipt.state);
 
-/** Delete the holder with the proof already in hand, then claim the number through existing routes. */
+/** Settle the existing deletion request; a consumed SMS proof cannot link the new owner. */
 export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: LinkedDeletionPorts): Promise<User> {
   const user = ports.user();
   if (!user) throw new Error("Sign in before verifying a phone number.");
-  const retained = input.testCode ? null : ports.retained();
-  if (!input.testCode) {
+  const retained = input.testCode || input.readbackOnly ? null : ports.retained();
+  if (!input.testCode && !input.readbackOnly) {
     // AuthProvider's owner fence binds the retained proof to this signed-in attempt.
     try {
       if (!retained) throw new Error("No retained phone proof.");
@@ -75,16 +75,15 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   }
   const current = () => {
     if (!ports.isCurrent() || ports.user()?.uid !== user.uid) return false;
-    if (!retained) return Boolean(input.testCode);
+    if (!retained) return Boolean(input.testCode || input.readbackOnly);
     if (ports.retained() !== retained) return false;
     try { ports.requireOwner(retained.userId, retained.epoch); return true; } catch { return false; }
   };
   if (!current()) throw new Error("Your account changed. Sign in again.");
-  const proof: LinkedDeletionProof = input.testCode ? { test_code: input.testCode } : { phone_id_token: retained!.token };
   // A typed refusal is definite; a lost response is read back, never re-sent.
   let receipt = await (input.readbackOnly
     ? PhoneRecoveryService.linkedDeletionStatus(user, input.operationId, current)
-    : PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, proof, current))
+    : PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, input.testCode ? { test_code: input.testCode } : { phone_id_token: retained!.token }, current))
     .catch((error: unknown) => {
       const code = apiErrorCode(error);
       if (code && !input.readbackOnly && code !== "PHONE_LINKED_DELETION_NOT_FOUND" &&
@@ -97,15 +96,19 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
     if (!current()) throw new Error("Your account changed. Sign in again.");
     receipt = await PhoneRecoveryService.linkedDeletionStatus(user, input.operationId, current).catch(() => receipt);
   }
+  if (!current()) throw new Error("Your account changed. Sign in again.");
   // A read-back that is still unsettled stays unconfirmed; it never reads as a refusal.
   if (unsettled(receipt)) throw linkedError("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
   const deleted = receipt!.state === "admitted";
-  // NOT_FOUND after proof means no live holder remains: the ordinary claim decides.
+  // A settled refusal never proves that Firebase released the number.
   if (!deleted && receipt!.code !== "PHONE_LINKED_ACCOUNT_NOT_FOUND") {
     throw linkedError(receipt!.code ?? `PHONE_LINKED_DELETION_${receipt!.state.toUpperCase()}`);
   }
+  if (!input.testCode) {
+    throw linkedError(deleted ? "PHONE_LINKED_CLAIM_REQUIRED" : "PHONE_LINKED_ACCOUNT_CHANGED");
+  }
   try {
-    await claimNumber(user, input.phoneNumber, proof, current);
+    await claimTestNumber(user, input.phoneNumber, input.testCode, current);
   } catch (error) {
     if (!current()) throw error;
     // The claim may have committed before a network or server failure. Do not
@@ -118,18 +121,13 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   return user;
 }
 
-async function claimNumber(user: User, phone: string, proof: LinkedDeletionProof, current: () => boolean): Promise<void> {
-  let identity;
-  if (proof.test_code) {
-    const start = await AccountIdentityService.startUatTestPhoneVerification(user, phone, current);
-    if (!current()) throw new Error("Your account changed. Sign in again.");
-    requireUsablePhoneTestStart(start);
-    if (!start?.eligible || !start.verification_id) throw new Error("Phone verification is unavailable.");
-    identity = await AccountIdentityService.confirmUatTestPhoneVerification(user,
-      { phoneNumber: phone, verificationCode: proof.test_code, verificationId: start.verification_id }, current);
-  } else {
-    identity = await AccountIdentityService.claimCurrentUserPhone(user, proof.phone_id_token!, current);
-  }
+async function claimTestNumber(user: User, phone: string, testCode: string, current: () => boolean): Promise<void> {
+  const start = await AccountIdentityService.startUatTestPhoneVerification(user, phone, current);
+  if (!current()) throw new Error("Your account changed. Sign in again.");
+  requireUsablePhoneTestStart(start);
+  if (!start?.eligible || !start.verification_id) throw new Error("Phone verification is unavailable.");
+  const identity = await AccountIdentityService.confirmUatTestPhoneVerification(user,
+    { phoneNumber: phone, verificationCode: testCode, verificationId: start.verification_id }, current);
   if (!current()) throw new Error("Your account changed. Sign in again.");
   if (!AccountIdentityService.hasVerifiedPhone(identity)) throw new Error("Phone verification could not be completed.");
 }

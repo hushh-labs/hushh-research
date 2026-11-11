@@ -143,7 +143,7 @@ describe("first onboarding message", () => {
     expect(screen.queryByRole("button", { name: "Like response" })).toBeNull();
 
     await waitFor(() =>
-      expect(bubble.textContent).toContain("Welcome, Kushal. I'm One, your private agent on Hussh."),
+      expect(bubble.textContent).toContain("Welcome, Kushal. I'm Agent One on Hussh."),
     );
     await waitFor(() => expect(bubble.getAttribute("data-message-status")).toBe("done"));
     // Typed out: the welcome mounted streaming (the bubble's own typing hook

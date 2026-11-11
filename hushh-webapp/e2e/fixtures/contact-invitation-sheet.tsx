@@ -48,15 +48,22 @@ function Harness() {
   return <ContactInvitationSheet controller={controller} onFinish={() => {}} />;
 }
 
+const MATCHES = Array.from({ length: 9 }, (_, index) => ({
+  lookupId: "lookup-" + index,
+  userId: "person-" + index,
+  displayName: "Matched person " + (index + 1),
+  photoUrl: null,
+  outcome: "already_connected" as const,
+}));
 const RESULT: OneLocationContactSignalResult = {
-  matches: [],
-  matchedUserIds: [],
-  totalContacts: 40,
-  readContactCount: 40,
-  checkedContactCount: 40,
-  matchedContactCount: 0,
+  matches: MATCHES,
+  matchedUserIds: MATCHES.map((person) => person.userId),
+  totalContacts: 76,
+  readContactCount: 76,
+  checkedContactCount: 49,
+  matchedContactCount: 9,
   unmatchedContactCount: 40,
-  uncheckableContactCount: 0,
+  uncheckableContactCount: 27,
   excludedSelfContactCount: 0,
   lookupLimitedContactCount: 0,
   lookupLimitExceeded: false,
@@ -65,13 +72,13 @@ const RESULT: OneLocationContactSignalResult = {
   uncheckedContactCount: 0,
   inviteCandidateCount: 40,
   autoConnectedCount: 0,
-  alreadyConnectedCount: 0,
+  alreadyConnectedCount: 9,
   requestRequiredCount: 0,
   suppressedCount: 0,
   completedBatchCount: 1,
   totalBatchCount: 1,
   partial: false,
-  sourcePlatform: "ios",
+  sourcePlatform: "google",
   region: null,
   limited: false,
   truncated: false,
@@ -93,7 +100,7 @@ function SyncNotificationHarness() {
   useEffect(() => {
     if (!ready || !candidates.length) return;
     const isCurrent = captureSession();
-    const id = toast.info("No eligible contacts matched", {
+    const id = toast.info("Contact sync complete", {
       duration: Infinity,
       action: {
         label: "Invite them",
@@ -119,7 +126,7 @@ function SyncNotificationHarness() {
         syncing={false}
         onSyncAgain={() => {}}
         onInvite={() => {
-          void openInvitations(async () => null);
+          void openInvitations(async () => SHARE);
         }}
         onRequestConnection={async () => {}}
         invitations={invitations}

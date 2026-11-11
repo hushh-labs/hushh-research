@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const attemptObservations = vi.hoisted(() => ({
+  capture: vi.fn(() => ({ started: vi.fn(), settled: vi.fn() })),
+}));
+vi.mock("@/lib/observability/product-activity-client", () => ({ captureProductAttempt: attemptObservations.capture }));
+
 const mockTransport = vi.hoisted(() => ({
   runAgent: vi.fn(),
   addMessage: vi.fn(),
@@ -162,7 +167,70 @@ import {
 const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
 
+describe("chat attempt observation boundary", () => {
+  beforeEach(() => {
+    publishValidatedAuthSessionOwner("user-1");
+    attemptObservations.capture.mockClear();
+    mockTransport.runAgent.mockClear();
+    mockTransport.outcome = "success";
+    mockTransport.emitEvents = null;
+    mockTransport.failWith = null;
+    mockTransport.endWithoutTerminal = false;
+    mockTransport.aborted = false;
+    mockTransport.readBody = false;
+  });
+  afterEach(() => {
+    mockTransport.outcome = "success";
+    mockTransport.emitEvents = null;
+    mockTransport.failWith = null;
+    mockTransport.endWithoutTerminal = false;
+    mockTransport.aborted = false;
+  });
+  const input = { vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "PRIVATE_MESSAGE_BODY",
+    messageId: "12345678-1234-1234-1234-123456789012", vaultOwnerToken: "owner-token" };
+  it("captures only opaque owner/action identity and a genuine final response", async () => {
+    const result = await streamAgentChat({ ...input, specialistFocus: "email" });
+    expect(result.text).toBe("Hello");
+    expect(attemptObservations.capture).toHaveBeenCalledExactlyOnceWith("chat:agent_email", "user-1", input.messageId);
+    const capture = attemptObservations.capture.mock.results[0].value;
+    expect(capture.started).toHaveBeenCalledOnce();
+    expect(capture.settled).toHaveBeenCalledExactlyOnceWith("returned");
+    expect(JSON.stringify(attemptObservations.capture.mock.calls)).not.toContain(input.message);
+  });
+  it.each(["interrupt", "eof", "transport", "server_error"])("classifies %s without inventing a terminal", async (mode) => {
+    if (mode === "interrupt") mockTransport.outcome = "interrupt";
+    if (mode === "eof") mockTransport.endWithoutTerminal = true;
+    if (mode === "transport") mockTransport.failWith = new Error("Network unavailable");
+    if (mode === "server_error") mockTransport.emitEvents = subscriber => {
+      subscriber.onRunErrorEvent({ event: { type: "RUN_ERROR", code: "MODEL_UNAVAILABLE", message: "private error" } });
+      mockTransport.aborted = true;
+    };
+    await streamAgentChat(input).catch(() => undefined);
+    const capture = attemptObservations.capture.mock.results[0].value;
+    if (mode === "server_error") expect(capture.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    else expect(capture.settled).not.toHaveBeenCalled();
+  });
+});
+
 describe("One chat key transport", () => {
+  it("counts each assembled model request once and prefers provider token usage", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const onContextUsage = vi.fn();
+    mockTransport.emitEvents = subscriber => {
+      const emit = (modelCallId: string, inputTokens: number, tokenCountMethod: string) =>
+        subscriber.onCustomEvent({ event: { name: "hussh.chat_context_usage", value: { modelCallId, inputTokens, tokenCountMethod } } });
+      emit("run:1", 42000, "conservative_utf8_bytes");
+      emit("run:1", 11000, "provider_usage");
+      emit("run:1", 42000, "conservative_utf8_bytes");
+      emit("run:2", 43000, "conservative_utf8_bytes");
+      emit("bad", -1, "provider_usage");
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      vaultOwnerToken: "owner-token", handlers: { onContextUsage } });
+    expect(onContextUsage.mock.calls.map(([usage]) => [usage.modelCallId, usage.inputTokens]))
+      .toEqual([["run:1", 11000], ["run:2", 43000]]);
+  });
+
   it("forwards a valid selected Calendar zone for one turn, then returns to the device zone", async () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();
@@ -894,6 +962,26 @@ describe("AG-UI Agent One client", () => {
   });
 
   it.each([
+    // Negative control: while the brief card rendered, this row read "Mail could not complete that read."
+    { status: "ok", cards: ["one.mail_brief.v1"], expected: "Mail read finished.", mail_brief: { schema_version: "mail_brief.v1",
+      checked_at: "2026-10-29T06:00:00Z", requested: ["meetings"], failed: [], counts_by_category: { meetings: 0 }, items: [], coverage: {} } },
+    { status: "receipt_functions_required", cards: [], expected: "Handed to your receipts; no mail was read." },
+  ])("reports the Mail read's own $status live and after reload, whichever card renders", async ({ status, cards, expected, ...extra }) => {
+    const [onToolResult, onStructuredExperience] = [vi.fn(), vi.fn()];
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "mail-call", toolCallName: "ask_email_agent" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "mail-call", content: JSON.stringify({ status, ...extra,
+        structured: { schema_version: "specialist_read.v1", connector: "mail", status, sources: [], truncated: false, metadata_only: true } }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Brief me", vaultOwnerToken: "fixture",
+      handlers: { onToolResult, onStructuredExperience } });
+    expect(onToolResult.mock.calls[0][0].message).toBe(expected);
+    expect(onStructuredExperience.mock.calls.filter(([, id]) => id === "mail-call").map(([card]) => card.type)).toEqual(cards);
+    expect(parseRestoredTurnActivity({ activityType: "one.turn_activity.v1", content: { steps: [
+      { id: "mail-call", tool: "ask_email_agent", status: "done", readStatus: status }] } })[0]?.message).toBe(expected);
+  });
+
+  it.each([
     [{ status: "shown", suggestions: ["Find a free hour after 2pm", "Move standup to 9:30"] },
       ["Find a free hour after 2pm", "Move standup to 9:30"]],
     // Negative controls: only a valid server-shown result becomes chips.
@@ -1233,12 +1321,10 @@ describe("AG-UI Agent One client", () => {
     await streamAgentChat({ ...turn, message: "Add priya@example.com to cc", pendingEmailDraft });
     await streamAgentChat({ ...turn, message: "What is on my calendar?", pendingEmailDraft: null });
 
-    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pendingEmailDraft).toEqual(
-      pendingEmailDraft,
-    );
-    expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty(
-      "pendingEmailDraft",
-    );
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pendingEmailDraft).toEqual(pendingEmailDraft);
+    expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty("pendingEmailDraft");
+    // Every typed turn names the draft card version it reads, with or without a draft on screen.
+    expect(mockTransport.runAgent.mock.calls.map(([run]) => run.forwardedProps.emailDraftContract)).toEqual([2, 2]);
   });
 
   it("never forwards a legacy receipt index, including receipt questions", async () => {
@@ -1273,16 +1359,14 @@ describe("AG-UI Agent One client", () => {
     const stream = (events: unknown[]) => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(stream([
       { type: "RUN_STARTED", threadId: "thread-1", runId: "native-1" },
-      { type: "TOOL_CALL_START", toolCallId: "streamed-call", toolCallName: "receipt_spending" },
-      { type: "TOOL_CALL_ARGS", toolCallId: "streamed-call", delta: JSON.stringify(query) },
+      { type: "TOOL_CALL_START", toolCallId: "streamed-call", toolCallName: "receipt_spending" }, { type: "TOOL_CALL_ARGS", toolCallId: "streamed-call", delta: JSON.stringify(query) },
       { type: "STATE_SNAPSHOT", snapshot: {} },
       { type: "MESSAGES_SNAPSHOT", messages: [{ id: "native-assistant", role: "assistant", toolCalls: [{ id: remapped ? "final-call" : "streamed-call", type: "function", function: { name: "receipt_spending", arguments: "{}" } }] }] },
       { type: "TOOL_CALL_END", toolCallId: "streamed-call" },
       { type: "RUN_FINISHED", threadId: "thread-1", runId: "native-1" },
     ])).mockResolvedValueOnce(stream([
       { type: "RUN_STARTED", threadId: "thread-1", runId: "native-2" },
-      { type: "TEXT_MESSAGE_START", messageId: "answer", role: "assistant" },
-      { type: "TEXT_MESSAGE_CONTENT", messageId: "answer", delta: "SYNTHETIC_PRIVATE_MERCHANT paid 7.00" },
+      { type: "TEXT_MESSAGE_START", messageId: "answer", role: "assistant" }, { type: "TEXT_MESSAGE_CONTENT", messageId: "answer", delta: "SYNTHETIC_PRIVATE_MERCHANT paid 7.00" },
       { type: "TEXT_MESSAGE_END", messageId: "answer" },
       { type: "RUN_FINISHED", threadId: "thread-1", runId: "native-2" },
     ]));
@@ -1290,25 +1374,26 @@ describe("AG-UI Agent One client", () => {
     try {
       await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant",
         handlers: { onReceiptPrivate: () => events.push("private"), onToken: () => events.push("token"), onToolResult } });
-      expect(receiptTools.run).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1" }), "receipt_spending", query);
+      expect(receiptTools.run.mock.calls).toEqual([[expect.objectContaining({ userId: "user-1" }), "receipt_spending", query]]);
       expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
       expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).not.toHaveProperty("receiptToolResults");
       expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.receiptToolResults).toEqual([{ toolCallId: "streamed-call", toolName: "receipt_spending", request: query, result }]);
-      expect(events[0]).toBe("private");
-      expect(events).toContain("token");
-      expect(JSON.stringify(mockTransport.addMessage.mock.calls)).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
-      expect(JSON.parse(mockTransport.addMessage.mock.calls[0][0].content)).toEqual({ schema: "receipt_result.v1", operation: "receipt_spending", ephemeral_result: true });
-      expect(JSON.stringify(onToolResult.mock.calls)).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
+      // Only the receipt replies continue; a replayed question started a second run (UAT 2026-10-29).
+      const continuation = JSON.parse(String((vi.mocked(ApiService.agentChatRequest).mock.calls[1][1] as RequestInit).body));
+      expect(continuation.messages).toEqual([expect.objectContaining({ role: "tool", toolCallId: "streamed-call", content: JSON.stringify({ schema: "receipt_result.v1", operation: "receipt_spending", ephemeral_result: true }) })]);
+      expect(events[0]).toBe("private"); expect(events).toContain("token");
+      expect(JSON.stringify([mockTransport.setMessages.mock.calls, onToolResult.mock.calls])).not.toMatch(/SYNTHETIC_PRIVATE|7\.00/);
       expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
     } finally { mockTransport.nativeMode = false; }
   });
 
-  it("refuses the receipt continuation after an owner vault transition", async () => {
-    publishValidatedAuthSessionOwner("user-1");
+  // A bound call the device can't admit is an explicit error, never a silent drop; Stop ends a device sync's wait at once.
+  it.each(["authority changed", "doesn't match this owner turn", "cancelled"])("refuses the receipt continuation: %s", async refusal => {
+    publishValidatedAuthSessionOwner("user-1"); const stop = new AbortController();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    mockTransport.emitEvents = subscriber => subscriber.onToolCallEndEvent({ event: { toolCallId: "stale-receipt" }, toolCallName: "receipt_spending", toolCallArgs: { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 } });
-    receiptTools.run.mockImplementation(async () => { advanceVaultSessionEpoch(); return { private_amount: "7.00" }; });
-    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant" })).rejects.toThrow("authority changed");
+    mockTransport.emitEvents = subscriber => subscriber.onToolCallEndEvent({ event: { toolCallId: "stale-receipt" }, toolCallName: "receipt_spending", toolCallArgs: refusal === "doesn't match this owner turn" ? {} : { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 } });
+    receiptTools.run.mockImplementation(async () => refusal === "cancelled" ? (setTimeout(() => stop.abort(), 5), new Promise(() => undefined)) : (advanceVaultSessionEpoch(), { private_amount: "7.00" }));
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant", signal: stop.signal })).rejects.toThrow(refusal);
     expect(mockTransport.runAgent).toHaveBeenCalledOnce();
     expect(mockTransport.setMessages).toHaveBeenLastCalledWith([]);
   });
@@ -1445,7 +1530,7 @@ describe("AG-UI Agent One client", () => {
     mockTransport.failWith = Object.assign(new Error("private transport detail"), {
       code: "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY",
     });
-    const expected = "Your private agent connection is not ready. Open Hosting in Settings to reconnect, then try again.";
+    const expected = "Agent One connection is not ready. Open Hosting in Settings to reconnect, then try again.";
     try {
       await expect(streamAgentChat({
         vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
@@ -1489,6 +1574,7 @@ describe("AG-UI Agent One client", () => {
 
   it.each([true, false])("resumes MCP through native confirmation with private approval=%s", async (confirm) => {
     publishValidatedAuthSessionOwner("user-1");
+    attemptObservations.capture.mockClear();
     const reference = { kind: "mcp_call_review", version: 1,
       connectorId: "custom_test", toolName: `mcp_${"a".repeat(40)}`,
       directiveId: `dir_${"b".repeat(32)}`, pendingHandle: `one_secret_ref:${"c".repeat(32)}`,
@@ -1505,6 +1591,8 @@ describe("AG-UI Agent One client", () => {
     await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Use connector", conversationId: "thread-mcp",
       vaultOwnerToken: "owner-token", handlers: { onMcpReview, onToolWaiting } });
     expect(onMcpReview).toHaveBeenCalledTimes(1);
+    const capture = attemptObservations.capture.mock.results[0].value;
+    expect(capture.settled).not.toHaveBeenCalled();
     expect(onToolWaiting).not.toHaveBeenCalled();
     const review = onMcpReview.mock.calls[0][0];
     expect(review.activityIds).toEqual(["tool-1", "original"]);
@@ -1514,7 +1602,7 @@ describe("AG-UI Agent One client", () => {
     expect(mockTransport.runAgent).toHaveBeenCalledTimes(1);
     mockTransport.outcome = "success";
     mockTransport.emitEvents = null;
-    await review.resume(confirm ? approval : null);
+    await review.resume(confirm ? approval : null, undefined, confirm ? { onToken: vi.fn() } : undefined);
     const parameters = mockTransport.runAgent.mock.calls[1][0];
     expect(parameters.resume).toEqual([{ interruptId: "interrupt-1", status: "resolved", payload: { confirmed: confirm } }]);
     expect(parameters.forwardedProps.mcpApproval).toEqual(confirm ? approval : undefined);
@@ -1522,12 +1610,15 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(parameters.resume)).not.toContain(reference.pendingHandle);
     await expect(review.resume(confirm ? approval : null)).rejects.toThrow("already used");
     expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+    expect(attemptObservations.capture).toHaveBeenCalledTimes(1);
+    expect(capture.settled).toHaveBeenCalledExactlyOnceWith("returned");
     expect(review.isCurrent()).toBe(true);
     advanceVaultSessionEpoch();
     expect(review.isCurrent()).toBe(false);
   });
 
   it("restores a native review without replaying the user's turn and gives each continuation fresh handlers", async () => {
+    attemptObservations.capture.mockClear();
     const { recoverMcpReviews } = await import("@/lib/agent/mcp-review-recovery");
     publishValidatedAuthSessionOwner("user-1");
     const reference = { kind: "mcp_call_review", version: 1,
@@ -1564,6 +1655,7 @@ describe("AG-UI Agent One client", () => {
     expect(mockTransport.runAgent.mock.calls[1][1].initialMessages).toEqual([]);
     await expect(review.resume(approval)).rejects.toThrow("no longer active");
     expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+    expect(attemptObservations.capture).not.toHaveBeenCalled();
   });
 
   it("discards a recovered review when the owner changes during its history response", async () => {

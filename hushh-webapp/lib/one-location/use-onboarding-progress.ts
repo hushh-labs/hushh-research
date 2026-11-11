@@ -8,8 +8,8 @@ function readScreen(key: string | null): OneLocationOnboardingScreen {
   try {
     const screen = window.sessionStorage.getItem(key);
     if (screen === "ready" || screen === "features") return screen;
-    // A saved "place" checkpoint restarts at Features: the place draft is
-    // memory-only, so a remounted editor must capture a fresh one.
+    // Legacy "place" checkpoints resume the merged Your place screen.
+    // Only the authored screen name is retained, never the place itself.
   } catch {
     // Storage can be unavailable; mounted navigation still works.
   }

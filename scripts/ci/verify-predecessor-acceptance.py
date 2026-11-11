@@ -15,8 +15,10 @@ import importlib.util
 import json
 import os
 import re
+import runpy
 import subprocess
 import time
+from tempfile import TemporaryDirectory
 from io import BytesIO
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
@@ -25,6 +27,9 @@ REPOSITORY = "hushh-labs/hushh-research"
 LANES = {"dev": "hushh-pda-dev", "uat": "hushh-pda-uat"}
 SERVICES = {"backend": "consent-protocol", "frontend": "hushh-webapp"}
 MAX_BYTES = 1024 * 1024
+RECORDED_RECOVERY_SHA = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+RECORDED_RECOVERY_UAT = {"run_id": 40736875956, "run_attempt": 1, "artifact_id": 12840002854}
+RECORDED_RECOVERY_UAT_DIGEST = "sha256:d45488c50a7fb5f844d69f794c57a74334db5a48bff5d63578a06350ab68f71d"
 
 
 # Receipts are also executed from a preserved main-owned tooling directory.
@@ -185,7 +190,7 @@ class GitHub:
             run.get("id") == run_id
             and run.get("run_attempt") == attempt
             and run.get("path") == f".github/workflows/deploy-{environment}.yml"
-            and run.get("head_branch") == "main"
+            and run.get("head_branch") in {"main", environment}
             and run.get("event") == "workflow_dispatch"
             and run.get("status") == "completed"
             and run.get("conclusion") == "success"
@@ -196,6 +201,10 @@ class GitHub:
         artifact = self.read(f"artifacts/{artifact_id}")
         _provenance.validate_artifact(artifact, pin, environment, MAX_BYTES)
         receipt = unpack(self.read(f"artifacts/{artifact_id}/zip", binary=True), artifact["digest"])
+        authority = _provenance.deployment_authority(run, environment)
+        if authority["caller_branch"] != "main":
+            require(receipt.get("workflow_authority") == authority,
+                    "Acceptance implementation provenance does not match GitHub")
         require(
             receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
             "Receipt belongs to another attempt",
@@ -217,15 +226,12 @@ class GitHub:
             )
         if environment == "uat":
             predecessor = receipt.get("predecessor", {})
-            require(
-                predecessor.get("environment") == "dev"
-                and predecessor.get("sha") == sha
-                and predecessor.get("status") == "accepted",
-                "UAT has no exact-SHA dev acceptance",
-            )
-            previous = predecessor.get("services", {}).get(service)
-            require(isinstance(previous, dict), "UAT has no dev receipt for this service")
-            self.accept(previous, "dev", sha, service)
+            if predecessor.get("kind") == "uat-exact-ci":
+                authority = _provenance.deployment_authority(run, environment)
+                require(predecessor.get("authority_sha") == authority["tooling_sha"], "UAT workflow authority changed")
+                _verify_direct_uat(predecessor, sha, {service}, current=False)
+            else:
+                self._accept_dev_predecessor(predecessor, sha, service)
         return {
             "run_id": run_id,
             "run_attempt": attempt,
@@ -236,22 +242,73 @@ class GitHub:
             **({"image_reference": image_reference} if image_reference is not None else {}),
         }
 
+    def _accept_dev_predecessor(self, predecessor: dict, sha: str, service: str) -> None:
+        _validate_dev_predecessor(predecessor, sha, {service})
+        previous = predecessor.get("services", {}).get(service)
+        require(isinstance(previous, dict), "UAT has no dev receipt for this service")
+        self.accept(previous, "dev", sha, service)
+
+    def accept_testflight_backend(
+        self, *, sha: str, run_id: int, revision: str, image_digest: str,
+        source_branch: str = "uat-isolated",
+    ) -> dict:
+        """Bind an exact UAT release receipt to the backend currently serving TestFlight."""
+        require(source_branch in {"uat", "uat-isolated"}, "Unknown protected UAT source")
+        run = self.read(f"runs/{run_id}")
+        attempt = run.get("run_attempt")
+        require(
+            run.get("id") == run_id and type(attempt) is int and attempt > 0
+            and run.get("status") == "completed" and run.get("conclusion") == "success",
+            "Current UAT deployment attempt is not successful",
+        )
+        pin = next((pin for pin in self.attempt_pins("uat", run_id) if pin["run_attempt"] == attempt), None)
+        require(pin is not None, "Current UAT acceptance artifact is missing")
+        _, _, receipt = self._receipt(pin, "uat")
+        prior = receipt.get("predecessor", {})
+        require(
+            prior.get("kind") == "uat-exact-ci" and prior.get("source_branch", "uat") == source_branch,
+            "TestFlight requires acceptance for the requested protected UAT source",
+        )
+        accepted = self.accept(pin, "uat", sha, "backend")
+        require(
+            bool(revision) and receipt["release"]["final"]["backend_revision"] == revision
+            and bool(accepted.get("image_reference"))
+            and accepted["image_reference"].rsplit("@", 1)[-1] == image_digest,
+            "Serving UAT backend does not match the accepted revision and image",
+        )
+        return {**accepted, "base_sha": prior["base_sha"], "authority_sha": prior["authority_sha"]}
+
     def accepted_application(self, pin: dict, environment: str) -> dict:
         """Inspect a pinned receipt without conflating its Main workflow SHA.
 
         This is historical acceptance only. A current-state caller must also
         bind the latest relevant deployment and the current run attempt.
         """
-        sha, services = _provenance.application_scope(
-            self._receipt(pin, environment)[2]
-        )
+        receipt = self._receipt(pin, environment)[2]
+        sha, services = _provenance.application_scope(receipt)
         return {
             "sha": sha,
             "services": {
                 service: self.accept(pin, environment, sha, service)
                 for service in services
             },
+            "revisions": {
+                service: receipt["release"]["final"][f"{service}_revision"]
+                for service in services
+            },
         }
+
+    def recorded_recovery_uat(self, sha: str, scope: str) -> dict:
+        require(sha == RECORDED_RECOVERY_SHA, "Recorded recovery UAT requires the sealed source")
+        accepted = {}
+        # This reviewed receipt lies outside bounded discovery. Read and verify
+        # the exact attempt, archive, services and Dev predecessor as usual.
+        for service in sorted(selected(scope)):
+            receipt = self.accept(RECORDED_RECOVERY_UAT, "uat", sha, service)
+            require(receipt["artifact_digest"] == RECORDED_RECOVERY_UAT_DIGEST,
+                    "Recorded recovery UAT artifact digest changed")
+            accepted[service] = receipt
+        return {"status": "accepted", "environment": "uat", "sha": sha, "services": accepted}
 
     def find(self, environment: str, sha: str, scope: str) -> dict:
         needed, accepted = selected(scope), {}
@@ -259,7 +316,7 @@ class GitHub:
         # an exemption. Re-run acceptance on the exact SHA when history is absent.
         for page in range(1, 4):
             runs = self.read(
-                f"workflows/deploy-{environment}.yml/runs?branch=main&event=workflow_dispatch"
+                f"workflows/deploy-{environment}.yml/runs?event=workflow_dispatch"
                 f"&per_page=50&page={page}"
             ).get("workflow_runs", [])
             for run in runs:
@@ -357,10 +414,18 @@ def create(args) -> None:
         "provenance": {},
     }
     try:
-        require(
-            os.environ.get("GITHUB_REF") == "refs/heads/main",
-            "Acceptance must use the main-owned workflow",
-        )
+        if os.environ.get("GITHUB_REF") != "refs/heads/main":
+            run = GitHub().read(f"runs/{receipt['run_id']}")
+            authority = _provenance.deployment_authority(run, args.environment)
+            require(
+                os.environ.get("GITHUB_REF") == f"refs/heads/{args.environment}"
+                and run.get("run_attempt") == receipt["run_attempt"]
+                and run.get("status") == "in_progress"
+                and authority["caller_sha"] == os.environ.get("GITHUB_SHA")
+                and authority["tooling_sha"] == os.environ.get("RELEASE_TOOLING_SHA"),
+                "Acceptance must use the current Main implementation and caller attempt",
+            )
+            receipt["workflow_authority"] = authority
         receipt["required_checks"] = _required_checks(release, args.environment)
         receipt["classification"] = json.loads(
             (args.status.parent / f"{args.environment}-release-classification.json").read_text()
@@ -379,19 +444,113 @@ def create(args) -> None:
             require(args.predecessor is not None, "Dev acceptance is missing")
             receipt["predecessor"] = json.loads(args.predecessor.read_text())
             prior = receipt["predecessor"]
-            require(
-                prior.get("status") == "accepted"
-                and prior.get("environment") == "dev"
-                and prior.get("sha") == release["sha"]
-                and set(receipt["resolved_services"]) <= prior.get("services", {}).keys(),
-                "Dev acceptance is missing",
-            )
+            if prior.get("kind") == "uat-exact-ci":
+                _provenance.validate_uat_ci_predecessor(prior, release["sha"], set(receipt["resolved_services"]))
+            else:
+                _validate_dev_predecessor(prior, release["sha"], set(receipt["resolved_services"]))
     except (Refused, OSError, ValueError):
         release["status"] = "blocked"
         args.status.write_text(json.dumps(release, indent=2) + "\n")
         raise
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+
+
+def _validate_dev_predecessor(prior: dict, sha: str, services: set[str]):
+    require(prior.get("kind") is None and prior.get("status") == "accepted"
+            and prior.get("environment") == "dev" and prior.get("sha") == sha
+            and services <= prior.get("services", {}).keys(), "Dev acceptance is missing")
+
+
+def _verify_direct_uat(prior: dict, sha: str, services: set[str], *, current: bool):
+    _provenance.validate_uat_ci_predecessor(prior, sha, services)
+    import uat_exact_ci as exact
+    try:
+        exact.verify_predecessor(prior, current=current)
+    except exact.Refused as error:
+        raise Refused(str(error)) from None
+
+
+def direct_uat(args) -> dict:
+    import uat_exact_ci as exact
+    try:
+        return exact.issue_predecessor(args)
+    except exact.Refused as error:
+        raise Refused(str(error)) from None
+
+
+def main_source(args) -> dict:
+    """Qualify protected Main directly; UAT receipts remain a separate image source."""
+    require(args.environment == "production", "Main qualification is production-only")
+    require(re.fullmatch(r"[a-f0-9]{40}", args.sha or "") is not None,
+            "Full application SHA is required")
+    approval = getattr(args, "approval_sha", "") or args.sha
+    require(re.fullmatch(r"[a-f0-9]{40}", approval) is not None,
+            "Full Main approval SHA is required")
+    scope = selected(args.scope)
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        token = subprocess.check_output(["gh", "auth", "token"], text=True, timeout=20).strip()
+    require(bool(token), "GitHub qualification credential is unavailable")
+    env = dict(os.environ, GITHUB_REPOSITORY=REPOSITORY, GITHUB_TOKEN=token,
+               REQUIRED_BRANCH="main", REQUIRE_CI_SUCCESS="1")
+    recovery = runpy.run_path(str(Path(__file__).with_name("production_recovery_ci.py")))
+
+    # The sealed recovery source has dedicated two-SHA functional evidence.
+    # Every source still requires separate Main smoke, including this recovery.
+    proofs = {}
+    with TemporaryDirectory(prefix="hussh-main-qualification-") as directory:
+        for kind, sha, checks in (
+            ("functional", args.sha, "CI Status Gate,Queue Validation,Branch Validation Gate"),
+            ("smoke", approval, "Main Post-Merge Smoke Gate"),
+        ):
+            if kind == "functional" and sha == recovery["ACTIVE_ANCHOR_PRIMARY_SOURCE"]:
+                require(approval == sha, "Recorded recovery requires smoke on its exact application")
+                try:
+                    proofs[kind] = recovery["qualification"](GitHub(), sha)
+                except recovery["Refused"] as error:
+                    raise Refused(str(error)) from None
+                continue
+            output = Path(directory) / f"{kind}.json"
+            result = subprocess.run(
+                ["bash", str(Path(__file__).with_name("require-deploy-sha-on-main.sh")), sha],
+                env=dict(env, REQUIRED_CHECK_NAME=checks, DEPLOY_SHA_EVIDENCE_OUTPUT=str(output),
+                         REQUIRE_LATEST_FUNCTIONAL_CI="1" if kind == "functional" else "0"),
+                capture_output=True, text=True, timeout=180, check=False,
+            )
+            require(result.returncode == 0, f"Main {kind} qualification is missing or superseded")
+            proof = json.loads(output.read_text())
+            require(proof.get("repository") == REPOSITORY and proof.get("sha") == sha
+                    and proof.get("source_branch") == "main" and bool(proof.get("checks")),
+                    "Main qualification evidence is incomplete")
+            proofs[kind] = proof
+        mapping = None
+        if approval != args.sha:
+            import promotion_approval
+            mapping = promotion_approval.verify(args.sha, approval)
+    # Re-read the combined evidence after both independent gates complete.
+    # Hashes retain only source/run metadata, never GitHub response bodies.
+    client = GitHub()
+    for proof in proofs.values():
+        reads = proof.get("authority_reads")
+        require(isinstance(reads, dict) and bool(reads), "Main authority recheck is unavailable")
+        for path, expected in reads.items():
+            require(isinstance(path, str) and path.startswith(("runs/", "workflows/")),
+                    "Main authority read left its bounded Actions owner")
+            current = client.read(path)
+            digest = hashlib.sha256(json.dumps(current, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            require(digest == expected, "Main qualification changed during verification")
+    record = {
+        "schema_version": 1, "kind": "main-qualified-source", "status": "qualified",
+        "repository": REPOSITORY, "environment": "production", "sha": args.sha,
+        "main_approval_sha": approval, "resolved_services": sorted(scope),
+        "qualification": proofs, "application_approval": mapping,
+    }
+    prior = getattr(args, "predecessor", None)
+    if prior is not None:
+        require(json.loads(prior.read_text()) == record,
+                "Main qualification changed after release admission")
+    return record
 
 
 def pinned_backend_image(args) -> dict:
@@ -413,15 +572,34 @@ def pinned_backend_image(args) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "require", "backend-image"))
-    parser.add_argument("--environment", choices=tuple(LANES), required=True)
+    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat", "testflight-uat", "main-source"))
+    parser.add_argument("--environment", choices=(*LANES, "production"), required=True)
     parser.add_argument("--sha")
     parser.add_argument("--scope")
     parser.add_argument("--status", type=Path)
     parser.add_argument("--predecessor", type=Path)
+    parser.add_argument("--base-sha")
+    parser.add_argument("--authority-sha")
+    parser.add_argument("--approval-sha", default="")
+    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"))
+    parser.add_argument("--backend-base-sha", default="")
+    parser.add_argument("--frontend-base-sha", default="")
+    parser.add_argument("--backend-base-revision", default="")
+    parser.add_argument("--frontend-base-revision", default="")
+    parser.add_argument("--ci-run-id", type=int)
+    parser.add_argument("--ci-attempt", type=int)
+    parser.add_argument("--deployment-run-id", type=int)
+    parser.add_argument("--serving-revision")
+    parser.add_argument("--serving-image")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--recorded-recovery-uat", action="store_true")
     args = parser.parse_args()
     try:
+        require(args.command == "main-source" or args.environment in LANES,
+                "Production uses Main qualification, not an environment acceptance receipt")
+        require(not args.recorded_recovery_uat or
+                (args.command == "require" and args.environment == "uat"),
+                "Recorded recovery acceptance is only available for UAT")
         if args.command == "create":
             require(args.status is not None, "Status receipt is required")
             create(args)
@@ -430,11 +608,25 @@ def main() -> int:
                 args.sha is not None and re.fullmatch(r"[a-f0-9]{40}", args.sha) is not None,
                 "Full SHA is required",
             )
-            receipt = (
-                pinned_backend_image(args)
-                if args.command == "backend-image"
-                else GitHub().find(args.environment, args.sha, args.scope)
-            )
+            if args.command == "main-source":
+                receipt = main_source(args)
+            elif args.command == "testflight-uat":
+                require(args.environment == "uat" and (args.deployment_run_id or 0) > 0,
+                        "TestFlight requires the live UAT deployment run")
+                receipt = GitHub().accept_testflight_backend(
+                    sha=args.sha, run_id=args.deployment_run_id,
+                    revision=args.serving_revision, image_digest=args.serving_image,
+                    source_branch=args.source_branch or "uat-isolated",
+                )
+            elif args.command == "direct-uat":
+                args.source_branch = args.source_branch or "uat"
+                receipt = direct_uat(args)
+            elif args.command == "backend-image":
+                receipt = pinned_backend_image(args)
+            elif args.recorded_recovery_uat:
+                receipt = GitHub().recorded_recovery_uat(args.sha, args.scope)
+            else:
+                receipt = GitHub().find(args.environment, args.sha, args.scope)
             args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
     except (
         Refused,

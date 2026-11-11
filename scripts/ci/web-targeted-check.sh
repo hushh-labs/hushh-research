@@ -6,6 +6,8 @@ WEB_DIR="$REPO_ROOT/hushh-webapp"
 
 # shellcheck source=scripts/ci/web-common.sh
 source "$REPO_ROOT/scripts/ci/web-common.sh"
+# shellcheck source=scripts/ci/web-targeted-plan.sh
+source "$REPO_ROOT/scripts/ci/web-targeted-plan.sh"
 
 # Which half of the matched packs this invocation runs.
 #
@@ -13,13 +15,16 @@ source "$REPO_ROOT/scripts/ci/web-common.sh"
 #   node     only packs that never start a browser
 #   browser  only packs whose npm script reaches `playwright`
 #
-# PR Validation runs `node` and `browser` as two parallel legs of Web Targeted
-# Contracts. The browser packs were ~11 of the lane's ~13 minutes, and the node
-# leg needs neither the Playwright download nor its apt dependencies. Each pack
-# is classified by one pure rule, so the two legs partition the matched set:
-# every pack runs in exactly one leg, and together they run what `all` runs.
+# Required CI runs the Node leg. The browser/all modes remain explicit local
+# diagnostics and recovery compatibility. Each pack has one owner, so the two
+# diagnostic legs together partition what `all` runs.
 # Guarded by scripts/ci/test_web_ci_lane_partition.py.
 WEB_TARGETED_PART="${WEB_TARGETED_PART:-all}"
+WEB_TARGETED_ALL_PACKS="${WEB_TARGETED_ALL_PACKS:-0}"
+case "$WEB_TARGETED_ALL_PACKS" in
+  0|1) ;;
+  *) echo "Invalid full targeted-pack selection." >&2; exit 2 ;;
+esac
 case "$WEB_TARGETED_PART" in
   all|node|browser) ;;
   *)
@@ -27,7 +32,7 @@ case "$WEB_TARGETED_PART" in
     exit 2
     ;;
 esac
-browser_primary="$(node "$WEB_DIR/scripts/testing/playwright-shard.cjs")"
+web_targeted_prepare
 
 # Prints "browser" when the command is `npm run <script>` and that script, or
 # any script it reaches through `npm run`, invokes playwright; "node" otherwise.
@@ -50,12 +55,13 @@ check_part() {
   ' "$WEB_DIR/package.json" "$3"
 }
 
-web_ci_preflight
-web_ci_install
-
 CHANGED_FILE_LIST="$(web_ci_changed_files)"
 
-if [ -z "$CHANGED_FILE_LIST" ]; then
+if [ -z "$CHANGED_FILE_LIST" ] && [ "$WEB_TARGETED_ALL_PACKS" != "1" ] && [ "${CI_VALIDATION_LEVEL:-diagnostic}" != release ]; then
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    web_targeted_plan_write
+    exit 0
+  fi
   echo "No changed files resolved for targeted web checks."
   exit 0
 fi
@@ -65,6 +71,13 @@ printf 'Resolved %s changed file(s) for targeted web checks.\n' "$changed_count"
 
 has_match() {
   local pattern="$1"
+  if [ "$WEB_TARGETED_ALL_PACKS" = "1" ]; then
+    return 0
+  fi
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    web_targeted_plan_match "$pattern"
+    return $?
+  fi
   # With pipefail, grep may close the pipe immediately after a match and turn
   # printf's SIGPIPE into a false negative for a long changed-file list.
   grep -Eq "$pattern" <<<"$CHANGED_FILE_LIST"
@@ -76,6 +89,10 @@ failed_checks=()
 run_check() {
   local name="$1"
   shift
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    web_targeted_plan_check "$name" "$@"
+    return 0
+  fi
   if [ "$WEB_TARGETED_PART" != "all" ]; then
     local part
     part="$(check_part "$@")"
@@ -85,19 +102,42 @@ run_check() {
     fi
   fi
   echo "== Targeted web check: $name =="
-  if ! (cd "$WEB_DIR" && "$@"); then
-    echo "!! Targeted web check failed: $name"
+  local result=0
+  if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != "diagnostic" ] && [ "$(check_part "$@")" = "browser" ]; then
+    python3 "$REPO_ROOT/scripts/ci/web-browser-core.py" "$3" || result=$?
+  else
+    (cd "$WEB_DIR" && "$@") || result=$?
+  fi
+  if [ "$result" -ge 124 ]; then
+    echo "Targeted check interrupted: $name (exit $result)" >&2
+    exit "$result"
+  fi
+  if [ "$result" -ne 0 ]; then
+    echo "!! Targeted web check failed: $name (exit $result)"
     failed_checks+=("$name")
   fi
 }
 
-# Only the owning hosted workflow may assert that its required full-suite job
-# covers these invocations. Local focused commands retain their original checks.
+# Only the owning workflow may assert coverage in its required unit job. Ordinary
+# affected units own these exact static commands, not arbitrary Vitest packs.
+# Historical full-suite callers retain `1`; local/unknown callers run every check.
 run_full_suite_check() {
-  if [ "${WEB_TARGETED_FULL_SUITE_OWNED:-0}" = "1" ]; then
-    echo "Required Web Full Suite owns: $1"
-    return
-  fi
+  case "${WEB_TARGETED_FULL_SUITE_OWNED:-0}" in
+    1)
+      echo "Required Web Full Suite owns: $1"
+      return
+      ;;
+    static)
+      if [ "$#" -eq 4 ] && [ "$2" = npm ] && [ "$3" = run ]; then
+        case "$4" in
+          verify:voice-gateway|verify:capability-graph|verify:surface-map|verify:capacitor:plugins)
+            echo "Required unit static verifiers own: $1"
+            return
+            ;;
+        esac
+      fi
+      ;;
+  esac
   run_check "$@"
 }
 
@@ -117,20 +157,76 @@ if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-peo
 fi
 
 
-# This lane already installs Chromium. Render every maintained Mermaid block
-# when documentation or its checker changes; structural lint alone misses parser errors.
-if has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
+# Functional subsets of the existing layout pack. Shared shell/style sources
+# retain the core layout set; unknown application paths remain conservative.
+WEB_TARGETED_LAYOUT_SPECS=""
+layout_owner() {
+  local pattern="$1"
+  shift
+  if has_match "$pattern"; then
+    WEB_TARGETED_LAYOUT_SPECS+=" $*"
+    layout_contracts_required=1
+    printf 'Layout owner: %s\n' "$*"
+  fi
+}
+if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != diagnostic ]; then
+  layout_owner '^hushh-webapp/(components/(onboarding|vault|auth)/|lib/(vault|firebase|auth)/|lib/services/pre-vault-sensitive-draft-service\.ts|e2e/(setup-v10-vault|lost-vault-delete))' e2e/setup-v10-vault.layout.spec.ts e2e/lost-vault-delete.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/(direct-messages|messages)/|e2e/(direct-chat|circle-chat))' e2e/direct-chat.layout.spec.ts e2e/circle-chat.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/(files|agent-files)/|e2e/files-explorer)' e2e/files-explorer.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/consent/|e2e/(requester-consent-card|consent-center-row|shared-with-you-card))' e2e/requester-consent-card.layout.spec.ts e2e/consent-center-row.layout.spec.ts e2e/shared-with-you-card.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/wallet/|e2e/wallet-)' e2e/wallet-workspace.layout.spec.ts e2e/wallet-card-scan.layout.spec.ts e2e/wallet-intelligent-card-add.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/(connect|connections)/|e2e/(connect-page|circle-discovery))' e2e/connect-page-grid.layout.spec.ts e2e/circle-discovery.layout.spec.ts
+  layout_owner '^hushh-webapp/(e2e/(fixtures/connect-page(-boundaries)?\.tsx|helpers/mutual-list-layout\.ts)|lib/connections/person-profile-preview\.ts)$' e2e/connect-page-grid.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/feed/|e2e/feed-needs-you)' e2e/feed-needs-you-row.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/secrets/|e2e/secrets-card)' e2e/secrets-card.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/kai/|lib/(kai|finance-sharing|portfolio-share|advisor-review)/|lib/utils/portfolio-normalize\.ts|e2e/(finance-interactions|fixtures/(finance-|advisor-review)))' e2e/finance-interactions.layout.spec.ts
+  location_specs="$(node -e 'const body=require(process.argv[1]).scripts["test:layout-contracts"]; console.log([...new Set(body.match(/e2e\/(?:one-location-[\w-]+|save-location-sheet|active-share-actions|location-[\w-]+)\.layout\.spec\.ts/g)||[])].join(" "))' "$WEB_DIR/package.json")"
+  # Word splitting expands only the checked-in, whitespace-free spec paths.
+  # shellcheck disable=SC2086
+  layout_owner '^hushh-webapp/(components/one-location/|e2e/one-location-)' $location_specs
+  layout_owner '^hushh-webapp/(components/app-ui/|app/globals\.css|lib/morphy-ux/)' e2e/app-shell-bottom-clearance.layout.spec.ts e2e/mobile-overlay-safe-area.layout.spec.ts
+  if [ "${CI_VALIDATION_LEVEL}" = release ]; then
+    WEB_TARGETED_LAYOUT_SPECS+=" e2e/setup-v10-vault.layout.spec.ts e2e/lost-vault-delete.layout.spec.ts e2e/requester-consent-card.layout.spec.ts e2e/direct-chat.layout.spec.ts"
+    layout_contracts_required=1
+  fi
+  while IFS= read -r changed; do
+    case "$changed" in
+      hushh-webapp/e2e/*.layout.spec.ts) WEB_TARGETED_LAYOUT_SPECS+=" ${changed#hushh-webapp/}" ;;
+    esac
+  done <<<"$CHANGED_FILE_LIST"
+  export WEB_TARGETED_LAYOUT_SPECS
+fi
+
+
+# Explicit browser diagnostics render maintained Mermaid blocks; required Node
+# CI does not install Chromium or claim browser-rendering proof.
+if [ "${CI_VALIDATION_LEVEL:-diagnostic}" = diagnostic ] && has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
   # The node leg intentionally has no browser install. The browser leg owns
   # rendering; an unsplit local run still renders every diagram.
-  if [ "$WEB_TARGETED_PART" != "node" ] && [ "$browser_primary" = "1" ]; then
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    PLAN_BROWSER_REQUIRED=1
+  elif [ "$WEB_TARGETED_PART" != "node" ] && [ "$browser_primary" = "1" ]; then
     (cd "$REPO_ROOT" && node scripts/verify-doc-diagrams.cjs && node scripts/render-doc-mermaid.mjs)
   fi
   ran=1
 fi
 
+# These shared helpers have direct executable owners; they are not unknown
+# visual surfaces. Keep timeout/cancellation and generated-card behavior checked
+# without expanding unrelated browser packs.
+if has_match '^hushh-webapp/(lib/utils/request-timeouts\.ts|__tests__/utils/request-timeouts\.test\.ts)$'; then
+  run_check "request timeout policy" npm run test:ci -- __tests__/utils/request-timeouts.test.ts --maxWorkers=2
+  ran=1
+fi
+if has_match '^hushh-webapp/(lib/generated/one-location-workflow-card-catalog\.v1\.ts|__tests__/components/location-command-workflow\.test\.tsx)$'; then
+  run_full_suite_check "workflow catalog compiler" npm run verify:capability-graph
+  run_check "workflow card behavior" npm run test:ci -- __tests__/components/location-command-workflow.test.tsx --maxWorkers=2
+  ran=1
+fi
+
 # Account deletion is an auth/session boundary on every client. Keep the
 # production-code regressions and rendered recovery notice in the PR gate.
-if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|account-identity-(service|session)|api-service|auth-service|vault-(service|bootstrap-service|method-service))|vault/|capacitor/(session-privacy|plugins/(keychain-web|vault-web)))|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx|api/consent/vault-owner-token/)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/(account|consent)|utils/firebase_auth)|hushh_mcp/(services/(account|consent_db)|consent/token)|db/migrations/201_))'; then
+if [ "${CI_VALIDATION_LEVEL:-diagnostic}" = release ] || has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|account-identity-(service|session)|api-service|auth-service|vault-(service|bootstrap-service|method-service))|vault/|capacitor/(session-privacy|plugins/(keychain-web|vault-web)))|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx|api/consent/vault-owner-token/)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/(account|consent)|utils/firebase_auth)|hushh_mcp/(services/(account|consent_db)|consent/token)|db/migrations/201_))'; then
   run_full_suite_check "account session recovery" npm run verify:account-session
   run_full_suite_check "vault unlock and enrollment" npm run verify:vault-unlock
   NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \
@@ -164,14 +260,14 @@ if has_match '^hushh-webapp/(components/(consent/|profile/|secrets/)|lib/(consen
 fi
 
 drive_layout_required=0
-if has_match '^hushh-webapp/(components/consent/|components/agent/(drive-background-search|drive-read-memory-action|first-connect-insights-card)\.tsx|lib/agent/(connector-memory-review|drive-sharing-card-preferences|first-connect-insights)\.ts|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|drive-sharing-card\.layout\.spec\.ts|fixtures/(document-share-|drive-sharing-card|drive-memory-boundaries))|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
+if [ "${CI_VALIDATION_LEVEL:-diagnostic}" = release ] || has_match '^hushh-webapp/(components/consent/|components/agent/(drive-background-search|drive-read-memory-action|first-connect-insights-card)\.tsx|lib/agent/(connector-memory-review|drive-sharing-card-preferences|first-connect-insights)\.ts|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|drive-sharing-card\.layout\.spec\.ts|fixtures/(document-share-|drive-sharing-card|drive-memory-boundaries))|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
   drive_layout_required=1
   run_full_suite_check "Drive exact-file review boundary" npm run test:drive-sharing-web
   run_check "Drive mounted review layout" npm run test:drive-sharing-layout
   ran=1
 fi
 
-if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/((document-file-request|document-request-button|request-scope-button|drive-packet-catalog)\.tsx|packets/)|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx|packets\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(helpers/drawer-geometry\.ts|connections-drawer\.layout\.spec\.ts|person-profile-actions\.layout\.spec\.ts|financial-packets\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports)?\.tsx|person-profile-browser\.ts|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
+if has_match '^hushh-webapp/(lib/connections/(google-connect-in-place|person-profile-preview)\.ts|components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/((document-file-request|document-request-button|request-scope-button|drive-packet-catalog)\.tsx|packets/)|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx|packets\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(helpers/drawer-geometry\.ts|connections-drawer\.layout\.spec\.ts|person-profile-(actions|preview)\.layout\.spec\.ts|financial-packets\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports|-preview|-preview-ports)?\.tsx|person-profile-browser\.ts|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
   run_full_suite_check "Connections web boundary" npm run test:connections-web
   # Drive runs the full first-connect spec without a grep filter in both browser
   # projects. Its selected cases therefore include Connections' filtered cases.
@@ -206,7 +302,7 @@ fi
 
 # Calendar owns a transport-backed fixture for connected Schedule. Keep this
 # explicitly registered; the general layout script enumerates its own specs.
-if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|lib/services/calendar-insights-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+if has_match '^hushh-webapp/(components/calendar/|components/agent/agent-calendar-proposal-card\.tsx|lib/calendar/|lib/agent/(calendar-directive-runtime|calendar-proposal-review)\.ts|lib/services/google-calendar-service\.ts|lib/services/calendar-insights-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
   run_full_suite_check "Calendar HUSSH person photos" npm run test:calendar-hussh-photos
   run_check "Calendar workspace layout" npm run test:calendar-workspace-layout
   ran=1
@@ -452,6 +548,10 @@ fi
 if [ "$layout_contracts_required" -eq 1 ]; then
   run_check "layout contracts" npm run test:layout-contracts
   ran=1
+fi
+
+if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+  web_targeted_plan_finish
 fi
 
 if [ "$ran" -eq 0 ]; then

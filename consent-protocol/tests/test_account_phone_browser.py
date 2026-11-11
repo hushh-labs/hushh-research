@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import asyncpg
+import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Request, Response
 from sqlalchemy import create_engine
@@ -44,7 +45,9 @@ class RecordedFirebase:
         self.claims: dict[str, dict] = {}
         self.auth_times = {uid: int(time.time()) for uid in OWNERS.values()}
         self.challenges: dict[str, dict] = {}
+        self.proofs: dict[str, dict] = {}
         self.phone = PHONE
+        self.linked_phone_owner: str | None = None
         self.unlink_count = 0
         self.sends = 0
 
@@ -52,7 +55,11 @@ class RecordedFirebase:
         return {
             "uid": OWNERS[name],
             "provider": self.provider,
-            "phone": self.phone if name == "previous" else None,
+            "phone": self.phone
+            if name == "previous"
+            else PHONE
+            if OWNERS[name] == self.linked_phone_owner
+            else None,
         }
 
     def token(self, uid: str, *, phone: bool = False, stamp: int | None = None):
@@ -69,8 +76,9 @@ class RecordedFirebase:
             "email": f"{uid}@example.test",
             "firebase": {"sign_in_provider": "phone" if phone else self.provider},
         }
-        if phone:
-            claims["phone_number"] = PHONE
+        number = PHONE if phone else self.get_user(uid).phone_number
+        if number:
+            claims["phone_number"] = number
         payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
         token = f"fixture.{payload}.{uuid4().hex}"
         self.claims[token] = claims
@@ -87,7 +95,11 @@ class RecordedFirebase:
             raise ValueError("unknown fixture identity")
         return SimpleNamespace(
             uid=uid,
-            phone_number=self.phone if uid == OWNERS["previous"] else None,
+            phone_number=self.phone
+            if uid == OWNERS["previous"]
+            else PHONE
+            if uid == self.linked_phone_owner
+            else None,
             email=f"{uid}@example.test",
             email_verified=True,
             display_name="Synthetic account",
@@ -122,6 +134,10 @@ class RecordedFirebase:
                 return {"success": True}
             if operation == "token":
                 return {"token": self.token(body.get("uid"))}
+            if operation == "reload" and body.get("uid") in OWNERS.values():
+                return self.describe(
+                    next(name for name, uid in OWNERS.items() if uid == body["uid"])
+                )
             if operation == "reauthenticate":
                 if (
                     not self.active
@@ -136,9 +152,54 @@ class RecordedFirebase:
                 self.challenges[challenge] = {"created": int(time.time()), "spent": False}
                 self.sends += 1
                 return {"verificationId": challenge}
+            if operation == "link":
+                claims = self.claims.get(body.get("idToken"))
+                if not self.active or not claims or claims["uid"] != OWNERS[self.active]:
+                    return Response(
+                        json.dumps({"error": {"message": "INVALID_ID_TOKEN"}}),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                challenge = self.challenges.get(body.get("sessionInfo"))
+                error = (
+                    "INVALID_SESSION_INFO"
+                    if not challenge or challenge["spent"]
+                    else "INVALID_CODE"
+                    if body.get("code") != "123456"
+                    else None
+                )
+                if error:
+                    return Response(
+                        json.dumps({"error": {"message": error}}),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                challenge["spent"] = True
+                holding_uid = OWNERS["previous"] if self.phone else self.linked_phone_owner
+                if holding_uid in {None, claims["uid"]}:
+                    self.linked_phone_owner = claims["uid"]
+                    return {"localId": claims["uid"], "phoneNumber": PHONE, "isNewUser": False}
+                proof = str(uuid4())
+                self.proofs[proof] = {
+                    "created": challenge["created"],
+                    "spent": False,
+                    "owner": holding_uid,
+                    "phone": PHONE,
+                }
+                return {"temporaryProof": proof, "phoneNumber": PHONE, "isNewUser": False}
             if operation == "verify":
-                challenge = self.challenges.get(body.get("verificationId"))
-                if not challenge or challenge["spent"] or body.get("verificationCode") != "123456":
+                temporary = "temporaryProof" in body
+                challenge = (
+                    self.proofs.get(body.get("temporaryProof"))
+                    if temporary
+                    else self.challenges.get(body.get("verificationId"))
+                )
+                valid_input = (
+                    bool(challenge) and body.get("phoneNumber") == challenge["phone"]
+                    if temporary
+                    else body.get("verificationCode") == "123456"
+                )
+                if not challenge or challenge["spent"] or not valid_input:
                     return Response(
                         json.dumps({"code": "auth/invalid-verification-code"}),
                         status_code=400,
@@ -146,8 +207,21 @@ class RecordedFirebase:
                     )
                 challenge["spent"] = True
                 return {
-                    "user": {**self.describe("previous"), "provider": "phone"},
-                    "token": self.token(OWNERS["previous"], phone=True, stamp=challenge["created"]),
+                    "user": {
+                        **self.describe(
+                            next(
+                                name
+                                for name, uid in OWNERS.items()
+                                if uid == (challenge["owner"] if temporary else OWNERS["previous"])
+                            )
+                        ),
+                        "provider": "phone",
+                    },
+                    "token": self.token(
+                        challenge["owner"] if temporary else OWNERS["previous"],
+                        phone=True,
+                        stamp=challenge["created"],
+                    ),
                 }
             raise HTTPException(404)
 
@@ -314,8 +388,10 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
             "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "delete" else "true"
         )
         recorded.phone = PHONE
+        recorded.linked_phone_owner = None
         recorded.claims.clear()
         recorded.challenges.clear()
+        recorded.proofs.clear()
         recorded.unlink_count = 0
         recorded.sends = 0
         return {"ready": True}
@@ -342,6 +418,54 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         return {"persisted": True}
 
     return app
+
+
+async def test_recorded_phone_provider_consumes_only_issued_proofs():
+    recorded = RecordedFirebase("google.com")
+    app = FastAPI()
+    recorded.install_http(app)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://fixture"
+    ) as client:
+
+        async def send(operation, body):
+            return await client.post("/__phone_fixture/sdk/" + operation, json=body)
+
+        challenge = (await send("send", {"phone": PHONE})).json()["verificationId"]
+        terms = {
+            "idToken": recorded.token(OWNERS["receiving-a"]),
+            "sessionInfo": challenge,
+            "code": "123456",
+        }
+        for identity in ("unknown", recorded.token(OWNERS["wrong"])):
+            assert (await send("link", {**terms, "idToken": identity})).status_code == 400
+        assert (await send("link", {**terms, "code": "111111"})).status_code == 400
+        issued = await send("link", terms)
+        assert issued.status_code == 200
+        proof = {"temporaryProof": issued.json()["temporaryProof"], "phoneNumber": PHONE}
+        assert (await send("verify", {**proof, "temporaryProof": str(uuid4())})).status_code == 400
+        assert (await send("verify", {**proof, "phoneNumber": "+16505550102"})).status_code == 400
+        redeemed = await send("verify", proof)
+        assert redeemed.status_code == 200
+        assert recorded.verify(redeemed.json()["token"])["uid"] == OWNERS["previous"]
+        assert recorded.active == "receiving-a"
+        assert (await send("verify", proof)).status_code == 400
+        assert (await send("link", terms)).status_code == 400
+        assert (
+            await send("verify", {"verificationId": challenge, "verificationCode": "123456"})
+        ).status_code == 400
+        recorded.phone = None
+        fresh = (await send("send", {"phone": PHONE})).json()["verificationId"]
+        linked = await send("link", {**terms, "sessionInfo": fresh})
+        assert linked.status_code == 200
+        assert linked.json() == {
+            "localId": OWNERS["receiving-a"],
+            "phoneNumber": PHONE,
+            "isNewUser": False,
+        }
+        readback = await send("reload", {"uid": OWNERS["receiving-a"]})
+        assert readback.json()["phone"] == PHONE
+        assert recorded.get_user(OWNERS["previous"]).phone_number is None
 
 
 @pytest.mark.asyncio

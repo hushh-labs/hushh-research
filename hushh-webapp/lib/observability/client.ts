@@ -37,6 +37,7 @@ import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 import { redactObservabilityLogValue } from "@/lib/observability/log-redactor";
 import { resolveClientVersion } from "@/lib/observability/client-version";
 import { snapshotProductActivityScope } from "./product-activity-scope";
+import { publishTrackedEvent } from "./tracked-event-bus";
 
 interface TrackOptions {
   dedupeKey?: string;
@@ -121,6 +122,7 @@ export function trackEvent<T extends ObservabilityEventName>(
   if (!validation.ok) {
     debugLog("payload_sanitized", eventName, validation.droppedKeys);
   }
+  publishTrackedEvent(eventName, validation.sanitized);
 
   // Only admitted enum identifiers leave via the private pilot channel. Pin
   // identity before the import; GA sampling cannot change observation receipt.

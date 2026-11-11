@@ -24,8 +24,9 @@ Define environment policy for IAM changes without risking production behavior.
 owns the versioned administrator policy for `one_text_chat_and_drive_requests`.
 All existing and new UAT accounts use the candidate-verified provider for managed
 One text chat and semantic Drive document-request planning and relevance assessment.
-Azure is preferred when both providers pass; Vertex is selected when only it passes.
-Neither passing blocks release. The API and both worker revisions share that binding. Historical
+Release admission requires the provider named by `managed_provider_selection.uat`
+(Azure today) to pass; a passing alternate cannot replace it, so its failure blocks
+release. The API and both worker revisions share that binding. Historical
 personal pilot receipts and model preferences do not select that processor.
 Their original acceptance/revocation timestamps remain unchanged; no receipt is
 created or marked accepted by this rollout. The separate `managed_runtime_uat`
@@ -33,7 +34,7 @@ administrator policy extends selected-UAT processing to text/media, Search, exac
 public-source retrieval, Location transcription/semantics, narration, Live Voice
 and compatible embeddings. It grants no owner-information or action authority.
 Every declared capability must have an Azure replacement before this release
-can proceed; candidate admission accepts either complete provider bundle.
+can proceed; admission requires the configured provider's complete bundle.
 Production and BYOK retain their existing processor contracts.
 
 `runtime_providers/managed_text.py` owns policy resolution, central Azure binding,
@@ -43,8 +44,9 @@ provider first; one alternate call is allowed only for an unobserved timeout, co
 failure, quota response or transient 500/502/503/504. Configuration, authentication,
 permission/consent errors, schema failure and cancellation do not allow fallback.
 Any emitted model frame prevents replay. No Runner, tool, payment or grant is
-retried by provider failover. Chat allocates 10s + 8s before first output within its existing event
-budget; an observed stream has a bounded 60s completion window and remains
+retried by provider failover. Chat never calls an alternate provider: Azure chat allows 10s before
+first output (30s after an actual Search declaration or tool response) and native Vertex chat 60s,
+within its existing event budget; an observed stream has a bounded 60s completion window and remains
 subject to the caller deadline. Drive allocates 30s + 20s within its owning request deadlines. Existing
 bounded model correction budgets still apply. Vertex selection adds a distinct policy
 generation and binding fingerprint; the unchanged Azure selection preserves its

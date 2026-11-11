@@ -17,7 +17,7 @@
     ".agents/skills/repo-context/references/index-contract.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task skill-authoring",
+    "./bin/hushh agents route-task skill-authoring",
     "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
     "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text"
   ],
@@ -26,13 +26,13 @@
     "commands": [
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
       "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
-      "./bin/hushh codex audit",
+      "./bin/hushh agents audit",
       "./bin/hushh docs verify"
     ],
     "tests": [
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
       "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
-      "./bin/hushh codex audit"
+      "./bin/hushh agents audit"
     ]
   },
   "deliverables": [

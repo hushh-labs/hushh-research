@@ -39,10 +39,12 @@ def trusted_run(run: dict, repository: str, workflow: str) -> bool:
     )
 
 
-def verified_uat(run: dict, receipt: dict, repository: str, actors: list[str]) -> str:
+def verified_uat(run: dict, receipt: dict, repository: str, actors: list[str] | None = None) -> str:
     require(trusted_run(run, repository, "deploy-uat.yml"), "Untrusted UAT source")
     require(run.get("event") == "workflow_dispatch", "UAT source is not a dispatch")
-    require((run.get("actor") or {}).get("login") in actors, "Ungoverned UAT source actor")
+    from release_acceptance_provenance import historical_human_dispatch
+    require(historical_human_dispatch(run) if actors is None else
+            (run.get("actor") or {}).get("login") in actors, "Ungoverned UAT source actor")
     require(run.get("status") == "completed" and run.get("conclusion") == "success",
             "UAT source has not succeeded")
     sha = receipt.get("sha", "")

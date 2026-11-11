@@ -15,12 +15,40 @@ import { announceAzureCleanupReturn } from "@/lib/one/azure-cleanup-return";
 import { CLEANUP_FOLLOW_CEILING_MS, CLEANUP_RECHECK_MS } from "@/components/profile/use-cloud-cleanup-observation";
 const group = "/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/test-owner";
 const plan = { operationId: "attempt-1", planDigest: "a".repeat(64), resources: [{ id: group, scope: "whole_group" }], removed: 0, total: 1, canFinalize: false, approvalRequired: true, needsAttention: false };
+it("shows retained progress and the provider wait without asking for ineffective approval or finalizing", async () => {
+  const onFinish = vi.fn();
+  const waiting = { ...plan, provider: "gcp", removed: 10, total: 17, legacyRecovery: true,
+    executionStarted: true, needsAttention: true, attentionCode: "CLOUD_REMOVAL_PROVIDER_RETENTION_PENDING",
+    nextEligibleAt: "2099-11-13T07:03:50.404Z" };
+  mocks.read.mockResolvedValue(waiting);
+  const { unmount } = render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" purpose="remove_cloud" provider="gcp" continueAccountDeletion onUnlock={vi.fn()} onFinish={onFinish} />);
+  expect(await screen.findByText("10 of 17 cleanup checks verified.")).toBeVisible();
+  expect(screen.getByText(/Check again after/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Approve cleanup" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Finish account deletion" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Remove listed resources" })).toBeNull();
+  expect(mocks.begin).not.toHaveBeenCalled(); expect(mocks.approve).not.toHaveBeenCalled();
+  expect(mocks.finishCloud).not.toHaveBeenCalled(); expect(onFinish).not.toHaveBeenCalled();
+  unmount();
+  mocks.read.mockResolvedValue({ ...waiting, nextEligibleAt: "2020-01-01T00:00:00Z" });
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" purpose="remove_cloud" provider="gcp" onUnlock={vi.fn()} onFinish={onFinish} />);
+  expect(await screen.findByRole("button", { name: "Approve cleanup" })).toBeDisabled();
+});
 beforeEach(() => {
   publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("synthetic-owner");
   vi.clearAllMocks(); mocks.auth.mockResolvedValue({ kind: "ready", token: "synthetic-memory-only" });
   mocks.read.mockResolvedValue(plan); mocks.approve.mockResolvedValue({ ...plan, approvalRequired: false });
 });
 afterEach(() => { publishValidatedAuthSessionOwner(null); vi.restoreAllMocks(); vi.useRealTimers(); });
+it("offers sign out while approved cleanup remains pending without cancelling or retrying it", async () => {
+  mocks.read.mockResolvedValue({ ...plan, approvalRequired: false, inProgress: true, executionStarted: true });
+  const onLeave = vi.fn().mockResolvedValue(undefined);
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" purpose="remove_cloud" provider="gcp" onUnlock={vi.fn()} onFinish={vi.fn()} onLeave={onLeave} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+  expect(onLeave).toHaveBeenCalledOnce();
+  expect(mocks.begin).not.toHaveBeenCalled();
+  expect(mocks.cancelCloud).not.toHaveBeenCalled();
+});
 it("withdraws only a server-qualified unapproved removal and resumes without deleting", async () => {
   const review = { ...plan, canCancel: true, executionStarted: false };
   mocks.read.mockResolvedValue(review);
@@ -69,7 +97,9 @@ it("inspects a GCP removal without opening a Microsoft popup or changing account
   expect(mocks.begin).toHaveBeenCalledWith("synthetic-memory-only", "inspect", "remove_cloud", null);
 });
 it("@feature_account_deletion @trace_loop requires verified GCP removal to finish before explicitly continuing account deletion", async () => {
-  const view = { ...plan, canFinalize: true, approvalRequired: false, provider: "gcp" };
+  const view = { ...plan, canFinalize: true, approvalRequired: false, provider: "gcp",
+    executionStarted: true, nextEligibleAt: "2099-11-13T07:03:50.404Z",
+    attentionCode: "CLOUD_REMOVAL_PROVIDER_RETENTION_PENDING" };
   mocks.read.mockResolvedValue(view);
   let settle!: () => void;
   mocks.finishCloud.mockReturnValue(new Promise<void>(done => { settle = done; }));
@@ -184,4 +214,20 @@ it("keeps refresh available without offering another execution while cleanup is 
   expect(screen.getByRole("button", { name: "Refresh status" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "Cleanup in progress" }));
   expect(mocks.begin).not.toHaveBeenCalled();
+});
+
+it("retires only the reviewed account after explicit acknowledgement without finalizing cloud erasure", async () => {
+  const review = {operation_id: plan.operationId, plan_sha256: plan.planDigest,
+    project_id: "synthetic-project", project_number: "123456789012", resource_count: 1};
+  mocks.read.mockResolvedValue({...plan, provider: "gcp", approvalRequired: false,
+    legacyRecovery: true, retirementReview: review});
+  const onFinish = vi.fn().mockResolvedValue(undefined);
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only"
+    provider="gcp" continueAccountDeletion onUnlock={vi.fn()} onFinish={onFinish} />);
+  const action = await screen.findByRole("button", {name: "Delete account now"});
+  expect(action).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(action);
+  await waitFor(() => expect(onFinish).toHaveBeenCalledWith(review.plan_sha256));
+  expect(mocks.begin).not.toHaveBeenCalled(); expect(mocks.finishCloud).not.toHaveBeenCalled();
 });

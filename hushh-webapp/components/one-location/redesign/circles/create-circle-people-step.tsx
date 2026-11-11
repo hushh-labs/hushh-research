@@ -227,7 +227,7 @@ export function CreateCirclePeopleBody({
       ) : failed ? (
         <div className="space-y-2">
           <EmptyStateCard message="Could not load your contacts." />
-          <Button type="button" variant="ghost" onClick={retry}>
+          <Button type="button" variant="text" onClick={retry}>
             Try again
           </Button>
         </div>
@@ -266,7 +266,7 @@ export function CreateCirclePeopleBody({
       {hasMore && !failed ? (
         <Button
           type="button"
-          variant="ghost"
+          variant="text"
           disabled={loading || saving}
           onClick={more}
         >
@@ -295,7 +295,7 @@ export function CreateCirclePeopleBody({
         <div className="flex items-center justify-between gap-2">
           <Button
             type="button"
-            variant="ghost"
+            variant="text"
             disabled={saving}
             onClick={onBack}
           >
@@ -303,7 +303,7 @@ export function CreateCirclePeopleBody({
           </Button>
           <Button
             type="button"
-            variant="ghost"
+            variant="text"
             disabled={saving}
             onClick={() => void finish(false)}
           >

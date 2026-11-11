@@ -2,10 +2,8 @@
  * Client for the paid-answer lane: ask a connected person's private agent a
  * question, then pay for the answer once they approve the scopes and price.
  *
- * Direct-to-backend with a Firebase bearer, matching
- * `drive-request-payment-service.ts`. The money path has no `app/api` proxy:
- * the Stripe webhook needs the exact signed bytes, and the status and checkout
- * endpoints stay on the same origin as it.
+ * Browser calls use the same-origin One API proxy with a Firebase bearer.
+ * Stripe webhook settlement remains a separate signed provider boundary.
  *
  * Responses are validated here rather than trusted. A paid flow that renders
  * an unvalidated `status` would let a malformed response look like a settled
@@ -86,6 +84,10 @@ export interface AnswerRequestState {
   question: string;
   /** Present only after the owner fixes the priced scope set. No values or absence claim. */
   coverage?: AnswerRequestCoverage;
+  /** Participant-scoped receiving readiness; never contains a key or PKM value. */
+  requesterKeyReady?: boolean;
+  deliveryRecipientKeyId?: string | null;
+  deliveryRecipientKeyActive?: boolean;
 }
 
 const CHECKOUT_HOSTS = new Set(["checkout.stripe.com", "checkout.stripe.dev"]);
@@ -250,6 +252,11 @@ export class AnswerRequestService {
     const value = await readJson(response);
     if (typeof value.role !== "string" || typeof value.requestStatus !== "string" || typeof value.question !== "string")
       throw new Error("Invalid request response");
+    if ((value.requesterKeyReady !== undefined && typeof value.requesterKeyReady !== "boolean") ||
+        (value.deliveryRecipientKeyActive !== undefined && typeof value.deliveryRecipientKeyActive !== "boolean") ||
+        (value.deliveryRecipientKeyId !== undefined && value.deliveryRecipientKeyId !== null &&
+          (typeof value.deliveryRecipientKeyId !== "string" || !value.deliveryRecipientKeyId || value.deliveryRecipientKeyId.length > 256)))
+      throw new Error("Invalid secure receiving status");
     if (value.coverage !== undefined) {
       const coverage = value.coverage as Partial<AnswerRequestCoverage> | null;
       const validRows = (rows: unknown): rows is AnswerRequestCoverage["included"] =>

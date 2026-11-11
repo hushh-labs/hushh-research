@@ -127,7 +127,24 @@ class BackgroundCopyStore(BackgroundCopyJobs, DriveSharingStore):
             raise DeliveryError("copy_lease_ended")
         return request, current
 
+    def production_paused(self, row):
+        from hushh_mcp.services.drive_owner_allowed import activity_union_paused
+
+        return (
+            activity_union_paused()
+            and self.open(row, "source_envelope", "background-copy-source-v2")
+            .get("discoveryEvidence", {})
+            .get("policy")
+            == "drive_activity_union_v1"
+        )
+
     async def current(self, row):
+        if self.production_paused(row):
+            from datetime import timedelta
+
+            from hushh_mcp.services.drive_rest_admission import DriveRestDeferred
+
+            raise DriveRestDeferred(datetime.now(UTC) + timedelta(minutes=1))
         await admit_hub_content(self.owner(row), "drive_one_copy")
         result = await self._transaction(
             lambda c: self.file_authority(c, row, self.owner(row), lease=True)

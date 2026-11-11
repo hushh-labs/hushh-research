@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { BarChart3, CalendarDays } from "@/components/icons";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
@@ -30,13 +31,17 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
       {briefing}
     </div>
     <div className={styles.portfolioInsights}>
-      <SurfaceCard><SurfaceCardContent className={styles.insightCard}>
+      <SurfaceCard className={styles.insightShell} data-testid="portfolio-performance"><SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
         <SectionLabel role="heading" aria-level={2}>Performance</SectionLabel>
-        <p className={styles.description}>Position contributions are unavailable for this source.</p>
-        <p className={styles.description}>Balance changes can include deposits and withdrawals and do not establish investment returns.</p>
+        <div className={styles.balanceChange}><p className={styles.insightEyebrow}>Reported balance change</p><p className={facts.change === null ? styles.unavailableChange : styles.insightAmount}>{facts.change === null ? "Unavailable" : money(facts.change)}</p></div>
+        <dl className={styles.insightFacts}>
+          <div><dt><CalendarDays aria-hidden="true" />Dated history</dt><dd>{model.quality.historyReady ? "Available" : "Not provided"}</dd></div>
+          <div><dt><BarChart3 aria-hidden="true" />Investment return</dt><dd>Unavailable</dd></div>
+        </dl>
+        <p className={styles.description}>Balance changes can include cash flows; investment return is unavailable.</p>
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="show_portfolio_performance" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
-      <SurfaceCard><SurfaceCardContent className={styles.insightCard}>
+      <SurfaceCard className={styles.insightShell}><SurfaceCardContent className={styles.insightCard}>
         <div className="flex items-baseline justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Allocation</SectionLabel><span className={styles.description}>% of portfolio</span></div>
         {allocations.length && denominator > 0 ? <>
           {allocationTotal <= denominator * 1.001 ? <div className={styles.portfolioAllocation} aria-hidden="true">{allocations.map(item => <span key={item.name} style={{ width: `${item.value / denominator * 100}%`, background: allocationColor(item.name) }} />)}</div> : null}

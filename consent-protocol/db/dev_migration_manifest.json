@@ -90,7 +90,15 @@
     "972_personal_agent_cloud_removal.sql",
     "973_hosted_pod_pilot_admission.sql",
     "974_hosted_pod_custody.sql",
-    "975_hosted_bucket_reconciliation.sql"
+    "975_hosted_bucket_reconciliation.sql",
+    "976_gcp_notification_account_id_limit.sql",
+    "979_hosted_files_executor.sql",
+    "980_personal_agent_upgrade_host_binding.sql",
+    "981_hosted_native_location_contract.sql",
+    "985_legacy_cloud_removal_recovery.sql",
+    "986_legacy_cloud_removal_resume.sql",
+    "987_account_firebase_erasure.sql",
+    "988_account_cloud_retirement.sql"
   ],
   "deferred_release_migrations": [
     {

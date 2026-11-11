@@ -27,6 +27,7 @@ export const AUTH_SESSION_INVALIDATION_CODES = [
   "account_not_found",
   "account_deleted",
   "account_deleted_ready_to_start_fresh",
+  "account_deleted_cloud_pending",
   "account_deletion_finishing",
   "account_deletion_requested",
   "account_deletion_identity_retained",
@@ -40,7 +41,7 @@ export type AuthSessionInvalidationCode =
 /** Codes that can be inferred from a credential/backend response alone. */
 export type AuthCredentialInvalidationCode = Exclude<
   AuthSessionInvalidationCode,
-  "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_requested" | "account_deletion_identity_retained" | "account_deletion_uncertain"
+  "account_deleted_cloud_pending" | "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_requested" | "account_deletion_identity_retained" | "account_deletion_uncertain"
 >;
 
 type BackendAccountLifecycleCode =

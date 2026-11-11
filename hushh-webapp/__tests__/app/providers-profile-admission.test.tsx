@@ -1,6 +1,7 @@
-import { act, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ProfilePaneLocation, ProfilePaneOpenDetail } from "@/lib/navigation/profile-pane";
 
 // Execute the real public Providers shell and Profile pane. Background bridges
 // and unrelated chrome have no role in this session-admission regression.
@@ -29,7 +30,7 @@ const unrelated: Array<[string, string[]]> = [
   ["@/components/app-ui/native-workspace-seat", ["NativeWorkspaceSeat"]],
   ["@/components/app-ui/app-edge-back-gesture", ["AppEdgeBackGesture"]],
   ["@/components/app-ui/app-profile-edge-gesture", ["AppProfileEdgeGesture"]],
-  ["@/components/app-ui/top-shell-route-swipe", ["TopShellRouteSwipe"]],
+  ["@/components/ria/layout/ria-aware-route-swipe", ["RiaAwareTopShellRouteSwipe"]],
   ["@/lib/agent/agent-runtime-context", ["AgentRuntimeStateProvider"]],
   ["@/components/agent/siri-one-voice-handoff", ["SiriOneVoiceHandoff"]],
   ["@/components/agent/siri-one-request-handoff", ["SiriOneRequestHandoff"]],
@@ -69,8 +70,23 @@ for (const [module, names] of unrelated) {
 }
 vi.doMock("@/hooks/use-auth", () => ({ useAuth: () => auth }));
 vi.doMock("@/lib/vault/vault-context", () => ({ VaultProvider: passthrough, useVault: () => ({ isVaultUnlocked: true }) }));
-vi.doMock("next/navigation", () => ({ usePathname: () => "/", useSearchParams: () => query, useRouter: () => router }));
-vi.doMock("@/components/profile/profile-workspace-page", () => ({ ProfilePage: () => <div>Protected Account pane</div> }));
+function subscribeToHistory(notify: () => void) {
+  window.addEventListener("popstate", notify);
+  return () => window.removeEventListener("popstate", notify);
+}
+vi.doMock("next/navigation", () => ({
+  usePathname: () => "/",
+  useSearchParams: () => {
+    const search = useSyncExternalStore(subscribeToHistory, () => window.location.search);
+    return useMemo(() => new URLSearchParams(search), [search]);
+  },
+  useRouter: () => router,
+}));
+vi.doMock("@/components/profile/profile-workspace-page", () => ({
+  ProfilePage: ({ paneLocation }: { paneLocation: ProfilePaneLocation }) => <div>{
+    paneLocation.panel === "account" ? "Protected Account pane" : `Profile body: ${paneLocation.panel ?? "root"}`
+  }</div>,
+}));
 vi.doMock("@/lib/navigation/use-deep-link-return", () => ({ useDeepLinkReturn: () => {} }));
 vi.doMock("@/lib/navigation/android-back", () => ({ useAndroidBack: () => {} }));
 vi.doMock("@/lib/navigation/use-scroll-reset", () => ({ useScrollReset: () => {} }));
@@ -86,9 +102,15 @@ vi.doMock("@/lib/capacitor/native-navigation", async (original) => ({
 // outside the unchanged behavioral deadline for recovery and readmission.
 const { Providers } = await import("@/app/providers");
 
-it("@feature_account_deletion @trace_loop keeps a retained Account URL sealed throughout recovery and resumes only on active admission", async () => {
+beforeEach(() => {
+  Object.assign(auth, { isAuthenticated: true, loading: false, sessionVerificationRequired: false, userId: "synthetic-owner" });
+  vi.clearAllMocks();
   window.history.replaceState(null, "", "/?" + query);
   vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { callback(0); return 1; });
+});
+afterEach(() => vi.restoreAllMocks());
+
+it("@feature_account_deletion @trace_loop keeps a retained Account URL sealed throughout recovery and resumes only on active admission", async () => {
   const view = render(<Providers><div>Route content</div></Providers>);
   await screen.findByText("Protected Account pane");
   for (const loading of [true, false, false]) {
@@ -106,3 +128,31 @@ it("@feature_account_deletion @trace_loop keeps a retained Account URL sealed th
   await screen.findByText("Protected Account pane");
   view.unmount();
 });
+
+it.each([
+  { name: "tap", source: "tap", destination: undefined, location: { panel: null, detail: null } },
+  { name: "swipe", source: "native_swipe", destination: undefined, location: { panel: null, detail: null } },
+  { name: "explicit connector link", source: "tap", destination: {
+    location: { panel: "connectors", detail: "connector:calendar" }, returnsToOrigin: true,
+  }, location: { panel: "connectors", detail: "connector:calendar" } },
+] satisfies Array<{ name: string; source: "tap" | "native_swipe"; destination: ProfilePaneOpenDetail["destination"]; location: ProfilePaneLocation }>) (
+  "reopens Profile from $name after X closes Hosting, honoring only an explicit destination",
+  async ({ source, destination, location }) => {
+    const { requestProfilePaneOpen, resolveProfilePaneUrlState, profilePanelParentForPresentation } = await import("@/lib/navigation/profile-pane");
+    window.history.replaceState(null, "", "/?keep=1&profile_pane=1&profile_panel=hosting");
+    const view = render(<Providers><div>Route content</div></Providers>);
+    await screen.findByText("Profile body: hosting");
+    // Reopen in the same interaction turn: Next may still expose the old
+    // Hosting query while the history owner has already committed Close.
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Close Profile" }));
+      expect(window.location.search).toBe("?keep=1");
+      expect(requestProfilePaneOpen(source, undefined, destination)).toBe("opening");
+    });
+    expect(resolveProfilePaneUrlState(window.location.search)).toEqual({ open: true, location });
+    expect(new URLSearchParams(window.location.search).get("keep")).toBe("1");
+    if (destination?.returnsToOrigin) expect(profilePanelParentForPresentation("connectors")).toBe(false);
+    await screen.findByText(`Profile body: ${location.panel ?? "root"}`);
+    view.unmount();
+  },
+);

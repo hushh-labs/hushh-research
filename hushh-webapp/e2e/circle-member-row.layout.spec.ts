@@ -226,7 +226,7 @@ export default function Link({ href, children, ...props }: AnchorHTMLAttributes<
   );
   fs.writeFileSync(
     path.join(dir, "src/direct-messages-service.ts"),
-    `export const DirectMessagesService = { routeHref: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
+    `export const DirectMessagesService = { routeSelection: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
   );
   fs.writeFileSync(
     path.join(dir, "src/next-navigation.ts"),
@@ -825,6 +825,9 @@ test.describe("Circle roster row", () => {
       const trigger = page.getByRole("button", {
         name: `Actions for ${fixture.memberName}`,
       });
+      await trigger.hover();
+      await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(trigger.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
       await trigger.click();
 
       const menu = page.getByTestId("circle-member-actions-menu");

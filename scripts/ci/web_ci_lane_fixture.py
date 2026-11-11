@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -39,7 +40,7 @@ STUB_NPM = """#!/usr/bin/env bash
 if [ "${1:-}" = "run" ]; then
   printf '%s\\n' "$*" >> "$NPM_STUB_LOG"
   if [ -n "${NPM_STUB_FAIL:-}" ] && [ "${2:-}" = "$NPM_STUB_FAIL" ]; then
-    exit 23
+    exit "${NPM_STUB_EXIT:-23}"
   fi
 fi
 exit 0
@@ -58,7 +59,7 @@ def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = F
         node = stub_dir / "node"
         real_node = shlex.quote(shutil.which("node") or "node")
         diagrams = (
-            '  scripts/verify-doc-diagrams.cjs|scripts/render-doc-mermaid.mjs)\n'
+            '  scripts/verify-doc-diagrams.cjs|scripts/render-doc-mermaid.mjs|./scripts/testing/capture-feed-needs-you-fixture.mjs)\n'
             '    printf "%s\\n" "$1" >> "$NPM_STUB_LOG"; exit 0;;\n'
             if stub_diagrams else ""
         )
@@ -72,13 +73,15 @@ def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = F
             + diagrams + f'esac\nexec {real_node} "$@"\n', encoding="utf-8"
         )
         node.chmod(node.stat().st_mode | stat.S_IEXEC)
-        env = dict(os.environ)
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("GIT_", "GITHUB_", "GH_"))}
         env.update(
             {
                 "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
                 "NPM_STUB_LOG": str(log),
                 "NPM_STUB_FAIL": "",
                 "WEB_CI_DEPS_INSTALLED": "1",
+                "CI_VALIDATION_LEVEL": "diagnostic",
                 "HUSHH_WEB_TEST_MAX_WORKERS": "2",
             }
         )
@@ -185,3 +188,136 @@ def verify_overlap_collection(calls, linux_identities, identities, collect, comm
                 "test", "e2e/first-connect-insights.layout.spec.ts", "--project=mobile-chrome",
             ], {"CI": "1"}, None), None)
             assert mobile and mobile <= linux_identities, "mobile first-connect coverage must remain"
+
+
+def _browser_plan(changed: str, **overrides: str) -> tuple[int, dict[str, str], list[str], str]:
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    env = {
+        "WEB_TARGETED_PLAN_ONLY": "1",
+        "WEB_TARGETED_PART": "browser",
+        "WEB_TARGETED_ALL_PACKS": "0",
+        "WEB_TARGETED_FULL_SUITE_OWNED": "1",
+        "WEB_TARGETED_BASE_SHA": head,
+        "WEB_TARGETED_HEAD_SHA": head,
+        "WEB_TARGETED_CHANGED_FILES": changed,
+        # Use stdout instead of writing into the enclosing CI step's output file.
+        "GITHUB_OUTPUT": "",
+    }
+    env.update(overrides)
+    code, calls, output = _run(TARGETED, env, stub_diagrams=True)
+    values = dict(re.findall(r"^(selection_known|browser_required)=(true|false)$", output, re.M))
+    return code, values, calls, output
+
+
+def test_browser_plan_skips_only_known_no_browser_selection() -> None:
+    code, values, calls, output = _browser_plan("hushh-webapp/lib/voice/voice-session.ts")
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "false"}, values
+    assert calls == [], "planning must not install dependencies or execute a test pack"
+
+    for changed, extra in (
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts", {}),
+        ("docs/README.md", {"PLAYWRIGHT_SHARD": "4/4"}),
+    ):
+        code, values, calls, output = _browser_plan(changed, **extra)
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": "true"}, values
+        assert calls == [], "the unsharded plan must not execute browser commands"
+
+
+
+    # Regression: review receipts and backend test files have separate owners;
+    # they must not turn an otherwise bounded mixed PR into every browser pack.
+    for changed, required in (
+        ("hushh-webapp/lib/voice/voice-session.ts\nconsent-protocol/tests/test_phone.py\nhushh-webapp/contracts/ui-review/back/review.json", "false"),
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/tests/test_phone.py", "true"),
+        ("consent-protocol/tests/test_phone.py", "false"),
+        ("hushh-webapp/contracts/kai/one-capability-graph.v1.json", "false"),
+        ("consent-protocol/hushh_mcp/services/advisor_review_service.py", "false"),
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/api/routes/one/finance_sharing.py", "true"),
+        ("hushh-webapp/lib/agent/__tests__/calendar-directive-runtime.test.ts", "false"),
+        ("hushh-webapp/lib/agent/calendar-directive-runtime.ts\nhushh-webapp/lib/agent/calendar-proposal-review.ts\nhushh-webapp/lib/agent/__tests__/calendar-directive-runtime.test.ts\nhushh-webapp/__tests__/fixtures/calendar-chat-controlled-results.json\nconsent-protocol/tests/test_calendar_routes.py", "true"),
+    ):
+        code, values, calls, output = _browser_plan(changed)
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": required}, values
+        assert calls == []
+    code, values, calls, output = _browser_plan(
+        "hushh-webapp/components/kai/finance-flow.tsx\nhushh-webapp/e2e/fixtures/finance-interactions.tsx\nconsent-protocol/tests/test_finance.py",
+        CI_VALIDATION_LEVEL="focused")
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "true"}, output
+    assert calls == []
+
+    # Real mixed Finance/Calendar promotion inputs must keep their functional
+    # owners rather than expand the complete browser archive.
+    for changed, required in (
+        ("hushh-webapp/e2e/fixtures/advisor-review-boundaries.ts\nhushh-webapp/e2e/fixtures/advisor-review-checks.ts\nhushh-webapp/e2e/fixtures/advisor-review.tsx\nhushh-webapp/lib/advisor-review/service.ts\nhushh-webapp/lib/utils/portfolio-normalize.ts", "true"),
+        ("hushh-webapp/lib/connections/google-connect-in-place.ts", "true"),
+        ("hushh-webapp/lib/services/pre-vault-sensitive-draft-service.ts", "true"),
+        ("hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts\nhushh-webapp/lib/utils/request-timeouts.ts", "false"),
+        ("hushh-webapp/scripts/testing/affected-tests.mjs\nhushh-webapp/scripts/testing/affected-tests.test.mjs", "false"),
+        ("hushh-webapp/scripts/architecture/verify-design-system.mjs\nhushh-webapp/scripts/architecture/verify-render-performance.mjs\nhushh-webapp/scripts/design/verify-apple-hierarchy.mjs", "false"),
+        ("hushh-webapp/scripts/architecture/ui-review-receipts.mjs\nhushh-webapp/scripts/architecture/verify-ui-contracts.mjs\nhushh-webapp/scripts/architecture/back-navigation.test.mjs\nhushh-webapp/scripts/voice/search-contracts.test.mjs", "false"),
+    ):
+        code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": required}, output
+        assert calls == []
+
+
+    # Connect fixture dependencies are executable browser inputs, not a reason
+    # to expand every unrelated pack (UAT run 42119804426).
+    dependencies = (
+        "hushh-webapp/e2e/fixtures/connect-page.tsx",
+        "hushh-webapp/e2e/fixtures/connect-page-boundaries.tsx",
+        "hushh-webapp/e2e/helpers/mutual-list-layout.ts",
+        "hushh-webapp/lib/connections/person-profile-preview.ts",
+    )
+    for changed in (*dependencies, "\n".join((*dependencies,
+            "consent-protocol/tests/test_connections.py",
+            "hushh-webapp/contracts/ui-review/back/review.json"))):
+        code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": "true"}, output
+        assert calls == []
+        assert "Layout owner: e2e/connect-page-grid.layout.spec.ts" in output, output
+        assert "e2e/circle-discovery.layout.spec.ts" not in output, output
+        assert "Unclassified application impact" not in output, output
+    for changed in ("hushh-webapp/e2e/fixtures/connect-page-future.tsx",
+                    "hushh-webapp/lib/connections/unreviewed-preview.ts"):
+        code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
+        assert code == 0 and calls == [], output
+        assert values == {"selection_known": "false", "browser_required": "true"}, output
+
+
+def test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed() -> None:
+    # A known no-browser diff still qualifies the named release core, without
+    # changing the selection into the complete historical browser archive.
+    code, values, calls, output = _browser_plan(
+        "docs/README.md", CI_VALIDATION_LEVEL="release", WEB_TARGETED_ALL_PACKS="0"
+    )
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "true"}, values
+    assert calls == []
+
+    code, values, calls, output = _browser_plan("hushh-webapp/unregistered/selector-input.ts")
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "false", "browser_required": "true"}, values
+    assert calls == []
+
+    code, values, calls, output = _browser_plan(
+        "hushh-webapp/lib/voice/voice-session.ts", WEB_TARGETED_ALL_PACKS="1"
+    )
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "true"}, values
+    assert calls == []
+
+    code, values, calls, output = _browser_plan(
+        "hushh-webapp/lib/voice/voice-session.ts", WEB_TARGETED_BASE_SHA=""
+    )
+    assert code != 0, "missing exact base metadata must not produce a skippable plan"
+    assert "browser_required=false" not in output and "selection_known=true" not in output
+    assert calls == []

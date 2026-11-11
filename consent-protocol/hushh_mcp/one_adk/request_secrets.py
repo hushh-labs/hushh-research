@@ -19,9 +19,12 @@ _lock = threading.Lock()
 _values: dict[str, tuple[float, str]] = {}
 
 
-def store_request_secret(value: str, *, ttl_seconds: int = _TTL_SECONDS) -> str:
-    clean = str(value or "").strip()
-    if not clean:
+def store_request_secret(
+    value: str, *, ttl_seconds: int = _TTL_SECONDS, preserve_whitespace: bool = False
+) -> str:
+    raw = str(value or "")
+    clean = raw if preserve_whitespace else raw.strip()
+    if not clean.strip():
         return ""
     reference = f"{_PREFIX}{secrets.token_urlsafe(24)}"
     now = time.monotonic()
@@ -45,10 +48,11 @@ def store_request_secret(value: str, *, ttl_seconds: int = _TTL_SECONDS) -> str:
     return reference
 
 
-def resolve_request_secret(value: object) -> str:
-    candidate = str(value or "").strip()
+def resolve_request_secret(value: object, *, preserve_whitespace: bool = False) -> str:
+    raw = str(value or "")
+    candidate = raw.strip()
     if not candidate.startswith(_PREFIX):
-        return candidate
+        return raw if preserve_whitespace else candidate
     with _lock:
         record = _values.get(candidate)
         if not record or record[0] <= time.monotonic():

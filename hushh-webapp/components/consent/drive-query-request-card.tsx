@@ -538,7 +538,7 @@ function UnlockedDriveQueryCard({
       {showDecision ? (
         <>
           <HelperText>
-            If you allow, your private agent searches your Drive once and shares
+            If you allow, Agent One searches your Drive once and shares
             the answer and file names. Your files aren&apos;t shared.
           </HelperText>
           <FlowActionGroup

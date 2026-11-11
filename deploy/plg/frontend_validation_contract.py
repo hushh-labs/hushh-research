@@ -5,7 +5,10 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import re
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/ci"))
 
 _spec = importlib.util.spec_from_file_location(
     "plg_frontend_source_authority", Path(__file__).with_name("frontend_source.py")
@@ -34,7 +37,11 @@ CHECKS = [
     "source-recheck",
 ]
 JOB_STEPS = {
+    "Deployment security / Verify repository secret clearance": {
+        "Read protected repository inventory",
+    },
     "Admit PLG frontend source": {
+        "Require current-attempt deployment security",
         "Require Main workflow dispatch",
         "Checkout Main authority",
         "Require governed production actors",
@@ -47,6 +54,7 @@ JOB_STEPS = {
         "Upload admission receipt",
     },
     "Verify frontend candidate": {
+        "Require current-attempt deployment security",
         "Checkout pinned frontend source",
         "Verify source checkout",
         "Set up Node 24",
@@ -59,6 +67,7 @@ JOB_STEPS = {
         "Upload frontend test report",
     },
     GATE: {
+        "Require current-attempt deployment security",
         "Checkout Main authority",
         "Require successful predecessors",
         "Fetch pinned frontend source",
@@ -82,8 +91,9 @@ def _positive(value: object) -> bool:
 
 
 def qualify_run(
-    run: dict, workflow: dict, run_id: int, allowed: set[str], *, completed: bool = True
+    run: dict, workflow: dict, run_id: int, allowed: set[str] | None = None, *, completed: bool = True
 ) -> None:
+    from release_acceptance_provenance import historical_human_dispatch
     repo = run.get("repository") or {}
     head_repo = run.get("head_repository") or {}
     require(
@@ -104,8 +114,9 @@ def qualify_run(
         and workflow.get("path") == WORKFLOW
         and _positive(run.get("run_attempt"))
         and re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha", ""))
-        and run.get("actor", {}).get("login") in allowed
-        and run.get("triggering_actor", {}).get("login") in allowed,
+        and (historical_human_dispatch(run) if completed else
+             all(run.get(key, {}).get("login") in (allowed or set())
+                 for key in ("actor", "triggering_actor"))),
         "Frontend validation is not a governed Main workflow dispatch",
     )
     if completed:

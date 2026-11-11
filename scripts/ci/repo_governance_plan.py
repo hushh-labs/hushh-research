@@ -1,0 +1,679 @@
+#!/usr/bin/env python3
+"""Select and run repository governance checks without discovering a diff."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Sequence
+
+
+ROOT = Path(__file__).resolve().parents[2]
+MAX_CHANGED_BYTES = 128 * 1024
+MAX_CHANGED_PATHS = 2048
+MAX_PATH_BYTES = 2048
+REGRESSION_GROUPS = ("controller", "retention", "agent")
+VALID_LEVELS = ("focused", "release", "diagnostic")
+RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_secret_metadata_inventory.py",
+    "consent-protocol/tests/test_managed_provider_collection.py",
+    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
+    "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/test_pwm_runtime_probe.py",
+    "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
+    "consent-protocol/tests/scripts/test_probe_drive_activity_planner.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_runner.py",
+    "consent-protocol/tests/test_vertex_capability_probe.py",
+    "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
+    "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
+    "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
+    "consent-protocol/tests/test_location_workflow_compatibility.py",
+    "consent-protocol/tests/test_runtime_config_retention.py",
+    "consent-protocol/tests/test_plg_deploy_bindings.py",
+    "consent-protocol/tests/test_azure_runtime_config_wiring.py",
+    "consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py",
+    "consent-protocol/tests/test_runtime_settings_maps.py",
+    "consent-protocol/tests/test_uat_application_selection.py",
+    "consent-protocol/tests/test_direct_uat_acceptance.py",
+    "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
+    "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
+    "consent-protocol/tests/test_dev_release_classification.py",
+    "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+    "consent-protocol/tests/test_hushh_tech_runtime_config.py",
+    "consent-protocol/tests/test_insurance_agents_runtime_config_wiring.py",
+    "consent-protocol/tests/test_one_location_read_only_runtime_config.py",
+    "consent-protocol/tests/test_pkm_answer_config.py",
+    "consent-protocol/tests/test_account_generation_admission_deploy.py",
+    "consent-protocol/tests/test_azure_pod_release_publish_step.py",
+    "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
+    "consent-protocol/tests/test_cloud_run_image_resolution.py",
+    "consent-protocol/tests/test_commerce_preview_bootstrap.py",
+    "consent-protocol/tests/test_commerce_preview_target.py",
+    "consent-protocol/tests/test_curated_connector_deploy_wiring.py",
+    "consent-protocol/tests/test_deploy_sha_gate_payload_size.py",
+    "consent-protocol/tests/test_dev_candidate_gate.py",
+    "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
+    "consent-protocol/tests/test_drive_v1_worker_lane.py",
+    "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+    "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+    "consent-protocol/tests/test_protected_document_release_contract.py",
+    "consent-protocol/tests/test_database_connection_ceiling.py",
+    "consent-protocol/tests/test_feed_stream_capacity_contract.py",
+    "consent-protocol/tests/test_gmail_information_request_release_contract.py",
+    "consent-protocol/tests/test_hushh_tech_client_migration.py",
+    "consent-protocol/tests/test_kai_analyze_durable_run_store_deploy_parity.py",
+    "consent-protocol/tests/test_one_wallet_card_deploy_parity.py",
+    "consent-protocol/tests/test_phone_schema_legacy_job.py",
+    "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
+    "consent-protocol/tests/test_plg_qualification_producer.py",
+    "consent-protocol/tests/test_plg_qualification_bootstrap.py",
+    "consent-protocol/tests/test_plg_qualification_acceptance.py",
+    "consent-protocol/tests/test_plg_qualification_candidate.py",
+    "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
+    "consent-protocol/tests/test_uat_connector_rollout_contract.py",
+    "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+    "consent-protocol/tests/test_uat_frontend_image_handoff.py",
+    "consent-protocol/tests/test_uat_kai_regression_smoke.py",
+    "consent-protocol/tests/test_dco_history_sync.py",
+    "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+    "consent-protocol/tests/test_one_chat_service_only_release.py",
+    "consent-protocol/tests/test_deployment_security.py",
+    "consent-protocol/tests/test_native_ship_artifact_workflows.py",
+    "consent-protocol/tests/test_uat_backend_image_promotion.py",
+    "consent-protocol/tests/test_predecessor_acceptance_contract.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_measurement.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_premerge.py",
+)
+RESTORATION_FIXTURE_INPUTS = frozenset(
+    {
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
+        "consent-protocol/tests/helpers/production_release_tools.py",
+        "consent-protocol/tests/test_production_restoration_operation.py",
+    }
+)
+RESTORATION_FIXTURE_TESTS = (
+    "consent-protocol/tests/test_production_restoration_operation.py",
+    "consent-protocol/tests/test_phone_schema_origin.py",
+    "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+    "consent-protocol/tests/test_phone_schema_job_history.py",
+    "consent-protocol/tests/test_phone_schema_qualification.py",
+)
+
+
+@dataclass(frozen=True)
+class Check:
+    check_id: str
+    argv: tuple[str, ...]
+    groups: frozenset[str] = frozenset()
+    diagnostic_only: bool = False
+
+
+def _check(check_id: str, *argv: str, groups: Sequence[str] = (), diagnostic: bool = False) -> Check:
+    return Check(check_id, tuple(argv), frozenset(groups), diagnostic)
+
+
+# Kept in the same order as the former governance entrypoint. Checks without a
+# regression group remain in the focused baseline; non-blocking hygiene is
+# diagnostic-only, and the named regression groups are selected by changed path.
+CHECKS = (
+    _check("email-risk-artifact-integrity", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-c", """import json, sys
+from pathlib import Path
+sys.path.insert(0, 'consent-protocol')
+from hushh_mcp.services.email_auth.domain_policy import RiskSnapshot
+manifest = Path('consent-protocol/config/email-auth/risk-manifest.json')
+value = json.loads(manifest.read_text())
+if value['file'] != 'disposable-domains.txt' or value['license'] != 'LICENSE-disposable-domains.txt':
+    raise ValueError('Email risk manifest refers to an unowned input')
+if not (manifest.parent / value['license']).is_file():
+    raise ValueError('Email risk snapshot licence is missing')
+RiskSnapshot.load(str(manifest))
+""", groups=("controller",)),
+    _check("email-risk-policy-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q",
+           "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
+           "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
+           groups=("controller",)),
+    _check("capability-graph-integrity", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "consent-protocol/scripts/generate_capability_graph.py", "--check", groups=("controller",)),
+    _check("route-index-integrity", "node", "--input-type=module", "-e",
+           "process.chdir('hushh-webapp'); process.argv.push('--check'); await import('./hushh-webapp/scripts/voice/generate-route-orchestration-index.mjs');"),
+    _check("route-index-reader", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", "consent-protocol/tests/test_route_orchestration_index.py"),
+    _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
+    _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
+    _check("agent-orchestration", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", groups=("agent",)),
+    _check("agent-orchestration-selftest", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", "--self-test", groups=("agent",)),
+    _check("memory-judge-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", "consent-protocol/tests/test_memory_judge.py", groups=("agent",)),
+    _check("architecture-fitness-selftest", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--self-test", diagnostic=True),
+    _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/reference/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
+    _check("pr-governance-sections", "python3", "scripts/ci/verify-pr-governance-sections.py", groups=("operations",)),
+    _check("governance-plan-selection", "python3", "scripts/ci/test_repo_governance_plan.py", groups=("operations",)),
+    _check("protected-pipeline-edits", "python3", "scripts/ci/verify-protected-pipeline-edits.py", groups=("operations",)),
+    _check("protected-pipeline-selftest", "python3", "scripts/ci/verify-protected-pipeline-edits.py", "--self-test", groups=("operations",)),
+    _check("protected-behavior-tests", "python3", "scripts/ci/verify-protected-behavior-tests.py", groups=("operations",)),
+    _check("protected-behavior-selftest", "python3", "scripts/ci/verify-protected-behavior-tests.py", "--self-test", groups=("operations",)),
+    _check("live-memory-source", "python3", "scripts/ci/live-memory-source-gate.py", groups=("operations",)),
+    _check("live-memory-source-selftest", "python3", "scripts/ci/live-memory-source-gate.py", "--self-test", groups=("operations",)),
+    _check("live-memory-pr-context", "python3", "scripts/ci/test_live_memory_pr_context.py", groups=("operations",)),
+    _check("github-security-authority", "python3", "scripts/ci/test_github_security_authority.py", groups=("operations",)),
+    _check("github-security-receipt", "python3", "scripts/ci/test_github_security_receipt.py", groups=("operations",)),
+    _check("pr-base-policy", "python3", "scripts/ci/verify-pr-base-policy.py", "--self-test", groups=("operations",)),
+    _check("queue-combined-authority", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "-m", "pytest", "-q", "scripts/ci/test_queue_combined_result.py", "scripts/ci/test_qualify_akshat_sandbox_deploy_source.py", groups=("controller",)),
+    _check("queue-entry-reuse", "python3", "scripts/ci/verify-queue-entry-reuses-pr-validation.py", "--self-test", groups=("operations",)),
+    _check("branch-governance-docs", "python3", "scripts/ci/verify-branch-governance-doc-consistency.py", diagnostic=True),
+    _check("branch-governance-docs-selftest", "python3", "scripts/ci/verify-branch-governance-doc-consistency.py", "--self-test", diagnostic=True),
+    _check("deployment-environment-governance", "python3", "scripts/ci/test_verify_deployment_environment_governance.py", groups=("controller", "release", "operations")),
+    _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
+    _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
+    _check("production-recovery-ci", "python3", "scripts/ci/test_production_recovery_ci.py", groups=("controller", "release")),
+    _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),
+    _check("uat-pr-scope", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "scripts/ci/test_uat_pr_scope.py", groups=("controller", "release")),
+    _check("release-cadence-maintenance", "python3", "scripts/ci/test_release_cadence_maintenance.py", groups=("controller",)),
+    _check("release-cadence-monitor", "python3", "scripts/ci/test_release_cadence_monitor.py", groups=("controller",)),
+    _check("release-cadence-checkpoint", "python3", "scripts/ci/test_release_cadence_checkpoint.py", groups=("controller",)),
+    _check("protocol-ci-parity", "bash", "scripts/ci/verify-protocol-ci-parity.sh", "--self-test", groups=("operations",)),
+    _check("protocol-manifest-transport", "python3", "scripts/ci/test_protocol_manifest_transport.py", groups=("operations",)),
+    _check("governance-teams", "python3", "scripts/ci/test_apply_governance_teams.py", groups=("controller",)),
+    _check("resolve-deploy-scope", "python3", "scripts/ci/test_resolve_deploy_scope.py", groups=("controller", "release", "operations")),
+    _check("cloudrun-retention", "python3", "scripts/ci/test_cloudrun_retention.py", groups=("retention",)),
+    _check("uat-per-revision-drain", "python3", "scripts/ci/test_uat_per_revision_drain.py", groups=("retention",)),
+    _check("pending-uat-retention", "python3", "scripts/ci/test_pending_uat_retention_state.py", groups=("retention",)),
+    _check("retention-preflight-checkpoint", "python3", "scripts/ci/test_retention_preflight_checkpoint.py", groups=("retention",)),
+    _check("retention-error-diagnostics", "python3", "scripts/ci/test_retention_error_diagnostics.py", groups=("retention",)),
+    _check("retention-preparing", "python3", "scripts/ci/test_retention_preparing.py", groups=("retention",)),
+    _check("retention-preflight-evidence", "python3", "scripts/ci/test_retention_preflight_evidence.py", groups=("retention",)),
+    _check("retention-production-evidence", "python3", "scripts/ci/test_retention_production_evidence.py", groups=("retention",)),
+    _check("retention-production-clock", "python3", "scripts/ci/test_retention_production_clock_evidence.py", groups=("retention",)),
+    _check("retention-uat-guard", "python3", "scripts/ci/test_retention_uat_guard_evidence.py", groups=("retention",)),
+    _check("wait-uat-capacity", "python3", "scripts/ci/test_wait_uat_capacity.py", groups=("retention",)),
+    _check("runtime-capacity-budget", "python3", "scripts/ci/test_runtime_capacity_budget.py", groups=("retention",)),
+    _check("runtime-capacity-uat-health", "python3", "scripts/ci/test_runtime_capacity_uat_health_job.py", groups=("retention",)),
+    _check("runtime-capacity-inventory", "python3", "scripts/ci/test_runtime_capacity_inventory.py", groups=("retention",)),
+    _check("runtime-capacity-volume", "python3", "scripts/ci/test_runtime_capacity_volume.py", groups=("retention",)),
+    _check("runtime-capacity-isolated", "python3", "scripts/ci/test_runtime_capacity_isolated.py", groups=("retention",)),
+    _check("runtime-capacity-route-secrets", "python3", "scripts/ci/test_runtime_capacity_route_secrets.py", groups=("retention",)),
+    _check("production-capacity-bridge", "python3", "scripts/ci/test_production_capacity_bridge.py", groups=("retention",)),
+    _check("production-capacity-recovery", "python3", "scripts/ci/test_production_capacity_recovery.py", groups=("retention",)),
+    _check("production-verification", "python3", "scripts/ci/test_production_verification.py", groups=("controller", "release")),
+    _check("production-verification-workflow", "python3", "scripts/ci/test_production_verification_workflow.py", groups=("controller", "release")),
+    _check(
+        "production-emergency-authority",
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q",
+        "consent-protocol/tests/test_production_emergency.py",
+        groups=("controller",),
+    ),
+    _check(
+        "production-restoration-fixture-owner",
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q", *RESTORATION_FIXTURE_TESTS,
+        groups=("controller",),
+    ),
+    _check(
+        "uat-deploy-parallelism",
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q",
+        "consent-protocol/tests/test_uat_deploy_parallelism.py",
+        groups=("controller",),
+    ),
+    _check(
+        "account-deletion-release-workflow",
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q",
+        "consent-protocol/tests/test_account_deletion_release_workflow.py",
+        groups=("controller",),
+    ),
+    _check("passkey-domain-associations", "python3", "scripts/ci/test_verify_passkey_domain_associations.py", groups=("controller",)),
+    _check("prod-places-readiness", "python3", "scripts/ci/test_verify_prod_places_readiness.py", groups=("controller",)),
+    _check("uat-verification-plan", "python3", "scripts/ci/test_resolve_uat_verification_plan.py"),
+    _check("change-aware-verification-wiring", "python3", "scripts/ci/test_change_aware_verification_wiring.py"),
+    _check("main-sync", "python3", "scripts/ci/test_check_main_sync.py"),
+    _check("ui-contract-gate", "python3", "scripts/ci/test_ui_contract_gate.py"),
+    _check("web-lane-partition", "python3", "scripts/ci/test_web_ci_lane_partition.py"),
+    _check(
+        "affected-tests-selector-contract",
+        "node",
+        "--test",
+        "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+        groups=("controller", "operations"),
+    ),
+    _check("pkm-upgrade-gate-scope", "python3", "scripts/ci/test_pkm_upgrade_gate_scope.py"),
+    _check("deploy-identity-provenance-record", "python3", "scripts/ci/verify-deploy-identity-provenance.py", "--record-only", groups=("operations",)),
+    _check("deploy-identity-provenance", "python3", "scripts/ci/test_verify_deploy_identity_provenance.py", groups=("operations",)),
+    _check("private-native-artifact", "python3", "scripts/ci/test_private_native_artifact.py"),
+    _check("ios-appstore-dispatch", "node", "--test", "scripts/release/dispatch-ios-appstore.test.mjs"),
+    _check("android-store-dispatch", "node", "--test", "scripts/release/dispatch-android-playstore.test.mjs"),
+    _check("ios-build-number", "python3", "scripts/ci/test_resolve_ios_build_number.py"),
+    _check("ci-path-ownership", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "-m", "pytest", "-q", "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py", "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py", groups=("controller",)),
+    _check("ci-cache-scopes", "python3", "scripts/ci/test_ci_cache_scopes.py"),
+    _check("docs-verify", "./bin/hushh", "docs", "verify", diagnostic=True),
+    _check("data-model-audit", "./bin/hushh", "codex", "data-model-audit", diagnostic=True),
+    _check("runtime-topology-index", "python3", "scripts/ops/generate_runtime_topology_index.py", "--check", diagnostic=True),
+    _check("apache-license-surface", "python3", "scripts/licenses/verify_apache_surface.py"),
+    _check("runtime-config-contract", "python3", "scripts/ci/verify-runtime-config-contract.py", groups=("operations",)),
+    _check("agent-fleet-audit", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py", "--text", diagnostic=True),
+    _check("agent-router-smoke", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py", diagnostic=True),
+    _check("trigger-evals", "python3", ".agents/skills/codex-skill-authoring/scripts/trigger_evals.py", diagnostic=True),
+    _check("trigger-eval-tests", "python3", ".agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py", diagnostic=True),
+    _check("compact-kernel-smoke", "python3", ".agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py", diagnostic=True),
+    _check("route-check", "python3", ".agents/routing/scripts/route.py", "--check", diagnostic=True),
+    _check("route-request-tests", "python3", ".agents/routing/scripts/test_route_requests.py", groups=("agent",)),
+    _check("client-env-parity", "bash", ".agents/skills/client-env-parity/check.sh", groups=("operations",)),
+    _check("db-release-contract", "./bin/hushh", "db", "verify-release-contract", groups=("operations",)),
+    _check("db-production-posture", "./bin/hushh", "db", "report-prod-posture", groups=("operations",)),
+    _check("deploy-secret-coverage", "python3", "scripts/ci/check-deploy-secret-coverage.py", groups=("operations",)),
+)
+
+
+OPERATIONS_IDS = frozenset(
+    check.check_id for check in CHECKS if "operations" in check.groups
+)
+RELEASE_IDS = frozenset(check.check_id for check in CHECKS if "release" in check.groups)
+REGRESSION_IDS = {
+    group: frozenset(check.check_id for check in CHECKS if group in check.groups)
+    for group in REGRESSION_GROUPS
+}
+DIAGNOSTIC_IDS = frozenset(check.check_id for check in CHECKS if check.diagnostic_only)
+
+KNOWN_ROOTS = frozenset(
+    {
+        ".agents", ".github", "archive", "artifacts", "bin", "clawhub", "config",
+        "consent-protocol", "contracts", "data", "deploy", "docs", "hushh-webapp",
+        "ios", "android", "packages", "scripts", "skillsagentic", "tests",
+    }
+)
+KNOWN_ROOT_FILES = frozenset(
+    {
+        "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        "REUSE.toml", "SECURITY.md", "TESTING.md", "THIRD_PARTY_NOTICES.md",
+        "code_of_conduct.md", "contributing.md", "docker-compose.yml",
+        "docker-compose.offline.yml", "getting_started.md", "skills-lock.json",
+    }
+)
+
+
+@dataclass(frozen=True)
+class Selection:
+    level: str
+    files: tuple[str, ...]
+    groups: tuple[str, ...]
+    check_ids: tuple[str, ...]
+    error: str | None = None
+
+
+def _changed_files_from_environment(env: dict[str, str]) -> tuple[tuple[str, ...], str | None]:
+    inline = env.get("CI_CHANGED_FILES")
+    filename = env.get("CI_CHANGED_FILES_FILE")
+    if inline is not None and filename is not None:
+        return (), "set only one of CI_CHANGED_FILES or CI_CHANGED_FILES_FILE"
+    if filename is not None:
+        source = Path(filename)
+        try:
+            if source.is_symlink() or not source.is_file():
+                return (), "CI_CHANGED_FILES_FILE must be a regular non-symlink file"
+            if source.stat().st_size > MAX_CHANGED_BYTES:
+                return (), f"changed-file list exceeds {MAX_CHANGED_BYTES} bytes"
+            raw = source.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError) as exc:
+            return (), f"cannot read changed-file list: {type(exc).__name__}"
+    elif inline is not None:
+        raw = inline
+        if len(raw.encode("utf-8")) > MAX_CHANGED_BYTES:
+            return (), f"changed-file list exceeds {MAX_CHANGED_BYTES} bytes"
+    else:
+        return (), "changed-file list is required for focused/release validation"
+    files = tuple(line for line in raw.splitlines() if line)
+    if not files:
+        return (), "changed-file list is empty"
+    if len(files) > MAX_CHANGED_PATHS:
+        return (), f"changed-file list exceeds {MAX_CHANGED_PATHS} paths"
+    for path in files:
+        if len(path.encode("utf-8")) > MAX_PATH_BYTES:
+            return (), "a changed path exceeds the allowed length"
+        if path.startswith("/") or "\\" in path or "\x00" in path:
+            return (), f"invalid repository-relative path: {path!r}"
+        if any(part in ("", ".", "..") for part in path.split("/")):
+            return (), f"non-canonical repository-relative path: {path!r}"
+    return files, None
+
+
+def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
+    parts = path.split("/")
+    root = parts[0]
+    if root not in KNOWN_ROOTS and path not in KNOWN_ROOT_FILES:
+        return frozenset(), f"unrecognized changed path: {path}"
+    if path in {
+        "consent-protocol/tests/helpers/drive_worker_gcloud.py",
+        "consent-protocol/config/email-auth/disposable-domains.txt",
+        "consent-protocol/config/email-auth/risk-manifest.json",
+        "hushh-webapp/scripts/testing/affected-tests.mjs",
+        "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+        "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
+        "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
+        "consent-protocol/tests/test_production_emergency.py",
+        "consent-protocol/tests/test_uat_deploy_parallelism.py",
+        "consent-protocol/tests/helpers/document_delivery_ci.py",
+        "consent-protocol/tests/test_account_deletion_release_workflow.py",
+        *RESTORATION_FIXTURE_INPUTS,
+        *RELEASE_CONTROLLER_TESTS,
+        "scripts/ci/capture_managed_provider_receipt.py",
+        "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+        "consent-protocol/tests/helpers/production_runtime_profile.py",
+        "consent-protocol/scripts/managed_vertex_readiness.py",
+        "consent-protocol/scripts/probe_managed_text.py",
+        "consent-protocol/scripts/generate_capability_graph.py",
+        "consent-protocol/tests/helpers/capability_graph_fixture.py",
+        "consent-protocol/tests/helpers/plg_qualification.py",
+        "consent-protocol/tests/helpers/calendar_followup_scheduler.py",
+    }:
+        return frozenset({"controller"}), None
+    if path == "consent-protocol/tests/test_memory_judge.py":
+        return frozenset({"agent"}), None
+    if root == ".agents":
+        return frozenset({"agent"}), None
+    if root in {".github", "config", "deploy", "bin"}:
+        return frozenset({"controller"}), None
+    if root == "scripts":
+        if len(parts) < 2:
+            return frozenset(), f"unrecognized scripts path: {path}"
+        # The Dev recovery CLI is tested by the backend owner, never executed here.
+        if path == "scripts/ops/recover_dev_cloud_removal.py":
+            return frozenset(), None
+        # Authored CI filenames use both hyphens and underscores. Treat the
+        # same owner token consistently instead of rejecting registered tools.
+        lower = path.lower().replace("-", "_")
+        if parts[1] == "release":
+            return frozenset({"controller"}), None
+        if parts[1] == "ops" and "runtime_topology" in lower:
+            return frozenset(), None
+        if path in {"scripts/ci/resolve-ci-changed-files.sh", "scripts/ci/document-delivery-check.sh"}:
+            return frozenset({"controller"}), None
+        if path in {
+            "scripts/ci/assert-governed-actor.py",
+            "scripts/ci/promotion_approval.py",
+            "scripts/ci/github_team_authority.py",
+            "scripts/ci/verify-predecessor-acceptance.py",
+            "scripts/ci/resolve-ui-contract-base.py",
+            "scripts/ci/main-post-merge-smoke.sh",
+            "scripts/ci/test_ui_contract_gate.py",
+            "scripts/ci/integration-check.sh",
+            "scripts/ci/orchestrate.sh",
+            "scripts/ci/account-deletion-check.sh",
+            "scripts/ci/backend-check.sh",
+            "scripts/ci/validation-results.sh",
+            "scripts/ci/check-dco-signoff.sh",
+            "scripts/ci/verify-pr-base-policy.py",
+            "scripts/ci/runtime-contract-check.sh",
+            "scripts/ci/secret-scan.sh",
+            "scripts/ci/test_secret_scan_ranges.py",
+            "scripts/ci/tag-last-known-good.sh",
+            "scripts/ci/verify-predecessor-acceptance.py",
+            "scripts/ops/audit_env_toggles.py",
+            "scripts/ops/sync_backend_runtime_secrets.py",
+            "scripts/ops/runtime_config_retention.py",
+        }:
+            return frozenset({"controller"}), None
+        if path in {
+            "scripts/ci/repo-governance-check.sh",
+            "scripts/ci/repo_governance_plan.py",
+            "scripts/ci/test_repo_governance_plan.py",
+        }:
+            return REGRESSION_GROUPS, None
+        if any(token in lower for token in ("retention", "capacity", "wait_uat", "drain")):
+            return frozenset({"retention"}), None
+        if any(token in lower for token in ("agent", "router", "route_request", "orchestration")):
+            return frozenset({"agent"}), None
+        controller_tokens = (
+            "deploy", "release", "uat", "production", "environment", "identity",
+            "security", "governance", "scope", "artifact", "passkey", "places",
+            "readiness", "protocol", "queue", "protected", "branch", "main_sync",
+            "live_memory", "verification", "rollback", "secret",
+        )
+        if any(token in lower for token in controller_tokens):
+            return frozenset({"controller"}), None
+        known_nonregression_tokens = ("web", "ui", "cache", "ios", "android", "native", "pkm")
+        if any(token in lower for token in known_nonregression_tokens):
+            return frozenset(), None
+        return frozenset(), f"unrecognized scripts owner path: {path}"
+    if root in KNOWN_ROOTS or path in KNOWN_ROOT_FILES:
+        return frozenset(), None
+    return frozenset(), f"unrecognized changed path: {path}"
+
+
+def _select_groups(files: tuple[str, ...]) -> tuple[tuple[str, ...], str | None]:
+    groups: set[str] = set()
+    for path in files:
+        owners, error = _path_groups(path)
+        if error:
+            return REGRESSION_GROUPS, error
+        groups.update(owners)
+    return tuple(group for group in REGRESSION_GROUPS if group in groups), None
+
+
+# Inputs read by the lane-topology regression owner, not product behavior.
+EMAIL_RISK_INPUTS = frozenset({
+    "consent-protocol/config/email-auth/disposable-domains.txt",
+    "consent-protocol/config/email-auth/risk-manifest.json",
+})
+GENERATED_MIRROR_INPUTS = frozenset(
+    f"{prefix}contracts/kai/one-{name}.v1.json"
+    for prefix in ("", "hushh-webapp/", "consent-protocol/")
+    for name in ("capability-graph", "route-orchestration-index")
+)
+GENERATED_MIRROR_CHECKS = frozenset({"route-index-integrity", "route-index-reader"})
+
+
+EMAIL_RISK_CHECKS = frozenset({"email-risk-artifact-integrity", "email-risk-policy-contracts"})
+
+
+WEB_LANE_INPUTS = frozenset({
+    'hushh-webapp/package.json',
+    'hushh-webapp/playwright.config.ts',
+    'hushh-webapp/scripts/testing/playwright-shard.cjs',
+    'scripts/ci/test_web_ci_lane_partition.py',
+    'scripts/ci/web_ci_lane_fixture.py',
+    'scripts/ci/web_lane_topology_contract.py',
+    'scripts/ci/web-targeted-check.sh',
+    'scripts/ci/web-targeted-plan.sh',
+    'scripts/ci/web-common.sh',
+    'scripts/ci/web-full-suite-check.sh',
+    'scripts/ci/web-browser-core.py',
+})
+
+
+def build_selection(env: dict[str, str]) -> Selection:
+    raw_level = env.get("CI_VALIDATION_LEVEL")
+    level = raw_level.strip().lower() if raw_level and raw_level.strip() else "diagnostic"
+    level_error = None
+    if level not in VALID_LEVELS:
+        level_error = f"unsupported CI_VALIDATION_LEVEL: {raw_level!r}"
+        level = "diagnostic"
+    if level == "diagnostic":
+        ids = tuple(check.check_id for check in CHECKS)
+        return Selection(level, (), (), ids, level_error)
+
+    files, file_error = _changed_files_from_environment(env)
+    groups, group_error = _select_groups(files) if file_error is None else (REGRESSION_GROUPS, None)
+    selection_error = level_error or file_error or group_error
+    if selection_error:
+        groups = REGRESSION_GROUPS
+    requested_groups = set(groups)
+    if level == "release":
+        requested_groups.add("release")
+        if env.get("PRODUCTION_RECOVERY_SHA"):
+            # Main owns these controller checks; historical Protocol cannot cover them.
+            requested_groups.add("controller")
+    ids = tuple(
+        check.check_id
+        for check in CHECKS
+        if not check.diagnostic_only
+        and (
+            not check.groups.intersection({"controller", "retention", "agent", "release"})
+            or bool(check.groups.intersection(requested_groups))
+            or (check.check_id == "capability-graph-integrity"
+                and bool(GENERATED_MIRROR_INPUTS.intersection(files)))
+        )
+        and (check.check_id not in GENERATED_MIRROR_CHECKS
+             or selection_error or bool(GENERATED_MIRROR_INPUTS.intersection(files)))
+        and (check.check_id not in EMAIL_RISK_CHECKS
+             or selection_error or bool(EMAIL_RISK_INPUTS.intersection(files)))
+        and (
+            check.check_id != "web-lane-partition"
+            or level == "release"
+            or selection_error
+            or "controller" in requested_groups
+            or bool(WEB_LANE_INPUTS.intersection(files))
+        )
+    )
+    return Selection(
+        level,
+        files,
+        tuple(group for group in REGRESSION_GROUPS if group in requested_groups)
+        + (("release",) if level == "release" else ()),
+        ids,
+        selection_error,
+    )
+
+
+def _checks_for_ids(check_ids: Sequence[str]) -> tuple[Check, ...]:
+    selected = set(check_ids)
+    return tuple(check for check in CHECKS if check.check_id in selected)
+
+
+def _checks_for_selection(selection: Selection, env: dict[str, str]) -> tuple[Check, ...]:
+    checks = _checks_for_ids(selection.check_ids)
+    # Protocol retains its full manifest, import collection and runtime envelope.
+    # Transfer only whole-module duplicates when that required hosted owner runs.
+    if (
+        selection.error
+        or selection.level == "diagnostic"
+        or env.get("GITHUB_ACTIONS") != "true"
+        or env.get("GITHUB_EVENT_NAME") not in {"pull_request", "merge_group", "workflow_dispatch"}
+        or env.get("CI_PROTOCOL_CONTROLLER_OWNER") != "true"
+        or env.get("PRODUCTION_RECOVERY_SHA")
+    ):
+        return checks
+    manifest = ROOT / "consent-protocol/scripts/test-ci.manifest.txt"
+    try:
+        if manifest.is_symlink():
+            return checks
+        paths = [line for line in manifest.read_text().splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")]
+        if not paths or len(paths) != len(set(paths)) or any(
+            not path.startswith("tests/") or not path.endswith(".py")
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or not (ROOT / "consent-protocol" / path).is_file()
+            for path in paths
+        ):
+            return checks
+    except (OSError, UnicodeError):
+        return checks
+    protocol_owned = {f"consent-protocol/{path}" for path in paths}
+    result = []
+    for check in checks:
+        if check.check_id == "release-controller-contracts":
+            remaining = tuple(path for path in RELEASE_CONTROLLER_TESTS if path not in protocol_owned)
+            if not remaining:
+                continue  # Never invoke pytest without paths and discover the repository.
+            check = replace(check, argv=check.argv[:-len(RELEASE_CONTROLLER_TESTS)] + remaining)
+        result.append(check)
+    return tuple(result)
+
+
+def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> int:
+    failures: list[tuple[str, str]] = []
+    # This selects Main's regression checks; it is not input to their child processes.
+    child_env = dict(os.environ)
+    child_env.pop("PRODUCTION_RECOVERY_SHA", None)
+    for check in checks:
+        print(f"\n[governance:{check.check_id}] {' '.join(check.argv)}", flush=True)
+        try:
+            result = subprocess.run(check.argv, cwd=ROOT, env=child_env, check=False)
+            status = result.returncode
+        except OSError as exc:
+            status = 127
+            print(f"unable to start check: {type(exc).__name__}: {exc}", file=sys.stderr)
+        if status < 0 or status >= 124:
+            print(f"Governance interrupted: {check.check_id} (exit {status}); no further checks started", file=sys.stderr)
+            return 128 - status if status < 0 else status
+        if status:
+            groups = ",".join(sorted(check.groups)) or "baseline"
+            failures.append((groups, f"{check.check_id} (exit {status})"))
+    if selection_error:
+        failures.append(("selection", selection_error))
+    if failures:
+        print("\nGovernance check failures:", file=sys.stderr)
+        for group, message in failures:
+            print(f"- [{group}] {message}", file=sys.stderr)
+        return 1
+    print(f"\nGovernance checks passed: {len(checks)}", flush=True)
+    return 0
+
+
+def _emit_plan(selection: Selection) -> None:
+    checks = _checks_for_selection(selection, dict(os.environ))
+    payload = {
+        "level": selection.level,
+        "changed_files": list(selection.files),
+        "selected_groups": list(selection.groups),
+        "selection_error": selection.error,
+        "commands": [
+            {"id": check.check_id, "groups": sorted(check.groups), "argv": list(check.argv)}
+            for check in checks
+        ],
+    }
+    print(json.dumps(payload, separators=(",", ":")))
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--plan", action="store_true", help="print the selected checks as JSON")
+    action.add_argument("--commands-group", choices=("operations", "release", *REGRESSION_GROUPS, "diagnostic"), help="print a reusable group command list as JSON")
+    action.add_argument("--run-group", choices=("operations", "release", *REGRESSION_GROUPS, "diagnostic"), help="run one named check group")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    if args.commands_group:
+        if args.commands_group == "diagnostic":
+            selected = CHECKS
+        elif args.commands_group == "operations":
+            selected = tuple(check for check in CHECKS if check.check_id in OPERATIONS_IDS)
+        else:
+            tag = "release" if args.commands_group == "release" else args.commands_group
+            selected = tuple(check for check in CHECKS if tag in check.groups)
+        print(json.dumps([{"id": check.check_id, "argv": list(check.argv)} for check in selected], separators=(",", ":")))
+        return 0
+    if args.run_group:
+        if args.run_group == "diagnostic":
+            selected = CHECKS
+        elif args.run_group == "operations":
+            selected = tuple(check for check in CHECKS if check.check_id in OPERATIONS_IDS)
+        else:
+            tag = "release" if args.run_group == "release" else args.run_group
+            selected = tuple(check for check in CHECKS if tag in check.groups)
+        return _run_checks(selected)
+
+    selection = build_selection(dict(os.environ))
+    if args.plan:
+        _emit_plan(selection)
+        return 2 if selection.error else 0
+    return _run_checks(_checks_for_selection(selection, dict(os.environ)), selection.error)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -310,7 +310,7 @@ export function UnlockedRequestButton({
         <HelperText>Ask as a question: {ASK_HELPER}</HelperText>
         {draftNeedsDates ? (
           <HelperText role="status">
-            Choose exact start and end dates with your private agent before sending this request.
+            Choose exact start and end dates with Agent One before sending this request.
           </HelperText>
         ) : null}
         {tooLong ? (

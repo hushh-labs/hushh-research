@@ -311,12 +311,22 @@ describe("named Circle flows", () => {
 
   it("adds selected contacts in step 2 without creating another Circle on retry", async () => {
     const props = createProps();
+    const contact = {
+      connectionId: "c-asha", userId: "asha", displayName: "Asha Meena", isRia: false,
+      connectedFromContacts: true, connectedAt: "2026-10-30T17:17:00Z",
+    };
+    props.onLoadPeople.mockResolvedValueOnce({
+      eligibleConnections: [contact],
+      pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: 1,
+    });
     props.onAddPeople.mockRejectedValueOnce(new Error("Temporarily unavailable"));
     render(<CreateCircleFlow {...props} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     const choice = await screen.findByRole("button", { name: "Add Asha Meena" });
-    expect(choice).toHaveAccessibleDescription("Connection details unavailable");
+    expect(choice).toHaveAccessibleDescription(/^Connected .+ · Connected from your contacts$/);
+    expect(screen.getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    expect(screen.getByText("Connected from your contacts", { exact: false })).toHaveClass("sr-only");
     fireEvent.click(choice);
     expect(props.onAddPeople).not.toHaveBeenCalled();
     expect(props.onComplete).not.toHaveBeenCalled();
@@ -457,7 +467,7 @@ describe("named Circle flows", () => {
     const onLoadMembersPage = vi.fn().mockResolvedValue({ items: current.members, page: 1, hasMore: false, totalCount: 1 });
     const view = render(<CircleDetailFlow circleId="family" {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Rao/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Rao/i }));
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
     onLoadOverview.mockResolvedValue({ ...current, viewerCapabilities: { ...current.viewerCapabilities, canInviteMembers: false } });
     let rejectRoster!: (error: Error) => void;
@@ -495,7 +505,7 @@ describe("named Circle flows", () => {
     const props = detailProps(vi.fn(async () => current));
     props.onLoadEligibleConnections = vi.fn(async () => ({
       eligibleConnections: current.memberCount === 1 ? [{
-        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao",
+        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao", connectedFromContacts: true,
       }] : [],
       pendingInvites: [],
       remainingCapacity: 20 - current.memberCount,
@@ -516,7 +526,11 @@ describe("named Circle flows", () => {
     expect(screen.queryByRole("heading", { name: "Add your first member" })).toBeNull();
     expect(screen.queryByText(/Choose at least one connection below/)).toBeNull();
     expect(screen.getByText("Circle conversation")).not.toBeVisible();
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" }));
+    const choice = await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" });
+    expect(choice).toHaveAccessibleDescription("Connected from your contacts");
+    expect(screen.getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    expect(screen.queryByText("Connection details unavailable")).toBeNull();
+    fireEvent.click(choice);
     fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again"));
     const retry = screen.getByRole("button", { name: "Add people", exact: true });
@@ -789,7 +803,7 @@ describe("named Circle flows", () => {
     const submit = async () => {
       fireEvent.click(await screen.findByRole("button", { name: "Add people", exact: true }));
       const sheet = await screen.findByRole("dialog", { name: "Add people" });
-      fireEvent.click(await within(sheet).findByRole("button", { name: /Asha/ }));
+      fireEvent.click(await within(sheet).findByRole("button", { name: /^(?!View ).*Asha/ }));
       fireEvent.click(within(sheet).getByRole("button", { name: "Add 1 person", exact: true }));
     };
     await submit();
@@ -1682,13 +1696,13 @@ describe("named Circle flows", () => {
       expect(onCancelMemberInvite).toHaveBeenCalledWith("pending-1"),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     expect(
       screen.getByRole("button", {
-        name: /Asha Meena/i,
+        name: /^(?!View ).*Asha Meena/i,
       }),
     ).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: /Neel Shah/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Neel Shah/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
@@ -1787,7 +1801,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add people" }));
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /Friend User/i,
+        name: /^(?!View ).*Friend User/i,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
@@ -1975,10 +1989,10 @@ describe("named Circle flows", () => {
     expect(await screen.findByText("Asha Meena")).toBeTruthy();
 
     const asha = screen.getByRole("button", {
-      name: /Asha Meena/i,
+      name: /^(?!View ).*Asha Meena/i,
     });
     const neel = screen.getByRole("button", {
-      name: /Neel Shah/i,
+      name: /^(?!View ).*Neel Shah/i,
     });
     expect(asha).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(asha);
@@ -2017,8 +2031,8 @@ describe("named Circle flows", () => {
     ).toBeInTheDocument();
     expect(within(sheet).queryByText("Choose connections.")).toBeNull();
 
-    const asha = within(sheet).getByRole("button", { name: /Asha Meena/i });
-    const neel = within(sheet).getByRole("button", { name: /Neel Shah/i });
+    const asha = within(sheet).getByRole("button", { name: /^(?!View ).*Asha Meena/i });
+    const neel = within(sheet).getByRole("button", { name: /^(?!View ).*Neel Shah/i });
     fireEvent.click(asha);
     expect(neel).toBeDisabled();
     expect(within(sheet).getByRole("button", { name: "Add 1 person" })).toBeEnabled();
@@ -2087,7 +2101,7 @@ describe("named Circle flows", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     const asha = await screen.findByRole("button", {
-      name: /Asha Meena/i,
+      name: /^(?!View ).*Asha Meena/i,
     });
     fireEvent.click(asha);
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
@@ -2097,7 +2111,7 @@ describe("named Circle flows", () => {
     );
     expect(screen.queryByText("Asha Meena")).toBeNull();
     expect(await screen.findByText("Neel Shah")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Neel Shah/i })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /^(?!View ).*Neel Shah/i })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -2841,7 +2855,7 @@ describe("named Circle flows", () => {
 
     // Single selection.
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
@@ -2855,8 +2869,8 @@ describe("named Circle flows", () => {
 
     // Multiple selection — reopening starts from a cleared selection.
     fireEvent.click(screen.getByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Neel Shah/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Neel Shah/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
@@ -2902,13 +2916,13 @@ describe("named Circle flows", () => {
       fireEvent.click(
         within(
           screen.getByTestId(`one-location-circle-eligible-${invitee.userId}`),
-        ).getByRole("button"),
+        ).getByRole("button", { name: /^(Select|Deselect) / }),
       );
     }
     expect(
       within(
         screen.getByTestId("one-location-circle-eligible-user-21"),
-      ).getByRole("button"),
+      ).getByRole("button", { name: /^(Select|Deselect) / }),
     ).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Add 20 people" }));
@@ -2958,9 +2972,9 @@ describe("named Circle flows", () => {
     expect(within(sheet).queryByText("Choose connections.")).toBeNull();
     expect(within(sheet).queryByText(/SMS Circle limit|available;|right now/i)).toBeNull();
     for (const contact of contacts.slice(0, 10)) {
-      fireEvent.click(within(screen.getByTestId(`one-location-circle-eligible-${contact.userId}`)).getByRole("button"));
+      fireEvent.click(within(screen.getByTestId(`one-location-circle-eligible-${contact.userId}`)).getByRole("button", { name: /^(Select|Deselect) / }));
     }
-    expect(within(screen.getByTestId("one-location-circle-eligible-sms-person-11")).getByRole("button")).toBeDisabled();
+    expect(within(screen.getByTestId("one-location-circle-eligible-sms-person-11")).getByRole("button", { name: /^(Select|Deselect) / })).toBeDisabled();
     fireEvent.click(within(sheet).getByRole("button", { name: "Add 10 people" }));
     await waitFor(() => expect(onInviteConnections).toHaveBeenCalledWith(
       "sms-circle", contacts.slice(0, 10).map((contact) => contact.userId),
@@ -2992,7 +3006,7 @@ describe("named Circle flows", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
@@ -3051,7 +3065,7 @@ describe("named Circle flows", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /Friend User/i,
+        name: /^(?!View ).*Friend User/i,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
@@ -3480,7 +3494,7 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    const asha = await screen.findByRole("button", { name: /Asha Meena/i });
+    const asha = await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i });
     fireEvent.click(asha);
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
 
@@ -3536,13 +3550,13 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
-    await screen.findByRole("button", { name: /Ravi Meena/i });
+    await screen.findByRole("button", { name: "Select Ravi Meena", exact: true });
 
     // Page two is not the complete authority. Loading it must not interpret a
     // page-one selection as removed.

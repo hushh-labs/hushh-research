@@ -184,7 +184,7 @@ test("relative standup request asks for exact dates before sending", async ({ pa
   await expect(panel).toHaveAccessibleName("Request files");
   await expect(panel.getByText("About $10. You pay only if files are found.")).toBeVisible();
   await panel.getByLabel("Which files do you need?").fill("last 3 days standup notes");
-  await expect(panel.getByRole("group", { name: "Dates covered" })).toHaveAccessibleDescription("Start and end dates are required.");
+  await expect(panel.getByRole("group", { name: "Time period" })).toHaveAccessibleDescription("Start and end dates are required. Files can match creation, modification, viewing, sharing, photo or filename dates.");
   await expect(panel.getByRole("button", { name: "Send request" })).toBeDisabled();
   expect(submissions).toHaveLength(0);
   await page.screenshot({ path: testInfo.outputPath("agentone-date-clarification.png") });

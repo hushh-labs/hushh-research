@@ -1,6 +1,13 @@
 import { mock, clock, research, advance } from "../fixtures/world-model-page-harness";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+const attempts = vi.hoisted(() => ({ capture: vi.fn(), started: vi.fn(), settled: vi.fn() }));
+vi.mock("@/lib/observability/product-activity-client", async original => ({
+  ...await original<typeof import("@/lib/observability/product-activity-client")>(),
+  captureProductAttempt: attempts.capture.mockReturnValue({ started: attempts.started, settled: attempts.settled }),
+}));
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { AuthService } from "@/lib/services/auth-service";
 import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
@@ -9,6 +16,11 @@ import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/prof
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 import { source, offered, memoryOf, claim, pending, progressOf, provisionalFact } from "../fixtures/world-model-review";
+
+afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
+  vi.restoreAllMocks();
+});
 
 it("does not let a retained World Model detail consume another Profile page’s Back", () => {
   const close = vi.fn();
@@ -26,6 +38,30 @@ it("does not let a retained World Model detail consume another Profile page’s 
 });
 
 describe("Personal World Model page", () => {
+  it.each([
+    ["confirm", "confirm_fact"], ["reject", "reject_fact"], ["edit", "edit_fact"], ["remove", "remove_fact"],
+  ] as const)("reports one %s attempt after encrypted memory acknowledgement", async (operation, action) => {
+    research(offered([{ statement: "Synthetic private detail", kind: "career" }]));
+    const saved = await claim("Synthetic saved detail");
+    let acknowledge!: (value: PwmMemory) => void;
+    mock[operation].mockReturnValueOnce(new Promise<PwmMemory>(resolve => { acknowledge = resolve; }));
+    const view = renderHook(() => usePersonalWorldModelModel({ embedded: true }));
+    await waitFor(() => expect(view.result.current.sections[0]?.drafts).toHaveLength(1));
+    const fact = view.result.current.sections[0]!.drafts[0]!;
+    let writing!: Promise<void>;
+    act(() => {
+      const controls = view.result.current.actions;
+      writing = operation === "remove" ? controls.remove(saved) : operation === "edit"
+        ? controls.edit(fact, "Synthetic correction") : controls[operation](fact);
+    });
+    expect(mock[operation]).toHaveBeenCalledOnce();
+    expect(attempts.capture.mock.calls).toEqual([[`profile.world_model.${action}`, "owner-a"]]);
+    expect(attempts.started).toHaveBeenCalledOnce();
+    expect(attempts.settled).not.toHaveBeenCalled();
+    await act(async () => { acknowledge(memoryOf()); await writing; });
+    expect(attempts.settled.mock.calls).toEqual([["returned"]]);
+  });
+
   it("rejects retained statement callbacks after owner replacement and controller retirement", async () => {
     research(offered([{ statement: "Works at Hushh", kind: "career" }]));
     const view = renderHook(() => usePersonalWorldModelModel({ embedded: true }));
@@ -62,6 +98,7 @@ describe("Personal World Model page", () => {
     await waitFor(() => expect(finishRead).toBeTypeOf("function"));
     expect(view.result.current.pending.size).toBe(0);
     await act(async () => { finishWrite(memoryOf([firstClaim])); await writing; });
+    expect(attempts.settled).not.toHaveBeenCalled();
     await act(async () => { finishRead(memoryOf([nextClaim])); });
     await waitFor(() => expect(view.result.current.memory?.saved[0]?.text).toBe(nextClaim.text));
     expect(view.result.current.memory?.saved.some(item => item.text === firstClaim.text)).toBe(false);
@@ -124,6 +161,7 @@ describe("Personal World Model page", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Yes, this is right: Works at Hushh" }));
     expect(await screen.findByText("Couldn’t save. Try again.")).toBeInTheDocument();
+    expect(attempts.settled).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Yes, this is right: Works at Hushh" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "No, this isn’t right: Works at Hushh" })).toBeEnabled();
     expect(screen.queryByText("Confirmed by you")).not.toBeInTheDocument();
@@ -194,7 +232,7 @@ describe("Personal World Model page", () => {
     expect(
       await screen.findByText(/Possible match\. Some of these may be about someone else with your name/),
     ).toBeInTheDocument();
-    const row = screen.getByText("Lives in Austin").closest("[data-testid='pwm-fact-row']")!;
+    const row = (await screen.findByText("Lives in Austin")).closest("[data-testid='pwm-fact-row']")!;
     // The tag is the shared Badge, never an ad-hoc pill, and never "Unsure".
     const tag = within(row as HTMLElement).getByText("Possible match");
     expect(tag).toHaveAttribute("data-slot", "badge");
@@ -794,6 +832,11 @@ describe("Personal World Model page", () => {
       emailVerified: true,
     };
     mock.auth.phoneNumber = "+14155550123";
+    mock.auth.phoneNumberStatus = "verified";
+    publishValidatedAuthSessionPrincipal({ ownerId: "owner-a", firebaseUid: "owner-a", accountGeneration: 0 });
+    vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue({
+      uid: "owner-a", phoneNumber: mock.auth.phoneNumber,
+    } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
     research(pending);
     render(<PersonalWorldModelPage embedded />);
 
@@ -801,7 +844,7 @@ describe("Personal World Model page", () => {
     expect(name).toHaveTextContent("Alice Example");
     // The card says which verified details research pivots on, and its
     // landmark carries the same name.
-    expect(screen.getByText("Using your name, email and phone")).toBeInTheDocument();
+    expect(await screen.findByText("Using your name, email and phone")).toBeInTheDocument();
     expect(
       screen.getByRole("region", { name: "Using your name, email and phone" }),
     ).toContainElement(name);
@@ -868,7 +911,7 @@ describe("Personal World Model page", () => {
     expect(await screen.findByText("Public search is paused right now")).toBeInTheDocument();
     const status = screen.getByTestId("pwm-status-row");
     expect(status).toHaveTextContent(
-      "Your private agent can’t reach its research service. It will try again in about 5 minutes.",
+      "Agent One can’t reach its research service. It will try again in about 5 minutes.",
     );
     expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
     expect(reload).not.toHaveBeenCalled();
@@ -941,7 +984,7 @@ describe("Personal World Model page", () => {
       hour: "numeric",
       minute: "2-digit",
     });
-    expect(await screen.findByText(`Your private agent can’t reach its research service. It will try again at ${at}.`)).toBeInTheDocument();
+    expect(await screen.findByText(`Agent One can’t reach its research service. It will try again at ${at}.`)).toBeInTheDocument();
   });
 
   it("offers one explicit new check after exhaustion without an automatic retry loop", async () => {

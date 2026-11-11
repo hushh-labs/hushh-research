@@ -12,9 +12,9 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 |---|---|
 | `.agents/instructions.md` (loaded by root `AGENTS.md`) | The binding kernel — craft, architecture, routing, delegation, authority, and hard rules |
 | `.agents/skills/` | Canonical portable and governed **skills**; read these sources directly |
-| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`), read by every development host |
+| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.md`), read by every development host |
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
-| `.agents/config.toml` | Bounded execution and declared tool connections; host capability remains separately verified |
+| `.agents/config.json` | Bounded engineering execution; host tools remain separately configured and verified |
 | `.agents/evals/`, `.agents/imports/` | Routing cases and pinned third-party resources |
 | `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
 | `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
@@ -94,9 +94,9 @@ Verification:
 4. State remaining risks or unverified areas clearly.
 5. Write core tests only. A new test must protect a real contract: a regression that actually happened, a security, consent, vault or trust boundary, or a public API or schema shape. Guard a security boundary with one focused test plus a negative control that fails on the broken code. Do not add tests that restate the implementation, snapshot markup, cover trivial wiring, or duplicate an existing test.
 6. Extend the nearest existing test file before creating a new one, and delete or merge a redundant test rather than keeping both.
-7. Test the changed contract with the nearest authoritative suite. Reuse unchanged evidence and remove demonstrated duplicate checks. Run the local core mirror `scripts/ci/orchestrate.sh core` once on the completed candidate before pushing: secret and governance first, protocol and web-core in parallel, then mcp-package and integration. After environment-only repairs, resume the failed stages on unchanged source; broaden verification only for changed dependencies or unresolved risk. GitHub Actions owns the browser layout packs and full web suite; do not run duplicate full local suites beside the core mirror.
-8. Push once per finished, locally verified change, not once per edit. Each push to a PR cancels its running `PR Validation` and starts about 19 jobs on the hosted-runner pool that every team in the organization shares (20 jobs, 5 of them macOS). On 2026-10-14, 47% of PR runs were cancelled by a newer push (64% on agent branches), burning roughly 3,000-4,000 runner-minutes that day. Never push, or dispatch `PR Validation`, on a timer or in a loop to watch CI. Retry failed validation through `./bin/hushh codex ci-rerun` so its exact-attempt protected security worker follows the retry; use the existing CI runbook for bounded recovery.
-9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
+7. Test the changed contract with the nearest authoritative suite. Reuse unchanged evidence and remove demonstrated duplicate execution. Ordinary PR pushes need affected checks, not a mandatory full local core mirror. Release candidates use core journeys plus affected features; broaden only for changed dependencies or unresolved risk. Appearance, spacing, colors, icons and animation measurements are developer diagnostics, not required delivery checks. Preserve functional, consent, ownership and recovery boundaries through affected unit/service/API/database tests. Automated app-browser journeys and browser-engine qualification are explicit diagnostics, not required PR, queue or release checks. One’s Browser capability and its runtime authority tests are separate and remain required when affected.
+8. Push one completed, locally verified batch. A newer push cancels superseded PR validation. Diagnose the original failure, then retry failed jobs only when source is unchanged through the existing governed command. Independent validation commands should finish and report all failures together with a final nonzero result. Setup, invalid selection, cancellation and unsafe fixtures stop dependent work. Never apply collect-all behavior to authorization, migrations, candidate verification or traffic promotion.
+9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead. Core login, vault, information integrity, ownership, schema, active-model chat and rollback checks remain blocking. Secondary feature diagnostics report failures or not-run outcomes separately under the [CI readiness policy](../docs/reference/operations/ci.md#managed-provider-readiness-policy). Qualify policy-changing combined candidates once with retained functional/core checks plus affected boundaries; reuse unchanged evidence.
 
 For a local core run, supply `CI_IMPACT_BASE_SHA` only when the actual PR target
 and its merge base are verified. The canonical selector then runs the PKM
@@ -158,7 +158,7 @@ title and summarize the verified result.
 These rules apply to parent sessions, subagents, verification workers and local MCP clients sharing the developer's computer.
 
 1. Before expensive local work, inspect existing runs, process ownership, CPU load and memory pressure. Coordinate a shared host budget across sessions and worktrees, especially while the developer is gaming or running local inference. Reuse valid evidence and existing runtimes instead of spawning another copy.
-2. Run at most one full core verification per worktree at a time. Keep necessary stages parallel within that run, but coordinate other heavy runs on the same host. Use supported worker limits; do not combine automatic CPU-sized pools with overlapping suites. Preserve required gates and the pre-push core mirror: reduce concurrency or wait, never skip checks to save resources.
+2. Run focused owner checks for ordinary changes; reserve a full core verification for changes whose dependency graph needs it or an explicit diagnostic. Run at most one full core verification per worktree at a time. Keep necessary stages parallel within that run, coordinate other heavy runs on the same host, and use supported worker limits. Preserve required gates; reduce concurrency or wait when needed, never skip checks to save resources.
 3. Start only the MCP tools required by the task. Prefer supported project/session scope for optional local servers over enabling them globally. Coordinate changes to shared configuration; preserve tool definitions, authentication and required integrations. Do not assume editing configuration stops already-running clients.
 4. Finish or cancel agent-owned background jobs and release finished MCP clients through the host's supported lifecycle controls. Check that the selected workers exit, including descendants and temporary-resource cleanup. Explicitly hand off any runtime intentionally left running. Closing a visible chat or returning a final answer is not proof of teardown; preserve conversation history.
 5. Treat repeated process names or idle CPU as investigation signals, not proof of abandonment. Separate legitimate clients for active sessions from retained or orphaned processes using parentage, start time and available session/transport evidence. Stop another session's work only with user authorization or an explicit ownership handoff; never apply blanket `pkill` or keep only one global instance regardless of active clients.
@@ -255,9 +255,9 @@ explicitly loads this operating contract before routing or implementation.
 | Source | Contract |
 | --- | --- |
 | `.agents/skills/<id>/` | Portable practice or governed owner/spoke; one authored behavior |
-| `.agents/subagents/<lane>.toml` | Read-only engineering evidence lanes, separate from runtime product agents |
+| `.agents/subagents/<lane>.md` | Read-only engineering evidence lanes, separate from runtime product agents |
 | `.agents/workflows/<id>/` | Existing workflow IDs, composed ownership, checks and handoff authority |
-| `.agents/config.toml` | Shared execution limits and tool declarations; no vendor directory hierarchy |
+| `.agents/config.json` | Shared execution limits; no vendor directory hierarchy |
 | `.agents/routing/` | One provider-neutral routing CLI and its evaluation fixtures |
 
 Every skill has matching directory/name frontmatter. Governed skills additionally
@@ -285,7 +285,7 @@ Route every non-trivial task before implementation or delegation. Use
 Repository precedence:
 
 1. `AGENTS.md` sets policy and hard gates, subject to higher-priority host and user instructions.
-2. `./bin/hushh codex route-task <workflow-id>` resolves the recurring workflow.
+2. `./bin/hushh agents route-task <workflow-id>` resolves the recurring workflow.
 3. `workflow.json` composes `owner_skill`, `default_spoke`, required reads/commands, handoff chain, verification bundle and risk tags.
 4. `SKILL.md` supplies the lane procedure. Architecture references establish domain truth when supported by source; historical and future plans retain their stated limits.
 
@@ -340,6 +340,7 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 2. Delegate only concrete, bounded sidecar tasks.
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
 4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.
+5. Only current members of the live GitHub `pipeline-editors` team may authorize changes to protected CI policy and the core `.agents` fundamentals listed in CODEOWNERS. Team membership, not names in instructions or a saved roster, controls this authority. Other contributors may propose a patch; the current-head owner must review it before it is accepted. Require explicit approval for the current protected change; possession of an owner's CLI credentials, broad task autonomy or an unrelated earlier approval is not permission to change these principles. The owner's explicitly approved bounded plan supplies authorization only for that plan; other contributors require a current-head owner review.
 
 ## Project-Wide Signed-in Browser Default
 
@@ -368,6 +369,10 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
 This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+
+Freshness drift or a newer Main head can require branch resynchronization and
+CI revalidation; neither that drift nor green CI authorizes deployment to an
+environment the current request did not ask to deploy.
 
 1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
 2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.

@@ -114,14 +114,18 @@ def pipeline(permissions):
     return service, bulk, reader, adapter, verifier
 
 
-async def test_original_version_and_buyer_access_are_checked_without_granting():
+@pytest.mark.parametrize("embedded", [False, True])
+async def test_original_version_and_buyer_access_are_checked_without_granting(embedded):
     service, _, reader, adapter, verifier = pipeline(acl(user_acl()))
+    if embedded:
+        reader.adapter.get_share_metadata.return_value.permission_snapshot = acl(user_acl())
     result = await service.inspect(
         user_id="owner", request_id="request", require_current=AsyncMock()
     )
     assert result.status == "all_existing" and result.files[0]["sourceVersion"] == "7"
     assert result.files[0]["permission"]["role"] == "reader"
-    assert reader.adapter.get_share_metadata.await_count == 2
+    assert reader.adapter.get_share_metadata.await_count == (1 if embedded else 2)
+    assert adapter.list_permissions.await_count == (0 if embedded else 1)
     assert verifier.await_count == 2
     adapter.create_reader.assert_not_awaited()
     assert "buyer@example.invalid" not in repr(result) and "source-1" not in repr(result)
@@ -144,12 +148,17 @@ async def test_mixed_and_unknown_access_cannot_be_reported_as_new_paid_delivery(
     ).status == "unknown"
 
 
-async def test_revoked_acl_is_observed_on_recheck_instead_of_reusing_snapshot():
-    service, _, _, adapter, _ = pipeline(acl(user_acl()))
+@pytest.mark.parametrize("embedded", [False, True])
+async def test_revoked_acl_is_observed_on_recheck_instead_of_reusing_snapshot(embedded):
+    service, _, reader, adapter, _ = pipeline(acl(user_acl()))
+    if embedded:
+        reader.adapter.get_share_metadata.return_value.permission_snapshot = acl(user_acl())
     first = await service.inspect(
         user_id="owner", request_id="request", require_current=AsyncMock()
     )
     adapter.list_permissions.return_value = acl()
+    if embedded:
+        reader.adapter.get_share_metadata.return_value.permission_snapshot = acl()
     second = await service.inspect(
         user_id="owner", request_id="request", require_current=AsyncMock()
     )

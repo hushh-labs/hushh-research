@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, ArrowDown, Plus, X } from "@/components/icons";
+import { MessageCircle, ImageIcon, ArrowDown, Plus, Smile, X } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage, type CircleMessageState, type ChatMutationResult } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
@@ -30,6 +30,8 @@ import quietStyles from "@/components/direct-messages/messages-quiet-action.modu
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
 import { connectPersonName } from "@/lib/connections/person-label";
+import { useMessageDraft } from "@/lib/direct-messages/use-message-draft";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 
 const unavailable = (error: unknown) => error instanceof ApiError &&
   ([401, 403, 423].includes(error.status) || apiErrorCode(error) === "CIRCLE_CHAT_UNAVAILABLE");
@@ -48,8 +50,9 @@ function cadence(signal: AbortSignal, earliest: number): Promise<void> {
   });
 }
 
-export function CircleChat({ session, circleName, initialOpen = false, onOpenIntentConsumed, active: paneActive = true, collapsible = true, readingBlocked = false, chatLane = false, chatLaneTheme = "light" }: {
+export function CircleChat({ session, circleName, initialOpen = false, onOpenIntentConsumed, onAccessLost, active: paneActive = true, collapsible = true, readingBlocked = false, chatLane = false, chatLaneTheme = "light" }: {
   session: CircleChatSession; circleName: string; initialOpen?: boolean; onOpenIntentConsumed?: () => void;
+  onAccessLost?: () => void;
   active?: boolean; collapsible?: boolean;
   readingBlocked?: boolean;
   chatLane?: boolean;
@@ -64,7 +67,13 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
   const [revoked, setRevoked] = useState(false);
   const [revision, setRevision] = useState(0);
   const [muting, setMuting] = useState(false);
+  const draftScope = JSON.stringify([session.userId, "circle", session.circleId]);
+  const draftSession = MessagesDraftService.session(session.userId);
+  const discardDraft = useCallback(() => { void MessagesDraftService.remove(draftSession, draftScope).catch(() => undefined); }, [draftSession, draftScope]);
   const acknowledgedRead = useRef(0);
+  const accessLost = useRef(onAccessLost); accessLost.current = onAccessLost;
+  const paneActiveRef = useRef(paneActive); paneActiveRef.current = paneActive;
+  const resumeWait = useRef<() => void>(() => {});
   const threadScope = useRef({ session, revision: 0 });
   if (threadScope.current.session !== session) {
     threadScope.current = { session, revision: threadScope.current.revision + 1 };
@@ -76,14 +85,14 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     let running = false;
     let abort: AbortController | null = null;
     const listen = async () => {
-      if (!active || running || !foreground() || revoked) return;
+      if (!active || running || !paneActiveRef.current || !foreground() || revoked) return;
       running = true;
       abort = new AbortController();
       try {
-        while (active && foreground()) {
+        while (active && paneActiveRef.current && foreground()) {
           const startedAt = performance.now();
           const next = await CircleChatService.wait(session, cursor, abort.signal);
-          if (!active || abort.signal.aborted || !foreground()) break;
+          if (!active || abort.signal.aborted || !paneActiveRef.current || !foreground()) break;
           if (next.latestSequence !== cursor || next.changed) {
             dispatchCircleChatChanged(session.userId, session.circleId, {
               reactionsChanged: next.reactionsChanged,
@@ -99,7 +108,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
           await cadence(abort.signal, startedAt + REFRESH_CADENCE_MS);
         }
       } catch (err) {
-        if (active && !abort.signal.aborted && unavailable(err)) { setRevoked(true); setState(null); setOpen(false); }
+        if (active && !abort.signal.aborted && unavailable(err)) { accessLost.current?.(); discardDraft(); setRevoked(true); setState(null); setOpen(false); }
       } finally {
         running = false;
         // On native, the physical HTTP request stayed awaited after a logical
@@ -107,14 +116,19 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
         if (active && foreground() && abort.signal.aborted) void listen();
       }
     };
-    const resume = () => { if (!foreground()) abort?.abort(); else void listen(); };
+    const resume = () => { if (!paneActiveRef.current || !foreground()) abort?.abort(); else void listen(); };
+    resumeWait.current = resume;
     void listen();
     const timer = window.setInterval(resume, 5000);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(resume);
     document.addEventListener("visibilitychange", resume); window.addEventListener("online", resume);
     return () => { active = false; abort?.abort(); clearInterval(timer); removeLifecycle();
       document.removeEventListener("visibilitychange", resume); window.removeEventListener("online", resume); };
-  }, [session, revoked]);
+  }, [session, revoked, discardDraft]);
+  useEffect(() => { resumeWait.current(); }, [paneActive]);
+  useLayoutEffect(() => {
+    setState(null); setError(null); setRevoked(false);
+  }, [session]);
   useEffect(() => {
     let active = true;
     let running = false;
@@ -122,9 +136,8 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     let dirty = false;
     let nextRefreshAt = 0;
     const abort = new AbortController();
-    setState(null); setError(null); setRevoked(false);
     const refresh = async () => {
-      if (!active || !foreground()) return;
+      if (!active || !paneActive || !foreground()) return;
       if (running) { dirty = true; return; }
       running = true;
       try {
@@ -141,7 +154,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       } catch (err) {
         if (active && !abort.signal.aborted) {
           setError(errorText(err));
-          if (unavailable(err)) { setRevoked(true); setState(null); setOpen(false); active = false; abort.abort(); }
+          if (unavailable(err)) { accessLost.current?.(); discardDraft(); setRevoked(true); setState(null); setOpen(false); active = false; abort.abort(); }
         }
       } finally { running = false; }
     };
@@ -151,6 +164,8 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     };
     const unsubscribe = subscribeToOneLocationStateChanges((detail) => {
       if (detail.userId === session.userId && circleStateChangeClosesDetail(detail, session.userId, session.circleId)) {
+        accessLost.current?.();
+        discardDraft();
         active = false; abort.abort(); setRevoked(true); setState(null); setOpen(false);
       }
     });
@@ -163,13 +178,13 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     return () => { active = false; abort.abort(); clearInterval(timer); unsubscribe(); removeLifecycle();
       window.removeEventListener(CIRCLE_CHAT_CHANGED, onEvent); window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh); };
-  }, [session, revision]);
+  }, [session, revision, discardDraft, paneActive]);
 
-  return <><section ref={surface} data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
-    ? "flex h-full min-h-0 flex-col overflow-visible bg-transparent"
+  return <><section ref={surface} data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} aria-busy={!state && !error && !revoked} className={chatLane
+    ? `${laneStyles.surface} flex h-full min-h-0 flex-col overflow-visible bg-transparent`
     : `${inlineStyles.surface} overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card`}>
     {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
-      {collapsible ? <Button variant="ghost" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
+      {collapsible ? <Button variant="text" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
         <MessageCircle aria-hidden="true" className="size-4" /> Circle chat
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 text-primary-foreground">{state.unreadCount}</span> : null}
       </Button> : <div className="flex min-w-0 items-center gap-2 text-sm font-semibold"><MessageCircle className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Circle chat</span>
@@ -183,18 +198,19 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       }} /></label> : null}
     </div> : null}
     {open && paneActive && state && !state.muted && !revoked ? <div className="px-3 pt-3"><FeedPushPrompt context="chat" /></div> : null}
-    {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
+    {!chatLane && !state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
-    {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
-    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={threadScope.current.revision} circleName={circleName} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
+    {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="text" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
+    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={`${threadScope.current.revision}:${state.membershipJoinedAt ?? "legacy"}`} circleName={circleName} session={session} membershipJoinedAt={state.membershipJoinedAt} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
-      onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
+      onRevoked={() => { accessLost.current?.(); setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
   </>;
 }
 
-function CircleChatThread({ circleName, session, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
+function CircleChatThread({ circleName, session, membershipJoinedAt, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
   session: CircleChatSession; visible: boolean; onRead: (sequence: number) => void; onRevoked: () => void;
+  membershipJoinedAt?: string;
   circleName: string; readingBlocked: boolean; chatLane: boolean; chatLaneTheme: "light" | "dark";
 }) {
   const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
@@ -247,19 +263,35 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   const refreshPending = useRef(false);
   const sendLock = useRef(false);
   const atBottomRef = useRef(true);
+  const readingPosition = useRef(0);
+  const readingAnchor = useRef<{ id: string; offset: number } | null>(null);
+  const pendingPrepend = useRef<{ id: string; offset: number } | null>(null);
+  const rememberReadingPosition = (captureAnchor = loadingOlder) => {
+    if (!visibleRef.current || !transcript.current) return;
+    readingPosition.current = transcript.current.scrollTop;
+    if (!captureAnchor) return;
+    const viewportTop = transcript.current.getBoundingClientRect().top;
+    const row = Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? [])
+      .find(row => row.getBoundingClientRect().bottom >= viewportTop);
+    readingAnchor.current = row?.dataset.chatMessage ? { id: row.dataset.chatMessage, offset: row.getBoundingClientRect().top - viewportTop } : null;
+  };
   const bottomInViewport = useRef(false);
   const onReadRef = useRef(onRead); onReadRef.current = onRead;
   const onRevokedRef = useRef(onRevoked); onRevokedRef.current = onRevoked;
   const fileInput = useRef<HTMLInputElement>(null);
   const composerEditor = useRef<HTMLTextAreaElement>(null);
+  const persistedDraft = useMessageDraft({ userId: session.userId, scope: JSON.stringify([session.userId, "circle", session.circleId]),
+    vaultKey: session.vaultKey, binding: membershipJoinedAt ?? null,
+    enabled: Boolean(membershipJoinedAt && !loading && !sending && !pending), value: text, setValue: setText });
   useChatAlertVisibility(visible && !loading && !readingBlocked && !blockingLayer && !actionRequest && viewers.size === 0
     ? `circle-chat:${session.circleId}` : null, transcript);
 
+  const retireDraft = persistedDraft.retire;
   const fail = useCallback((err: unknown) => {
     if (!active.current) return;
-    if (unavailable(err)) { active.current = false; setMessages([]); messagesRef.current = []; targetsRef.current.clear(); setReplyTargets(new Map()); setReply(null); setActionRequest(null); outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
+    if (unavailable(err)) { void retireDraft().catch(() => undefined); active.current = false; setMessages([]); messagesRef.current = []; targetsRef.current.clear(); setReplyTargets(new Map()); setReply(null); setActionRequest(null); outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
     else setError(errorText(err));
-  }, []);
+  }, [retireDraft]);
   const decrypt = useCallback(async (items: ChatMessage[]) => Promise.all(items.map(async (message) => {
     if (message.deletedForEveryoneAt) { decryptFailures.current.delete(message.sequence); return { ...message, content: null, failed: false, hasImage: false, reactions: [] }; }
     const current = () => {
@@ -458,29 +490,45 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   useEffect(() => {
     if (visible) window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED,
       { detail: { userId: session.userId, circleId: session.circleId } }));
+    else setActionRequest(null);
   }, [visible, session]);
 
+  useLayoutEffect(() => {
+    if (visible && transcript.current) transcript.current.scrollTop = atBottomRef.current
+      ? transcript.current.scrollHeight : readingPosition.current;
+  }, [visible]);
+  useLayoutEffect(() => {
+    const adjustment = pendingPrepend.current;
+    if (!visible || !transcript.current || !adjustment) return;
+    const row = Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? [])
+      .find(row => row.dataset.chatMessage === adjustment.id);
+    if (row) transcript.current.scrollTop += row.getBoundingClientRect().top - transcript.current.getBoundingClientRect().top - adjustment.offset;
+    readingPosition.current = transcript.current.scrollTop;
+    pendingPrepend.current = null;
+  }, [visible, messages]);
   useEffect(() => {
-    if (!bottom.current || !transcript.current) return;
+    if (!visible || !bottom.current || !transcript.current) { bottomInViewport.current = false; return; }
+    let observing = true;
     const resize = new ResizeObserver(() => {
-      if (atBottomRef.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
+      if (observing && visibleRef.current && atBottomRef.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
     });
     resize.observe(transcript.current);
     if (messageList.current) resize.observe(messageList.current);
     const observer = new IntersectionObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry || !observing || !visibleRef.current) return;
       atBottomRef.current = entry.isIntersecting;
       setAtBottom(entry.isIntersecting);
       if (entry.isIntersecting) setReadRevision((n) => n + 1);
     }, { root: transcript.current, threshold: 0 });
     observer.observe(bottom.current);
     const viewportObserver = new IntersectionObserver(([entry]) => {
+      if (!observing || !visibleRef.current) return;
       bottomInViewport.current = Boolean(entry?.isIntersecting);
       if (entry?.isIntersecting) setReadRevision((n) => n + 1);
     }, { threshold: 0 });
     viewportObserver.observe(bottom.current);
-    return () => { resize.disconnect(); observer.disconnect(); viewportObserver.disconnect(); };
-  }, []);
+    return () => { observing = false; resize.disconnect(); observer.disconnect(); viewportObserver.disconnect(); };
+  }, [visible]);
   useEffect(() => {
     const read = async () => {
       // Never acknowledge across a message this device could not decrypt.
@@ -530,7 +578,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       requestAnimationFrame(() => {
         if (!active.current || generation !== historyGeneration.current) return;
         const row = target ? Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? []).find((item) => item.dataset.chatMessage === target.id) : null;
-        if (row) { row.tabIndex = -1; row.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
+        if (row) { const bubble = row.querySelector<HTMLElement>("[data-chat-bubble]") ?? row; bubble.tabIndex = -1; bubble.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
         else if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
       });
     } catch (caught) { fail(caught); }
@@ -538,7 +586,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   };
   const jump = (target: OpenMessage) => {
     const row = Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? []).find((item) => item.dataset.chatMessage === target.id);
-    if (row) { row.tabIndex = -1; row.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
+    if (row) { const bubble = row.querySelector<HTMLElement>("[data-chat-bubble]") ?? row; bubble.tabIndex = -1; bubble.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
     else void showWindow(target);
   };
   const mutationResult = async (result: ChatMutationResult) => {
@@ -579,6 +627,8 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
         outgoingRef.current = local; setOutgoing(local);
       }
       setPending(sealed);
+      const retiredDraft = await persistedDraft.retire();
+      if (!active.current || !persistedDraft.isCurrent()) { persistedDraft.preserve(text, retiredDraft ?? undefined); return; }
       const sent = await CircleChatService.send(session, sealed);
       if (!active.current) return;
       if (anchored.current) await showWindow();
@@ -596,6 +646,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       // A definite roster refusal never committed; reseal only on the person's next Send.
       if (["CIRCLE_CHAT_ROSTER_CHANGED", "CIRCLE_CHAT_RETRY_CONFLICT"].includes(apiErrorCode(err) ?? "")
           || err instanceof ApiError && [413, 422].includes(err.status) || !sealed) {
+        if (!unavailable(err)) persistedDraft.preserve(text);
         setPending(null); outgoingRef.current = null; setOutgoing(null);
       } else if (active.current && local) {
         const uncertain: OutgoingChatMessage = { ...local, delivery: "unconfirmed" };
@@ -603,16 +654,23 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       }
     } finally { if (sendAttempt.current === attempt) sendAttempt.current = null; sendLock.current = false; if (active.current) setSending(false); }
   };
+  const latestControl = anchored.current || !atBottom && messages.length ? <Button variant={chatLane ? "text" : "ghost"} size="sm" disabled={jumping} className={chatLane ? quietStyles.action : "min-h-11 rounded-full border border-border bg-card shadow-sm"} onClick={() => {
+      if (anchored.current) { void showWindow(); return; }
+      atBottomRef.current = true;
+      if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
+      window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
+    }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null;
   return <div className={`${file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"} ${chatLane ? "flex h-full min-h-0 flex-col" : inlineStyles.body}`}>
-    <div ref={transcript} tabIndex={0} aria-label="Circle messages" style={chatLane ? { height: "auto", minHeight: 0, flex: "1 1 0", paddingBottom: "10rem" } : undefined}
+    <div ref={transcript} tabIndex={0} aria-label="Circle messages" onScroll={() => rememberReadingPosition()} style={chatLane ? { height: "auto", minHeight: 0, flex: "1 1 0", paddingBottom: "10rem" } : undefined}
       className={chatLane
-        ? "overflow-y-auto overscroll-contain bg-transparent px-3 py-4 sm:px-6 sm:py-5"
+        ? `${laneStyles.transcript} overflow-y-auto overscroll-contain bg-transparent py-4 sm:py-5`
         : `${inlineStyles.transcript} h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5`}>
-      {hasOlder ? <Button variant="ghost" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
+      {hasOlder ? <Button variant="text" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
+        rememberReadingPosition(true);
+        atBottomRef.current = false; setAtBottom(false);
         running.current = true;
         setLoadingOlder(true);
-        const height = transcript.current?.scrollHeight ?? 0;
         const generation = historyGeneration.current;
         try {
           const page = await CircleChatService.messages(session, { before: messages[0]!.sequence });
@@ -626,10 +684,12 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
           }
           if (!active.current || generation !== historyGeneration.current) return;
           const window = [...new Map([...older.filter(accepts), ...messagesRef.current].map((item) => [item.id, item])).values()].sort((a, b) => a.sequence - b.sequence).slice(0, 300);
+          // Hidden retained panes have no measurable layout. Restore an
+          // existing row before paint; reloaded media can change total height.
+          pendingPrepend.current = readingAnchor.current;
           messagesRef.current = window;
           setHasOlder(page.hasMore); setMessages(window);
           last.current = window.at(-1)?.sequence ?? 0;
-          requestAnimationFrame(() => { if (active.current && transcript.current) transcript.current.scrollTop += transcript.current.scrollHeight - height; });
         } catch (err) { fail(err); } finally {
           running.current = false;
           if (active.current) {
@@ -638,7 +698,8 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
           }
         }
       }}>Load earlier messages</Button> : null}
-      {loading ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : !messages.length && !membershipEvents.length && !outgoing ? <p className="py-8 text-center text-sm text-muted-foreground">Start the conversation. Say hello or share a file.</p> : null}
+      {loading && !chatLane ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
+      {!loading && !messages.length && !membershipEvents.length && !outgoing ? <p className="py-8 text-center text-sm text-muted-foreground">Start the conversation. Say hello or share a file.</p> : null}
       <div role="log" aria-label="Circle message history" aria-live={atBottom && visible ? "polite" : "off"} aria-relevant="additions" aria-busy={loading || loadingOlder}><ol ref={messageList}>{[
         ...messages.map((message, index) => ({ kind: "message" as const, id: `${message.senderUserId}:${message.clientMessageId ?? message.id}`, createdAt: message.createdAt, message, previous: messages[index - 1] })),
         ...(outgoing ? [{ kind: "message" as const, id: `${outgoing.senderUserId}:${outgoing.clientMessageId}`, createdAt: outgoing.createdAt, message: outgoing, previous: messages.at(-1) }] : []),
@@ -654,19 +715,15 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
           onViewerChange={viewerChanged} onMediaError={(error) => { if (unavailable(error)) fail(error); }} />)}</ol></div>
       <div ref={bottom} className="h-1" />
     </div>
-    <AgentDockPortal enabled={chatLane} visible={visible}>
+    {!chatLane ? <div className={inlineStyles.latestControlSlot} data-circle-chat-latest-slot>{latestControl}</div> : null}
+    <AgentDockPortal enabled={chatLane} active={visible} visible={visible}>
     <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer data-messages-type-scale={chatLane || undefined}>
-    {anchored.current || !atBottom && messages.length ? <Button variant="ghost" size="sm" disabled={jumping} className={`absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm ${chatLane ? quietStyles.action : ""}`} onClick={() => {
-      if (anchored.current) { void showWindow(); return; }
-      atBottomRef.current = true;
-      if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
-      window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
-    }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null}
+    {chatLane && latestControl ? <div className={laneStyles.latestControl}>{latestControl}</div> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     {jumping ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
     {reply ? <div className="flex min-w-0 items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/50 px-3 py-2" aria-label="Replying to message">
       <div className="min-w-0 flex-1 text-sm"><p className="font-semibold"><bdi>{connectPersonName({ displayName: reply.senderName })}</bdi></p><p dir="auto" className="line-clamp-2 break-words">{messages.find((item) => item.id === reply.id)?.content?.text ?? reply.content?.text ?? "Attachment"}</p></div>
-      <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label="Cancel reply" disabled={sending || Boolean(pending)} onClick={() => setReply(null)}><X aria-hidden="true" className="size-4" /></Button>
+      <Button variant="plain" size="icon-touch" aria-label="Cancel reply" disabled={sending || Boolean(pending)} onClick={() => setReply(null)}><X aria-hidden="true" className="size-4" /></Button>
     </div> : null}
     {file && !outgoing ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onThumbnail={(previewFile, thumbnail) => { if (previewFile === file) thumbnailRef.current = { file: previewFile, thumbnail }; }} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); thumbnailRef.current = null; if (fileInput.current) fileInput.current.value = ""; }} />
       : <FileAttachmentPreview file={file} disabled={sending || Boolean(pending)} onRemove={() => { setFile(null); setValidFile(null); if (fileInput.current) fileInput.current.value = ""; }} /> : null}
@@ -684,19 +741,20 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
           setError(errorText(caught)); event.target.value = "";
         }
       }} />
-    <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={setText} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={composerEditor}
+    <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={persistedDraft.update} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={composerEditor}
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
-      trailingAction={chatLane ? <DirectMessageEmojiPicker messagesLane restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
+      trailingAction={chatLane ? <DirectMessageEmojiPicker messagesLane triggerIcon={<Smile className="size-5" />} restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
         const editor = composerEditor.current;
         const start = editor?.selectionStart ?? text.length;
         const end = editor?.selectionEnd ?? start;
-        setText((current) => `${current.slice(0, start)}${emoji}${current.slice(end)}`);
+        persistedDraft.update((current) => `${current.slice(0, start)}${emoji}${current.slice(end)}`);
         requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + emoji.length, start + emoji.length); });
       }} /> : undefined}
       emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
-      leadingAction={<ShellActionSurface className="size-11" aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
+      leadingAction={<ShellActionSurface className={chatLane ? laneStyles.attachButton : "size-11"} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
+    {text && persistedDraft.status ? <span className="sr-only" role="status">{persistedDraft.status}</span> : null}
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     </div>
     </AgentDockPortal>

@@ -2,13 +2,16 @@
 set -euo pipefail
 
 mode="${1:-all}"
+browser_engines=(chromium webkit)
 if [ "$#" -gt 1 ]; then echo 'Unexpected document gate arguments.' >&2; exit 64; fi
 case "$mode" in
   all) ;;
   --ci-linux-document)
-    [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64 ;;
+    [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64
+    browser_engines=(chromium) ;;
   --ci-macos-webkit)
-    [ "${CI:-}:${RUNNER_OS:-}" = 'true:macOS' ] || exit 64 ;;
+    [ "${CI:-}:${RUNNER_OS:-}" = 'true:macOS' ] || exit 64
+    browser_engines=(webkit) ;;
   *) echo 'Unknown document gate mode.' >&2; exit 64 ;;
 esac
 
@@ -27,22 +30,27 @@ echo '== Browser contracts: protected documents and phone recovery through real 
     if [ -f /etc/apt/apt-mirrors.txt ]; then
       sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
     fi
-    timeout --signal=TERM --kill-after=30s 8m npx playwright install --with-deps chromium webkit
+    timeout --signal=TERM --kill-after=30s 8m npx playwright install --with-deps "${browser_engines[@]}"
   fi
-  node --input-type=module -e 'import fs from "node:fs"; import { chromium, webkit } from "playwright"; for (const engine of [chromium, webkit]) if (!fs.existsSync(engine.executablePath())) throw new Error("Install the pinned headless browsers before this gate");'
+  node --input-type=module -e 'import fs from "node:fs"; import { chromium, webkit } from "playwright"; const engines = { chromium, webkit }; for (const name of process.argv.slice(1)) if (!fs.existsSync(engines[name].executablePath())) throw new Error(`Install the pinned ${name} browser before this gate`);' "${browser_engines[@]}"
 )
 (
   cd "$REPO_ROOT/consent-protocol"
   document='tests/services/test_document_delivery_browser.py'
-  webkit_node="${document}::test_protected_document_browser_payment_preview_download_revoke[webkit]"
   tests=("$document" tests/test_account_phone_browser.py)
   # Playwright's pinned GTK WebKit drops valid leading-zero X25519 key bytes
   # (WebKit/WebKit#72772). Run this unchanged native-crypto flow on macOS;
   # restore Linux placement only after the pinned engine passes those vectors.
   # No crypto substitution, xfail, retry or general WebKit exclusion is allowed.
   case "$mode" in
-    --ci-linux-document) tests+=(--deselect "$webkit_node") ;;
-    --ci-macos-webkit) tests=("$webkit_node") ;;
+    --ci-linux-document)
+      tests+=(-k 'not webkit')
+      ;;
+    --ci-macos-webkit)
+      # Select the engine, not an entire parametrized node id: database fixture
+      # variants append IDs and must remain in the same platform partition.
+      tests+=(-k webkit)
+      ;;
   esac
   TESTING=true DB_OFFLINE=1 OFFLINE_DB_PATH="$test_dir/protocol.db" \
   GOOGLE_CLOUD_PROJECT=hushh-ci-test REQUIRE_CONNECTOR_POSTGRES=1 REQUIRE_PHONE_TRANSFER_POSTGRES=1 \

@@ -19,17 +19,27 @@ const after = <T,>(ms: number, value: T) =>
 
 // ---- routing ----------------------------------------------------------------
 let currentQuery = dataset().initialQuery ?? "";
+let currentPath = "/one/connect";
 const routeListeners = new Set<() => void>();
+let navigationRequest = 0;
 const navigate = (href: string) => {
   document.body.dataset.lastNavigation = href;
   const destination = new URL(href, "http://localhost");
-  if (destination.pathname !== "/connect" && destination.pathname !== "/one/connect") return;
-  currentQuery = destination.search;
-  routeListeners.forEach((listener) => listener());
+  const request = ++navigationRequest;
+  document.body.dataset.navigationCount = String(request);
+  const apply = () => {
+    if (request !== navigationRequest) return;
+    currentPath = destination.pathname;
+    currentQuery = destination.search;
+    routeListeners.forEach((listener) => listener());
+  };
+  const wait = delay("navigationMs", 0);
+  if (wait > 0) window.setTimeout(apply, wait);
+  else apply();
 };
 const router = { replace: navigate, push: navigate, prefetch: noop, back: noop, refresh: noop };
 export const useRouter = () => router;
-export const usePathname = () => "/one/connect";
+export const usePathname = () => useSyncExternalStore(subscribeRoute, () => currentPath);
 const subscribeRoute = (listener: () => void) => {
   routeListeners.add(listener);
   return () => { routeListeners.delete(listener); };
@@ -62,6 +72,7 @@ const signedIn = {
 };
 export const useAuth = () => signedIn;
 export const useRequireAuth = () => signedIn;
+export function PersonProfilePage() { return <main data-testid="fixture-person-profile" className="p-6"><h1>Selected person's profile</h1></main>; }
 const vault = { vaultOwnerToken: "fixture-vault", isVaultUnlocked: true, vaultKey: null };
 export const VaultContext = createContext<typeof vault | null>(vault);
 export const useVault = () => vault;
@@ -88,11 +99,13 @@ const connections = () =>
       photoUrl: null,
       createdAt: "2026-09-28T12:00:00Z",
       connectedFromContacts: index === 1,
+      isRia: index === 1,
     }),
   );
 const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
   (displayName, index) => ({
     userId: `directory-${index}`,
+    publicPersonRef: `person_directory_${index}`,
     displayName: dataset().longDirectoryIdentity === "1" && index === 0
       ? "Avery Featherstonehaugh-Rajendran"
       : displayName,
@@ -102,13 +115,31 @@ const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
     maskedEmail: dataset().longDirectoryIdentity === "1" && index === 0
       ? "a***@international-research-department.example.com"
       : `p***${index}@example.com`,
-    mutualConnectionCount: index === 0 ? 2 : 0,
+    mutualConnectionCount: index === 0 ? 2 : index === 1 && dataset().delayedSingleMutual === "1" ? 1 : 0,
     mutualConnectionPreview: index === 0 ? { displayName: "Alex Chen", photoUrl: null, publicPersonRef: "person_alex" } : null,
     relationship: "none",
   }),
 );
 
+export class ConnectionsServiceRequestError extends Error { status = 500; }
 export const ConnectionsService = {
+  listNetwork: async () => ({ person: null, items: [], page: 1, hasMore: false }),
+  listMutualConnections: async ({ personRef, page }: { personRef: string; page: number }) => {
+    if (personRef === "person_directory_1" && dataset().delayedSingleMutual === "1") {
+      document.documentElement.dataset.singleMutualPending = "1";
+      await new Promise<void>(resolve => window.addEventListener("fixture-resolve-single-mutual", () => resolve(), { once: true }));
+      document.documentElement.dataset.singleMutualSettled = "1";
+      return { person: { publicPersonRef: personRef, displayName: "Blake Rivera" }, items: [{ publicPersonRef: "late_mutual", displayName: "Late Mutual", photoUrl: null }], page: 1, hasMore: false, totalCount: 1 };
+    }
+    return {
+    person: { publicPersonRef: personRef, displayName: dataset().longMutualName === "1" ? "Avery".repeat(50) : "Avery Stone" },
+    items: Array.from({ length: page === 1 ? 20 : 5 }, (_, index) => ({
+      publicPersonRef: `mutual_${(page - 1) * 20 + index}`,
+      displayName: `Mutual Person ${String((page - 1) * 20 + index + 1).padStart(2, "0")}`,
+      photoUrl: null,
+    })), page, hasMore: page === 1, totalCount: 25,
+    };
+  },
   listConnectionsPage: () => {
     const items = connections();
     return after(delay("connectionsMs", 600), {
@@ -249,9 +280,9 @@ export const useOptionalOneLocationInteractionSurface = () => null;
 export const app = null;
 export const auth = { currentUser: user };
 export const DirectMessagesService = {
-  routeHref: async (input: { personRef: string }) => {
+  routeSelection: async (input: { personRef: string }) => {
     document.body.dataset.messageRecipient = input.personRef;
-    return "/one/messages?token=dm1.fixture";
+    return { token: "dm1.fixture", kind: "person", ref: input.personRef };
   },
 };
 export const getRecaptchaVerifier = noop;

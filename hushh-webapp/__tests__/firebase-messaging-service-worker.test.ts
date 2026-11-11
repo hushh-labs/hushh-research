@@ -258,6 +258,15 @@ function createHarness(options: {
 }
 
 describe("Firebase messaging service-worker lifecycle ownership", () => {
+  it("routes a cold follow-up tap to the exact account and request", async () => {
+    const harness = createHarness({ clientState: "none" });
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    await harness.click({
+      type: "calendar_email_follow_up", account_id: "account_B",
+      followup_request_id: requestId, request_url: "https://evil.example/redirect",
+    });
+    expect(harness.openedUrls).toEqual([`/one/calendar?followupAccount=account_B&followupRequest=${requestId}`]);
+  });
   it.each([
     "location_share_created",
     "connection_request",
@@ -488,6 +497,22 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
         data: expect.objectContaining({ url: "/one/location?section=shared" }),
       }),
     });
+  });
+
+  it("shows the emergency system alert when One is visible behind another app", async () => {
+    const harness = createHarness({
+      clients: [{ visibilityState: "visible", focused: false, acknowledgeDelivery: true }],
+    });
+    await harness.push("location_share_created", {
+      type: "location_share_created",
+      share_kind: "sos",
+      grant_id: "unfocused-emergency",
+    });
+    expect(harness.clientMessages).toEqual([
+      { type: "hushh:fcm_feed_changed", reason: "push_received" },
+    ]);
+    expect(harness.shown).toHaveLength(1);
+    expect(harness.shown[0]?.options?.silent).toBe(false);
   });
 
   it.each(["location_share_created", "location_access_approved"])(

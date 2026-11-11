@@ -778,3 +778,52 @@ async def test_invalid_expiry_never_posts(monkeypatch, expiry):
             verified_email="recipient@example.invalid",
             expiration_time=expiry,
         )
+
+
+@pytest.mark.parametrize(
+    "changes,usable",
+    [
+        ({"permissions": []}, True),
+        ({"permissions": [permission(role="writer")]}, True),
+        ({}, False),
+        ({"permissions": [], "driveId": "shared-drive"}, False),
+        ({"permissions": [permission(), permission()]}, False),
+        ({"permissions": [{"id": "p", "type": "user", "role": "reader"}]}, False),
+        ({"permissions": [permission()] * 201}, False),
+    ],
+)
+def test_embedded_acl_requires_explicit_complete_validated_my_drive_snapshot(changes, usable):
+    value = acl._embedded_snapshot({"capabilities": {"canShare": True}, **changes})
+    assert isinstance(value, acl.PermissionSnapshot) is usable
+
+
+@pytest.mark.asyncio
+async def test_oversized_embedded_acl_retries_only_the_small_inspection():
+    adapter = acl.GoogleDrivePermissionAdapter()
+    payload = {
+        "id": "synthetic-file",
+        "name": "record",
+        "mimeType": "video/mp4",
+        "version": "9",
+        "trashed": False,
+        "modifiedTime": "2026-09-23T12:00:00Z",
+        "capabilities": {"canShare": True},
+    }
+    adapter._exchange = AsyncMock(
+        side_effect=[acl.DrivePermissionError("permission_response_invalid"), payload]
+    )
+    result = await adapter.inspect_shareable(
+        **arguments(),
+        expected_version="9",
+        expected_name="record",
+        metadata_only=True,
+        require_app_authorized=False,
+        require_genai_eligibility=False,
+        time_field="modifiedTime",
+        start_time="1970-01-01T00:00:00Z",
+        end_time="9999-12-31T23:59:59Z",
+        include_permissions=True,
+    )
+    assert result is None and adapter._exchange.await_count == 2
+    assert adapter._exchange.await_args_list[0].kwargs["include_permissions"] is True
+    assert "include_permissions" not in adapter._exchange.await_args_list[1].kwargs

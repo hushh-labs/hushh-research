@@ -4579,6 +4579,8 @@ def test_directory_candidate_search_filters_before_pagination(
         "owner_user_id": "owner",
         "candidate_user_id": None,
         "candidate_user_ids": None,
+        "mutual_target_user_id": None,
+        "network_user_ids": None,
         "query": "cara",
         "name_search": True,
         "email_contains": "%cara%",
@@ -4592,8 +4594,7 @@ def test_directory_candidate_search_filters_before_pagination(
         "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
         "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
         "missing_names_only": False,
-        # Every caller that predates the advisor split still asks for both
-        # halves, so adding the tab changed nobody else's result set.
+        # Pre-advisor callers still ask for both halves of the directory.
         "audience": "all",
         "fetch_limit": 100,
         "offset": 0,

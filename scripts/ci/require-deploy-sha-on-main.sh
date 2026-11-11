@@ -72,6 +72,7 @@ for requested in "${requested_names[@]}"; do
 done
 
 python3 - "$TARGET_SHA" "$REQUIRED_BRANCH" "$REQUIRED_CHECK_NAME" "$PAYLOAD_DIR" <<'PY'
+import hashlib
 import json
 import os
 import subprocess
@@ -193,7 +194,11 @@ def producer_runs(name, *, fresh=False):
             raise SystemExit("Refusing deploy: incomplete bounded workflow-run inventory.")
         candidates.extend(run for run in runs if run.get("head_sha") == sha
                       and run.get("path") == f".github/workflows/{workflow}"
-                      and run.get("event") == event and type(run.get("id")) is int)
+                      and run.get("event") == event and type(run.get("id")) is int
+                      and (os.environ.get("REQUIRE_CI_HEAD_BRANCH") != "1"
+                           or (run.get("head_branch") == branch
+                               and (run.get("head_repository") or {}).get("full_name")
+                               == os.environ["GITHUB_REPOSITORY"])))
     return candidates
 
 
@@ -235,6 +240,11 @@ def verified_check(check):
                        and step.get("conclusion") == "success"
                        for step in job.get("steps", [])):
                 continue
+        required_step = os.environ.get("REQUIRED_CI_JOB_STEP")
+        if required_step:
+            matches = [step for step in job.get("steps", []) if step.get("name") == required_step]
+            if len(matches) != 1 or matches[0].get("conclusion") != "success":
+                continue
         if not unchanged_runs(observed):
             return False
         fresh = [r for r in producer_runs(name, fresh=True) if not separate_recovery(r, name)]
@@ -243,6 +253,17 @@ def verified_check(check):
 
 
 successful = [run for run in matches if verified_check(run)]
+if os.environ.get("REQUIRE_LATEST_FUNCTIONAL_CI") == "1":
+    # A newer failed/cancelled diagnostic or rerun must not fall back to a
+    # different, older green producer on this same application SHA.
+    observed = {run["id"]: run for name in accepted_names for run in producer_runs(name)}
+    latest = max(observed.values(), key=attempt_order, default={})
+    successful = [check for check in successful
+                  if check.get("check_suite", {}).get("id") == latest.get("check_suite_id")
+                  and latest.get("status") == "completed" and latest.get("conclusion") == "success"]
+    refreshed = {run["id"]: run for name in accepted_names for run in producer_runs(name, fresh=True)}
+    if observed != refreshed or not unchanged_runs(list(observed.values())):
+        successful = []
 if not successful:
     conclusions = ", ".join(
         f"{run.get('name')}={run.get('conclusion') or 'unknown'}" for run in matches
@@ -251,6 +272,28 @@ if not successful:
         f"Refusing deploy: no required check in {accepted_names} is successful for {sha} on {branch}. "
         f"Observed: {conclusions}"
     )
+
+receipt_path = os.environ.get("DEPLOY_SHA_EVIDENCE_OUTPUT")
+if receipt_path:
+    evidence = []
+    for check in successful:
+        runs = [run for run in producer_runs(check["name"]) if not separate_recovery(run, check["name"])]
+        run = max(runs, key=attempt_order)
+        evidence.append({
+            "check": check["name"], "check_id": check["id"],
+            "run_id": run["id"], "run_attempt": run["run_attempt"],
+            "workflow": run["path"], "event": run["event"],
+        })
+    Path(receipt_path).write_text(json.dumps({
+        "schema_version": 1, "repository": os.environ["GITHUB_REPOSITORY"],
+        "sha": sha, "source_branch": branch, "checks": evidence,
+        "authority_reads": {
+            path.removeprefix("/actions/"): hashlib.sha256(
+                json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            for path, value in cache.items() if path.startswith("/actions/")
+        },
+    }, sort_keys=True) + "\n", encoding="utf-8")
 
 passed = sorted({str(run.get("name")) for run in successful})
 print(f"Deploy SHA preflight passed: {sha} is on origin/{branch}; successful check(s): {', '.join(passed)}.")

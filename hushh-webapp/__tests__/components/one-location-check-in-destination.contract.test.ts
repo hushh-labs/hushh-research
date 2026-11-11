@@ -85,7 +85,7 @@ describe("nearby check-in destination", () => {
   });
 
   it("resumes a private check-in on check-in's own route", () => {
-    const token = "123e4567-e89b-12d3-a456-426614174000";
+    const token = "00000000-0000-4000-8000-000000000001";
     expect(buildNearbyCheckInResumeHref(token)).toBe(
       `${ROUTES.ONE_LOCATION_CHECK_IN}?resume=${token}`,
     );

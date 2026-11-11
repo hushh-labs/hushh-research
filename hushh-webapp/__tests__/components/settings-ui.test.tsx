@@ -719,15 +719,15 @@ describe("SettingsDetailPanel", () => {
     expect(handleOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("uses the shared physics-enabled bottom sheet when requested", async () => {
+  it.each([390, 1280])("keeps an explicitly requested task sheet at %ipx", async width => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
-      value: 390,
+      value: width,
     });
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
-        matches: query.includes("max-width"),
+        matches: query.includes("max-width") && width < 768,
         media: query,
         onchange: null,
         addEventListener: vi.fn(),
@@ -743,6 +743,7 @@ describe("SettingsDetailPanel", () => {
         open
         onOpenChange={() => {}}
         title="Decision"
+        presentation="sheet"
         mobilePresentation="sheet"
         showCloseButton={false}
       >
@@ -758,6 +759,8 @@ describe("SettingsDetailPanel", () => {
         document.querySelector('[data-slot="sheet-drag-handle"]'),
       ).toBeTruthy();
     });
+    expect(document.querySelectorAll('[data-task-surface="sheet"]')).toHaveLength(1);
+    expect(document.querySelector('[data-task-surface="dialog"]')).toBeNull();
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 });

@@ -8,13 +8,18 @@ from sqlalchemy import text
 
 from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo, JobSuperseded
 from hushh_mcp.services.pod_files.selection import publish_selection
+from tests.hosted_files_erasure_lifecycle_cases import *  # noqa: F403 -- bounded selected case exports
+from tests.hosted_files_erasure_outcome_cases import *  # noqa: F403 -- bounded selected case exports
+from tests.hosted_files_executor_cases import *  # noqa: F403 -- bounded selected case exports
 from tests.pkm_conformance.postgres_harness import find_pg_bin
+from tests.test_hosted_pilot_admission_postgres import pg as _hosted_pilot_pg
 from tests.test_pod_upgrade_lease_against_postgres import (  # noqa: F401 - existing disposable PG fixture
     engine,
     pg,
 )
 
 pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+hosted_pg = pytest.fixture(name="hosted_pg")(_hosted_pilot_pg.__wrapped__)
 
 
 async def test_selection_is_bound_to_current_job_and_preserves_unrelated_metadata(pg, engine):  # noqa: F811

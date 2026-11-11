@@ -1,3 +1,4 @@
+import type { CloudCleanupSummary } from "@/lib/auth/account-cleanup-operation";
 // hushh-webapp/lib/services/account-service.ts
 import { Capacitor } from "@capacitor/core";
 import { HushhAccount } from "@/lib/capacitor";
@@ -89,6 +90,7 @@ export interface AccountDeletionResult {
   details?: Record<string, unknown>;
   /** Only true after the old Firebase identity is removed. */
   ready_to_start_fresh?: boolean;
+  cloud_cleanup?: CloudCleanupSummary;
 }
 
 export interface LostVaultDeleteOptions {
@@ -245,6 +247,7 @@ export class AccountServiceImpl {
     vaultOwnerToken: string,
     target: AccountDeletionTarget = "both",
     isCurrent?: () => boolean,
+    reviewedCloudPlanSha256?: string,
   ): Promise<AccountDeletionResult> {
     if (!vaultOwnerToken) {
       throw new Error("VAULT_OWNER token required - vault must be unlocked");
@@ -259,6 +262,7 @@ export class AccountServiceImpl {
 
     try {
       if (Capacitor.isNativePlatform()) {
+        if (reviewedCloudPlanSha256) throw new Error("Continue cloud cleanup on the Hussh website.");
         // Native: Call Capacitor plugin directly to Python backend
         let result: AccountDeletionResult;
         try {
@@ -285,7 +289,7 @@ export class AccountServiceImpl {
             headers: {
               Authorization: `Bearer ${vaultOwnerToken}`,
             },
-            body: JSON.stringify({ target }),
+            body: JSON.stringify({ target, ...(reviewedCloudPlanSha256 ? { reviewed_cloud_plan_sha256: reviewedCloudPlanSha256 } : {}) }),
           }
         );
         if (!result.cleanup_pending) trackEvent("account_delete_completed", {

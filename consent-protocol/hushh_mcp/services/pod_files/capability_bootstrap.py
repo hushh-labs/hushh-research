@@ -13,9 +13,16 @@ from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, UserGcpBootstr
 
 
 class FilesCapabilityBootstrap(UserGcpBootstrap):
-    def __init__(self, *, capability: FilesCapabilityPlan, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *,
+        capability: FilesCapabilityPlan,
+        guard: Callable[[], None] | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(project=capability.project, region=capability.region, **kwargs)
         self._capability = capability
+        self._guard = guard
 
     def plan_calls(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
         if plan != self._capability.substrate_plan():
@@ -84,12 +91,16 @@ class FilesCapabilityBootstrap(UserGcpBootstrap):
     def verify_existing_bucket(self) -> None:
         """Read custody before adding IAM; no bucket/prefix configuration is changed."""
         headers = {"Authorization": f"Bearer {self._token}"}
+        if self._guard is not None:
+            self._guard()
         project = self._session.get(
             f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}",
             headers=headers,
             timeout=30,
             allow_redirects=False,
         )
+        if self._guard is not None:
+            self._guard()
         bucket = self._session.get(
             f"https://storage.googleapis.com/storage/v1/b/{self._capability.bucket}",
             headers=headers,

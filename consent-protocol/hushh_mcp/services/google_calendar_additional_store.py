@@ -28,6 +28,10 @@ def upsert_additional_calendar_account(connection: Any, params: dict[str, Any]) 
                     access_token_iv = EXCLUDED.access_token_iv,
                     access_token_tag = EXCLUDED.access_token_tag,
                     access_token_expires_at = EXCLUDED.access_token_expires_at,
+                    gmail_read_enabled = google_calendar_additional_accounts.gmail_read_enabled
+                      AND (' ' || EXCLUDED.scope_csv || ' ') LIKE '% https://www.googleapis.com/auth/gmail.readonly %',
+                    gmail_read_generation = CASE WHEN google_calendar_additional_accounts.gmail_read_enabled
+                      THEN gen_random_uuid() ELSE google_calendar_additional_accounts.gmail_read_generation END,
                     connected_at = clock_timestamp(), revoked_at = NULL, updated_at = clock_timestamp()"""),
         params,
     )

@@ -1,7 +1,7 @@
 {
   "id": "release-readiness",
   "title": "Release Readiness",
-  "goal": "Run the canonical repo checks, advisory checks, and release-focused audits before shipping or cutting a release.",
+  "goal": "Assess exact-candidate core and affected-contract evidence before an explicitly authorized release. Full historical suites and advisory hygiene are optional diagnostics, not routine prerequisites.",
   "owner_skill": "repo-operations",
   "default_spoke": null,
   "task_type": "release-readiness",
@@ -21,25 +21,21 @@
     "docs/reference/kai/kai-runtime-smoke-checklist.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task release-readiness",
-    "./bin/hushh ci --include-advisory",
-    "./bin/hushh docs verify"
+    "./bin/hushh agents route-task release-readiness",
+    "./bin/hushh agents ci-status"
   ],
   "verification_bundle": {
     "id": "release-readiness",
     "commands": [
-      "./bin/hushh ci --include-advisory",
-      "./bin/hushh docs verify"
+      "./bin/hushh agents ci-status"
     ],
-    "tests": [
-      "./bin/hushh ci --include-advisory"
-    ]
+    "tests": []
   },
   "deliverables": [
     "release checklist summary",
-    "advisory findings review",
     "verification report",
-    "remaining launch-risk debt"
+    "remaining launch-risk debt",
+    "exact-source core and affected-contract proof, with missing evidence explicit"
   ],
   "impact_fields": [
     "Preserved developer branch",

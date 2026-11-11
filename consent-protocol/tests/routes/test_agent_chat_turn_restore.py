@@ -134,11 +134,11 @@ async def test_restored_answer_keeps_its_connect_card_and_activity(monkeypatch) 
     assert PRIVATE not in json.dumps(history)
 
 
+# A receipts hand-back read no mail: it restores as its own status, never as a failed read.
 @pytest.mark.asyncio
-async def test_connector_steps_carry_outcome_enums_only(monkeypatch) -> None:
-    read_tool = "mcp_" + "a" * 40
-    review_tool = "mcp_" + "b" * 40
-    cut_tool = "mcp_" + "c" * 40
+@pytest.mark.parametrize("mail_status", ["ok", "receipt_functions_required"])
+async def test_connector_steps_carry_outcome_enums_only(monkeypatch, mail_status: str) -> None:
+    read_tool, review_tool, cut_tool = ("mcp_" + letter * 40 for letter in "abc")
     history = await _history(
         monkeypatch,
         [
@@ -166,7 +166,7 @@ async def test_connector_steps_carry_outcome_enums_only(monkeypatch) -> None:
                     "structured": {
                         "schema_version": "specialist_read.v1",
                         "connector": "mail",
-                        "status": "ok",
+                        "status": mail_status,
                         "sources": [],
                         "truncated": False,
                         "metadata_only": True,
@@ -188,7 +188,7 @@ async def test_connector_steps_carry_outcome_enums_only(monkeypatch) -> None:
         },
         {"id": "call-review", "tool": review_tool, "status": "waiting", "review": "required"},
         {"id": "call-cut", "tool": cut_tool, "status": "interrupted"},
-        {"id": "call-mail", "tool": "ask_email_agent", "status": "done", "readStatus": "ok"},
+        {"id": "call-mail", "tool": "ask_email_agent", "status": "done", "readStatus": mail_status},
     ]
     assert PRIVATE not in json.dumps(history)
     assert "transfer_to_agent" not in json.dumps(history)

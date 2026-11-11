@@ -22,8 +22,27 @@ UPSTREAM_BRANCH="${CONSENT_UPSTREAM_BRANCH:-main}"
 SUBTREE_PREFIX="${CONSENT_SUBTREE_PREFIX:-consent-protocol}"
 SYNC_REF="${CONSENT_SYNC_REF:-refs/subtree-sync/consent-protocol}"
 MAIN_SYNC_REMOTE="${MAIN_SYNC_REMOTE:-origin}"
-MAIN_SYNC_BRANCH="${MAIN_SYNC_BRANCH:-main}"
+MAIN_SYNC_BRANCH="${MAIN_SYNC_BRANCH:-${GITHUB_BASE_REF:-}}"
 MAIN_SYNC_SCRIPT="${MAIN_SYNC_SCRIPT:-scripts/git/check-main-sync.sh}"
+
+# A feature branch's push target is not its PR destination. Never infer Main
+# merely because its remote branch does not exist yet. Explicit diagnostic
+# inputs take precedence; otherwise use the open PR's actual base.
+CURRENT_BRANCH_NAME=$(git branch --show-current 2>/dev/null || true)
+if [ -z "$MAIN_SYNC_BRANCH" ]; then
+  case "$CURRENT_BRANCH_NAME" in
+    main|dev|uat|uat-isolated|integration/pr-train)
+      MAIN_SYNC_BRANCH="$CURRENT_BRANCH_NAME"
+      ;;
+    *)
+      if [ -n "$CURRENT_BRANCH_NAME" ] && command -v gh >/dev/null 2>&1; then
+        MAIN_SYNC_BRANCH=$(gh pr list --head "$CURRENT_BRANCH_NAME" --state open --limit 2 \
+          --repo hushh-labs/hushh-research --json baseRefName \
+          --jq 'if length == 1 then .[0].baseRefName else empty end' 2>/dev/null || true)
+      fi
+      ;;
+  esac
+fi
 
 CP_FILES=""
 STRICT_MODE="$CHECK_ONLY"
@@ -215,9 +234,8 @@ else
 
         if [ "$CURRENT_BRANCH_NAME" != "$MAIN_SYNC_BRANCH" ] && \
           git rev-parse --verify --quiet "$MAIN_BASE_REF" >/dev/null 2>&1; then
-          # Feature branches are often behind main on the remote. Use the
-          # branch's actual delta from main so already-landed main commits do
-          # not trigger expensive subtree checks during freshness pushes.
+          # Use the branch's actual delta from its destination so existing
+          # destination commits do not trigger expensive subtree checks.
           RANGE="$MAIN_BASE_REF..$local_sha"
         elif [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
           RANGE="$local_sha"
@@ -238,10 +256,19 @@ $CHANGED"
   esac
 fi
 
-if [ "$should_check_main" -eq 1 ] && [ -f "$REPO_ROOT/$MAIN_SYNC_SCRIPT" ]; then
+if [ "$should_check_main" -eq 1 ] && [ -z "$MAIN_SYNC_BRANCH" ]; then
+  case "${MAIN_SYNC_MODE:-warn}" in
+    warn) ;;
+    *)
+      printf '\n[pre-push] Cannot run the requested freshness diagnostic without a destination. Set MAIN_SYNC_BRANCH explicitly.\n' >&2
+      exit 1
+      ;;
+  esac
+  printf '\n[pre-push] PR destination unavailable; skipping ancestry guidance. Set MAIN_SYNC_BRANCH for an explicit diagnostic.\n'
+elif [ "$should_check_main" -eq 1 ] && [ -f "$REPO_ROOT/$MAIN_SYNC_SCRIPT" ]; then
   CURRENT_BRANCH_NAME=$(git branch --show-current 2>/dev/null || true)
   # Keep contributor pushes advisory by default, but do not discard a
-  # maintainer's explicit tested-base gate while main remains active.
+  # maintainer's explicit diagnostic for the selected destination.
   MAIN_SYNC_MODE="${MAIN_SYNC_MODE:-warn}"
   case "$CURRENT_BRANCH_NAME" in
     "$MAIN_SYNC_BRANCH")

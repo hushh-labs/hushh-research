@@ -10,6 +10,7 @@ import {
 } from "./fixtures/product-font";
 import { assertThinFocusedCircleType } from "./helpers/circle-type-focus";
 import { assertConnectionRemoveDialog } from "./helpers/connection-remove-dialog";
+import { assertMutualListLayout } from "./helpers/mutual-list-layout";
 
 /** Production Connect page against synthetic identity/network boundaries. */
 const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
@@ -67,6 +68,7 @@ test.beforeAll(async () => {
     resolve: {
       alias: [
         ...STUBBED.map((find) => ({ find, replacement: boundaries })),
+        { find: /^\.\/person-profile-page$/, replacement: boundaries },
         { find: "@", replacement: root },
       ],
     },
@@ -177,22 +179,168 @@ async function settle(page: Page, _width: number) {
     .toBe(0);
 }
 
+for (const destination of ["mutual-list", "discovery"] as const) {
+  test(`late single-mutual lookup cannot replace a newer ${destination} visit`, async ({ page }) => {
+    await open(page, 393, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => { document.documentElement.dataset.delayedSingleMutual = "1"; });
+    await page.getByRole("button", { name: "Open mutual connection Hussh member's profile", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.singleMutualPending)).toBe("1");
+    if (destination === "mutual-list") await page.getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
+    else await page.getByRole("button", { name: "Explore your network", exact: true }).click();
+    await page.evaluate(() => window.dispatchEvent(new Event("fixture-resolve-single-mutual")));
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.singleMutualSettled)).toBe("1");
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(page.getByTestId("fixture-person-profile")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Your network", exact: true })).toBeVisible();
+    if (destination === "discovery") {
+      const preview = page.locator("[data-person-profile-preview]");
+      await preview.getByRole("button", { name: "Back to previous screen", exact: true }).click();
+      await expect(preview).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Explore your network", exact: true })).toBeFocused();
+    }
+  });
+}
+
+for (const width of [393, 1440]) {
+  test(`Connect retains the latest tab through delayed navigation and resize at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => {
+      document.documentElement.dataset.navigationMs = "650";
+    });
+    await expect(page).toHaveURL("http://localhost/connect-page-grid");
+    await expect(page).toHaveTitle("Connect layout fixture");
+    const connections = page.getByRole("tab", { name: "Connections", exact: true });
+    const circles = page.getByRole("tab", { name: "Circles", exact: true });
+    const pager = page.locator('[data-swipe-views-root="true"]').first();
+    const circlePane = page.locator('[data-connect-surface="circles"]');
+    await expect(connections).toHaveAttribute("aria-selected", "true");
+    await circles.click();
+    // Resize the real pager before Next's query acknowledgment arrives.
+    await pager.evaluate(node => { node.style.width = "calc(100% - 8px)"; });
+    await page.waitForTimeout(150);
+    await expect.poll(async () => {
+      const viewport = await pager.boundingBox();
+      const panel = await circlePane.locator("..").boundingBox();
+      return Math.abs(panel!.x - viewport!.x);
+    }, { timeout: 250 }).toBeLessThan(2);
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "1");
+
+    // Reverse before the first animation settles; the final tap owns the URL.
+    await connections.click();
+    await circles.click();
+    await connections.click();
+    await expect(connections).toHaveAttribute("aria-selected", "true");
+    await expect(circlePane.locator("..")).toHaveAttribute("aria-hidden", "true");
+    // Wait beyond both route acknowledgment and the compositor's settle tail.
+    await page.waitForTimeout(1100);
+    await expect(connections).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "4");
+    const box = (await pager.boundingBox())!;
+    const startX = box.x + box.width * 0.8;
+    const swipeY = await pager.evaluate((node, x) => {
+      const bounds = node.getBoundingClientRect();
+      for (let y = Math.min(bounds.bottom - 20, innerHeight - 20); y > bounds.top; y -= 30) {
+        const hit = document.elementFromPoint(x, y);
+        if (hit && hit.closest('[data-swipe-views-root="true"]') === node && !hit.closest("button,input,a,[role=button],[role=tab]")) return y;
+      }
+      throw new Error("No unobstructed pager gesture area");
+    }, startX);
+    await page.mouse.move(startX, swipeY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.15, swipeY, { steps: 8 });
+    await page.mouse.up();
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await page.waitForTimeout(1100);
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "5");
+    // Return to the current route by swipe before a contrary tap is echoed.
+    await page.evaluate(() => { document.documentElement.dataset.navigationMs = "1800"; });
+    await connections.click();
+    await page.waitForTimeout(100);
+    await page.mouse.move(startX, swipeY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.15, swipeY, { steps: 8 });
+    await page.mouse.up();
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "7");
+    await page.waitForTimeout(2100);
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(circlePane.locator("..")).toHaveAttribute("aria-hidden", "false");
+    // An ordinary short drag returning to the same pane owns no route write.
+    await page.mouse.move(startX, swipeY);
+    await page.mouse.down();
+    await page.mouse.move(startX - 12, swipeY, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(1100);
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "7");
+    await expect(page.locator("nextjs-portal")).toHaveCount(0);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`connect-tabs-${width}.png`) });
+  });
+
+  test(`mutual list keeps paged people and retraces profile and directory at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => { document.documentElement.dataset.longMutualName = "1"; });
+    await expect(page).toHaveTitle("Connect layout fixture");
+    await page.getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
+    await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
+    await assertMutualListLayout(page, width);
+    await page.getByRole("button", { name: "Load more mutual connections" }).click();
+    const last = page.getByRole("button", { name: "Open Mutual Person 25's profile" });
+    await last.scrollIntoViewIfNeeded();
+    const scrollTop = await page.locator('[data-app-scroll-root="true"]').evaluate((root) => root.scrollTop);
+    expect(scrollTop).toBeGreaterThan(0);
+    await last.click();
+    await expect(page.getByTestId("fixture-person-profile")).toBeVisible();
+    await page.locator("[data-person-profile-preview]").getByRole("button", { name: "Back to previous screen", exact: true }).click();
+    await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
+    await expect(last).toBeVisible();
+    await expect.poll(() => page.locator('[data-app-scroll-root="true"]').evaluate((root) => root.scrollTop)).toBe(scrollTop);
+    expect(await page.getByTestId("mutual-connections-list").getByRole("button", { name: /Open Mutual Person/ }).count()).toBe(25);
+    if (process.env.MUTUAL_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.MUTUAL_EVIDENCE_DIR, `mutual-list-${width}.png`) });
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(page.getByLabel("Search people", { exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+    test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
       await settle(page, width);
+      const directory = page.getByTestId("connect-directory-group");
+      const explore = directory.getByRole("button", { name: "Explore your network", exact: true });
+      await expect(explore).toBeVisible();
+      await expect(page.getByRole("tablist", { name: "Connection views" }).getByText("Explore your network")).toHaveCount(0);
+      const [searchBox, exploreBox, firstResult] = await Promise.all([
+        directory.getByRole("textbox", { name: "Search people" }).boundingBox(),
+        explore.boundingBox(),
+        directory.getByText("Avery Stone", { exact: true }).boundingBox(),
+      ]);
+      expect(exploreBox!.height).toBeGreaterThanOrEqual(44);
+      expect(exploreBox!.y).toBeGreaterThanOrEqual(searchBox!.y + searchBox!.height);
+      expect(exploreBox!.y + exploreBox!.height).toBeLessThanOrEqual(firstResult!.y);
+      expect(exploreBox!.x).toBeGreaterThanOrEqual(searchBox!.x - 1);
+      expect(exploreBox!.x + exploreBox!.width).toBeLessThanOrEqual(searchBox!.x + searchBox!.width + 1);
       const workspaceBox = await page.locator("[data-connect-page]").boundingBox();
       expect(workspaceBox).not.toBeNull();
       expect(workspaceBox!.width).toBeLessThanOrEqual(728);
       if (width >= 768) expect(workspaceBox!.width).toBe(728);
       await page.getByRole("tab", { name: /My connections/ }).click();
+      await expect(explore).toBeHidden();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
-      const contactsHeading = connectionGroup.getByRole("heading", { name: "From contacts", exact: true });
-      await expect(contactsHeading).toHaveCount(1);
-      const contactIcon = await contactsHeading.locator("svg").evaluate((icon) => {
+      await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(0);
+      const contactBadge = connectionGroup.getByRole("button", { name: "Via contacts" });
+      await expect(contactBadge).toHaveCount(1);
+      const contactIcon = await contactBadge.locator("svg").evaluate((icon) => {
         const box = icon.getBoundingClientRect();
         const reference = document.createElement("span");
         icon.parentElement!.appendChild(reference);
@@ -205,15 +353,53 @@ for (const dark of [false, true]) {
           fill: getComputedStyle(icon.querySelector("g[fill]")!).fill,
           stroke: getComputedStyle(icon.querySelector("g[stroke]")!).stroke };
       });
-      expect(contactIcon.width).toBe(16);
-      expect(contactIcon.height).toBe(16);
+      expect(contactIcon.width).toBe(12);
+      expect(contactIcon.height).toBe(12);
       expect(contactIcon.fill).toBe(contactIcon.accent);
       expect(contactIcon.stroke).toBe(contactIcon.outline);
       expect(contactIcon.fill).not.toBe(contactIcon.stroke);
-      await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(1);
-      await expect(connectionGroup.getByLabel("Connected from your contacts")).toHaveCount(0);
-      await expect(page.getByTestId("connection-source-contacts").getByText("Jordan Lee", { exact: true })).toHaveCount(1);
-      await expect(page.getByTestId("connection-source-other").getByText("Alex Chen", { exact: true })).toHaveCount(1);
+      await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
+      const connectionRows = connectionGroup.getByTestId("connect-person-row");
+      const jordan = connectionRows.filter({ hasText: "Jordan Lee" });
+      const avatar = jordan.locator('[data-avatar-size="compact"]');
+      const avatarContactBadge = avatar.getByRole("button", { name: "Via contacts" });
+      const riaBadge = avatar.getByRole("button", { name: "Verified Advisor" });
+      await expect(avatarContactBadge).toBeVisible();
+      await expect(riaBadge).toBeVisible();
+      const face = (await avatar.boundingBox())!;
+      const contact = (await avatarContactBadge.boundingBox())!;
+      const advisor = (await riaBadge.boundingBox())!;
+      expect(advisor.y + advisor.height / 2).toBeLessThan(face.y + face.height / 2);
+      expect(contact.y + contact.height / 2).toBeGreaterThan(face.y + face.height / 2);
+      expect(advisor.y + advisor.height).toBeLessThanOrEqual(contact.y);
+      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByRole("button", { name: "Via contacts" })).toHaveCount(0);
+      if (width === WIDTHS[0]) {
+        const glyph = contactBadge.locator("svg");
+        if (testInfo.project.use.hasTouch) await glyph.tap();
+        else await glyph.hover();
+        const contactDetails = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Via contacts" });
+        await expect(contactDetails).toBeVisible();
+        await expect(contactDetails).toContainText("You connected with this person through a match from your synced contacts.");
+        const bounds = (await contactDetails.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        await page.keyboard.press("Escape");
+        await expect(contactDetails).toBeHidden();
+
+        if (testInfo.project.use.hasTouch) await riaBadge.tap();
+        else await riaBadge.hover();
+        const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });
+        await expect(riaDetails).toContainText("Hussh verified this person's advisor profile.");
+        await page.keyboard.press("Escape");
+        await expect(riaDetails).toHaveCount(0);
+
+        if (!testInfo.project.use.hasTouch) {
+          await riaBadge.focus();
+          await expect(riaDetails).toBeAttached();
+          await page.keyboard.press("Escape");
+          await expect(riaDetails).toHaveCount(0);
+        }
+      }
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
@@ -227,16 +413,14 @@ for (const dark of [false, true]) {
       // Feed's ordinary-row anatomy: a 26px face centred in a 30px well, so the
       // face starts 2px in from the row edge, and the row is compact.
       expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left) < 1 && row.avatarWidth === (width <= 350 ? 32 : 36))).toBe(true);
-      expect(rowGeometry.every(row => row.height >= 70)).toBe(true);
+      expect(rowGeometry.every(row => row.height >= 44 && row.height <= 78)).toBe(true);
       expect(rowGeometry.every(row => row.titleRight <= row.trailingLeft && row.date === "Connected 28 Sep")).toBe(true);
       expect(rowGeometry.every(row => row.actions.every(action => action.width >= 44 && action.height >= 44))).toBe(true);
       // The face sits on the centre line of its name block (one line or two), in
       // both lists, never above it.
       const centred = await page.locator('[data-testid="connect-person-row"], [data-testid="directory-person-row"]').evaluateAll((rows) => rows.filter(row => row.getBoundingClientRect().height > 0).map((row) => {
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
-        const title = row.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
-        const description = row.querySelector('[data-slot="settings-row-description"]')?.closest("span:not([data-slot])")?.getBoundingClientRect();
-        const block = description ? { top: title.top, bottom: description.bottom } : { top: title.top, bottom: title.bottom };
+        const block = row.querySelector('[data-slot="settings-row-identity"]')!.getBoundingClientRect();
         return Math.abs((avatar.top + avatar.bottom) / 2 - (block.top + block.bottom) / 2);
       }));
       expect(centred.length).toBeGreaterThan(5);
@@ -250,9 +434,9 @@ for (const dark of [false, true]) {
       await expect(page.getByTestId("directory-person-masked-phone")).toHaveCount(0);
       await expect(cards.first().getByText("Alex Chen", { exact: true })).toHaveCount(0);
       await expect(cards.first()).toContainText("2 mutual connections");
-      const mutual = cards.first().getByRole("button", { name: "Open mutual connection Alex Chen's profile" });
-      await mutual.click();
-      await expect(page.locator("body")).toHaveAttribute("data-last-navigation", /^\/people\/person_alex\?/);
+      await cards.first().getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
+      await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
+      await page.getByRole("button", { name: "Back", exact: true }).click();
       await expect(cards.nth(1).getByTestId("mutual-connection")).toHaveCount(0);
       // Circle creation moved to its named flow; Connect cards no longer own
       // the retired discovery-card dialog (also asserted by the page unit contract).
@@ -273,7 +457,6 @@ for (const dark of [false, true]) {
         const r = node.getBoundingClientRect();
         return { left: r.left, top: r.top, right: r.right, width: r.width };
       }));
-      expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
       expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
       // One column at every width, rows no taller than a compact person row plus
       // its mutual-connections line.
@@ -540,10 +723,19 @@ for (const width of [320, 393, 768]) {
     const rows = page.getByTestId("connect-my-connections-group").getByTestId("connect-person-row");
 
     // The list is part of the page: not a scroller, not a scroll trap.
-    expect(await list.evaluate((node) => {
-      const s = getComputedStyle(node);
-      return { overflowY: s.overflowY, overscroll: s.overscrollBehaviorY, own: node.scrollHeight - node.clientHeight };
-    })).toEqual({ overflowY: "visible", overscroll: "auto", own: 0 });
+    const supportsOverscroll = await page.evaluate(() =>
+      CSS.supports("overscroll-behavior-y", "contain"),
+    );
+    const listStyle = await list.evaluate(node => {
+      const style = getComputedStyle(node);
+      return {
+        overflowY: style.overflowY,
+        overscroll: style.getPropertyValue("overscroll-behavior-y"),
+        own: node.scrollHeight - node.clientHeight,
+      };
+    });
+    expect(listStyle).toMatchObject({ overflowY: "visible", own: 0 });
+    if (supportsOverscroll) expect(listStyle.overscroll).toBe("auto");
 
     const wheelFromRow = async () => {
       const box = await rows.nth(3).boundingBox();
@@ -584,9 +776,11 @@ for (const width of [320, 393, 768]) {
 
     // Negative control: the old markup (a capped list that contains its
     // overscroll) swallows the same gesture, so the assertion above can fail.
-    await root.evaluate((node) => { node.scrollTop = 0; });
-    await list.evaluate((node) => node.classList.add("max-h-[min(60dvh,28rem)]", "overflow-y-auto", "overscroll-contain"));
-    expect(await wheelFromRow()).toBeLessThan(maxScroll / 2);
+    if (supportsOverscroll) {
+      await root.evaluate((node) => { node.scrollTop = 0; });
+      await list.evaluate((node) => node.classList.add("max-h-[min(60dvh,28rem)]", "overflow-y-auto", "overscroll-contain"));
+      expect(await wheelFromRow()).toBeLessThan(maxScroll / 2);
+    }
   });
 }
 
@@ -689,6 +883,32 @@ for (const width of [393, 1440]) {
       await page.screenshot({ path: test.info().outputPath(`create-circle-${presentation}-${width}.png`), animations: "disabled" });
     });
   }
+  test(`Connect inline actions stay transparent on hover at ${width}px`, async ({ page }) => {
+    await open(page, width, false);
+    await settle(page, width);
+    const tabs = page.getByRole("tablist", { name: "Connection views" });
+    const mine = tabs.getByRole("tab", { name: /My connections/ });
+    await mine.click();
+    const discover = tabs.getByRole("tab", { name: "Find people" });
+    const refresh = page.getByRole("button", { name: "Refresh contacts" });
+    const message = page.getByRole("button", { name: "Message Jordan Lee", exact: true });
+    const options = page.getByRole("button", { name: "Options for Jordan Lee", exact: true });
+    const profile = page.getByRole("button", { name: "Open Jordan Lee's profile", exact: true });
+
+    await expect(discover).toHaveAttribute("aria-selected", "false");
+    for (const action of [discover, refresh, message, options]) {
+      await action.hover();
+      await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
+    }
+
+    await profile.hover();
+    await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const title = page.getByTestId("connect-person-row").filter({ has: profile }).locator('[data-slot="settings-row-title"]');
+    await expect(title).toHaveCSS("text-decoration-line", "none");
+    await page.screenshot({ path: test.info().outputPath(`inline-hover-${width}.png`), animations: "disabled" });
+  });
+
   test(`Connection icons halve their visible gap at ${width}px without shrinking targets`, async ({ page }) => {
     await open(page, width, false);
     await settle(page, width);

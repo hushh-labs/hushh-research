@@ -39,6 +39,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
+import { recordLiveActivity } from "@/lib/pkm/live-activity/live-activity-journal";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import type { AccountIdentity } from "@/lib/services/api-service";
@@ -317,6 +318,7 @@ export function useDisplayNameEditor({
         return { kind: "committed-unreadable" };
       }
       onSaved?.(identity);
+      recordLiveActivity({ kind: "profile_updated" });
       return { kind: "saved", identity };
     } catch (error) {
       if (!current()) return { kind: "stale" };

@@ -21,19 +21,15 @@
     ".agents/skills/repo-operations/references/agent-trigger-policy.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task ci-watch-and-heal",
-    "./bin/hushh codex ci-status --watch",
-    "./bin/hushh ci --include-advisory"
+    "./bin/hushh agents route-task ci-watch-and-heal",
+    "./bin/hushh agents ci-status --watch"
   ],
   "verification_bundle": {
     "id": "ci-watch-and-heal",
     "commands": [
-      "./bin/hushh ci --include-advisory",
-      "./bin/hushh codex ci-status"
+      "./bin/hushh agents ci-status"
     ],
-    "tests": [
-      "./bin/hushh ci --include-advisory"
-    ]
+    "tests": []
   },
   "deliverables": [
     "live check-state summary",

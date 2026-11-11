@@ -97,6 +97,35 @@ def plg_runtime_sync():
     return module
 
 
+@pytest.mark.parametrize(
+    "environment,project", [("dev", "hushh-pda-dev"), ("uat", "hushh-pda-uat")]
+)
+def test_auth_authority_survives_the_real_runtime_writer(
+    monkeypatch, plg_runtime_sync, environment, project
+):
+    writes, target = _write_configuration(
+        monkeypatch,
+        plg_runtime_sync,
+        environment,
+        False,
+        {"firebase_auth_project_id": project},
+    )
+    config = json.loads(writes[target])
+    assert config["firebase_auth_project_id"] == project
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(config))
+    monkeypatch.delenv("FIREBASE_AUTH_PROJECT_ID", raising=False)
+    runtime_settings.hydrate_runtime_environment()
+    runtime_settings.clear_runtime_settings_caches()
+    assert runtime_settings.get_firebase_credential_settings().auth_project_id == project
+
+
+def test_auth_authority_cannot_be_inherited_from_another_environment(monkeypatch, plg_runtime_sync):
+    with pytest.raises(SystemExit):
+        _write_configuration(
+            monkeypatch, plg_runtime_sync, "dev", False, {"firebase_auth_project_id": "hushh-pda"}
+        )
+
+
 @pytest.mark.feature_auth_reliability
 def test_listener_isolation_rollback_survives_the_deployment_writer(monkeypatch, plg_runtime_sync):
     writes, target = _write_configuration(
@@ -268,6 +297,53 @@ def test_plg_activation_cannot_cross_environment_or_project(
             project=project,
             environment=environment,
         )
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_owner_activity_settings_survive_writer_and_hydration(
+    monkeypatch, plg_runtime_sync, environment, enabled
+):
+    keys = (
+        ("one_plg_owner_export_enabled",)
+        if environment == "production"
+        else (f"one_plg_{environment}_export_enabled", f"one_plg_activity_{environment}_enabled")
+    )
+    stored = {
+        **dict.fromkeys(keys, enabled),
+        "one_plg_activity_enabled": enabled,
+        "one_plg_attempt_email_enabled": enabled,
+    }
+    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
+    actual = json.loads(writes[target])
+    assert all(actual[key] is value for key, value in stored.items())
+    assert "one_plg_export_account_ids" not in actual
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in stored:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
+    runtime_settings.hydrate_runtime_environment()
+    assert all(os.environ[key.upper()] == str(value).lower() for key, value in stored.items())
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_owner_activation_rejects_other_lane_and_retains_no_cohort(plg_runtime_sync, environment):
+    project = "hushh-pda" if environment == "production" else f"hushh-pda-{environment}"
+    base = {"environment": environment, "google_cloud_project": project}
+    foreign = "uat" if environment != "uat" else "dev"
+    with pytest.raises(ValueError):
+        plg_runtime_sync._retained_plg_config(
+            {**base, f"one_plg_{foreign}_export_enabled": True},
+            project=project,
+            environment=environment,
+        )
+    for value in [1, [], "True", None]:
+        with pytest.raises(ValueError, match="explicit boolean"):
+            plg_runtime_sync._retained_plg_config(
+                {**base, "one_plg_attempt_email_enabled": value},
+                project=project,
+                environment=environment,
+            )
 
 
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
@@ -460,14 +536,25 @@ def test_candidate_only_read_failures_never_create_or_update(
 def test_candidate_only_mutation_guard_detects_normal_sync_fallthrough(
     monkeypatch, plg_runtime_sync
 ):
+    import ast
     import inspect
     from types import CodeType, FunctionType
 
     source = inspect.getsource(plg_runtime_sync.main)
-    boundary = '    if args.production_drive_candidate_only:\n        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)\n'
-    assert source.count(boundary) == 1
+    tree = ast.parse(source)
+    function_tree = tree.body[0]
+    boundaries = [
+        node
+        for node in function_tree.body
+        if isinstance(node, ast.If)
+        and ast.dump(node.test)
+        == ast.dump(ast.parse("args.production_drive_candidate_only", mode="eval").body)
+    ]
+    assert len(boundaries) == 1
+    assert isinstance(boundaries[0].body[0], ast.Return)
+    function_tree.body.remove(boundaries[0])
     # Negative control changes this isolated module in memory, never disk/runtime.
-    code = compile(source.replace(boundary, ""), "candidate-only-negative-control", "exec")
+    code = compile(tree, "candidate-only-negative-control", "exec")
     function = next(
         value for value in code.co_consts if isinstance(value, CodeType) and value.co_name == "main"
     )
@@ -476,3 +563,111 @@ def test_candidate_only_mutation_guard_detects_normal_sync_fallthrough(
         _write_configuration(
             monkeypatch, plg_runtime_sync, "production", True, {}, candidate_only=True
         )
+
+
+@pytest.mark.parametrize(
+    ("exists", "current", "add_status"),
+    [(True, "same", 0), (True, "older", 0), (False, None, 0), (True, None, 0), (True, "older", 1)],
+)
+def test_secret_upsert_preserves_recovery_versions(
+    monkeypatch, tmp_path, exists, current, add_status
+):
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/upsert_gcp_secret.py"
+    spec = importlib.util.spec_from_file_location("upsert_recovery", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    commands = []
+
+    def cloud(command, **kwargs):
+        commands.append(command[1:4])
+        prefix = command[1:4]
+        status, output = 0, ""
+        if prefix[:2] == ["secrets", "describe"]:
+            status, output = (0, "fixture-secret") if exists else (1, "")
+        elif prefix == ["secrets", "versions", "access"]:
+            status, output = (0, current) if current is not None else (1, "")
+        elif prefix == ["secrets", "versions", "list"]:
+            output = "1\n2\n"
+        elif prefix == ["secrets", "versions", "add"]:
+            assert kwargs["input"] == "same"
+            status = add_status
+        return subprocess.CompletedProcess(
+            command, status, output, "write refused" if status else ""
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", cloud)
+    payload = tmp_path / "synthetic-payload"
+    payload.write_text("same")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(path), "--project", "fixture", "--secret", "fixture", "--value-file", str(payload)],
+    )
+    if add_status:
+        with pytest.raises(SystemExit, match="1"):
+            module.main()
+    else:
+        assert module.main() == 0
+    assert ["secrets", "versions", "destroy"] not in commands
+    assert ["secrets", "versions", "list"] not in commands
+    assert (["secrets", "versions", "add"] in commands) is (current != "same")
+    assert any(command[:2] == ["secrets", "create"] for command in commands) is (not exists)
+
+
+def _version_inventory_module():
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/prune_gcp_secret_versions.py"
+    spec = importlib.util.spec_from_file_location("version_inventory", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_secret_inventory_never_admits_destruction(monkeypatch):
+    module = _version_inventory_module()
+    monkeypatch.setattr(
+        module, "_get_access_token", lambda: pytest.fail("Mutation reached credentials")
+    )
+    with pytest.raises(ValueError, match="reference-aware"):
+        module.prune_project("fixture", dry_run=False)
+    monkeypatch.setattr(module, "_get_access_token", lambda: "synthetic-token")
+    methods = []
+
+    def read(request, **_kwargs):
+        methods.append(request.get_method())
+        if "/versions?" in request.full_url:
+            return {
+                "versions": [
+                    {"name": f"projects/fixture/secrets/fixture/versions/{n}"} for n in (1, 2)
+                ]
+            }
+        return {"secrets": [{"name": "projects/fixture/secrets/fixture"}]}
+
+    monkeypatch.setattr(module, "_request_with_retry", read)
+    assert module.prune_project("fixture") == {"total_enabled": 2, "destroyed": 0, "remaining": 2}
+    assert methods == ["GET", "GET"]
+
+
+def test_secret_inventory_rejects_writes_and_incomplete_pagination(monkeypatch):
+    module = _version_inventory_module()
+    request = module.urllib.request.Request("https://fixture.invalid", data=b"{}", method="POST")
+    with pytest.raises(ValueError, match="GET only"):
+        module._request_with_retry(request)
+
+    class Page:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'{"secrets": [{"name": "projects/fixture/secrets/fixture"}], "nextPageToken": "next"}'
+
+    def read(request, **_kwargs):
+        if "pageToken=" in request.full_url:
+            raise module.urllib.error.HTTPError(request.full_url, 403, "refused", {}, None)
+        return Page()
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", read)
+    with pytest.raises(RuntimeError, match="inventory unavailable"):
+        module._get_all_secrets("fixture", "synthetic-token")

@@ -9,7 +9,6 @@ consumer deliberately refuses ordinary Dev/UAT jobs and receipts.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from dataclasses import dataclass
 
@@ -142,7 +141,8 @@ def reviewed_definitions(workflow_sha: str, environment: str) -> dict[str, str]:
     return result
 
 
-def _run_and_job(client, run_id: int, target: Target, allowed: set[str]) -> tuple[dict, dict]:
+def _run_and_job(client, run_id: int, target: Target, allowed: set[str] | None = None) -> tuple[dict, dict]:
+    from release_acceptance_provenance import historical_human_dispatch
     run = client.read(f"runs/{run_id}")
     _fields(
         run,
@@ -162,7 +162,7 @@ def _run_and_job(client, run_id: int, target: Target, allowed: set[str]) -> tupl
             run.get(key, {}).get("full_name") == validation.transport.REPOSITORY
             for key in ("repository", "head_repository")
         )
-        and all(run.get(key, {}).get("login") in allowed for key in ("actor", "triggering_actor")),
+        and historical_human_dispatch(run),
         "qualification_run_identity_unverified",
     )
     inventory = client.read(f"runs/{run_id}/attempts/{run['run_attempt']}/jobs?per_page=100")
@@ -241,9 +241,7 @@ def verify(environment: str, run_id: int, github=None) -> IsolatedAcceptance:
     target = Target(environment)
     require(type(run_id) is int and run_id > 0, "qualification_exact_run_required")
     client = github or validation.transport.GitHub()
-    policy = json.loads((validation.ROOT / "config/ci-governance.json").read_text())
-    allowed = set(policy["production"]["manual_dispatch_users"])
-    run, job = _run_and_job(client, run_id, target, allowed)
+    run, job = _run_and_job(client, run_id, target)
     definitions = reviewed_definitions(run["head_sha"], environment)
     _record, foundation_digest = foundation.load_contract()
     artifact, receipt = _artifact(client, run, environment)
@@ -297,7 +295,7 @@ def verify(environment: str, run_id: int, github=None) -> IsolatedAcceptance:
     for key in ("image", "schema", "iam", "capacity", "candidate", "health"):
         proofs._observed(receipt[key], job)
     client.cache.pop(f"runs/{run_id}", None)
-    current, _job = _run_and_job(client, run_id, target, allowed)
+    current, _job = _run_and_job(client, run_id, target)
     require(
         all(current.get(key) == run.get(key) for key in ("run_attempt", "head_sha", "updated_at")),
         "qualification_deployment_changed_during_admission",

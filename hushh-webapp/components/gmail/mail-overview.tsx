@@ -102,8 +102,8 @@ export function MailOverview({
   onOpenChat: () => void;
 }) {
   return (
-    <section aria-label="Mail overview" className={mailStyles.overview}>
-      <div className={mailStyles.overviewCopy}>
+    <section aria-label="Mail overview" className={`${mailStyles.overview} ${styles.overview}`}>
+      <div className={`${mailStyles.overviewCopy} ${styles.copy}`}>
         <h2 className={mailStyles.sectionTitle}>Draft with <span className="text-[color:var(--app-accent)]">One.</span></h2>
         <ul className={`${mailStyles.benefits} ${mailStyles.support} text-muted-foreground`}>
           {["Instant drafts & replies", "Ready for your 1-tap review"].map((benefit) => (
@@ -114,7 +114,7 @@ export function MailOverview({
           ))}
         </ul>
       </div>
-      <div aria-hidden="true" className="min-w-0">
+      <div aria-hidden="true" className={`min-w-0 ${styles.preview}`}>
         <div data-testid="mail-draft-cards" className={`${styles.stack} w-full max-w-[300px]`}>
           {[
             { label: "Reply", icon: Undo2, width: "w-3/4" },
@@ -133,7 +133,7 @@ export function MailOverview({
           ))}
         </div>
       </div>
-      <div><MailActionButton onClick={onOpenChat}>Chat with One</MailActionButton></div>
+      <div className={styles.chat}><MailActionButton onClick={onOpenChat}>Chat with One</MailActionButton></div>
     </section>
   );
 }

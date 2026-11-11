@@ -20,11 +20,18 @@ def job_block(workflow, name):
 
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
-    if ("fetch-depth: 2" not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
+    depth = "fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
+    full_history = bool(re.search(r"^          fetch-depth: 0$", ui, re.M))
+    if ((depth not in ui and not full_history) or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
             or "UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}" not in ui):
         raise ValueError("UI review inheritance requires the verified tested merge base and its history")
-    if "fetch-depth: 2" not in job_block(workflow, "web-core-check"):
+    if depth not in job_block(workflow, "web-core-check"):
         raise ValueError("Web Core must retain the target base for the same UI check")
+    if (
+        "- *prepare_recovery" not in ui
+        or 'if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then\n            base="$UAT_CI_BASE"\n          else' not in ui
+    ):
+        raise ValueError("Recovery UI checks require the verified application and comparison base")
     if re.search(r"^\s+(if|needs|continue-on-error):", ui, re.M):
         raise ValueError("UI contracts must run independently with failures enforced")
     if not re.search(r"^\s+- run: npm run verify:ui-back-contracts\s*$", ui, re.M):
@@ -36,7 +43,12 @@ def validate(workflow):
         needs = re.search(r"^    needs:\n((?:      - [^\n]+\n)+)", gate, re.M)
         if not needs or "      - ui-contracts\n" not in needs.group(1):
             raise ValueError(f"UI not required by {name}")
-        if 'needs[\'ui-contracts\'].result }}" != "success"' not in gate:
+        if name == "ci-status":
+            bound_result = 'UI_CONTRACTS="${{ needs[\'ui-contracts\'].result }}"'
+            failed_closed = 'if [ "$UI_CONTRACTS" != "success" ]; then'
+            if bound_result not in gate or failed_closed not in gate:
+                raise ValueError(f"UI skips must fail {name}")
+        elif 'needs[\'ui-contracts\'].result }}" != "success"' not in gate:
             raise ValueError(f"UI skips must fail {name}")
     status = job_block(workflow, "ci-status")
     for lane in ("WEB_CORE", "WEB_FULL_SUITE"):
@@ -81,7 +93,10 @@ class UiGateTests(unittest.TestCase):
             self.assertIn("Generated evidence/report artifacts must not be tracked", result.stdout + result.stderr)
 
     def test_skip_and_failure_suppression_are_rejected(self):
-        for old, new in (("fetch-depth: 2", "fetch-depth: 1"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
+        ui = job_block(self.workflow, "ui-contracts")
+        with self.assertRaises(ValueError):
+            validate(self.workflow.replace(ui, ui.replace("fetch-depth: 0", "fetch-depth: 1")))
+        for old, new in (("&& '0' || '2'", "&& '1' || '1'"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
             with self.assertRaises(ValueError):
                 validate(self.workflow.replace(old, new))
         for rule in ("if: false", "needs: [paths]", "continue-on-error: true"):
@@ -93,7 +108,17 @@ class UiGateTests(unittest.TestCase):
     def test_each_aggregate_rejects_removed_dependency_and_skip_check(self):
         for name in ("preflight-gate", "ci-status"):
             gate = job_block(self.workflow, name)
-            for weakened in (gate.replace("      - ui-contracts\n", ""), gate.replace("needs['ui-contracts'].result", "needs.other.result")):
+            weakened_checks = (
+                gate.replace("      - ui-contracts\n", ""),
+                gate.replace("needs['ui-contracts'].result", "needs.other.result"),
+            )
+            if name == "ci-status":
+                guard = 'if [ "$UI_CONTRACTS" != "success" ]; then'
+                weakened_checks += (
+                    gate.replace(guard, 'if [ "$UI_CONTRACTS" == "success" ]; then'),
+                    gate.replace(guard, ""),
+                )
+            for weakened in weakened_checks:
                 with self.assertRaises(ValueError):
                     validate(self.workflow.replace(gate, weakened))
 
@@ -103,7 +128,9 @@ class UiGateTests(unittest.TestCase):
                 validate(self.workflow.replace(f'[ "${lane}" != "success" ]', '[ "other" != "success" ]'))
         core = (ROOT / "scripts/ci/web-core-check.sh").read_text()
         self.assertIn("npm run verify:ui-contracts", core)
-        self.assertIn("npm run test:ui-contract-validators", core)
+        self.assertNotIn("npm run test:ui-contract-validators", core)
+        # verify:ui-contracts already executes both mutation-test owners.
+        validate_runner((ROOT / "hushh-webapp/scripts/architecture/verify-ui-contracts.mjs").read_text())
         scripts = json.loads((ROOT / "hushh-webapp/package.json").read_text())["scripts"]
         self.assertEqual(scripts["verify:ui-back-contracts"], "node ./scripts/architecture/verify-ui-contracts.mjs --back-only")
         self.assertEqual(scripts["verify:ui-contracts"], "node ./scripts/architecture/verify-ui-contracts.mjs")
@@ -171,11 +198,88 @@ class UiGateTests(unittest.TestCase):
             self.assertNotEqual(run(payload).returncode, 0)
             env["GITHUB_EVENT_NAME"] = "workflow_dispatch"
             self.assertEqual(run({}).stdout.strip(), "")
+            env.update(GITHUB_REF="refs/heads/uat", GITHUB_SHA=head)
+            uat = {"inputs": {"scope": "all", "uat_base_sha": old}}
+            self.assertEqual(run(uat).stdout.strip(), old)
+            uat["inputs"]["uat_base_sha"] = base
+            self.assertEqual(run(uat).stdout.strip(), base)
+            env["GITHUB_REF"] = "refs/heads/uat-isolated"
+            self.assertNotEqual(run(uat).returncode, 0)
+            env["GITHUB_REF"] = "refs/heads/uat"
+            uat["inputs"]["uat_base_sha"] = "f" * 40
+            self.assertNotEqual(run(uat).returncode, 0)
+            uat["inputs"]["uat_base_sha"] = "invalid"
+            self.assertNotEqual(run(uat).returncode, 0)
+            uat["inputs"]["uat_base_sha"] = old
+            env["GITHUB_SHA"] = merge
+            self.assertNotEqual(run(uat).returncode, 0)
+            env["GITHUB_REF"] = "refs/heads/main"
+            isolated = {"inputs": {"scope": "all", "uat_base_sha": old, "uat_candidate_sha": head}}
+            self.assertEqual(run(isolated).stdout.strip(), old)
+            isolated["inputs"]["uat_candidate_sha"] = merge
+            self.assertNotEqual(run(isolated).returncode, 0)
 
     def test_web_core_uses_the_same_verified_review_base(self):
         source = (ROOT / "scripts/ci/web-core-check.sh").read_text()
         self.assertIn('UI_CONTRACT_BASE_SHA="$(python3 "$REPO_ROOT/scripts/ci/resolve-ui-contract-base.py")"', source)
         self.assertIn("export UI_CONTRACT_BASE_SHA\n", source)
+
+    def test_core_scanner_keeps_architecture_and_accessibility_not_appearance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "scripts/architecture/verify-design-system.mjs"
+            script.parent.mkdir(parents=True)
+            shutil.copyfile(ROOT / "hushh-webapp/scripts/architecture/verify-design-system.mjs", script)
+            sources = {
+                "components/ui/button.tsx": "export const Button = () => <button />;",
+                "lib/morphy-ux/index.ts": "export {};",
+                "components/profile/profile-workspace-page.tsx": "export {};",
+                "components/profile/pkm-data-manager.tsx": "const SummaryTile = () => null;",
+                "components/dashboard/one-agent-roster.tsx": '<section aria-label="One agents" />',
+                "components/app-ui/settings-ui.tsx": "<h2>Settings</h2>",
+                "components/app-ui/page-sections.tsx": "export function SectionHeader() { return <h2>Section</h2>; }\nexport function ContentSurface() {}",
+            }
+            for name, source in sources.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+            def run(*args):
+                return subprocess.run(["node", str(script), *args], text=True, capture_output=True, check=False)
+            self.assertEqual(run("--core").returncode, 0)
+            self.assertIn("missing required design-system policy doc", run().stderr)
+            for name, broken, reason in (
+                ("components/ui/button.tsx", 'import "@/lib/vault/session";', "forbidden app-specific code"),
+                ("components/dashboard/one-agent-roster.tsx", "<section />", "accessible agents label"),
+                ("components/app-ui/settings-ui.tsx", "<div>Settings</div>", "accessible compact headings"),
+            ):
+                with self.subTest(name=name):
+                    (root / name).write_text(broken)
+                    result = run("--core")
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn(reason, result.stderr)
+                    (root / name).write_text(sources[name])
+
+    def test_core_runtime_ratchet_ignores_appearance_but_preserves_input_and_baseline(self):
+        script = ROOT / "hushh-webapp/scripts/architecture/verify-render-performance.mjs"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "components").mkdir()
+            component = root / "components/example.tsx"
+            component.write_text('const c = "transition-all";\n')
+            def run(*args):
+                return subprocess.run(["node", str(script), *args], cwd=root, text=True, capture_output=True, check=False)
+            self.assertEqual(run("--core").returncode, 0)
+            self.assertIn("[transition-all]", run().stderr)
+            component.write_text('window.addEventListener("touchmove", () => {}, { passive: false });\n')
+            self.assertIn("[non-passive-touch-on-root]", run("--core").stderr)
+            self.assertEqual(run("--write-allowlist").returncode, 0)
+            baseline = root / "scripts/architecture/render-performance-allowlist.json"
+            saved = baseline.read_bytes()
+            self.assertEqual(run("--core").returncode, 0)
+            self.assertEqual(run("--core", "--write-allowlist").returncode, 2)
+            self.assertEqual(baseline.read_bytes(), saved)
+            component.write_text("")
+            self.assertIn("Tighten the entry", run("--core").stderr)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ import {
   Users,
 } from "@/components/icons";
 import { CalendarAgentIcon } from "@/components/icons/agents";
-
+import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
 import {
   consentInformationLabel,
   joinInformationLabels,
@@ -47,7 +47,6 @@ import { circleChatHref } from "@/lib/circle-chat/routes";
 import { CONNECT_CIRCLES_LIST_HREF } from "@/lib/navigation/connect-routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
-
 export type FeedItemPresentation = {
   icon: ComponentType<{ className?: string; color?: string }>;
   domainLabel: string;
@@ -55,6 +54,7 @@ export type FeedItemPresentation = {
   description: string;
   href: string | null;
   person?: {
+    personRef?: string | null;
     displayName: string;
     photoUrl: string | null;
   } | null;
@@ -69,6 +69,7 @@ const DOMAIN_ICON: Record<FeedSourceDomain, FeedItemPresentation["icon"]> = {
   connections: Users,
   profile_discovery: ScanSearch,
   pwm: UserRound,
+  calendar_email_followup: Mail,
 };
 
 const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
@@ -80,6 +81,7 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   connections: "Connections",
   profile_discovery: "Profile discovery",
   pwm: "Personal World Model",
+  calendar_email_followup: "Follow-ups",
 };
 
 // Incoming history targets the received-share list without forcing a grant.
@@ -189,6 +191,7 @@ function counterpartPerson(
   return {
     displayName,
     photoUrl: resolveCounterpartPhotoUrl(metadata),
+    personRef: metadataString(metadata, "counterpart_person_ref") || null,
   };
 }
 
@@ -724,6 +727,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   }
 
   switch (item.event_type) {
+    case "followup_reminder":
+      return {
+        icon: Mail,
+        domainLabel: "Follow-ups",
+        label: "Email follow-up reminder",
+        description: "A request from your email needs attention.",
+        href: calendarFollowupHref(item.metadata.account_id, item.metadata.request_id) || ROUTES.CALENDAR,
+      };
     case "profile_discovery_queued":
       return { icon, domainLabel: "Public profile", label: "Building your profile", description: "A one-time public information search has started in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_scanning":

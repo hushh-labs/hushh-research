@@ -574,10 +574,11 @@ def test_file_owned_provider_selection_reaches_runtime_and_research_without_chan
     # A compatible resource/deployment swap is the supported quota-recovery
     # path. It updates transport identity and capabilities without new consent.
     replacement = json.loads(json.dumps(original))
-    replacement["pwm_research_uat"]["azure"].update(
-        primary_endpoint="https://spare.openai.azure.com/openai/v1/",
-        primary_deployment="spare-text",
+    accounts = replacement["managed_azure_accounts"]
+    accounts["accounts"][accounts["selection"]["uat"]]["primary_endpoint"] = (
+        "https://spare.openai.azure.com/openai/v1/"
     )
+    replacement["pwm_research_uat"]["azure"]["primary_deployment"] = "spare-text"
     replacement["managed_runtime_uat"]["azure"]["one_text_root"]["deployment"] = "spare-chat"
     replacement["managed_runtime_uat"]["azure"]["realtime"]["deployment"] = "spare-live"
     path.write_text(json.dumps(replacement))

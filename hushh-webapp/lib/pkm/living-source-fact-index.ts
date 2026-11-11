@@ -1,4 +1,9 @@
-import type { LivingSourceInput, LivingSourceInventory, LivingSourceRecord } from "@/lib/pkm/living-source-records";
+import {
+  LIVING_VERIFICATION_PERSIST_MS,
+  type LivingSourceInput,
+  type LivingSourceInventory,
+  type LivingSourceRecord,
+} from "@/lib/pkm/living-source-records";
 
 /**
  * An in-memory, owner-only lookup over an already decrypted source inventory.
@@ -108,9 +113,11 @@ function isFactValue(value: unknown): value is FactValue {
     typeof value === "string" && value.length <= MAX_FACT_STRING_LENGTH;
 }
 
+/** A time up to the clock tolerance ahead was stored by a device whose clock runs
+ * ahead of this one; it is current, as it is in the Live Mirror. */
 function isFresh(at: string | null, now: number): boolean {
   const age = at === null ? NaN : now - Date.parse(at);
-  return Number.isFinite(age) && age >= 0 && age <= MAX_VERIFICATION_AGE_MS;
+  return Number.isFinite(age) && age >= -LIVING_VERIFICATION_PERSIST_MS && age <= MAX_VERIFICATION_AGE_MS;
 }
 
 function provenance(record: LivingSourceRecord, verifiedAt: string | null): LivingFactProvenance {

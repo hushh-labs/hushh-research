@@ -8,6 +8,7 @@ owner, keeps the hub's contract, and never accepts what it should not.
 
 from __future__ import annotations
 
+import base64
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -23,7 +24,7 @@ from hushh_mcp.one_adk.specialist_focus import (
     STATE_SPECIALIST_FOCUS,
     specialist_focus_instruction,
 )
-from hushh_mcp.services import pod_message_feedback
+from hushh_mcp.services import action_gateway, pod_message_feedback
 
 
 class FakeLog:
@@ -127,6 +128,68 @@ def _turn(**forwarded):
 def _owner():
     authority = SimpleNamespace(local_token=lambda claims: "local-token")
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
+
+
+def _action_tool(action_id: str):
+    from ag_ui.core import Tool
+
+    encoded = base64.urlsafe_b64encode(action_id.encode()).decode().rstrip("=")
+    return Tool(
+        name=f"hussh_action_{encoded}",
+        description="",
+        parameters={"type": "object", "properties": {}, "additionalProperties": False},
+    )
+
+
+@pytest.fixture
+def isolated_action_gateway_cache():
+    action_gateway.load_action_gateway.cache_clear()
+    action_gateway._action_index.cache_clear()
+    yield
+    action_gateway._action_index.cache_clear()
+    action_gateway.load_action_gateway.cache_clear()
+
+
+async def test_private_chat_drops_generated_runtime_disabled_action(
+    monkeypatch, isolated_action_gateway_cache
+):
+    monkeypatch.setenv("ONE_CAREER_ENABLED", "")
+    assert action_gateway.get_action_gateway_action("careers.list_roles") is None
+    assert action_gateway.get_action_gateway_action("route.profile") is not None
+
+    turn = _turn()
+    enabled = _action_tool("route.profile")
+    turn.tools = [_action_tool("careers.list_roles"), enabled]
+
+    pod_agent_chat.trusted_state(turn, _owner())
+
+    assert [tool.name for tool in turn.tools] == [enabled.name]
+
+
+def test_private_chat_still_refuses_unknown_action_tool(monkeypatch, isolated_action_gateway_cache):
+    monkeypatch.setenv("ONE_CAREER_ENABLED", "")
+
+    turn = _turn()
+    turn.tools = [_action_tool("careers.not_in_the_generated_contract")]
+
+    with pytest.raises(HTTPException) as refused:
+        pod_agent_chat.trusted_state(turn, _owner())
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == {"code": "AGENT_TOOL_NOT_ADMITTED"}
+
+
+def test_private_chat_still_refuses_malformed_action_tool():
+    from ag_ui.core import Tool
+
+    turn = _turn()
+    turn.tools = [Tool(name="unknown_prefix", description="", parameters={"type": "object"})]
+
+    with pytest.raises(HTTPException) as refused:
+        pod_agent_chat.trusted_state(turn, _owner())
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == {"code": "AGENT_TOOL_NOT_ADMITTED"}
 
 
 @pytest.mark.parametrize("changed_schema", [False, True])

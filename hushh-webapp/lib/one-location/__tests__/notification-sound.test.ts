@@ -61,22 +61,22 @@ describe("foreground SMS alarm lifetime", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each(["hidden", "pagehide", "dispose", "expired"])("releases repeating cues on %s", (cause) => {
+  it.each(["hidden", "pagehide", "expired"])("keeps an admitted alarm pending through %s until acknowledgement", (cause) => {
     playOneLocationNotificationSound("sos", "grant-a", Date.now() + 1600);
     if (cause === "hidden") {
       vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
       document.dispatchEvent(new Event("visibilitychange"));
     } else if (cause === "pagehide") window.dispatchEvent(new Event("pagehide"));
-    else if (cause === "dispose") release();
     vi.advanceTimersByTime(10000);
     const count = oscillators.length;
     vi.advanceTimersByTime(10000);
-    expect(oscillators).toHaveLength(count);
+    expect(oscillators.length).toBeGreaterThan(count);
+    stopOneLocationNotificationSound("grant-a");
     expect(vibrate).toHaveBeenLastCalledWith(0);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps ordinary cues one-shot and never queues blocked or stale alarms", () => {
+  it("keeps ordinary cues one-shot, refuses stale admission and disposes blocked pending alarms", () => {
     playOneLocationNotificationSound("share", "routine");
     vi.advanceTimersByTime(10000);
     expect(oscillators).toHaveLength(1);
@@ -87,6 +87,29 @@ describe("foreground SMS alarm lifetime", () => {
     expect(playOneLocationNotificationSound("sos", "blocked")).toBe(false);
     vi.advanceTimersByTime(10000);
     expect(oscillators).toHaveLength(1);
+    stopOneLocationNotificationSound("blocked");
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps one siren for concurrent alerts until every grant is acknowledged", () => {
+    playOneLocationNotificationSound("sos", "first");
+    playOneLocationNotificationSound("sos", "second");
+    vi.advanceTimersByTime(1500);
+    expect(oscillators).toHaveLength(2);
+    stopOneLocationNotificationSound("first");
+    vi.advanceTimersByTime(1500);
+    expect(oscillators).toHaveLength(3);
+    stopOneLocationNotificationSound("second");
+    vi.advanceTimersByTime(60000);
+    expect(oscillators).toHaveLength(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the OS fallback eligible for concurrent alerts when tone creation fails", () => {
+    vi.spyOn(AudioContext.prototype, "createOscillator").mockImplementation(() => { throw new Error("audio unavailable"); });
+    expect(playOneLocationNotificationSound("sos", "failed-first")).toBe(false);
+    expect(playOneLocationNotificationSound("sos", "failed-second")).toBe(false);
+    vi.advanceTimersByTime(1500);
+    expect(playOneLocationNotificationSound("sos", "failed-second")).toBe(false);
   });
 });

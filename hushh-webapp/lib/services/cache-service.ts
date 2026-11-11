@@ -228,6 +228,7 @@ class CacheService {
         key.startsWith(`connect_directory_first_page_${userId}_`) ||
         key.startsWith(`google_connection_${userId}_`) ||
         key.startsWith(`calendar_invitations_${userId}_`) ||
+        key.startsWith(`calendar_insights_${userId}_`) ||
         key.startsWith(`drive_packet_${userId}_`)
         || key.startsWith(`referral_dashboard_${userId}_`)
       ) {

@@ -20,6 +20,56 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UAT_BACKEND_IMAGE = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
 
 
+@pytest.mark.parametrize(
+    "legacy,reviewer,expected",
+    [("false", "false", False), ("true", "false", True), ("false", "true", True)],
+)
+def test_early_profile_hydration_is_only_for_its_browser_consumer(
+    tmp_path, legacy, reviewer, expected
+):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    early = next(
+        step["run"]
+        for step in steps
+        if "# Only the pre-verification browser" in step.get("run", "")
+    )
+    script = (
+        early[early.index("          # Only") :]
+        if "          # Only" in early
+        else early[early.index("# Only") :]
+    )
+    script = script.replace("${{ inputs.repeat_reviewer_byok }}", reviewer)
+    calls = tmp_path / "calls"
+    stub = tmp_path / "bash"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\n')
+    stub.chmod(0o755)
+    subprocess.run(  # noqa: S603 - authored hydration block with synthetic profile commands.
+        ["/bin/bash", "-euc", script],
+        check=True,
+        env={
+            **os.environ,
+            "LEGACY_UAT_ANALYTICS_REQUIRED": legacy,
+            "CALLS": str(calls),
+            "PATH": str(tmp_path) + ":" + os.environ["PATH"],
+        },
+    )
+    assert calls.exists() is expected
+    if expected:
+        assert calls.read_text().splitlines() == [
+            "scripts/env/bootstrap_profiles.sh --strict",
+            "scripts/env/use_profile.sh uat",
+        ]
+    # Actual core verification still reads fresh credentials at its own boundary.
+    later = next(
+        step
+        for step in steps
+        if step.get("name") == "Bootstrap isolated UAT files before candidate verification"
+    )
+    assert "bootstrap_profiles.sh --strict" in later["run"]
+
+
 def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend_setting():
     module = _uat_build_module()
     backend = module.candidate_parallel_config(
@@ -86,6 +136,7 @@ def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend
         ("_FRONTEND_RUNTIME_SERVICE_ACCOUNT", "another@hushh-pda-uat.iam.gserviceaccount.com"),
         ("_IMAGE_REFERENCE", "gcr.io/hushh-pda-uat/hushh-webapp:latest"),
         ("_GITHUB_RUN_ATTEMPT", ""),
+        ("_GITHUB_RUN_ATTEMPT", "2"),
         ("_SECRET_PREFIX", "FOREIGN_"),
         ("_MAIL_API_ENDPOINT", "${_OTHER}"),
     ],
@@ -147,7 +198,9 @@ def _read(path: str) -> str:
 def test_frontend_overlap_pins_ready_images_and_joins_an_exact_inflight_build(
     tmp_path, backend, status, pin_status, parallel
 ):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     script = next(step["run"] for step in steps if step.get("id") == "prepare-frontend-rollout")
     release = _frontend_release()
     expressions = {
@@ -207,14 +260,27 @@ def test_frontend_overlap_pins_ready_images_and_joins_an_exact_inflight_build(
         else:
             assert outputs["image_reference"] == release["_IMAGE_REFERENCE"]
         module = _uat_build_module()
-        # Validate the actual workflow's assembled values, not another fixture
-        # copy of its service identity, zero-traffic or exact-release settings.
+        # Validate both callers' actual release stamps; a fixture-only backend
+        # can hide a missing attempt binding and refuse every real combined build.
+        backend_script = next(step["run"] for step in steps if step.get("id") == "deploy-backend")
+        backend_assignment = next(
+            line for line in backend_script.splitlines() if line.startswith('SUBSTITUTIONS="')
+        )
+        backend_raw = backend_assignment.removeprefix('SUBSTITUTIONS="').removesuffix('"')
+        backend_values = module.substitutions(
+            re.sub(
+                r"\$\{\{\s*(.*?)\s*\}\}",
+                lambda match: expressions.get(match[1], "fixture"),
+                backend_raw,
+            ),
+            "##",
+        )
         module.frontend_parallel_config(
             module.candidate_parallel_config(
                 yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
             ),
             yaml.safe_load(_read("deploy/frontend.cloudbuild.yaml")),
-            {key: release[key] for key in module.SHARED_SUBSTITUTIONS},
+            backend_values,
             module.substitutions(
                 outputs["substitutions"]
                 + ",_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE="
@@ -374,30 +440,40 @@ def test_parallel_build_keeps_release_and_readiness_before_deployment():
 
 
 @pytest.mark.parametrize(
-    "frontend,protected,pwm",
+    "frontend,protected,pwm,reviewer,isolated",
     [
-        (True, False, False),
-        (False, True, False),
-        (False, False, True),
-        (True, True, True),
-        (False, False, False),
+        (True, False, False, False, False),
+        (False, True, False, False, False),
+        (False, False, True, False, False),
+        (True, True, True, True, False),
+        (False, False, False, False, False),
+        (False, False, False, True, False),
+        (True, False, False, False, True),
     ],
 )
-def test_uat_browser_consumers_share_one_required_install(frontend, protected, pwm):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
+    frontend, protected, pwm, reviewer, isolated
+):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     installs = [step for step in steps if "npm ci" in step.get("run", "")]
     assert len(installs) == 1, "Analytics and protected verification must reuse one install"
     install = installs[0]
+    assert "PREPROMOTION_UAT_GATES" not in install["if"]
     condition = install["if"].replace(
         "steps.scope.outputs.deploy_frontend == 'true'", str(frontend)
     )
     condition = condition.replace(
         "steps.verification-plan.outputs.requires_web_dependencies == 'true'", str(protected)
     )
-    condition = condition.replace("inputs.run_pwm_acceptance", str(pwm))
+    condition = condition.replace("inputs.run_pwm_acceptance", str(pwm)).replace(
+        "inputs.repeat_reviewer_byok", str(reviewer)
+    )
+    condition = condition.replace("env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'", str(isolated))
     assert all(term.strip() in {"True", "False"} for term in condition.split("||"))
     assert any(term.strip() == "True" for term in condition.split("||")) == (
-        frontend or protected or pwm
+        pwm or reviewer or isolated
     )
     for step in steps:
         if step.get("uses", "").startswith("actions/setup-node@"):
@@ -412,17 +488,43 @@ def test_uat_browser_consumers_share_one_required_install(frontend, protected, p
             i for i, step in enumerate(steps) if step.get("id") == consumer
         )
     assert install["timeout-minutes"] == 8
+    # Published acceptance must describe the requested diagnostic, not the old
+    # changed-path recommendation after its automatic execution was removed.
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
+    assert '"reviewer_byok_required": "${{ inputs.repeat_reviewer_byok }}"' in workflow
+    assert (
+        "\"reviewer_byok_passes_requested\": \"${{ inputs.repeat_reviewer_byok && '2' || '0' }}\""
+        in workflow
+    )
     cache = next(step for step in steps if step.get("uses", "").startswith("actions/cache@"))
     assert "uat-chromium" in cache["with"]["key"]
+    assert (
+        cache["if"]
+        == "inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'"
+    )
+    assert (
+        install["env"]["RUN_CHROMIUM_VERIFICATION"]
+        == "${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true' }}"
+    )
 
 
 @pytest.mark.parametrize(
-    "npm_status,failures,expected", [(0, 0, 0), (0, 1, 0), (0, 2, 1), (9, 0, 9)]
+    "npm_status,failures,expected,diagnostic,frontend",
+    [
+        (0, 0, 0, True, False),
+        (0, 1, 0, True, False),
+        (0, 2, 1, True, False),
+        (9, 0, 9, True, False),
+        (0, 0, 0, False, False),
+        (0, 0, 0, False, True),
+    ],
 )
 def test_uat_browser_install_retries_and_blocks_on_failure(
-    tmp_path, npm_status, failures, expected
+    tmp_path, npm_status, failures, expected, diagnostic, frontend
 ):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     install = next(step for step in steps if step.get("id") == "install-browser-dependencies")
     (tmp_path / "hushh-webapp").mkdir()
     mirrors = tmp_path / "apt-mirrors.txt"
@@ -440,6 +542,20 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
         'n=$((n+1)); echo "$n" > "$ATTEMPTS"; echo "$*" >> "$CALLS"; [ "$n" -gt "$FAILURES" ]; };\n'
     )
     calls, attempts = tmp_path / "calls", tmp_path / "attempts"
+    # Resolve the actual diagnostic dependency condition. Ordinary frontend
+    # deployment alone must not provision a browser.
+    browser_required = install["env"]["RUN_CHROMIUM_VERIFICATION"]
+    browser_required = browser_required.replace("${{", "").replace("}}", "")
+    browser_required = browser_required.replace(
+        "steps.scope.outputs.deploy_frontend == 'true'", str(frontend)
+    )
+    browser_required = (
+        browser_required.replace("inputs.repeat_reviewer_byok", str(diagnostic))
+        .replace("inputs.run_pwm_acceptance", "False")
+        .replace("env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'", "False")
+    )
+    assert all(term.strip() in {"True", "False"} for term in browser_required.split("||"))
+    browser_required = any(term.strip() == "True" for term in browser_required.split("||"))
     result = subprocess.run(  # noqa: S603 - actual installer with synthetic package commands only.
         [shutil.which("bash") or "bash", "-c", stubs + script],
         cwd=tmp_path,
@@ -449,13 +565,14 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
             "ATTEMPTS": str(attempts),
             "NPM_STATUS": str(npm_status),
             "FAILURES": str(failures),
+            "RUN_CHROMIUM_VERIFICATION": str(browser_required).lower(),
         },
         capture_output=True,
         text=True,
     )
     assert result.returncode == expected, result.stderr
     assert calls.read_text().splitlines().count("npm") == 1
-    if npm_status:
+    if npm_status or not diagnostic:
         assert not attempts.exists()
     else:
         assert int(attempts.read_text()) == min(failures + 1, 2)
@@ -470,14 +587,10 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
     "ci,mode,runner,expected",
     document_delivery_ci.DOCUMENT_PLATFORM_CASES,
 )
-def test_document_gate_preserves_official_mirrors_and_both_browser_engines(
+def test_document_gate_preserves_official_mirrors_and_partitions_browser_engines(
     tmp_path, ci, mode, runner, expected
 ):
     document_delivery_ci.assert_document_platform(tmp_path, ci, mode, runner, expected)
-
-
-def test_document_crypto_requires_both_platforms_without_broadening_editor_work():
-    document_delivery_ci.assert_document_platform_wiring()
 
 
 @pytest.mark.parametrize(
@@ -493,3 +606,270 @@ def test_document_crypto_requires_both_platforms_without_broadening_editor_work(
 )
 def test_integration_document_mode_is_explicit_and_validated(tmp_path, mode, runner, expected):
     document_delivery_ci.assert_integration_mode(tmp_path, mode, runner, expected)
+
+
+@pytest.mark.parametrize("selection,expected", [("false", 0), ("unknown", 64)])
+def test_integration_document_selection_keeps_default_and_refuses_malformed(
+    tmp_path, selection, expected
+):
+    document_delivery_ci.assert_integration_mode(
+        tmp_path, ("--ci-linux-document",), "Linux", expected, selection
+    )
+
+
+@pytest.mark.parametrize("build_status", [0, 1])
+def test_backend_build_failure_keeps_exact_id_and_elapsed_time(tmp_path, build_status):
+    """A failed remote build must remain diagnosable without resubmission."""
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    step = next(s for s in workflow["jobs"]["deploy"]["steps"] if s.get("id") == "deploy-backend")
+    source = step["run"]
+    timer = source[source.index('started_at="') : source.index("source deploy/drive/")]
+    submit = source[source.index('build_id="$(gcloud builds submit') :]
+    submit = re.sub(r"\$\{\{.*?\}\}", "synthetic-project", submit)
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    gcloud = binary / "gcloud"
+    build_id = "12345678-1234-1234-1234-123456789abc"
+    gcloud.write_text(f"#!/bin/sh\nprintf '%s\\n' '{build_id}'\n")
+    gcloud.chmod(0o700)
+    waiter = tmp_path / "scripts/ci/await-prebuilt-image.sh"
+    waiter.parent.mkdir(parents=True)
+    waiter.write_text(f"#!/bin/sh\nexit {build_status}\n")
+    output = tmp_path / "outputs"
+    result = subprocess.run(  # noqa: S603 - authored release step, synthetic CLI and paths only.
+        ["bash", "-euc", timer + "SUBSTITUTIONS=synthetic\n" + submit],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(binary) + os.pathsep + os.defpath,
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert result.returncode == build_status, result.stderr
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values["build_id"] == build_id
+    assert int(values["finished_at_epoch"]) >= int(values["started_at_epoch"])
+    assert int(values["duration_seconds"]) >= 0
+
+
+@pytest.mark.parametrize(
+    "source,accepted_dev,status,allowed",
+    [
+        ("auto", False, "SUCCESS", True),
+        ("auto", True, "SUCCESS", True),
+        ("build-from-source", True, "FAILURE", False),
+        ("promote-from-dev", False, "SUCCESS", False),
+    ],
+)
+def test_backend_preparation_overlaps_but_join_refuses_failed_build(
+    tmp_path, source, accepted_dev, status, allowed
+):
+    import json
+
+    from tests.helpers.deployment_cli import manifest_index
+
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    start = next(step for step in steps if step.get("id") == "start-backend-image-build")
+    join = next(step for step in steps if step.get("id") == "build-backend-image")
+    fence = next(step for step in steps if step.get("id") == "install-account-deletion-fence")
+    prepare = next(step for step in steps if step.get("id") == "document-mode")
+    assert steps.index(start) < steps.index(prepare) < steps.index(join) < steps.index(fence)
+    tools = tmp_path / "runner/release-tools"
+    tools.mkdir(parents=True)
+    shutil.copyfile(
+        REPO_ROOT / "scripts/ci/await-prebuilt-image.sh", tools / "await-prebuilt-image.sh"
+    )
+    helpers = tmp_path / "scripts/ci"
+    helpers.mkdir(parents=True)
+    shutil.copyfile(
+        REPO_ROOT / "scripts/ci/resolve-cloud-run-image.py", helpers / "resolve-cloud-run-image.py"
+    )
+    manifest, parent, child = manifest_index()
+    dev = "gcr.io/hushh-pda-dev/consent-protocol@" + child
+    pin = tmp_path / "pin.json"
+    pin.write_text(json.dumps({"image_reference": dev} if accepted_dev else {}))
+    calls, output = tmp_path / "calls", tmp_path / "output"
+    values = {
+        "env.GCP_PROJECT_ID": "hushh-pda-uat",
+        "steps.resolve-sha.outputs.sha": "c" * 40,
+        "github.run_id": "42",
+        "github.run_attempt": "2",
+    }
+
+    original_pin = "/tmp/uat-dev-backend-image.json"  # noqa: S108 - rewrite authored constant into isolated fixture.
+    original_image = "/tmp/uat-backend-image"  # noqa: S108 - no file is created here.
+
+    def render(body):
+        return (
+            re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: values[m[1]], body)
+            .replace(original_pin, str(pin))
+            .replace(original_image, str(tmp_path / "backend-image"))
+        )
+
+    guard = r"""
+    gcloud() {
+      printf '%s\n' "$*" >> "$CALLS"
+      case "$1 $2 ${3:-}" in
+        "builds submit --async") echo 11111111-1111-4111-8111-111111111111 ;;
+        "builds describe "*) echo "$BUILD_STATUS" ;;
+        "container images describe") echo "$PARENT_DIGEST" ;;
+        "container images add-tag"|"auth configure-docker gcr.io") ;;
+        *) echo "Unexpected cloud command" >&2; return 71 ;;
+      esac
+    }
+    docker() { printf '%s\n' "$MANIFEST"; }
+    export -f gcloud docker
+    """
+    env = {
+        **os.environ,
+        "CALLS": str(calls),
+        "GITHUB_OUTPUT": str(output),
+        "RUNNER_TEMP": str(tools.parent),
+        "BACKEND_IMAGE_SOURCE": source,
+        "BUILD_STATUS": status,
+        "MANIFEST": manifest,
+        "PARENT_DIGEST": parent,
+    }
+    started = subprocess.run(  # noqa: S603 - authored release step; synthetic cloud commands only.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + render(start["run"])],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    if source == "promote-from-dev" and not accepted_dev:
+        assert started.returncode != 0 and not calls.exists()
+        return
+    assert started.returncode == 0, started.stderr
+    pins = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert pins["image_tag"] == "uat-" + "c" * 40 + "-42-2"
+    env.update(
+        IMAGE_SOURCE=pins["image_source"],
+        IMAGE_TAG=pins["image_tag"],
+        IMAGE_REPOSITORY=pins["image_repository"],
+        DEV_IMAGE=pins.get("dev_image", ""),
+        BACKEND_IMAGE_BUILD_ID=pins.get("build_id", ""),
+    )
+    joined = subprocess.run(  # noqa: S603 - authored join; real bounded waiter with synthetic providers.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + render(join["run"])],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert (joined.returncode == 0) is allowed, joined.stdout + joined.stderr
+    observed = calls.read_text().splitlines()
+    assert sum(line.startswith("builds submit") for line in observed) == (
+        pins["image_source"] == "build-from-source"
+    )
+    if allowed:
+        assert (
+            "image_reference=gcr.io/hushh-pda-uat/consent-protocol@" + child in output.read_text()
+        )
+    else:
+        assert not any(line.startswith("container images describe") for line in observed)
+
+
+@pytest.mark.parametrize("first_cancel_fails", [False, True])
+def test_cleanup_stops_both_owned_builds_even_before_mutation(tmp_path, first_cancel_fails):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    cleanup = next(
+        step for step in steps if step.get("name") == "Cancel unused parallel image builds"
+    )
+    assert "begin-uat-mutation" not in cleanup["if"]
+    body = cleanup["run"].replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-uat")
+    first, second = (f"{d * 8}-{d * 4}-4{d * 3}-8{d * 3}-{d * 12}" for d in "12")
+    calls = tmp_path / "calls"
+    guard = r"""
+    gcloud() {
+      printf '%s\n' "$*" >> "$CALLS"
+      if [ "$2" = describe ]; then echo WORKING; return 0; fi
+      if [ "$2" = cancel ]; then
+        [ "$3" != "$BACKEND_IMAGE_BUILD_ID" ] || [ "$FIRST_CANCEL_FAILS" != true ]
+      else return 72; fi
+    }
+    """
+    result = subprocess.run(  # noqa: S603 - authored cleanup against fixed synthetic build identities.
+        [shutil.which("bash") or "bash", "-eo", "pipefail", "-c", guard + body],
+        env={
+            **os.environ,
+            "CALLS": str(calls),
+            "BACKEND_IMAGE_BUILD_ID": first,
+            "FRONTEND_IMAGE_BUILD_ID": second,
+            "FIRST_CANCEL_FAILS": str(first_cancel_fails).lower(),
+        },
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert (result.returncode != 0) is first_cancel_fails
+    cancelled = [
+        line for line in calls.read_text().splitlines() if line.startswith("builds cancel")
+    ]
+    assert len(cancelled) == 2 and first in cancelled[0] and second in cancelled[1]
+
+
+@pytest.mark.parametrize("wrong_revision", [None, "backend", "frontend"])
+def test_uat_core_preverification_retains_serving_proof_without_analytics(tmp_path, wrong_revision):
+    import json
+    import sys
+
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    step = next(row for row in steps if row.get("id") == "current-state")
+    program = step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("PY", 1)[0]
+    values = {
+        "steps.scope.outputs.deploy_backend": "true",
+        "steps.scope.outputs.deploy_frontend": "true",
+        "steps.candidate-state.outputs.backend_revision": "backend-current",
+        "steps.candidate-state.outputs.frontend_revision": "frontend-current",
+        "env.LEGACY_UAT_ANALYTICS_REQUIRED": "false",
+        "steps.verify-analytics-uat.outcome": "skipped",
+    }
+    program = re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: values[m[1]], program)
+    for lane in ("backend", "frontend"):
+        path = tmp_path / f"{lane}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "status": {
+                        "url": f"https://{lane}.example",
+                        "traffic": [
+                            {
+                                "percent": 100,
+                                "revisionName": f"{lane}-wrong"
+                                if wrong_revision == lane
+                                else f"{lane}-current",
+                            }
+                        ],
+                    }
+                }
+            )
+        )
+        program = program.replace(
+            json.dumps(f"/tmp/uat-{lane}-promoted-service.json"),  # noqa: S108 - source literal only
+            json.dumps(str(path)),
+        )
+    result = subprocess.run(  # noqa: S603 - authored readback program and synthetic service snapshots
+        [sys.executable, "-c", program],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GITHUB_OUTPUT": str(tmp_path / "output")},
+        timeout=10,
+    )
+    assert result.returncode == (1 if wrong_revision else 0), result.stderr
+    if wrong_revision:
+        assert "Promoted revision mismatch" in result.stderr
+    else:
+        assert "backend_revision=backend-current" in (tmp_path / "output").read_text()

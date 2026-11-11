@@ -132,7 +132,7 @@ function fixtureEvents(day: string, variant: "standard" | "long" | "empty" | "bu
   return variant === "long" ? events.map(event => event.calendar_id === "primary" && event.id === "shared-id"
     ? { ...event, title: privateLongTitle, location: privateLongLocation } : event) : events;
 }
-export async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" | "busy" = "standard", replay: false | "future" | "today" = false, boardMode = false, brokenWorkPhoto = false) {
+export async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" | "busy" = "standard", replay: false | "future" | "today" = false, boardMode = false, workPhoto: "normal" | "broken" | "transparent" = "normal") {
   // Settle the previous fixture before registering the next fixture's error
   // collector: navigating away intentionally cancels its pending reads.
   await page.goto("about:blank");
@@ -144,6 +144,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
   const errors: string[] = [];
   const unexpectedRequests: string[] = [];
   const fixturePortraits = [1, 2, 3].map(number => `data:image/webp;base64,${fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${number}.webp`)).toString("base64")}`);
+  const workPhotoUrl = workPhoto === "broken" ? "data:image/png;base64,AA==" : workPhoto === "transparent" ? "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=" : fixturePortraits[1];
   await page.route("**/*", route => { unexpectedRequests.push(route.request().url()); return route.abort(); });
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
@@ -155,7 +156,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
   await page.route("**/api/one/connections", route => route.fulfill({ json: { items: [
     { connectionId: "qa-manish", userId: "qa-manish", email: "manish@example.test", emailVerified: true, displayName: "Manish", photoUrl: fixturePortraits[2], createdAt: null },
     { connectionId: "qa-priya", userId: "qa-priya", email: "qa-organizer-0@example.test", emailVerified: true, displayName: "Priya Mehta", photoUrl: fixturePortraits[1], createdAt: null },
-    { connectionId: "qa-work", userId: "qa-work", email: "qa-work@example.com", emailVerified: true, displayName: "QA Work", photoUrl: brokenWorkPhoto ? "data:image/png;base64,AA==" : fixturePortraits[1], createdAt: null },
+    { connectionId: "qa-work", userId: "qa-work", email: "qa-work@example.com", emailVerified: true, displayName: "QA Work", photoUrl: workPhotoUrl, createdAt: null },
   ] } }));
   await page.route("**/api/account/email-aliases", route => route.fulfill({ json: { success: true, user_id: "synthetic-calendar-owner", aliases: [] } }));
   await page.route("https://calendar-fixture.test/calendar-fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
@@ -175,10 +176,10 @@ export async function openFixture(page: Page, width: number, locked = false, var
     calls.push(call);
     if (routePath.endsWith("/status/synthetic-calendar-owner")) return route.fulfill({ json: { connected: true, access_level: "manage", google_email: "qa-owner@example.com" } });
     if (boardMode && routePath.endsWith("/board/day")) {
-      return route.fulfill({ json: calendarBoardDayFixture({
+      return route.fulfill({ json: { ...calendarBoardDayFixture({
         day: String(body.date), zone: String(body.time_zone), durationMinutes: Number(body.duration_minutes),
         now: qaNow, busy: variant === "busy", instant,
-      }) });
+      }), people: { "qa-work@example.com": { userId: "qa-work", displayName: "QA Work", photoUrl: workPhotoUrl } } } });
     }
     if (boardMode && routePath.endsWith("/conflicts/workspace/review")) {
       const keep = body.keep as Record<string, string>;
@@ -216,6 +217,10 @@ export async function openFixture(page: Page, width: number, locked = false, var
           ] : []),
         ],
       })),
+      people: {
+        "qa-organizer-0@example.test": { userId: "qa-priya", photoUrl: fixturePortraits[1] },
+        "manish@example.test": { userId: "qa-manish", photoUrl: fixturePortraits[2] },
+      },
       pending_count: ["shared-id", "design"].filter(id => !invitationResponses.has(id)).length,
       unreadable_calendars: [], time_zone: body.time_zone, complete: true,
       start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z",
@@ -257,6 +262,11 @@ export async function openFixture(page: Page, width: number, locked = false, var
         ? route.fulfill({ status: 502, json: { detail: { message: "Availability could not be checked.", reason_code: "calendar_invalid_response" } } })
         : route.fulfill({ json: response });
     }
+    if (routePath.endsWith("/followups/status")) return route.fulfill({ json: {
+      account_id: String(body.account_id), mail_connected: false, monitoring_enabled: false,
+      background_available: false, scan_state: "off", incomplete_source_count: 0,
+      notifications_enabled: false, historical_start_at: null, time_zone: null,
+    } });
     return route.fulfill({ status: 500, json: { detail: "Unexpected fixture request" } });
   });
   const query = boardMode ? "?board=1" : replay ? "?providerReplay=1" : locked ? "?locked=1" : "";

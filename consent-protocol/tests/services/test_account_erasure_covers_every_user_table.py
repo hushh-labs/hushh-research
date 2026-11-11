@@ -43,6 +43,12 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 # Every edge is checked against the creating migration below. The parent must
 # itself be deleted or lead to another checked cascade edge.
 _CASCADE_PARENT = {
+    "calendar_email_followup_monitors": "actor_profiles",
+    "calendar_email_followup_conversations": "calendar_email_followup_monitors",
+    "calendar_email_followup_requests": "calendar_email_followup_conversations",
+    "calendar_email_followup_scanned_messages": "calendar_email_followup_monitors",
+    "drive_rest_owner_admission": "user_external_connector_connections",
+    "drive_rest_call_leases": "drive_rest_owner_admission",
     "google_calendar_additional_accounts": "actor_profiles",
     "calendar_attendance_reviews": "actor_profiles",
     "pwm_research_preferences": "actor_profiles",
@@ -67,6 +73,8 @@ _CASCADE_PARENT = {
     "drive_bulk_share_notifications": "drive_bulk_share_recipients",
     "one_capability_runs": "actor_profiles",
     "one_attention_ledger": "actor_profiles",
+    "one_attempt_email_preferences": "actor_profiles",
+    "one_attempt_email_outbox": "one_product_activity_epochs",
     "one_location_onboarding_interactions": "actor_profiles",
     "one_location_onboarding_receipts": "actor_profiles",
     "one_location_onboarding_drafts": "actor_profiles",

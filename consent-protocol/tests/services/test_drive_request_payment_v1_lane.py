@@ -496,7 +496,7 @@ async def test_signed_v1_paid_webhook_wakes_v1_after_commit(monkeypatch):
     wake = AsyncMock()
     monkeypatch.setattr("hushh_mcp.services.drive_request_payment_service.wake_drive_work", wake)
     await service.process_webhook(payload=b"synthetic", signature="synthetic")
-    wake.assert_awaited_once_with("v1")
+    assert [call.args[0] for call in wake.await_args_list] == ["v1", "sharing"]
     assert any(
         "UPDATE drive_request_payment_obligations" in str(call.args[0])
         for call in connection.execute.call_args_list

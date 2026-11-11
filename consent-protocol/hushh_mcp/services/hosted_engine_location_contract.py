@@ -9,13 +9,62 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 CONTRACT = Path(__file__).resolve().parents[2] / "config/managed-pilot-native-locations.json"
 SOURCE = "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations"
+SOURCE_LAST_UPDATED = "2026-10-30"
+REGIONS = (
+    "us-east1",
+    "us-east4",
+    "us-west1",
+    "us-central1",
+    "europe-west1",
+    "europe-west2",
+    "europe-west3",
+    "europe-west4",
+    "europe-west6",
+    "europe-west8",
+    "europe-southwest1",
+    "asia-east1",
+    "asia-east2",
+    "asia-northeast1",
+    "asia-northeast3",
+    "asia-south1",
+    "asia-southeast1",
+    "asia-southeast2",
+    "australia-southeast2",
+    "me-west1",
+    "northamerica-northeast1",
+    "northamerica-northeast2",
+    "southamerica-east1",
+)
+SNAPSHOT = {
+    "regions": list(REGIONS),
+    "apiVersions": {"ga": ["v1"], "preview": ["v1beta1"]},
+    "unsupportedFeatures": {
+        "memoryBank": [
+            "asia-southeast2",
+            "australia-southeast2",
+            "northamerica-northeast2",
+        ],
+        "agentGateway": ["asia-east2", "asia-northeast3", "asia-southeast2"],
+    },
+    "multiRegions": {
+        "runtime": ["us", "eu"],
+        "sessions": ["us", "eu"],
+        "memoryBank": ["us", "eu"],
+    },
+    "globalFeatures": ["sessions", "memoryBank"],
+    "cmekUnsupportedGlobalFeatures": ["sessions", "memoryBank"],
+    "dataResidency": {
+        "atRest": "Selected location",
+        "modelProcessing": "Configured model location or endpoint",
+    },
+}
 
 
 def utc_now() -> datetime:
@@ -36,28 +85,27 @@ def provider_contract(now: datetime) -> dict:
         digest = hashlib.sha256(
             json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
-        regions = {name.rstrip("*†") for name in snapshot["regions"]}
+        retrieved_at = _instant(value["retrievedAt"])
+        source_date = _instant(value["sourceLastUpdated"] + "T00:00:00Z")
+        expires_at = _instant(value["qualificationExpiresAt"])
         if (
-            value["schemaVersion"] != 1
+            value["schemaVersion"] != 2
             or value["sourceUrl"] != SOURCE
+            or value["sourceLastUpdated"] != SOURCE_LAST_UPDATED
+            or snapshot != SNAPSHOT
             or digest != value["snapshotSha256"]
-            or "ca" in regions
-            or snapshot["multiRegions"] != ["us", "eu"]
-            or snapshot["globalMemoryAndSessions"] is not True
-            or not _instant(value["sourceLastUpdated"] + "T00:00:00Z")
-            <= _instant(value["retrievedAt"])
-            <= now
-            < _instant(value["qualificationExpiresAt"])
+            or source_date > retrieved_at
+            or retrieved_at > now
+            or now >= expires_at
+            or expires_at > retrieved_at + timedelta(days=7)
         ):
             raise ValueError("Provider capability qualification is stale or changed")
         return {
-            key: value[key]
-            for key in (
-                "sourceUrl",
-                "sourceLastUpdated",
-                "snapshotSha256",
-                "qualificationExpiresAt",
-            )
+            "schemaVersion": value["schemaVersion"],
+            "sourceUrl": value["sourceUrl"],
+            "sourceLastUpdated": value["sourceLastUpdated"],
+            "snapshotSha256": value["snapshotSha256"],
+            "qualificationExpiresAt": value["qualificationExpiresAt"],
         }
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         raise ProvisionReconciliationRequired("Engine location contract is unqualified") from exc

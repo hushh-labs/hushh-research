@@ -199,6 +199,38 @@ function measure(page: Page) {
   });
 }
 
+for (const [width, height] of [[320, 568], [568, 320], [1440, 900]]) {
+  test("contact sync results keep a compact header and one invite action at " + width + "px", async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.setContent(
+      '<html data-sync-notification="true"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>' +
+      css + '</style></head><body><div id="root"></div></body></html>',
+    );
+    await page.addScriptTag({ content: script });
+    const results = page.getByRole("dialog", { name: "Contact sync results" });
+    const invite = results.getByRole("button", { name: "Invite contacts" });
+    const readCount = results.getByText("Read 76 saved Google contacts.", { exact: true });
+    await expect(invite).toBeEnabled();
+    await expect(readCount).toBeVisible();
+    await expect(results.getByText("27 contacts had no usable phone number.")).toBeVisible();
+    await expect(results.getByText("Contact details stay on your device.")).toHaveCount(0);
+    await expect(results.getByRole("link")).toHaveCount(0);
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    const titleBox = (await results.getByRole("heading", { name: "Contact sync results" }).boundingBox())!;
+    const readBox = (await readCount.boundingBox())!;
+    const inviteBox = (await invite.boundingBox())!;
+    const sheetBox = (await results.boundingBox())!;
+    expect(readBox.y - titleBox.y - titleBox.height).toBeLessThanOrEqual(12);
+    expect(inviteBox.height).toBeGreaterThanOrEqual(44);
+    expect(inviteBox.y + inviteBox.height).toBeLessThanOrEqual(height);
+    expect(Math.abs(inviteBox.x + inviteBox.width / 2 - sheetBox.x - sheetBox.width / 2)).toBeLessThanOrEqual(1);
+    expect(sheetBox.x).toBeGreaterThanOrEqual(0);
+    expect(sheetBox.x + sheetBox.width).toBeLessThanOrEqual(width + 1);
+    await invite.click();
+    await expect(page.getByRole("dialog", { name: "Invite your contacts" })).toBeVisible();
+  });
+}
+
 // Phone widths the app ships to, a keyboard-sized inset, and desktop.
 const CASES = [
   { name: "iPhone SE", width: 320, height: 568, keyboard: 0 },

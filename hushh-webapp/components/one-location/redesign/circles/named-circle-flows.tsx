@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
 import { NativeLocationLayer, useNativeLocationEnabled, useNativeLocationClose } from "../native-location-workspace";
@@ -1440,7 +1441,7 @@ function CircleMemberRow({
 
   return (
     <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
-      <ConnectionPersonAvatar
+      <ConnectionPersonAvatar userId={isCurrentUser ? undefined : member.userId}
         label={memberName}
         photoUrl={member.photoUrl}
         fromContacts={member.connectedFromContacts}
@@ -2652,7 +2653,7 @@ export function CircleDetailFlow({
           {loadError}
           <Button
             type="button"
-            variant="ghost"
+            variant="text"
             size="compact"
             onClick={() => void reload()}
             className="ml-2"
@@ -2680,14 +2681,14 @@ export function CircleDetailFlow({
             {isOwner && circle.systemKind !== "trusted" ? (
               <Button
                 type="button"
-                variant="ghost"
+                variant="text"
                 size="compact"
                 onClick={() => {
                   setCircleName(circle.name);
                   setRenameSheetOpen(true);
                   window.setTimeout(() => nameInputRef.current?.focus(), 80);
                 }}
-                className="text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+                className="text-[color:var(--app-accent)] hover:text-[color:var(--app-accent-hover)]"
               >
                 Edit
               </Button>
@@ -2701,14 +2702,14 @@ export function CircleDetailFlow({
             </TabsList>
             <TabsContent value="chat" forceMount hidden={detailView !== "chat"} className="space-y-2">
               {renderChat?.(circle, { active: detailView === "chat", readingBlocked: photoSheetOpen || renameSheetOpen || inviteCodeSheetOpen || peopleSheetOpen || replaceCodeConfirmOpen })}
-              <button type="button" data-circle-chat-members-summary onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:bg-muted/40 sm:px-5" aria-label="View circle members">
-                <span aria-hidden="true" className="flex shrink-0 -space-x-2">
-                  {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar key={member.userId} photoUrl={member.photoUrl} label={connectPersonName(member)} size="comfortable" className="!size-8 ring-2 ring-card" />)}
+              <PersonSelectionSurface type="button" data-circle-chat-members-summary onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:text-[color:var(--app-accent-hover)] sm:px-5" aria-label="View circle members">
+                <span className="flex shrink-0 -space-x-2">
+                  {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar userId={member.userId} key={member.userId} photoUrl={member.photoUrl} label={connectPersonName(member)} size="comfortable" className="!size-8 ring-2 ring-card" />)}
                   {visibleMemberCount > 4 ? <span className="flex size-8 items-center justify-center rounded-full bg-muted text-xs ring-2 ring-card">+{visibleMemberCount - 4}</span> : null}
                 </span>
                 <span className="min-w-0 flex-1 text-left text-muted-foreground">{visibleMemberCount} {visibleMemberCount === 1 ? "member" : "members"}</span>
                 <span className="shrink-0 font-medium text-[color:var(--app-accent)]">View members</span>
-              </button>
+              </PersonSelectionSurface>
             </TabsContent>
           </> : null}
           <TabsContent value="members" forceMount hidden={hasChat && detailView !== "members"} className="space-y-5">
@@ -2826,7 +2827,7 @@ export function CircleDetailFlow({
                     secondary={
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="text"
                         size="compact"
                         disabled={savingName}
                         onClick={() => {
@@ -2965,7 +2966,7 @@ export function CircleDetailFlow({
                         canRotateInviteCode ? (
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="text"
                             size="standard"
                             disabled={busy}
                             onClick={() => setReplaceCodeConfirmOpen(true)}
@@ -2995,7 +2996,7 @@ export function CircleDetailFlow({
                         <div>
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="text"
                             size="compact"
                             className="w-full justify-center"
                             onClick={() => setInviteCodeSheetOpen(false)}
@@ -3231,11 +3232,11 @@ export function CircleDetailFlow({
                           }
                         >
                           {pendingInvites.map((invite) => (
-                            <SettingsRow
+                            <SettingsRow leadingInteractive
                               key={invite.id}
                               layout="person"
                               leading={
-                                <ConnectionPersonAvatar
+                                <ConnectionPersonAvatar userId={invite.inviteeUserId}
                                   label={
                                     connectPersonName({ displayName: invite.inviteeDisplayName }, "One connection")
                                   }
@@ -3250,7 +3251,7 @@ export function CircleDetailFlow({
                               trailing={
                                 <Button
                                   type="button"
-                                  variant="ghost"
+                                  variant="text"
                                   size="compact"
                                   disabled={Boolean(cancellingInviteId)}
                                   isLoading={cancellingInviteId === invite.id}
@@ -3457,7 +3458,7 @@ export function CircleDetailFlow({
                   variant="ghost"
                   className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  <Trash2 inheritColor className="mr-2 h-4 w-4" />
                   Delete circle
                 </Button>
               </AlertDialogTrigger>

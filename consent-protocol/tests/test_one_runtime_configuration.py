@@ -55,6 +55,41 @@ async def test_managed_readiness_uses_canonical_binding_and_cache(
 
 
 @pytest.mark.asyncio
+async def test_personal_sandbox_readiness_proves_azure_and_preserves_failure(monkeypatch):
+    from hushh_mcp.runtime_providers import managed_azure_text
+    from tests.services.test_azure_adk import message, model, response
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("K_SERVICE", "backend-dev-akshat")
+    monkeypatch.setenv("HUSSH_POD_MODE", "false")
+    monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_SANDBOX_AZURE_CLIENT_ID", "afd2feb2-fd0f-422c-bdfe-0b7c7e14b5ed")
+    monkeypatch.setattr(runtime, "_managed_readiness_cache", None)
+    monkeypatch.setattr(runtime, "_managed_readiness_binding", None)
+    adapter, client, _, _ = model([response(message("OK")), response(message(""))])
+    monkeypatch.setattr(managed_azure_text, "build_azure_text_model", lambda *a, **kw: adapter)
+    monkeypatch.setattr(
+        runtime.ManagedGeminiRuntimeBinding,
+        "from_environment",
+        lambda: pytest.fail("Azure readiness must not probe Vertex"),
+    )
+    first = await runtime._managed_readiness()
+    assert first.provider == "azure_openai" and first.fallback_used is False
+    assert first == await runtime._managed_readiness()
+    assert len(client.requests) == 1
+
+    monkeypatch.setattr(runtime, "_managed_readiness_cache", None)
+    with pytest.raises(HTTPException) as error:
+        await (
+            runtime._managed_readiness()
+        )  # A completed HTTP response with empty text is not readiness.
+    assert error.value.status_code == 503
+    assert runtime._managed_readiness_cache is None
+    assert len(client.requests) == 2
+
+
+@pytest.mark.asyncio
 async def test_gemini_validation_proves_generation_quota(monkeypatch: pytest.MonkeyPatch) -> None:
     generate_content = AsyncMock(return_value=SimpleNamespace(text="OK"))
     client = SimpleNamespace(
@@ -184,7 +219,7 @@ async def test_uat_readiness_reports_actual_provider_and_invalidates_changed_bin
     )
     monkeypatch.setattr(managed_text, "managed_text_policy", lambda: policy)
     monkeypatch.setattr(
-        managed_text, "managed_text_binding", lambda: {"config_fingerprint": "config"}
+        managed_text, "managed_text_binding", lambda *, scope: {"config_fingerprint": scope}
     )
     monkeypatch.setattr(managed_text, "probe_managed_text_model", probe)
     monkeypatch.setattr(runtime, "_managed_readiness_cache", None)
@@ -217,7 +252,7 @@ async def test_uat_readiness_failure_is_sanitized_and_not_cached(monkeypatch):
         lambda: {"generation": "test", "selected_provider": "azure_openai"},
     )
     monkeypatch.setattr(
-        managed_text, "managed_text_binding", lambda: {"config_fingerprint": "config"}
+        managed_text, "managed_text_binding", lambda *, scope: {"config_fingerprint": scope}
     )
     monkeypatch.setattr(managed_text, "probe_managed_text_model", probe)
     monkeypatch.setattr(runtime, "_managed_readiness_cache", None)

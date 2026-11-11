@@ -127,9 +127,27 @@ to the helper; its built-in substitutions are not assumed to be shell variables.
 
 - **Local:** `.env` (backend) and `.env.local` (frontend) must contain exactly the keys the application code reads. Use the repo `.env.example` files as the template; they are audited to match the code.
 - **Production:** GCP Secret Manager must hold **exactly** the secrets the code expects — no more, no less. The Cloud Build config (`deploy/*.cloudbuild.yaml`) injects only these; do not add secrets that are not read by the code, and do not remove any that are.
-- **Canonical runtime modes:** the supported frontend `local`, `uat`, `dev`, and `prod` files must share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`. The hosted `dev` environment is a UAT infrastructure replica that keeps the `uat` runtime identity; see [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md).
+- **Canonical runtime modes:** the supported frontend `local`, `uat`, `dev`, and `prod` files share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`. The deployed Dev backend uses the `dev` runtime identity. Local profile tooling deliberately labels the frontend `uat` to prevent development-only authentication shortcuts against a hosted backend; it does not relabel the deployed backend. See [the Dev setup guide](../../../consent-protocol/docs/reference/dev-environment-setup.md).
 
 ## Canonical 3-environment contract
+
+### Firebase Auth isolation
+
+Use the existing single Firebase web/app configuration per environment. Dev,
+UAT and production use `hushh-pda-dev`, `hushh-pda-uat` and `hushh-pda`,
+respectively. Update the existing public SDK values and matching Admin
+credential together; retain the existing primary-project parity check. Do not
+introduce a second browser Auth configuration. Web analytics continues to use
+its separately selected measurement ID.
+
+`firebase_auth_project_id` in `BACKEND_RUNTIME_CONFIG_JSON` explicitly admits
+the isolated erasure contract. It must match the environment and the canonical
+Admin app; an old shared credential refuses instead of selecting another app.
+With the field absent, existing erasure policy is unchanged. Native Firebase
+configuration and release lanes require coordinated qualification before a live
+cutover; web configuration alone does not switch installed native apps. See the
+[deletion rollout](./account-deletion-rollout.md#firebase-auth-separation)
+for UID continuity, credentials and erasure gates.
 
 ### Dev owner-cloud connectors and metadata feeds
 
@@ -157,6 +175,19 @@ neither consent-token nor audit keys substitute for this authority.
 These variables establish configuration, not live native OAuth, push delivery or
 private custody. Feeds carry only canonical consent metadata, public directory
 records and owner-published listings; private observations remain inside the pod.
+
+### People conversation navigation key
+
+`DIRECT_MESSAGE_ROUTE_KEY_V1` is optional, server-only base64-encoded 32-byte
+navigation key material. If unset, existing deployments retain their legacy
+derivation from `DIRECT_MESSAGE_ENCRYPTION_KEY_V1`. To retire message-key custody
+after verified E2EE history migration, preserve the exact previously derived
+navigation bytes in a separate environment-owned secret and bind this setting.
+Generating an unrelated value would invalidate existing `dm1` links. An empty
+or malformed configured value fails closed rather than restoring the old key.
+Never print, commit or expose either key to a browser or native client. Deployment
+binding and historical-link verification remain operator work; this change
+installs no secret or release flag. See [People calling](../one/people-calling.md).
 
 ### Wallet artwork catalog
 
@@ -333,10 +364,30 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | Setting in that file | Consumers and boundary |
 | --- | --- |
 | `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
-| `pwm_research_uat.azure` | Azure workload identity identifiers and endpoints; `primary_deployment` supplies general text/research. A replacement resource needs the existing identity's access and compatible deployments. |
+| `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
+| `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
 | `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
+
+Personal Cloud Run backend sandboxes may explicitly set
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai`. This is accepted only on
+`backend-dev-<handle>` services in `development`/`local`, with owner-pod mode off.
+Pair it with `HUSHH_SANDBOX_AZURE_CLIENT_ID`, the canonical UUID of the dedicated
+sandbox Entra runtime application. Missing, malformed or probe-only client IDs
+are refused. The resolved identity is included in the policy fingerprint, so
+rotating it invalidates existing model bindings and readiness caches.
+The process keeps its real environment, Firebase issuer and database; only its
+managed transport uses the configured Azure account and deployment descriptors.
+It does not enable UAT's private-information approval policy. Chat, readiness and
+the model picker use `one_text_root`; the LTM Memory Manager uses the primary text
+deployment. Missing federation access fails rather than silently selecting Vertex.
+An operator must authorize the dedicated sandbox service identity in Entra and
+configure these flags through the approved personal deployment path. The Main-owned
+self-service workflow qualifies the exact current green memory-branch tip without
+a per-commit owner review. A ready older revision is not proof that a changed
+configuration was deployed. Do not relabel the sandbox as UAT
+or directly mutate a Cloud Run revision to bypass that release procedure.
 
 For exhausted Azure quota, choose a compatible provisioned Azure resource or
 deployment with available capacity and update the relevant entries in this file.
@@ -344,17 +395,79 @@ Changing a deployment name alone does not create quota or provision a model.
 To move UAT to Vertex, set `managed_provider_selection.uat` to `vertex`; set it
 back to `azure_openai` to restore Azure. One chat, its specialists and Search,
 voice and the existing managed capability ports use the selected provider.
+New Drive activity-date requests use the same selected managed planner and preserve
+their existing single interpretation stage, native retrieval and deterministic date
+checks. Provider changes require the affected authored v2 planner qualification. Saved
+requests retain their processor binding and its current-authority validation.
 Chat stays on that one provider for the invocation: an outage does not replay
 its tools or output through another model. The existing eligible Drive transport
 fallback retains its separate contract. A new fleet provider needs an adapter
 and complete capability qualification before selection.
+Ordinary UAT release readiness uses the configured provider's core proof;
+broader capabilities remain separate diagnostics under the
+[CI policy](./ci.md#managed-provider-readiness-policy).
 
 Validate the complete file without model calls or credentials:
 
 ```bash
 python3 scripts/ops/managed_ai_config.py --environment uat --format validate
 python3 scripts/ops/managed_ai_config.py --environment uat --format provider
+python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account
 ```
+
+#### Switching the managed Azure account
+
+`--format azure-account` prints the selected account and every deployment it must
+host, from this file. To move UAT to another Azure account:
+
+1. In the new account (Azure commercial cloud), create:
+   - one resource with a custom `*.openai.azure.com` subdomain, key authentication
+     disabled and public network access, hosting every printed deployment under the
+     same name, model, version, deployment type and capacity. Record the primary
+     deployment's model and version, which the file does not declare yet. The two
+     GPT deployments need the Responses `web_search` tool. Live and speech use the
+     v1 surface (`/openai/v1`); transcription also needs the dated Audio API
+     `2025-04-01-preview` on the same resource;
+   - a `*.services.ai.azure.com` host for `phi_endpoint`, which validation still
+     requires although nothing calls Phi; an AI Services resource provides one;
+   - an Entra app registration with no secret or certificate, whose federated
+     credential trusts issuer `https://accounts.google.com`, audience
+     `api://AzureADTokenExchange` and subject
+     `gcloud iam service-accounts describe consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com --format='value(uniqueId)'`;
+   - the `Cognitive Services OpenAI User` role for that app's service principal on
+     the resource.
+
+   For a new subscription in the same tenant, keep `tenant_id`, `client_id` and the
+   federated credential, and grant the existing service principal the role on the
+   new resource.
+2. Add the account under `managed_azure_accounts.accounts` with `selection`
+   unchanged and merge. Validation checks its shape; runtime bindings do not change.
+   `readiness_exam_client_id` names the account's separate probe-only exam app, or
+   `null` until it exists; it never equals the runtime `client_id`.
+3. Change `managed_azure_accounts.selection.uat` to the new name in a one-line PR and
+   ship a normal UAT release. Until the pre-merge exam can examine a standby
+   account, that release's exact-image candidate exam under the UAT runtime
+   identity is the new account's first live qualification (a guardrail 1 gap), so
+   switch while the old account still serves. Read the exam's reason code: a
+   transport result (timeout, 429 or 5xx) usually means the new account's quota or
+   capacity, so fix that and dispatch once more. A semantic or configuration
+   failure is deterministic: never retry it; fix the account or select the last
+   passing one.
+4. The switch rotates Azure bindings without new owner consent. Trusted (Allow)
+   Drive requests with a ready plan migrate once, on their next claim; an owner's
+   own requests migrate once when that owner acts on them. A request migrates only
+   once, so a later switch, including a rollback, supersedes it and its owner makes
+   a new request. Each UAT release already runs the bounded recovery job
+   (`scripts/ops/run_uat_text_recovery_job.py`), which always applies, to at most
+   20 eligible requests; a preview is `consent-protocol/scripts/recover_uat_text_requests.py`
+   without `--apply`, inside the runtime. Saved personal research restarts within
+   its preserved budget.
+
+To roll back, select the previous account while it still serves. Once it is gone,
+fix forward: an image from before the switch points at the old account. Selecting
+Vertex (`managed_provider_selection.uat`) is a fallback only once the latest UAT
+Vertex readiness job has passed its whole bundle; its `structured_text` check
+failed intermittently on 2026-10-29.
 
 The deployment compiler reads the packaged default and pins both existing
 `HUSHH_UAT_MANAGED_AI_PROVIDER` and `HUSHH_UAT_MANAGED_TEXT_PROVIDER` values on
@@ -507,7 +620,7 @@ Used by:
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
-| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both text scopes and the complete capability bundle. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
+| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both core text scopes and trust/schema proof for ordinary UAT release. Broader capability qualification is separate; see the CI readiness policy. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |
@@ -684,6 +797,11 @@ NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE --stdin` path. Keep values in process memo
 do not put them in command arguments, logs, source, environment examples or files.
 Secret provisioning grants no deploy or traffic authority. Never copy this UAT
 credential to another environment.
+
+Secret upsert retains all previous versions, including when the payload is
+unchanged. The version-inventory helper is read-only: version age does not prove
+that serving, rollback, scheduled-job or alias references are absent. Version
+destruction requires a separately qualified reference-aware cleanup operation.
 
 Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
 reject these requests, so the approved publishable token must support that existing
@@ -1221,7 +1339,7 @@ Operator sequence, after final CI and review:
 
 1. Merge the reviewed PR; apply release migration 305 through the existing manifest/migration verification path, then verify the three schema contracts. Historical payment rows with null mode and historical approvals without composition consent remain blocked pending explicit reconciliation; do not infer mode or grant consent in a backfill.
 2. Deploy backend/frontend from the same reviewed SHA with answer payments/composer default off. Preserve Drive credentials, flags, Google configuration and UAT `ENVIRONMENT`. Bind answer test credentials first and verify the signed provider webhook's exact mode, actual Checkout completion, duplicate/late events, full refund and verified owner settlement with the two accounts. Test-mode payments do not establish live account readiness.
-3. Configure `deploy/answers/setup_answer_work_drain_scheduler.sh` using its documented environment, project, service-account and audience options. Verify authenticated drain execution, logs and actual expired/refund/payout transitions. The current UAT scheduler inventory has no answer-work job; checked-in worker code is not evidence of a running deployed worker. Keep drain enabled for owed money when admission/composition is paused.
+3. Qualify settlement before opening paid admission. First deploy with the environment's `ANSWER_WORK_DRAIN_*_ENABLED=true` and `PKM_ANSWER_PAYMENTS_*_ENABLED=false`. The trusted release reconciles the three fixed timeout/refund/payout jobs and proves fresh authenticated execution. Dev uses its own project, identity and audience; the isolated commerce preview does not inherit these flags. Only a later reviewed release may enable new payments. It verifies the already working settlement configuration before mutation, rechecks the serving baseline and actual candidate settings before promotion, and observes the candidate's normal scheduled execution afterward. A payment-enabled release never creates, resumes or rewrites financial jobs. Retain settlement and mode-bound credentials for existing obligations when closing new admission; disabling their drain requires separate reconciled retirement. A failed setup cannot be treated as readiness to accept new payments.
 4. Retain test-mode credentials when switching new purchases to live. Each existing checkout, delivery, refund and payout stays bound to its stored mode; absent credentials leave owed work pending without consuming a provider attempt. NULL-mode historical orders require authenticated Event/current Session reconciliation. Re-enable only with a verified live-mode owner account; never promote a legacy, stale, deleted or unverified Connect mapping.
 5. After the separate provider retention review and owner disclosure, select dedicated live answer key/signing-secret bindings, set the answer mode to live and explicitly enable the composer/provider-reviewed/payment gates. In UAT the live slots are `STRIPE_LIVE_SECRET_KEY` and `STRIPE_LIVE_WEBHOOK_SECRET`; leave the ordinary Drive bindings alone. Reverify platform and owner accounts and the live endpoint mode; the operator performs deployment and any real purchase.
 
@@ -1259,5 +1377,5 @@ admits only explicitly approved, bounded owner summaries to the existing One
 single-turn gene in Shared placement; it does not authorize background reads,
 new task writes or provider actions. Recheck occurs before output release.
 Disable it to withdraw processing while preserving existing encrypted tasks.
-Live-model evaluation and provider rehearsal are required before promotion;
+Live-model evaluation and provider rehearsal are required before enabling this capability;
 private placement remains unavailable until its owner-direct transport qualifies.

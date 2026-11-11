@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hussh
-"""Retry canonical PR validation and request its exact main-owned security worker."""
+"""Retry one exact canonical PR validation attempt without additional workflow dispatch."""
 
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 from pathlib import Path
 import subprocess
@@ -16,7 +15,7 @@ from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
-from github_security_authority import Refused, SHA, WORKER_PATH, positive, verify_source
+from github_security_authority import Refused, SHA, positive, verify_source  # noqa: E402
 
 REPOSITORY = "hushh-labs/hushh-research"
 Read = Callable[[str], Any]
@@ -72,13 +71,18 @@ def rerun_validation(
     if not isinstance(expected.get("head_sha"), str) or not SHA.fullmatch(expected["head_sha"]):
         raise Refused("An exact source SHA is required")
     prefix = f"repos/{REPOSITORY}"
-    actor = read("user").get("login")
-    policy_file = read(f"{prefix}/contents/config/ci-governance.json?ref=main")
-    if policy_file.get("encoding") != "base64" or policy_file.get("size", 0) > 256 * 1024:
-        raise Refused("Canonical main governance unavailable")
-    policy = json.loads(base64.b64decode("".join(policy_file["content"].split()), validate=True))
-    if not actor or actor not in policy["main"]["protected_pipeline_edit_users"]:
-        raise Refused("CI rerun requires a governed operator")
+    identity = read("user")
+    actor = identity.get("login") if isinstance(identity, dict) else None
+    if not isinstance(actor, str) or not actor or not all(char.isalnum() or char == "-" for char in actor):
+        raise Refused("Authenticated GitHub identity unavailable")
+    permission = read(f"{prefix}/collaborators/{actor}/permission")
+    user = permission.get("user") if isinstance(permission, dict) else None
+    if (
+        not isinstance(user, dict) or not isinstance(user.get("login"), str)
+        or user["login"].lower() != actor.lower()
+        or permission.get("permission") not in {"write", "admin"}
+    ):
+        raise Refused("Validation retry requires current repository write access")
     source = verify_source(read, REPOSITORY, expected)
     source_path = f"{prefix}/actions/runs/{expected['run_id']}"
     before = read(source_path)
@@ -110,28 +114,14 @@ def rerun_validation(
         if observed.get("head_sha") != expected["head_sha"] or attempt not in {
             expected["attempt"], current["attempt"],
         }:
-            raise Refused("Unexpected source attempt or SHA; security dispatch refused")
+            raise Refused("Unexpected source attempt or SHA; rerun refused")
         if attempt == current["attempt"]:
             verify_source(read, REPOSITORY, current)
             break
         if clock() >= deadline:
             raise Refused("Rerun acceptance unconfirmed; inspect the source before another request")
         sleep(3)
-    inputs = {
-        "source_run_id": str(current["run_id"]),
-        "source_attempt": str(current["attempt"]),
-        "source_sha": current["head_sha"],
-    }
-    try:
-        write(f"{prefix}/actions/workflows/{Path(WORKER_PATH).name}/dispatches", {
-            "ref": "main", "inputs": inputs,
-        })
-    except Refused:
-        raise Refused(
-            f"Security dispatch unconfirmed for run {current['run_id']} attempt {current['attempt']}; "
-            "inspect the main-owned worker before retrying its dispatch. Do not rerun the source again."
-        ) from None
-    return {**current, "security_dispatch": "accepted", "all_jobs": all_jobs, "job_id": job_id}
+    return {**current, "all_jobs": all_jobs, "job_id": job_id}
 
 
 def main() -> int:
@@ -156,7 +146,7 @@ def main() -> int:
         )
         print(json.dumps(result) if args.json else (
             f"PR Validation {result['run_id']} attempt {result['attempt']} requested; "
-            "matching protected security worker dispatched on main."
+            "no additional workflow was dispatched."
         ))
         return 0
     except (Refused, KeyError, TypeError, ValueError) as error:

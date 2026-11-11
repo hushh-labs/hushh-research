@@ -52,6 +52,7 @@ vi.mock("@/lib/services/post-unlock-sync-service", () => ({
 }));
 
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 
 describe("PostAuthOnboardingSyncBridge", () => {
   afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; vi.useRealTimers(); });
@@ -216,5 +217,24 @@ describe("PostAuthOnboardingSyncBridge", () => {
       expect.stringContaining("retrying"),
       expect.any(Error),
     );
+  });
+
+  it("keeps a terminal 422 draft without scheduling an unchanged background retry", async () => {
+    vi.useFakeTimers();
+    postUnlockRunMock.mockRejectedValue(new PkmStoreDomainError(422, "Vault sync failed."));
+    const view = render(<PostAuthOnboardingSyncBridge />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(postUnlockRunMock).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(postUnlockRunMock).toHaveBeenCalledTimes(1);
+    expect(finalizeForVaultMock).toHaveBeenCalledTimes(1);
+    pathnameState.current = "/one/calendar";
+    view.rerender(<PostAuthOnboardingSyncBridge />);
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(postUnlockRunMock).toHaveBeenCalledTimes(1);
+    vaultState.current = { ...vaultState.current, vaultOwnerToken: "vault-token-a-rotated" };
+    view.rerender(<PostAuthOnboardingSyncBridge />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(postUnlockRunMock).toHaveBeenCalledTimes(2);
   });
 });

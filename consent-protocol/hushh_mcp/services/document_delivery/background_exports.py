@@ -1,5 +1,6 @@
 """Labelled Workspace exports. They are not byte-identical Google originals."""
 
+import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -8,7 +9,9 @@ import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 from sqlalchemy import text
 
+from hushh_mcp.services.document_delivery.background_diagnostics import CopySourceChanged
 from hushh_mcp.services.document_delivery.contracts import DeliveryError
+from hushh_mcp.services.drive_rest_admission import rest_admission
 from hushh_mcp.services.google_drive_adapter import FILE_ID
 
 FORMATS = {
@@ -42,7 +45,7 @@ def identity(item):
     }
 
 
-def require_export(source, facts):
+def require_export(source, facts, *, stage="export_before"):
     if facts.get("capabilities", {}).get("canDownload") is not True:
         raise DeliveryError("download_restricted")
     encryption = facts.get("clientEncryptionDetails")
@@ -51,14 +54,26 @@ def require_export(source, facts):
     frozen = source.get("sourceContentIdentity")
     if not frozen or frozen.get("native") is not True:
         raise DeliveryError("source_identity_unavailable")
-    if (
-        facts.get("id") != source["id"]
-        or facts.get("title") != source["name"]
-        or facts.get("mimeType") != source["mimeType"]
-        or identity(facts) is None
-    ):
-        raise DeliveryError("source_changed")
+    mismatches = [
+        field
+        for field, before, after in (
+            ("id", source["id"], facts.get("id")),
+            ("name", source["name"], facts.get("title")),
+            ("mime", source["mimeType"], facts.get("mimeType")),
+        )
+        if before != after
+    ]
+    if identity(facts) is None:
+        mismatches.append("identity")
+    if mismatches:
+        raise CopySourceChanged(stage, mismatches)
     return identity(facts)
+
+
+def require_revision(source, facts, revision, modified_time, *, stage):
+    # The export is a labelled processing-time rendition. Global version and
+    # modification time are not content hashes; its frozen bytes are verified.
+    require_export(source, facts, stage=stage)
 
 
 async def download(source, credential):
@@ -73,12 +88,16 @@ async def download(source, credential):
         headers["X-Goog-Drive-Resource-Keys"] = f"{source['id']}/{source['resourceKey']}"
     with suppress_instrumentation():
         async with httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False) as client:
-            async with client.stream(
-                "GET",
-                f"https://www.googleapis.com/drive/v3/files/{source['id']}/export",
-                params={"mimeType": mime},
-                headers=headers,
-            ) as response:
+            async with (
+                rest_admission(),
+                asyncio.timeout(20),
+                client.stream(
+                    "GET",
+                    f"https://www.googleapis.com/drive/v3/files/{source['id']}/export",
+                    params={"mimeType": mime},
+                    headers=headers,
+                ) as response,
+            ):
                 if response.status_code == 403:
                     raise DeliveryError("export_limit_or_download_restricted")
                 if response.status_code != 200:
@@ -99,8 +118,13 @@ async def snapshot(service, row, source, credential, facts):
     data = await service.reader.export(source, credential)
     try:
         await service.store.current(row)
-        if require_export(source, await service.reader.facts(source, credential)) != before:
-            raise DeliveryError("source_changed")
+        require_revision(
+            source,
+            await service.reader.facts(source, credential),
+            before["version"],
+            before["modifiedTime"],
+            stage="export_after",
+        )
         fmt, mime, suffix = FORMATS[source["mimeType"]]
         result = {
             "rendition": "google_export",

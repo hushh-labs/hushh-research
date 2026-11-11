@@ -27,6 +27,7 @@ from hushh_mcp.runtime_providers.dependency_health import (
     classify_provider_error,
     is_advisory,
     is_resource_exhausted,
+    is_transient_transport,
     summarize,
 )
 
@@ -134,6 +135,37 @@ def test_sanitized_timeout_wrapper_preserves_the_actual_failure(cause, expected)
     wrapped = TimeoutError("Location transcription is temporarily unavailable.")
     wrapped.__cause__ = cause
     assert classify_provider_error(wrapped) == expected
+
+
+def _wrapped(outer: BaseException, cause: BaseException) -> BaseException:
+    outer.__cause__ = cause
+    return outer
+
+
+@pytest.mark.parametrize(
+    ("error", "transient"),
+    [
+        (asyncio.TimeoutError(), True),
+        (TimeoutError(), True),
+        (ReadTimeout("transport deadline"), True),
+        (_ProviderError("rate limited", 429), True),
+        (_ProviderError("upstream", 503), True),
+        (_ProviderError("request timeout", 408), True),
+        (_ProviderError("x", None, "DEADLINE_EXCEEDED"), True),
+        (_wrapped(RuntimeError("our guard"), _ProviderError("upstream", 502)), True),
+        (_wrapped(TimeoutError("sanitized"), asyncio.CancelledError()), True),
+        # The owner approved timeouts, 429 and 5xx only (2026-10-30).
+        (ConnectError("refused"), False),
+        (_ProviderError("x", None, "ABORTED"), False),
+        (_ProviderError(DUNNING_403, 403), False),
+        (_ProviderError("Caller does not have permission 'x'", 403), False),
+        (_ProviderError("bad request", 400), False),
+        (ValueError("Root answer is not JSON"), False),
+        (_wrapped(TimeoutError("sanitized"), ValueError("invalid structured response")), False),
+    ],
+)
+def test_only_timeouts_429_and_5xx_may_be_repeated(error: BaseException, transient: bool) -> None:
+    assert is_transient_transport(error) is transient
 
 
 @pytest.mark.parametrize("status_code", [400, 401, 404])

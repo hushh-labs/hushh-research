@@ -152,6 +152,9 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 
 vi.mock("@/components/app-ui/settings-ui", () => ({
   SettingsGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SettingsRow: ({ title, description, trailing }: { title: ReactNode; description?: ReactNode; trailing?: ReactNode }) => (
+    <div>{title}{description}{trailing}</div>
+  ),
 }));
 
 vi.mock("@/components/onboarding/setup/capability-setup-tile", () => ({
@@ -338,7 +341,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
     fireEvent.click(screen.getByTestId("one-setup-master-ack"));
 
     await waitFor(() => {
-      expect(screen.getByText("Your private agent is ready")).toBeTruthy();
+      expect(screen.getByText("Agent One is ready")).toBeTruthy();
     });
 
     CacheService.getInstance().invalidate(

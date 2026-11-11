@@ -1,6 +1,8 @@
 """Direct command admission keeps device roles and queued work outside semantics."""
 
 import asyncio
+import logging
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -82,8 +84,9 @@ async def test_queued_command_deadline_releases_drain_permit_without_model_work(
     permit.release.assert_awaited_once()
 
 
+@pytest.mark.parametrize("operation", ["proposals", "rewrite"])
 async def test_memory_preparation_refuses_wrong_owner_and_device_before_generation(
-    tmp_path, hub_key, monkeypatch
+    tmp_path, hub_key, monkeypatch, operation
 ):
     from api.routes.one import pod_pkm_preparation as preparation
     from tests.test_pod_session_authority import USER
@@ -113,49 +116,91 @@ async def test_memory_preparation_refuses_wrong_owner_and_device_before_generati
         "candidate_payload": {},
         "structure_decision": {},
     }
+    if operation == "rewrite":
+        payload = preparation.RewriteMemoryResponse(markdown="# Memory\n- Notebook preference.\n")
     generator = AsyncMock(return_value=payload)
-    monkeypatch.setattr(
-        preparation,
-        "OwnerPkmPreparation",
-        lambda **kw: SimpleNamespace(generate_structure_preview=generator),
-    )
+    if operation == "rewrite":
+        monkeypatch.setattr(preparation, "rewrite_chat_memory", generator)
+    else:
+        monkeypatch.setattr(
+            preparation,
+            "OwnerPkmPreparation",
+            lambda **kw: SimpleNamespace(generate_structure_preview=generator),
+        )
+
+    def body(owner):
+        if operation == "proposals":
+            return {"user_id": owner, "message": "Synthetic notebook preference"}
+        return {
+            "user_id": owner,
+            "current_markdown": "",
+            "messages": [
+                {
+                    "id": "new-1",
+                    "conversationId": "chat-1",
+                    "role": "user",
+                    "content": "Synthetic notebook preference",
+                }
+            ],
+        }
+
     app_subject, device = Subject("app", "web"), Subject("device", "macos")
     app_token, _ = await world.admit(app_subject, _binding(app_subject))
     device_token, _ = await world.admit(device, _binding(device))
+    limited = Subject("limited", "web")
+    limited_token, _ = await world.admit(limited, _binding(limited, scopes=["pod.status"]))
     app = FastAPI()
     app.include_router(preparation.router)
     with TestClient(app) as client:
-        for token, owner in ((device_token, USER), (app_token, "someone-else")):
+        for token, owner, code in (
+            (device_token, USER, "role_mismatch"),
+            (app_token, "someone-else", "POD_MEMORY_OWNER_MISMATCH"),
+            (limited_token, USER, "scope_not_granted"),
+        ):
             response = client.post(
-                "/api/one/pod/memory/proposals",
-                json={"user_id": owner, "message": "Synthetic notebook preference"},
+                f"/api/one/pod/memory/{operation}",
+                json=body(owner),
                 headers={"Authorization": "Bearer " + token},
             )
             assert response.status_code == 403
+            assert response.json()["detail"]["code"] == code
         model_builder.assert_not_called()
         generator.assert_not_awaited()
         response = client.post(
-            "/api/one/pod/memory/proposals",
-            json={"user_id": USER, "message": "Synthetic notebook preference"},
+            f"/api/one/pod/memory/{operation}",
+            json=body(USER),
             headers={"Authorization": "Bearer " + app_token},
         )
         assert response.status_code == 200
         generator.assert_awaited_once()
-        assert generator.call_args.kwargs["user_id"] == USER
+        if operation == "rewrite":
+            assert generator.call_args.kwargs["model"] is model
+            assert response.headers["cache-control"] == "private, no-store"
+        else:
+            assert generator.call_args.kwargs["user_id"] == USER
 
-        async def changed_selection(**kw):
+        async def changed_selection(*_args, **_kw):
             pod_ai_selection.set_active_ai_selection(None)
             pod_ai_selection.set_active_ai_selection(None)
             return payload
 
         generator.side_effect = changed_selection
         response = client.post(
-            "/api/one/pod/memory/proposals",
-            json={"user_id": USER, "message": "Synthetic notebook preference"},
+            f"/api/one/pod/memory/{operation}",
+            json=body(USER),
             headers={"Authorization": "Bearer " + app_token},
         )
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "OWNER_AI_SELECTION_CHANGED"
+        if operation == "rewrite":
+            generator.side_effect = RuntimeError("Private model details must stay private")
+            response = client.post(
+                "/api/one/pod/memory/rewrite",
+                json=body(USER),
+                headers={"Authorization": "Bearer " + app_token},
+            )
+            assert response.status_code == 503
+            assert response.json() == {"detail": {"code": "MEMORY_REWRITE_UNAVAILABLE"}}
 
 
 async def test_private_memory_model_port_never_builds_managed_fallback(monkeypatch):
@@ -180,3 +225,79 @@ async def test_private_memory_model_port_never_builds_managed_fallback(monkeypat
     assert result is None
     assert access.await_count == 2
     preparation.run_single_turn.assert_awaited_once()
+
+
+def test_memory_preparation_logs_one_content_free_outcome_per_attempt(monkeypatch, caplog):
+    from api.routes.one import pod_pkm_preparation as preparation
+
+    claims, queue = {"user_id": "owner"}, {"timed_out": False}
+
+    @asynccontextmanager
+    async def admitted(_authorization, _request):
+        # The real queue deadline raises this before yielding (test above).
+        if queue["timed_out"]:
+            raise HTTPException(503, detail={"code": "COMMAND_PROVIDER_UNAVAILABLE"})
+        yield claims
+
+    authority = SimpleNamespace(require_held=AsyncMock())
+    monkeypatch.setattr(preparation, "_require_enabled", lambda: None)
+    monkeypatch.setattr(preparation, "_admitted", admitted)
+    monkeypatch.setattr(preparation, "_selection", lambda: None)
+    monkeypatch.setattr(preparation, "ai_selection_revision", lambda: 1)
+    monkeypatch.setattr(preparation, "verified_session", lambda *a, **kw: (authority, claims))
+    model = SimpleNamespace(provider="gemini", model="synthetic", runtime_mode="byok")
+    monkeypatch.setattr(preparation, "_owner_model", lambda: model)
+    payload = {
+        "agent_id": "pkm_structure",
+        "agent_name": "Structure",
+        "model": "synthetic",
+        "used_fallback": False,
+        "candidate_payload": {},
+        "structure_decision": {},
+    }
+    generator = AsyncMock(return_value=payload)
+    monkeypatch.setattr(
+        preparation,
+        "OwnerPkmPreparation",
+        lambda **kw: SimpleNamespace(generate_structure_preview=generator),
+    )
+    app = FastAPI()
+    app.include_router(preparation.router)
+    caplog.set_level(logging.INFO, logger="api.routes.one.pod_pkm_preparation")
+    body = {"user_id": "owner", "message": "Synthetic notebook preference"}
+    body["capture_source"] = "app_activity_digest"
+    route = "/api/one/pod/memory/proposals"
+    with TestClient(app) as client:
+        refused = client.post(
+            route, json={**body, "user_id": "someone-else"}, headers={"X-PKM-Chunk-Index": "1"}
+        )
+        assert refused.status_code == 403
+        # A malformed logging-only header never refuses the request.
+        assert client.post(route, json=body, headers={"X-PKM-Chunk-Index": "x"}).status_code == 200
+        generator.return_value = {**payload, "used_fallback": True}
+        assert client.post(route, json=body).status_code == 503
+        unsupported = HTTPException(503, detail={"code": "POD_MEMORY_MODEL_UNAVAILABLE"})
+        monkeypatch.setattr(preparation, "_owner_model", Mock(side_effect=unsupported))
+        assert client.post(route, json=body).status_code == 503
+        queue["timed_out"] = True
+        assert client.post(route, json=body).status_code == 503
+    # The logging-only source never reaches the memory agents.
+    assert all("capture_source" not in call.kwargs for call in generator.call_args_list)
+    lines = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("pkm.memory_proposal.outcome ")
+    ]
+    assert len(lines) == 5
+    expected = (
+        "outcome=refused status=403 chunk_index=1",
+        "outcome=nothing_durable status=200 chunk_index=0",
+        "outcome=unavailable status=503",
+        "outcome=model_unselected status=503",
+        # Not provider_unavailable: no provider was called.
+        "outcome=queue_timeout status=503",
+    )
+    for line, fragment in zip(lines, expected, strict=True):
+        assert "route=pod capture_source=app_activity_digest memory_profile=general " in line
+        assert fragment in line
+    assert "Synthetic notebook preference" not in caplog.text

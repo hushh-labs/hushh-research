@@ -33,7 +33,7 @@ const bank = { ...base, packetId: id(1), title: "Example Bank statements", descr
 const bills = { ...base, packetId: id(2), title: "Example Utility bills", coverageSummary: "Utility bills for 2026",
   documentCount: 1, priceCents: 900 };
 const stale = { ...base, packetId: id(3), title: "Example Payslips", freshness: "stale",
-  gaps: ["The private agent is checking current evidence."], canRequest: false };
+  gaps: ["Agent One is checking current evidence."], canRequest: false };
 const ALL = [stale, bank, bills];
 
 beforeEach(() => {

@@ -1,61 +1,5 @@
 # API Contracts
 
-## Finance sharing with connections
-
-`FinanceSharingService` uses `ApiService.apiFetch` on Web, iOS and Android.
-Web forwards through `/api/one/[...path]`; native calls the same hub endpoints
-through the existing platform-aware transport. No new native plugin is needed.
-All routes require matching Firebase identity and `X-Hushh-Consent` vault-owner
-authority and return `private, no-store` responses with scrubbed errors.
-
-| Endpoint | Contract |
-| --- | --- |
-| `POST /api/one/finance/shares` | Confirm one immutable policy and recipient-encrypted view per selected connection; exact request-ID retries return the original grants. |
-| `GET /api/one/finance/shares?direction=outgoing\|received&cursor=…` | Participant-bound metadata history; 50 items, opaque UUID cursor. History does not authorize a read. |
-| `GET /api/one/finance/shares/{grantId}` | Recheck recipient/owner, connection, blocks, active recipient key, current expiry and revocation before returning that participant's ciphertext copy. |
-| `PUT /api/one/finance/shares/{grantId}` | Owner-only ongoing update with `expectedRevision`; immutable policy and recipient key, active lifetime, CAS and revocation checks. Snapshots reject updates. |
-| `DELETE /api/one/finance/shares/{grantId}` | Owner-only terminal stop for one recipient; clear its ciphertext. |
-
-Create accepts `requestId`, `policy`, `ownerConfig`, and 1–20 recipient entries
-(`grantId`, `personRef`, `envelope`, `ownerEnvelope`, `contentHash`). The strict
-version-1 policy contains `mode`, selected `sections`, encrypted-configuration
-`selectionHash`, `showAmounts`, canonical `model_processing`, and
-`durationSeconds` (3600, 86400, 604800; null only for explicit ongoing access).
-Lifetimes begin at the server-confirmed creation time. Contents and source/account
-locators are encrypted on the owner client; the server stores no financial
-plaintext. The 4 MB request budget and individual envelope bounds apply on both
-backend and proxy. Raw financial PKM scopes remain blocked.
-Both configuration and content digests include independent random 256-bit
-commitment nonces inside their encrypted payloads. Metadata cannot test guesses
-of selected notes or financial figures. Unselected notes and stock selections
-are removed from the owner configuration; unchanged information does not publish
-a new revision merely because a nonce changes. An explicitly approved One review
-checks the exact content commitment, then strips its nonce before model input.
-
-Recipient views expose only the selected curated sections. Amounts-off exports
-exclude structured balances, dollar gains, quantities, prices and cost basis;
-history is rebased to percentage balance change. It is not investment return.
-Current sharing supports USD portfolios and refuses known mixed/foreign currency.
-Missing saved history remains unavailable. Account identifiers, transactions and
-provider credentials never enter the structured export; an explicitly selected
-owner note is shared as written.
-
-One review is an explicit `financeShare` forwarded input on the existing agent
-chat transport, bound to `grantId`, `revision` and exact `projectionText` digest.
-Only the authenticated recipient with current owner model-processing permission
-may submit it. The current recipient processing-provider approval still applies.
-The signed private-pod consent metadata feed accepts `finance:{grantId}:{revision}`
-references with fresh nonces; it carries policy/digest/lifecycle metadata only.
-Existing shared-context tool blocking, request-secret lifetime and history/model
-redaction apply. Authority is checked again around model generation.
-
-Migration 433 qualifies the grant/request tables and terminal disconnect/block
-guards. Rollback is code-only and preserves issued encrypted objects. Expired
-ciphertext is cleared on access/history reconciliation; dormant ciphertext and
-confirmation metadata remain until reconciliation or account erasure. Production
-qualification must separately verify the migration, exact authenticated
-two-person journey, platform transport and current processing-provider approval.
-
 ## Visual Map
 
 Which credential plane authorizes which FastAPI route family, and how first-party
@@ -110,6 +54,148 @@ flowchart TB
   hct --> dev
   maint --> one
 ```
+
+---
+## Connection network discovery
+
+These Firebase-authenticated reads bind the viewer to the verified session and
+return `private, no-store`. Web uses the existing `/api/one/[...path]` proxy;
+iOS and Android use the same endpoints through `ApiService.apiFetch`.
+
+| Endpoint | Contract |
+| --- | --- |
+| `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
+| `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
+
+A wider list requires its owner's explicit opt-in and the viewer's current active
+direct connection. Every page rechecks owner permission, peer edges, profile
+lifecycle and blocks after directory work. Unavailable, blocked and unauthorized
+targets share a neutral 404. Mid-read invalidation returns retryable 503 instead
+of disclosing a stale page or silently thinning pagination.
+
+Mutuals remain people directly connected to both viewer and target; their existing
+count can exceed the number of viewable profiles. Pending requests, contact books,
+trusted designations and Circle membership alone do not count as graph edges.
+First degree is a direct active connection. Second degree follows the existing
+shared-neighbor visibility contract. Third degree requires both intermediaries
+to enable sharing; it exposes a distance only. `null` does not prove that no
+connection exists. Anonymous public profiles remain unchanged.
+
+Discovery admits at most 4,000 live eligible nodes and 12,000 edges, uses a
+cooperative twelve-second traversal budget and scoped eight-second SQL statement
+timeouts, and fails retryably when it cannot qualify the result. Firebase account
+eligibility retains the canonical directory's bounded cache semantics. No graph
+inventory is persisted in the browser or returned as connecting paths.
+
+The new visibility write remains an unbound discovered API in the capability
+catalog. The existing evolution ledger retires Connections setup graph revisions
+`9ea5b914a24b6f47` and `ac971edb713a113d` rather than carrying an older workflow's
+authority into a new write inventory. This also retires the first revision's
+compatible predecessors for that workflow. Existing persisted connections and
+setup state are unchanged; an old workflow must be freshly admitted.
+
+## Feed counterpart profile presentation
+
+Feed metadata may include `counterpart_person_ref`, resolved at read time from
+the viewer-scoped retained counterpart mapping and `actor_profiles`. This is
+the same public reference accepted by `/people/[personRef]`; internal user IDs
+remain excluded from the Feed DTO. Missing or erased profiles clear the
+reference, including when the older-schema fallback runs. Profile viewing uses
+the existing public profile and authenticated relationship/consent endpoints;
+it grants no access to shared information by itself. No schema migration or new
+route is required.
+
+## Finance sharing with connections
+
+`FinanceSharingService` uses `ApiService.apiFetch` on Web, iOS and Android.
+Web forwards through `/api/one/[...path]`; native calls the same hub endpoints
+through the existing platform-aware transport. No new native plugin is needed.
+All routes require matching Firebase identity and `X-Hushh-Consent` vault-owner
+authority and return `private, no-store` responses with scrubbed errors.
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /api/one/finance/shares` | Confirm one immutable policy and recipient-encrypted view per selected connection; exact request-ID retries return the original grants. |
+| `GET /api/one/finance/shares?direction=outgoing\|received&cursor=…` | Participant-bound metadata history; 50 items, opaque UUID cursor. History does not authorize a read. |
+| `GET /api/one/finance/shares/{grantId}` | Recheck recipient/owner, connection, blocks, active recipient key, current expiry and revocation before returning that participant's ciphertext copy. |
+| `PUT /api/one/finance/shares/{grantId}` | Owner-only ongoing update with `expectedRevision`; immutable policy and recipient key, active lifetime, CAS and revocation checks. Snapshots reject updates. |
+| `DELETE /api/one/finance/shares/{grantId}` | Owner-only terminal stop for one recipient; clear its ciphertext. |
+
+Create accepts `requestId`, `policy`, `ownerConfig`, and 1–20 recipient entries
+(`grantId`, `personRef`, `envelope`, `ownerEnvelope`, `contentHash`). The strict
+version-1 policy contains `mode`, selected `sections`, encrypted-configuration
+`selectionHash`, `showAmounts`, canonical `model_processing`, and
+`durationSeconds` (3600, 86400, 604800; null only for explicit ongoing access).
+Lifetimes begin at the server-confirmed creation time. Contents and source/account
+locators are encrypted on the owner client; the server stores no financial
+plaintext. The 4 MB request budget and individual envelope bounds apply on both
+backend and proxy. Raw financial PKM scopes remain blocked.
+Both configuration and content digests include independent random 256-bit
+commitment nonces inside their encrypted payloads. Metadata cannot test guesses
+of selected notes or financial figures. Unselected notes and stock selections
+are removed from the owner configuration; unchanged information does not publish
+a new revision merely because a nonce changes. An explicitly approved One review
+checks the exact content commitment, then strips its nonce before model input.
+
+Recipient views expose only the selected curated sections. Amounts-off exports
+exclude structured balances, dollar gains, quantities, prices and cost basis;
+history is rebased to percentage balance change. It is not investment return.
+Current sharing supports USD portfolios and refuses known mixed/foreign currency.
+Missing saved history remains unavailable. Account identifiers, transactions and
+provider credentials never enter the structured export; an explicitly selected
+owner note is shared as written.
+
+One review is an explicit `financeShare` forwarded input on the existing agent
+chat transport, bound to `grantId`, `revision` and exact `projectionText` digest.
+Only the authenticated recipient with current owner model-processing permission
+may submit it. The current recipient processing-provider approval still applies.
+The signed private-pod consent metadata feed accepts `finance:{grantId}:{revision}`
+references with fresh nonces; it carries policy/digest/lifecycle metadata only.
+`GET /api/one/pod/owner-feed/consent` uses the same `ConsentReadReference`
+validation as the pod client: an ordinary bundle UUID or a Finance reference
+with a positive revision of at most nine digits. Malformed references return
+422 before the signed feed is read; accepted references still require the
+existing owner binding and current recipient processing permission.
+Existing shared-context tool blocking, request-secret lifetime and history/model
+redaction apply. Authority is checked again around model generation.
+The consent reply uses LOW reasoning, accepted by both managed text adapters,
+with thoughts disabled and function calling set to NONE. Provider selection and
+the current sharing authority remain unchanged.
+
+Migration 433 qualifies the grant/request tables and terminal disconnect/block
+guards. Rollback is code-only and preserves issued encrypted objects. Expired
+ciphertext is cleared on access/history reconciliation; dormant ciphertext and
+confirmation metadata remain until reconciliation or account erasure. Production
+qualification must separately verify the migration, exact authenticated
+two-person journey, platform transport and current processing-provider approval.
+## People calling review implementation
+
+`GET /api/one/messages/calls/capabilities` and signed
+`POST /api/one/messages/calls/{operation}` use Firebase identity plus separately
+purposed canonical-device proofs. Operations are register-key, directory, create,
+  offer, inbox, read, heartbeat, action, signal, credentials and iOS-only register-voip. Commands reject foreign,
+revoked, replayed, expired, oversized and unexpected fields without echoing
+signaling. Existing participant/relationship/block authority remains decisive.
+The existing One proxy and platform-aware service transport own client pairing.
+Native execution and release admission remain unavailable pending qualification.
+See [People calling](../one/people-calling.md) for exact privacy, schema, retention
+and remaining E2EE/native requirements.
+
+## V1 chat memory preparation
+
+`POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
+owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
+admission, held owner incarnation and AI-selection checks before and after inference.
+The request contains `user_id`, `current_markdown`, incremental `messages`
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. The response is
+`{markdown}`: a proposed complete document with no persistence authority. The
+client validates and atomically commits ciphertext and its source checkpoint
+through the existing PKM writer. Invalid generation returns a bounded failure;
+there is no partial replacement or client-visible success before storage ACK.
+The platform-aware PKM proxy/native transport and explicit pod allowlists own
+placement; unknown/private owners never fall back to Shared inference.
 
 ---
 
@@ -217,6 +303,18 @@ The pod runs the existing authored structure and reconciliation agents against
 its owner's selected model, with bounded admission and disconnect cancellation.
 AI selection changes invalidate preparation and process-memory continuation
 reuse. Failed provider preparation refuses rather than selecting managed inference.
+Each attempt past the feature gate, admission refusals included, writes the same
+content-free `pkm.memory_proposal.outcome` line as the hub, with `route=pod`.
+The hub writes its line only for attempts that pass authentication, placement and
+request validation; refusals before the handler appear only in the request
+summary. Status `0` (`cancelled`) records a handler cancelled before it finished,
+such as the pod's queued-request disconnect check, and an omitted or null
+`capture_source` logs as `unspecified`. On the pod, `queue_timeout` means the
+150-second command budget ran out before admission, so no provider was called.
+`provider_unavailable` means a provider error, or that budget running out after
+admission. `model_unselected` counts only the owner-selection and unsupported-model
+refusals: a pod with no runtime model logs `unavailable`, and one with no model
+access logs `failed`.
 
 The owner app routes private notes directly to this door; unplaced or unresolved
 hosting refuses before transmission. The browser separately fetches authorized
@@ -618,40 +716,55 @@ refreshes, including forced/strict reads and display-name synchronization,
 preserve a complete verified phone in the serialized identity writer. A delayed
 provider snapshot cannot replace a newer committed E.164 number.
 
-Native OTP completion and web provider-phone replacement send optional JSON
-`{ "verified_phone_number": "+…" }`
-through the existing account proxy/shared native transport. This is explicit
-finalization intent, not verification proof: the backend freshly checks the
-authenticated UID and exact Firebase phone, then uses the existing phone claim
-writer without cross-owner transfer authority. Mismatch or conflicting ownership
-returns 409; provider/persistence failure returns 503. No number enters a URL.
-Web's existing secondary Firebase phone-token claim remains unchanged.
-If provider linking succeeds while persistence is unavailable, retrying the
-same linked phone rechecks provider proof and finalizes without another OTP.
+Web, iOS, and Android confirm ordinary SMS challenges with Identity Platform.
+Clients include the current user's ID token so Firebase links or updates the
+number on that UID. Clients check the returned UID and number and discard the
+returned session tokens. They reload the existing user to keep its independent
+sign-in. Native `startPhoneLinkVerification` binds the challenge to the captured
+user, attempt and link intent. Older binaries lack this distinct method and
+refuse before SMS dispatch; clients never fall back to the legacy proof method.
+The legacy Android proof method remains manual-only.
 
-With `NEXT_PUBLIC_AUTH_PHONE_RECOVERY_ENABLED` enabled (the default), web
-finalization conflicts `PHONE_ALREADY_VERIFIED` and `PHONE_VERIFICATION_CHANGED`
-can request fresh Firebase OTP proof through the existing isolated phone-token
-claim. A cached provider phone alone never transfers ownership. Native conflicts,
-unrecognized conflicts and provider/persistence outages remain explicit failures.
-Strict finalization preserves the backend error code instead of flattening it.
-An expired challenge retires only its captured owner/attempt; a newer resend
-remains valid. Missing local state is `phone-verification-required`, distinct
-from a provider-reported `code-expired`.
+On a provider link conflict, the verified `temporaryProof` continues through the
+existing isolated proof service instead of replaying the SMS code. Its phone
+ID token stays in memory, bound to the current user, phone and verification
+attempt. It is cleared on resend, retirement, owner change, unmount or success.
+Ordinary successful links never create a secondary sign-in session.
 
-`NEXT_PUBLIC_AUTH_PHONE_SESSION_FENCING_ENABLED` defaults on and rejects
-pre-dispatch retained native callbacks and overlapping starts. It does not
-configure Firebase SMS validity: Android's native timeout controls automatic
-retrieval, and the inspected send APIs expose no OTP TTL setting. Explicit
-resend replaces the previous challenge. Native events arriving after dispatch
-still lack a request identifier; real-device qualification remains required.
+After linking, clients send `{ "verified_phone_number": "+…" }` through the
+existing account proxy or shared native transport. The backend reads the current
+Firebase user, checks the authenticated UID and exact phone, and saves the claim
+for the same application owner. Conflicting ownership or a changed provider
+number returns 409. Provider or persistence unavailability returns 503. Retry
+reloads the current Firebase user so a committed link can be finalized without
+consuming another code. Firebase and Hussh save separately, and the client
+reports verification success only after both writes succeed. A client keeps one
+confirmation in flight per Firebase UID through both writes. Concurrent
+replacements on separate devices can require another read and retry.
 
-Backend and updated native shared JavaScript must ship together for native
-replacement. Older clients without explicit intent retain the existing app
-phone and fail their exact-number completion check rather than overwrite it.
-Concurrent explicit replacements on separate devices still require retry if
-their provider state changes; this is not a guarantee of offline or simultaneous
-replacement ordering. No historical erased claim is inferred or reconstructed.
+Account restore and phone consumers use the committed application claim. A raw
+Firebase phone does not establish that claim. The auth context can retain a
+known same-owner app claim during a temporary lookup failure. The fixed-code
+fixture transport remains application-only. Isolated phone proof remains
+available to recovery flows. A legacy client cannot write a new claim through
+`/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
+the updated native clients and frontend before rolling out that enforcement. An
+expired challenge retires only its captured owner and attempt. Missing local
+state is `phone-verification-required`, distinct from provider `code-expired`.
+
+When a legacy app claim belongs to a different active owner, the app write
+refuses the claim even if Firebase accepted the link. That result requires
+reconciliation of the two records before release to accounts with unresolved
+legacy ownership. Qualify real SMS on an isolated Firebase test project or
+with explicitly designated test accounts when environments share Firebase.
+
+Dev retains its existing explicit recovery for a phone already linked in
+Firebase whose application claim could not be saved. Only an explicit real-SMS
+request uses the existing proof-only transport; ordinary linking never falls
+back to it. The retained proof remains bound to owner, phone and attempt.
+Transfer and in-place deletion retain their existing separate approvals,
+backend authority and unknown-outcome readback. Successful completion releases
+the native challenge without cancelling a provider cleanup operation.
 
 ## Messages unread action count
 
@@ -820,6 +933,12 @@ model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
   operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
   released identity. A stale replacement, uncertain outcome or changed approval
   returns a bounded 409 and retains recovery custody.
+  Historical recovery status may include `nextEligibleAt`, a UTC recheck hint
+  derived from complete native retention observations bound to the recorded
+  resource identities. It never establishes absence, approval or completion.
+  The interface retains verified progress and defers repeat approval while that
+  wait is active. Historical operator recovery retains its separate executor
+  qualification; status and refresh do not start or replay provider work.
 - `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
   control-plane observation of the recorded service and historical receipt
   coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,
@@ -1477,26 +1596,15 @@ that exact message and payload shape (`400`). The row's Feed projection is held
 as a 10-minute in-memory request secret for the turn; no tool runs in it; the
 history restores the message as a `selection` chip.
 
-**Saved receipts in chat.** A typed turn from an unlocked owner may carry
-`forwardedProps.receiptMemory`: the bounded canonical receipt index that the
-owner's device decrypted from `shopping.receipts_memory._canonical_index`
-(schema `receipt_canonical_index.v1`, at most 100 transactions and 96 KB). The
-server never holds the vault key, so this is the only way the Email specialist
-can read saved receipts. `POST /api/one/agent-chat` pops the field before the
-bridge can copy it, validates it against a closed schema (`extra=forbid`; no
-subject, preview, body, sender address, provider id, signed source handle or
-link can ride along; text is made single-line and markdown-inert, and a
-link-bearing field is dropped whole), and keeps it only as an expiring request
-secret for that turn; an invalid index is treated as absent, never repaired, and
-a locked or anonymous turn keeps nothing. It is never written to conversation
-state, logged, or shown to a model. A receipts question (`read_receipts`) filters,
-pages and formats it in code, newest first, ten at a time, with dates in the
-owner's timezone and any unavailable amount omitted. "Show more" continues a
-server-held position (`hussh:receipt_cursor`, filters and offset only, thirty
-minutes, void after a new save). A missing, malformed, empty or older-than-seven-day
-index answers `Your receipt memory is not ready yet. Sync and save your receipts
-in Mail.` with the generated `route.profile_receipts` action, and is never
-reported as an empty mailbox. The index is written only through writer
+**Saved receipts in chat.** Receipt lists, spending totals and overdue or due
+payments in typed chat come from One's receipt functions, which the owner's
+device runs over its encrypted receipt snapshot; the hub validates their closed
+requests and results (`receipt_client_tools.py`, `receipt_result_contract.py`)
+and never holds the vault key. `POST /api/one/agent-chat` still pops a legacy
+`forwardedProps.receiptMemory` from older clients before the bridge can copy it,
+and keeps nothing: the Email specialist no longer reads a saved receipt index. A
+receipts question that reaches it returns `receipt_functions_required` without
+reading mail, and One answers with its receipt functions in the same turn. Typed chat also sends `forwardedProps.emailDraftContract: 2` on every run; the hub and owner-pod ingress admit it per turn as `temp:hussh:email_draft_envelope`. Only with it does One pass named people to `open_gmail_email_draft` as `recipient_names` for server-side matching; an installed native build without it shows only the call's own To, so One looks the address up with `list_my_connections` and names are refused with `recipient_address_required`. The index is written only through writer
 `gmail_receipt_memory_save_button`: once, automatically, after each sync the
 owner starts on Mail > Receipts (the product default, set by
 `RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`). The page shows no save control. Opening the
@@ -2530,9 +2638,24 @@ fallback. Deploy matching native/web assets with the backend. Real provider
 revocation/reauthorization ordering is not proven by local transaction tests.
 
 New Calendar connections, including additional accounts, do not request
-`contacts.readonly` solely for guest photos. Calendar person avatars use the
-current HUSSH photo for an active Connection whose email is verified and
-matches exactly, or for the signed-in owner's verified primary/linked email.
+`contacts.readonly` solely for guest photos. Calendar account and booking
+surfaces use the current visible Hussh profile matched to each verified account
+email, including accounts with no events. Connecting a Google account does not
+assign that address the signed-in owner's Hussh identity or portrait. The owner
+photo applies only to the owner's verified primary/linked email. Invitations
+match the fetched event's organizer and
+attendee emails to the Connect directory's active, visible profiles, including
+people in Find People who are not Connections. This server-side lookup requires
+a unique exact verified email from both the identity cache and the target's
+current Firebase account, plus contact listing eligibility; it returns only
+the matching user ID and the profile name and photo Connect shows (either may
+be absent, never both), keyed by an email already in the event or a connected
+account whose current Google userinfo email is verified. Board cards, account
+pickers and booking share that same current profile projection.
+Invitation peers use only that fresh result, so a stale Connection email cannot
+override a changed Firebase identity.
+It is bounded to 100 emails, prioritizes verified account addresses before event
+participants, and fails to initials if lookup is unavailable.
 Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
 The Connections list adds `emailVerified` from the authoritative actor profile;
 an absent field is unverified. An account card also requires
@@ -2576,7 +2699,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
 | POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
 | POST | `/api/one/calendar/board/day` | Firebase Bearer + each account's active Calendar OAuth grant | Return all paged events, hidden invitations and full-day free windows for up to three distinct accounts, with source coverage, cross-account overlaps and exact shared free-time intersection. A missing or changing account marks the result incomplete; no shared opening is offered. Per-account calendar-inclusion overrides affect availability only. |
-| POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. Reports free/busy-only calendars explicitly. |
+| POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. The `people` map contains only Connect-visible, unique verified exact-email matches from fetched organizers and attendees, with user ID, Connect profile name and HUSSH photo (each nullable, never both); unavailable or ambiguous matches keep initials. Reports free/busy-only calendars explicitly. |
 | POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the selected account's attendee; prepare a ten-minute encrypted review of a response and optional editable organizer email. No meeting changes. `account_id` defaults to the legacy connection. |
 | POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current selected account/grant and ETag, patch only that attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
 | POST | `/api/one/calendar/attendance/rsvp/review` | Firebase Bearer + active owner-bound Calendar OAuth grant | Prepare a mail-free accepted/declined response for the owner's own invitation. Mail, alternative-time and unknown fields are rejected. |
@@ -2689,7 +2812,7 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | --- | --- | --- |
 | GET | `/availability` | Three independent gates: `requests` admits intake and owner review, `payments` admits checkout and additionally requires usable answer credentials, `payouts` reports owner payout reachability. Legacy `payments`-meaning `enabled` is retained so an older client fails closed. Each field is absent-is-false; a surface whose gate is off opens an explanation instead of a control, and a check that could not be made is reported as retryable rather than as a disabled lane. |
 | POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. Optional UUID `clientRequestId` replays the same requester/owner/canonical question/dates without reopening lifecycle state or duplicating Feed events; conflicts return generic 409, invalid IDs 422. Omission preserves legacy UUID generation. Participant `/{id}/state` supports uncertain-submit recovery. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
-| GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
+| GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. State includes `requesterKeyReady`, nullable `deliveryRecipientKeyId` and `deliveryRecipientKeyActive`; these describe public receiving-key readiness, never private key material. |
 | POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. Approval is admitted by the request gate and records a price without charging; with payments paused the requester sees that price and no pay control. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
 | POST | `/api/payments/stripe/webhook` (shared endpoint) | Raw signed provider event; exact attempt, terms, currency, amount and mode verification. |
@@ -2699,6 +2822,10 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. Onboarding accepts an optional strict body `{attempt_id: UUID, purpose?: "verify"}` and returns the matching opaque attempt, hosted URL and canonical Payouts return URL with `source=answers`. Legacy calls without a body remain supported. Owner, account and mode are server-owned. |
 
 Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../operations/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](./living-memory-freshness-adr.md).
+
+The paid question flow is requester A asks, owner B reviews exact scopes and sets a price, B prepares, A pays, then A opens the released answer. Before sending, A's browser verifies publication of its durable device public key. Storage failure is never treated as an absent key, concurrent setup preserves the first stored key, and setup timeout retires late publication. Older requests without a usable key expose explicit requester-only receiving setup; B sees that prerequisite rather than an owner-unlock error. Key readiness is filtered before the preparation queue limit, so keyless requests cannot starve ready work. Before checkout, A must unlock the device holding the staged key; no replacement is generated merely to make payment available.
+
+Revoking a staged receiving key blocks new checkout. If revocation races a previously opened checkout, the signed valid payment remains recorded and the request enters the existing 72-hour answer/refund recovery. B can restage the same approved terms to A's replacement active key only after the old key is inactive and a fresh composition receipt is verified. An active same-term delivery remains immutable. No second charge, approval replay, cross-device private-key recovery or automatic grant is introduced.
 
 Answer payout setup uses the shared fenced hosted-browser flow. A warm return preserves the initiating unlocked session; a cold Payouts return requires normal authentication and unlock before answer-specific status or fresh-link recovery. Only opaque attempt/source/purpose metadata persists. Return notifications trigger authenticated reads and never establish eligibility. Answer and document markers are separate; scope events accept neither source. Bank-management links use a separately admitted auxiliary window or native browser and are retired when the owner or vault session changes.
 
@@ -2819,18 +2946,29 @@ connection ended.
 | Method | Path | Description |
 | --- | --- | --- |
 | POST | `/api/one/messages/route-token` | Mint with exactly one of `{conversationId, personRef}`, or restore with `{token}`. Firebase authenticated, participant checked on both mint and restore, and private/no-store. Returns `{token, kind, ref}`; business identifiers remain in memory and API bodies. |
-| GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
+| GET | `/api/one/messages/conversations?limit=&cursor=` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. Returns `{items, unreadCount, nextCursor}`; `limit` is 1–100 (default 100). `unreadCount` is global across pages; nullable `nextCursor` continues descending `(activity timestamp, conversation UUID)` order. Cursors are signed, purpose/owner-bound and bounded to 512 characters. Invalid or foreign cursors fail privately before database reads. |
 | DELETE | `/api/one/messages/conversations/{conversationId}` | Hide the entire chat for the authenticated participant using existing per-message deletion timestamps. Returns `{conversationId, deleted:true, scope:"me"}`; preserves the other participant's history and the connection. |
 | GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
 | POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?, clientMessageId?}`. Optional UUID makes a retry return the original message without another Feed/push event. A reused ID with different normalized text, reply target, conversation or sender returns the same generic 409. Every replay rechecks the active connection and block gate. Creates the canonical pair conversation on first message; empty text, self-send, unconnected pair, and a block fail closed. | A reply must reference a message in the same participant conversation.
 | GET | `/api/one/messages/conversations/{conversationId}/messages?before=&limit=` | Participant-only chronological history page; `before` is an opaque message id and `limit` is bounded. |
 | PATCH | `/api/one/messages/conversations/{conversationId}/messages/{messageId}` | Edit the caller's non-deleted sent message using `{content}`. The envelope is re-encrypted with its original message identity, and the response is the participant-safe updated projection. |
-| DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only and replaces content with the durable deleted-message marker for both participants. |
+| DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only, atomically clears durable reactions and replaces content with the deleted-message marker for both participants. Reactions and global deletion serialize on the message row; tombstone projections always have `reactions:[]`, including legacy rows. |
 | PUT | `/api/one/messages/conversations/{conversationId}/messages/{messageId}/reaction` | Set the caller's one durable emoji reaction using `{emoji}`. The response aggregates emoji counts without exposing participant identities. |
 | POST | `/api/one/messages/conversations/{conversationId}/delivered` | Recipient acknowledgment of received bodies using `{messageIds: UUID[]}` (1–100). Every id must be a visible received message in this participant conversation; own, hidden, deleted or foreign messages fail the entire batch without updates. Delivery is idempotent and monotonic; returns `deliveredCount` and `deliveredAt`. |
 | POST | `/api/one/messages/conversations/{conversationId}/read?throughMessageId=` | Mark the viewer's received unread messages through the supplied message's `(created_at,id)` boundary. The optional UUID must belong to this participant-scoped conversation; a foreign boundary returns 404 without updates. Returns `readCount`, `readAt` and, when bounded, `readThroughCreatedAt`. Omitting the boundary preserves the legacy whole-conversation behavior. Reading preserved history remains available after a connection ends. |
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
+
+The People inbox loads further pages on demand and searches the remaining pages
+while a People query is active. Page failures preserve loaded results and expose
+a retry; incomplete discovery never claims an empty result. Background head
+refreshes retain the loaded tail and its continuation. This is a live keyset list,
+not a frozen snapshot under arbitrary concurrent activity. Reactions reconcile
+only their own emoji while their optimistic lease remains current; completion
+never restores an older message body, receipt or tombstone. History revalidation
+remains fenced to the selected conversation and owner.
+Message actions acquire the participant conversation lock before the message
+lock, matching whole-chat deletion and the reaction trigger's parent read.
 
 Opening a person returns their participant-safe `peerDisplayName` and
 `peerPhotoUrl` alongside `peerPersonRef`, including an accepted, unblocked
@@ -3134,7 +3272,7 @@ RIA relationship bundle note:
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
 | POST   | `/api/pkm/commits/lookup`                                                | Owner-scoped: whether each of the caller's own writes `{domain, plan_id}` already committed, in order. The commit id is derived from the token's user; the answer is `{exists, data_version}` only. The resumable save job asks this when a write's response was lost. |
-| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), or `business_directory_v1` (one business record with selectable listing fields). Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
+| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), `business_directory_v1` (one business record with selectable listing fields), `soul_markdown_v1` (memory.md capture) or `profile_review_v1` (profile research review). Optional `capture_source`: a closed, logging-only code naming the calling surface; the backend writes it to the content-free `pkm.memory_proposal.outcome` line, never passes it to an agent, and logs any other value as `unrecognized` without refusing the request. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |
 | GET    | `/api/pkm/domains/{domain}/public-profile-projections?user_id={user_id}` | Vault-owner lists active public-profile handles and metadata only; never projection payloads                                                          |
@@ -3492,12 +3630,13 @@ Cached hints alone never authorize completion. This preserves the native
 same-number/linked Continue path without requiring an SDK phone link for an
 already saved backend-only claim.
 
-Web verification's app-level phone need not be linked to the primary social
-Firebase user. Auth state publishes a fresh verified identity-cache phone after
-the backend claim commits, including same-user Firebase republication, and never
-uses stale/unverified cache evidence or a previous user's cache. Historical
-missing phone bindings are not reconstructed from email verification or OTP log
-messages; account owners restore them through the existing phone verification flow.
+Account settings on web, iOS, and Android show a phone as linked when a fresh
+Firebase read for the signed-in UID matches the verified application claim.
+An existing app-only or mismatched phone shows a verification action. The
+Account editor uses the existing provider-link flow, including when the user
+enters the same number already saved in Hussh. A provider link pending app
+persistence can be retried without another SMS through the exact-phone finalizer.
+Legacy claims remain available to flows that use the application identity.
 An identity lookup failure is retryable availability uncertainty, not a removed
 phone. Auth state retains the known same-session claim, accepts later exact-owner
 cache updates, and fences delayed responses against account changes and newer
@@ -3508,7 +3647,7 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/account/identity/refresh`                   | Refresh backend identity shadow from Firebase Auth                                                                                                                                                       |
-| POST   | `/api/account/phone/claim`                        | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim, then delete the safe phone-only secondary Firebase user when it differs from the signed-in UID |
+| POST   | `/api/account/phone/claim`                        | Compatibility endpoint. Verify phone proof for the signed-in Firebase UID and finalize only the exact phone linked to that UID. A different proof UID cannot create an application claim. Safe phone-only proof users remain eligible for guarded cleanup. |
 | GET    | `/api/account/session-status`                     | Linearized, no-store account lifecycle probe. `401 AUTH_ACCOUNT_NOT_FOUND` is terminal; `423 AUTH_ACCOUNT_DELETION_IN_PROGRESS` means the client must retain its privacy gate and re-probe after `Retry-After`; general lookup failure is `503 AUTH_ACCOUNT_STATUS_UNAVAILABLE` |
 | GET    | `/api/account/email-aliases`                      | List vault-owner account email aliases                                                                                                                                                                   |
 | POST   | `/api/account/email-aliases/verification/start`   | Start explicit email alias verification; dev/UAT review mode may echo the code                                                                                                                           |
@@ -4236,11 +4375,14 @@ Calendar) or the system authentication browser with an app-link return (Drive); 
 does not reload. Callback URIs and scopes are unchanged.
 
 The in-chat cards use the same path through `lib/connections/google-connect-in-place.ts`:
-the Gmail send upgrade on a failed delivery, the Gmail modify card and the Calendar card One
-shows. Each opens Google's window inside the click, stays cancellable while it is open, and
-decides success only from an owner status read that checks the requested permission. A
-successful send upgrade reopens the reviewed draft, and nothing is sent until the person sends
-it again. The Gmail modify and Calendar cards clear with a confirmation, as the old redirect
+the Gmail send upgrade on a failed delivery or on the email draft card, the Gmail modify card
+and the Calendar card One shows. Each opens Google's window inside the click and decides
+success only from an owner status read that checks the requested permission. Status cannot
+see a switched-off send, so a cancelled or failed Gmail send callback ends the attempt as not
+connected even when status already shows the send scope. The delivery, Gmail modify and
+Calendar cards stay cancellable while the window is open; the draft card does not offer Cancel
+sign-in yet. A successful send upgrade reopens the reviewed draft, and nothing is sent until
+the person sends it again. The Gmail modify and Calendar cards clear with a confirmation, as the old redirect
 return did. Native Gmail modify is still web-only. `/one/calendar` settles through the same
 handler and no longer reads `popup.closed`, which Google's opener policy makes unreliable. It
 ends on the callback, an explicit Cancel sign-in, or a bounded expiry.
@@ -5167,7 +5309,14 @@ unavailable row with a retry action.
 ### Connect directory mutual connections
 
 Directory rows additionally return `mutualConnectionCount` and optional
-`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`). Counts use distinct shared
+`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`), plus
+`mutualConnectionPreviews` containing up to two eligible public identities. The
+singular field remains the first eligible preview for existing clients. The same
+metadata is returned on mutual-list and network-list rows, with viewer-relative
+`relationship` (`none`, `pending_outgoing`, `pending_incoming`, `connected`).
+Preview reads are batched across at most 50 page rows and 100 selected identities;
+final graph, block, profile and reference checks reject mid-read changes with 503.
+Counts use distinct shared
 neighbors across active canonical connections, scoped to the returned page,
 excluding blocked relationships. A bounded batch lookup resolves shared peers
 through the canonical directory's live visibility and account checks, independent
@@ -5178,6 +5327,12 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+The authenticated, private/no-store person-context lookup also returns the
+canonical `publicPersonRef`. UID-only portrait entry points use this reference
+to open the existing shared profile preview; they never reinterpret a UID as a
+public reference. Connection requests continue through the existing authenticated
+`POST /api/one/people/{person_ref}/connection` endpoint.
 
 ### Private email send recovery
 
@@ -5626,3 +5781,219 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 `GET /api/one/pod/memory/status` also uses the owner session. Legacy relay routes
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
+
+## Own activity evidence
+
+The separately signed `owner-uat`, `permission-uat` and `snapshot-uat` endpoints
+are read-only and require the exact UAT project, runtime lane, collection/export
+flags and separate credential. UAT admits all registered owners without an
+account-ID tester list; anonymous identities cannot enter activity collection.
+The production all-registered flag remains off in UAT. The Matrix
+session supplies only its verified email hash; cached identity data selects a
+candidate through a bounded two-row hash lookup, but current Firebase verified identity and lifecycle/epoch checks
+authorize the result. Ambiguous candidates fail closed. Owner reads require no
+marketing subscription and carry `readAuthority=verified_owner` plus the hashed
+`ownerEpoch`; they never carry delivery authority. Identity changes and account
+reset during a snapshot invalidate it. No raw email or private content is exported.
+Production marketing/reporting contracts remain separate.
+
+Memory's explicit export, edit, delete, preparation, section retry and reviewed
+save controls report paired `pkm.*` client attempts under Personal Information.
+They retain the original owner and admission generation and expose only a closed
+action ID, opaque operation ID and phase. Their authored action contracts remain
+manual-only; observation does not add an executor or authorize a write or email.
+Preparation is distinct from saving. Partial saves, expired authority, transport
+timeouts and an unacknowledged file handoff remain unknown. A confirmed write is
+not changed to failure by a later metadata refresh. Existing aggregate Memory
+observations remain unpaired and cannot create additional attempt emails.
+
+Manual KYC profile imports in Mail and Email setup report `kyc.save_profile`
+under KYC. Both preserve the originally admitted owner and generation. Local
+Memory staging does not settle the attempt: the existing encrypted-write queue
+notifies a RAM-only, zero-payload observer after a write acknowledgement or its
+existing commit-receipt recovery. A confirmed write remains returned if local
+checkpoint cleanup needs retry; that retry cannot emit the outcome twice. A
+fully synced, already persisted no-op may return, while a duplicate of pending
+work remains unknown. Explicit no-write preparation rejection is blocked;
+transport loss, retired ownership, reset and page exit never infer a terminal
+outcome. Observers are not persisted or replayed after reload, and observer
+errors cannot change the product's result. These observations add no email
+permission and do not cover every KYC action or prove live delivery.
+
+World Model confirmation, rejection, edit and removal report under Memory.
+The shared web and native controller returns an attempt only after the current
+owner’s existing encrypted memory decision has been verified. A lost commit
+acknowledgement or retired owner remains unknown. Reports carry action metadata
+only. Fact keys, wording and evidence never enter PLG or its email body.
+
+The Mail workspace reports an explicit retry of saved receipt restoration as
+`profile.gmail.restore_saved_receipts` under Email. A current, verified saved
+snapshot is required for a returned outcome. Confirmed unavailable storage or
+invalid receipt binding can report failure. Missing snapshots, expired reads
+and retired owners or account/vault scopes supply no terminal outcome.
+Automatic hydration and the follow-up sync do not create another attempt.
+Only activity metadata is reported, with no receipt or account data.
+
+Manual Calendar connection and disconnection report against the original attempt.
+Terminal returns require an acknowledged connection or confirmed disconnection.
+Meeting file upgrades wait for the matching grant. An expired popup, a lost
+response, a handoff that leaves the page, and a same-window reload can leave the
+attempt unknown. Calendar reports contain no Google account or event details.
+
+A manual Files upload or resume starts a client attempt in the existing Files
+workspace. A complete transfer returns only after the original Files response
+reports the whole file ready. Interrupted transfers and unacknowledged outcomes
+stay unknown. Organization runs separately and cannot change the upload report.
+File identifiers, names, bytes and paths are not attached. The Files Agent's
+existing environment availability is unchanged by this reporting contract.
+
+Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
+`snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
+`ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,
+`ONE_PLG_ACTIVITY_ENABLED=true`, `ONE_PLG_ACTIVITY_DEV_ENABLED=true`,
+`ONE_PLG_DEV_EXPORT_ENABLED=true`, a separate `ONE_PLG_DEV_EXPORT_SECRET`, and
+`ONE_PLG_ACTIVITY_DEV_ACCOUNT_IDS` (1–100 explicit owners). All-registered
+collection stays off. No UAT, Production, marketing or worker key can authorize
+Dev reads. A legacy Dev revision labelled UAT fails closed; canonical Dev rollout
+must establish the correct lane before activation. Local mocks do not prove that
+rollout, and no environment is enabled by these source defaults.
+
+Production own reads use separate `owner`, `permission-owner` and `snapshot-owner`
+routes, signed with `owner.production.{owner,permission,snapshot}` purposes. They
+require the production lane/project, `ONE_PLG_OWNER_EXPORT_ENABLED=true`, enabled
+activity collection, `ONE_PLG_OWNER_ACCOUNT_IDS` (1–100 owners), and a distinct
+`ONE_PLG_OWNER_EXPORT_SECRET`. Marketing, UAT read and email-worker credentials
+cannot authorize them. They apply the same verified-owner and reset-epoch checks;
+no marketing opt-in is needed to see one's own activity. These flags are off by
+default and this contract does not establish a deployed source or complete capture.
+
+## Optional agent-attempt emails
+
+The account screen owns an explicit, default-off activity-email choice at
+`GET/PUT /api/one/plg/attempt-email/preferences`. It is separate from marketing
+permission and accepts no recipient or account override. A fresh verified owner
+email, current activity epoch and environment/project
+admission are required to enable it. Opt-out remains available when rollout is off.
+UAT permits every registered owner to make that choice; Dev and Production keep
+their configured recipient cohorts. Removing the UAT list never enables a
+preference automatically. Selection remains bounded to 20 pending deliveries,
+and every claim rechecks the current preference, recipient and lifecycle.
+The worker accepts exact Dev, UAT or Production project/lane pairs. Dev responses,
+signatures and unsubscribe links bind only to the Dev backend
+`https://consent-protocol-aqahj4iyha-uc.a.run.app`; it cannot borrow UAT authority.
+Manual-only controls cannot be submitted by an agent. The setting is operational
+permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
+
+Migration 450 atomically queues the first accepted correlated client terminal
+report for each owner/epoch/attempt. Duplicate phases cannot create more emails;
+SDK/tool reports and uncorrelated observations do not enqueue. This inherits
+best-effort observation coverage and its existing collection limits. It does not
+establish universal attempt capture or a delivery-time guarantee.
+
+Separately signed, environment-bound `attempt-email/pull`, `claim` and `settle`
+ports give a trusted worker one send grant after checking current permission,
+verified recipient, lifecycle and epoch. Read-export keys cannot call them. Only
+closed catalog labels and reported status are returned; no prompts, tool inputs,
+results or freeform mail fields. A lost claim or submission becomes uncertain and
+is never automatically retried. Provider acceptance must not be called Inbox delivery.
+The Matrix worker uses these ports and the existing fixed single-recipient Gmail
+sender. Deployment, actual Inbox/feedback evidence and delivery latency remain
+release prerequisites; these source ports alone do not send email.
+Settlement carries only delivery/claim IDs and provider outcome. One derives the
+owner from its durable row, validates the exact claim and retires acknowledgements
+for reset/erased rows without recreating state. Matrix durably retains bounded
+opaque receipts before acknowledgement and replays them after restart before new
+provider work; no owner identity or message content is needed in that queue.
+
+Migration 451 adds actual provider-message binding and durable bounce suppression.
+Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
+provider references, RFC message IDs and recipient hashes. A matched hard-failure
+report disables future activity emails, including re-enrollment; reports cannot
+enroll anyone or assert positive Inbox delivery. A sending/uncertain reservation
+without a durable acceptance holds feedback progression. Positively correlated
+hard failures still suppress their current owners while unrelated unsettled,
+unbound or lifecycle-blocked reports keep the page replayable. Replaying that
+page cannot increment an already-blocked preference again. Exact acceptance binding
+precedes history processing so out-of-order reports remain replayable. The worker
+may acknowledge receipts and stop reports after new enrollment is disabled.
+
+Only a definite pre-submission/provider rejection may settle with
+`notSubmitted=true` and no provider ID. It releases the exact current claim for a
+later paced cycle, at most three claims total. It cannot release an uncertain or
+accepted submission, or a newer claim. Ambiguous sends remain held. The rollback
+refuses to discard retry counts, bindings or suppression evidence.
+
+Unsubscribe links bind the exact permission generation. GET shows confirmation;
+POST revokes that choice, so email scanners and stale links cannot disable a later
+re-enrollment. Reset disables the preference and erases its outbox. Full account
+tombstones erase both; phone-orphan intent does not revoke an established choice.
+The down migration refuses nonempty state. Disable admission/dispatch for a
+behavioral rollback; do not discard preferences or uncertain-send receipts.
+### Isolated UAT people and attempt directory
+
+`POST /api/one/plg/audience-uat` is a private, read-only directory for the
+authenticated Matrix UAT workspace. It uses the same bounded filters, identity
+projection, seven-day attempt summaries and cursor expiry as `/audience`, with
+the distinct HMAC purpose `audience-uat` and project-bound UAT cursors. It requires
+the UAT auth lane, project `hushh-pda-uat`, enabled UAT activity admission,
+an explicit directory activation and a separate 32+ character directory key.
+The legacy pair is `ONE_PLG_UAT_AUDIENCE_ENABLED=true` with
+`ONE_PLG_UAT_AUDIENCE_SECRET`; the mounted UAT configuration below carries the
+same separate authority without an additional deploy binding. Owner-read, delivery and Production keys cannot
+authorize this directory. Firebase traversal and indexed identity lookups must
+use the UAT project; there is no fallback to Production.
+
+All current registered UAT accounts, including team accounts, are eligible after
+deletion/generation barriers. Disabled, deleted and anonymous accounts remain
+excluded. The version 2 response has `environment: "uat"`,
+`customerReporting: false` and `deliveryAuthorized: false`. Registration and
+directory visibility never opt anyone into email. Only whitelisted identity and
+activity metadata is returned; prompts, provider payloads and auth export fields
+are excluded. Missing or capped capture remains unknown. This source addition
+does not enable any runtime flag, provision secrets, or change release tooling.
+
+### PLG release configuration
+
+The existing `ONE_PLG_UAT_EXPORT_SECRET` mount also accepts a bounded JSON
+envelope with exactly `version: 1`, `environment: "uat"`,
+`project: "hushh-pda-uat"`, `ownerReadKey`, `audienceReadKey` and the boolean
+`audienceEnabled`. Generate independent random owner and directory keys and
+store the envelope only in that UAT Secret Manager resource. Configure Matrix's
+separate UAT owner and audience secret resources with their respective key,
+never the envelope. Neither value may equal a delivery or Production key.
+
+This is application configuration through the existing mounted secret; no
+workflow, deployment binder or runtime-config writer change is needed. Existing
+UAT collection/export flags and exact lane/project checks still apply. The
+directory is off unless `audienceEnabled` is explicitly true. Activity emails
+retain their independent worker key, runtime switch and per-owner choice.
+Malformed/duplicate/foreign-lane fields, extra fields, oversized values, reused
+keys or mixed envelope and legacy audience settings close the reads. Flat owner
+keys and the legacy explicit directory pair retain their previous behavior.
+Disabling only `audienceEnabled` preserves owner reads; rotating the envelope
+requires matching the independent Matrix keys before accepting live reads.
+
+Dev/UAT own-activity rollout uses the canonical backend runtime configuration
+writer and `deploy/plg/bind_secrets.sh`. The structured flags
+`one_plg_dev_export_enabled`, `one_plg_activity_dev_enabled`,
+`one_plg_uat_export_enabled`, `one_plg_activity_uat_enabled`,
+`one_plg_owner_export_enabled` (Production only) and
+`one_plg_attempt_email_enabled` default false. Explicit existing choices survive
+sync only for their exact environment/project; foreign-lane activation is
+rejected. The common `one_plg_activity_enabled` flag still applies, and Dev/UAT
+also require their own activity flag with all-registered off.
+
+Secrets and account cohorts are direct Secret Manager mounts, never fields in
+the structured runtime configuration. Dev mounts only its DEV read/cohort
+names, UAT only UAT, and Production retains its existing campaign mounts plus
+independent OWNER names. Each project may mount its own
+`ONE_PLG_ATTEMPT_EMAIL_SECRET` and `ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS` only when
+the versions are enabled. UAT no longer requires or uses its activity/attempt account-ID
+cohort mounts; Dev/Production retain those restrictions. Existing deployment
+preflight may still require the older cohort setup until its owner reconciles
+that separately; no CI/CD changes are included in this application change.
+Preview secret namespaces cannot borrow canonical PLG credentials.
+A mount cannot enroll an owner or activate delivery; current
+verified identity, owner epoch, explicit per-attempt choice and the separately
+qualified Matrix worker remain required. Keep the attempt key available for
+generation-bound unsubscribe even when new delivery is disabled.

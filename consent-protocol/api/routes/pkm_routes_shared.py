@@ -67,7 +67,7 @@ from hushh_mcp.services.wallet_card_validation import validate_wallet_card_envel
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
-
+MAX_MANIFEST_REVISION = 1_000_000
 # Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _Domain = Annotated[str, Path(min_length=1, max_length=128)]
@@ -534,7 +534,7 @@ class StructureDecisionPayload(BaseModel):
 
 
 class DomainManifestPayload(BaseModel):
-    manifest_version: int = Field(default=1, ge=1, le=1000)
+    manifest_version: int = Field(default=1, ge=1, le=MAX_MANIFEST_REVISION)
     domain_contract_version: int = Field(default=1, ge=1, le=1000)
     pkm_contract_version: Optional[str] = Field(default=None, min_length=5, max_length=32)
     readable_summary_version: int = Field(default=0, ge=0, le=1000)
@@ -1567,7 +1567,7 @@ async def get_domain_snapshot(
 class DomainManifestResponse(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256)
     domain: str = Field(..., min_length=1, max_length=128)
-    manifest_version: int = Field(default=1, ge=1, le=1000)
+    manifest_version: int = Field(default=1, ge=1, le=MAX_MANIFEST_REVISION)
     domain_contract_version: int = Field(default=1, ge=1, le=1000)
     pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
     readable_summary_version: int = Field(default=0, ge=0, le=1000)
@@ -1648,7 +1648,7 @@ class ScopeExposureChangePayload(BaseModel):
 
 class ScopeExposureRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
-    expected_manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    expected_manifest_version: Optional[int] = Field(default=None, ge=1, le=MAX_MANIFEST_REVISION)
     revoke_matching_active_grants: bool = Field(default=True)
     changes: List[ScopeExposureChangePayload] = Field(default_factory=list, max_length=200)
 
@@ -1656,7 +1656,7 @@ class ScopeExposureRequest(BaseModel):
 class ScopeExposureResponse(BaseModel):
     success: bool
     message: Optional[str] = Field(default=None, max_length=512)
-    manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    manifest_version: Optional[int] = Field(default=None, ge=1, le=MAX_MANIFEST_REVISION)
     revoked_grant_count: int = Field(default=0, ge=0, le=10000)
     revoked_grant_ids: List[str] = Field(default_factory=list, max_length=10000)
     manifest: dict = Field(default_factory=dict)
@@ -1685,10 +1685,10 @@ class PublicProfileProjectionRequest(BaseModel):
     top_level_scope_path: str = Field(..., min_length=1, max_length=1024)
     projection_payload: dict = Field(default_factory=dict)
     projection_version: int = Field(default=1, ge=1, le=1000)
-    manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    manifest_version: Optional[int] = Field(default=None, ge=1, le=MAX_MANIFEST_REVISION)
     content_revision: Optional[int] = Field(default=None, ge=1, le=1000000)
     source_content_revision: Optional[int] = Field(default=None, ge=1, le=1000000)
-    source_manifest_revision: Optional[int] = Field(default=None, ge=1, le=1000)
+    source_manifest_revision: Optional[int] = Field(default=None, ge=1, le=MAX_MANIFEST_REVISION)
     metadata: dict = Field(default_factory=dict)
 
 

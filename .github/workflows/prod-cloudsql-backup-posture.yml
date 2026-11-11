@@ -18,7 +18,9 @@ jobs:
   backup-posture:
     name: Daily Cloud SQL Backup Posture Check
     if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'
-    environment: production
+    environment:
+      name: production
+      deployment: false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -39,13 +41,13 @@ jobs:
           test -n "$BACKUP_SERVICE_ACCOUNT" || { echo "Missing production environment variable GCP_BACKUP_SERVICE_ACCOUNT" >&2; exit 1; }
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
 
       - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Set up Python
         uses: actions/setup-python@v6

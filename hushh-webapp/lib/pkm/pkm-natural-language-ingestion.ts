@@ -420,7 +420,7 @@ export async function prepareNaturalLanguagePkm(params: {
         vaultOwnerToken: params.vaultOwnerToken,
         ingestionId,
         chunkIndex: (requestSequence += 1),
-        memoryProfile: params.memoryProfile,
+        memoryProfile: params.memoryProfile, sourceLabel: params.source,
         allowIdentifierProcessing: params.allowIdentifierProcessing,
         reconciliationCandidates: params.findReconciliationCandidates?.(chunk),
         signal: preparationController.signal,

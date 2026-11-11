@@ -10,7 +10,7 @@ export type AccountDeletionStep = Readonly<{
   status: AccountDeletionStepStatus;
 }>;
 
-const CLOSED: AccountDeletionStep = { id: "closed", label: "Account closed", message: "Your private agent is paused.", status: "done" };
+const CLOSED: AccountDeletionStep = { id: "closed", label: "Account closed", message: "Agent One is paused.", status: "done" };
 const DELETED: AccountDeletionStep = { id: "closed", label: "Account closed", message: "Your account was deleted.", status: "done" };
 const ERASED: AccountDeletionStep = { id: "erasing", label: "Information erased", message: "Your information was removed from One.", status: "done" };
 const SECURED: AccountDeletionStep = { id: "sign_in", label: "Sign-in secured", message: "Earlier sign-ins can’t be reused.", status: "done" };

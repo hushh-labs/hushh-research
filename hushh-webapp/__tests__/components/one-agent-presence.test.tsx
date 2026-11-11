@@ -67,7 +67,7 @@ describe("OneAgentPresence", () => {
   it("keeps recovery reachable in compact shell and chat status", async () => {
     mockStatus.mockResolvedValue({ state: "failed" });
     render(<OneAgentPresence compact />);
-    expect(await screen.findByRole("button", { name: "Reconnect your private agent" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Reconnect Agent One" })).toBeEnabled();
     expect(screen.queryByText("Online")).toBeNull();
   });
   // Silence, not "Reserved". This test previously called rendering "Reserved" before

@@ -19,6 +19,7 @@ export interface ButtonProps
    * ripple (the Morphy Button does), so a press never paints two layers.
    */
   showRipple?: boolean
+  disableHoverRipple?: boolean
 }
 
 type ButtonVariantName = NonNullable<ButtonVariantProps["variant"]>
@@ -39,6 +40,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       asChild = false,
       isLoading = false,
       showRipple = true,
+      disableHoverRipple = false,
       children,
       disabled,
       ...props
@@ -52,6 +54,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         variant="none"
         effect={rippleEffectFor(variant)}
         disabled={isDisabled}
+        disableHover={disableHoverRipple || variant === "plain" || variant === "text" || variant === "link"}
       />
     ) : null
 

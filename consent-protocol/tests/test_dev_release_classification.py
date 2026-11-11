@@ -28,7 +28,9 @@ def test_semantic_failure_selects_rollback(
     tmp_path, monkeypatch, failure, backend, frontend, blocked
 ):
     root = Path(__file__).resolve().parents[2]
-    workflow = yaml.safe_load((root / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     step = next(
         step
         for job in workflow["jobs"].values()
@@ -88,7 +90,7 @@ def test_semantic_failure_selects_rollback(
             monkeypatch.setenv("SEMANTIC_ATTEMPT_1", "success")
     else:
         monkeypatch.setenv("DEV_TARGET", "shared-dev")
-    exec(compile(source, str(root / ".github/workflows/deploy-dev.yml"), "exec"), {})  # noqa: S102 - trusted repository workflow
+    exec(compile(source, str(root / ".github/workflows/deploy-dev-implementation.yml"), "exec"), {})  # noqa: S102 - trusted repository workflow
     result = json.loads((tmp_path / "dev-release-classification.json").read_text())
     assert result["release_failed"] is blocked
     assert result["backend_failure"] is backend
@@ -109,7 +111,9 @@ def test_selected_owner_navigation_requires_a_successful_receipt(
     tmp_path, monkeypatch, required, outcome, blocked, semantic
 ):
     root = Path(__file__).resolve().parents[2]
-    workflow = yaml.safe_load((root / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     step = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]
@@ -146,14 +150,30 @@ def test_selected_owner_navigation_requires_a_successful_receipt(
 
 @pytest.mark.parametrize("environment", ["dev", "uat"])
 def test_selected_pkm_gate_runs_without_a_backend_deployment(environment):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    workflow = yaml.safe_load(
+        (
+            ROOT
+            / f".github/workflows/deploy-{environment}{'-implementation' if environment != 'production' else ''}.yml"
+        ).read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     gate = next(step for step in steps if step.get("id") == "verify-pkm-preservation")
     # This is a release-authority wiring contract: frontend-only selection must
     # execute the same preservation gate instead of merely installing its deps.
     assert gate["if"] == "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'"
     assert gate.get("continue-on-error", False) is False
-    assert gate["run"] == f"bash scripts/ci/run-release-pkm-gate.sh {environment}"
+    if environment == "dev":
+        assert gate["run"] == "bash scripts/ci/run-release-pkm-gate.sh dev"
+    else:
+        for branch, expected in (("uat", "uat --sql-only"), ("uat-isolated", "uat")):
+            result = subprocess.run(  # noqa: S603 - authored workflow with a synthetic bash stub
+                ["bash", "-c", 'bash() { printf "%s" "$*"; };\n' + gate["run"]],
+                capture_output=True,
+                text=True,
+                check=True,
+                env={**os.environ, "UAT_SOURCE_BRANCH": branch},
+            )
+            assert result.stdout == "scripts/ci/run-release-pkm-gate.sh " + expected
     proxy = next(step for step in steps if step["name"] == "Install Cloud SQL Auth Proxy")
     assert "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'" in proxy["if"]
     assert steps.index(gate) < next(
@@ -239,8 +259,18 @@ def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
 def test_release_phase_blocks_without_unnecessary_rollback(
     tmp_path, monkeypatch, environment, phase
 ):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    workflow = yaml.safe_load(
+        (
+            ROOT
+            / f".github/workflows/deploy-{environment}{'-implementation' if environment != 'production' else ''}.yml"
+        ).read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
+    final_state = next(step for step in steps if step.get("id") == "final-state")
+    assert "steps.gcp-auth.outcome == 'success'" in final_state["if"]
+    assert next(step for step in steps if step.get("id") == "gcp-auth")["uses"].startswith(
+        "google-github-actions/auth@"
+    )
     identifier = "classify" if environment == "production" else f"classify-{environment}-release"
     step = next(step for step in steps if step.get("id") == identifier)
     assert (
@@ -290,10 +320,12 @@ def test_release_phase_blocks_without_unnecessary_rollback(
         assert result.returncode == 0, result.stderr
     else:
         source = source.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-        exec(compile(source, "release-classifier", "exec"), {})  # noqa: S102 - trusted workflow source.
+        with pytest.raises(SystemExit) as terminal:
+            exec(compile(source, "release-classifier", "exec"), {})  # noqa: S102 - trusted workflow source.
+        assert terminal.value.code == 0
     outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text().splitlines())
     assert outputs["release_failed"] == "true"
-    rollback = phase not in {"image", "prepromotion"}
+    rollback = phase not in {"image", "prepromotion"} and environment == "production"
     assert outputs["backend_failure"] == str(rollback).lower()
     assert outputs["frontend_failure"] == str(rollback).lower()
     early = next(i for i, item in enumerate(steps) if item.get("id") == "check-frontend-image")

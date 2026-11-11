@@ -6,16 +6,16 @@
   "default_spoke": "puppy-one-harness",
   "task_type": "puppy-one-harness",
   "affected_surfaces": [
-    ".agents/subagents/local_model_judge.toml",
+    ".agents/subagents/local_model_judge.md",
     ".agents/skills/puppy-one-harness"
   ],
   "required_reads": [
     ".agents/skills/puppy-one-harness/references/judging-contract.md",
-    ".agents/subagents/local_model_judge.toml",
+    ".agents/subagents/local_model_judge.md",
     "docs/reference/ai/puppy-one-on-device.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task puppy-one-harness",
+    "./bin/hushh agents route-task puppy-one-harness",
     "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
     "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
   ],

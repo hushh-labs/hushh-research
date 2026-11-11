@@ -3,6 +3,13 @@
 set -euo pipefail
 
 release_environment="${1:-}"
+rehearsal_mode="${2:-}"
+if [[ "$#" -gt 2 || ( -n "$rehearsal_mode" && "$rehearsal_mode" != --sql-only ) ]]; then
+  echo "Usage: run-release-pkm-gate.sh dev|uat [--sql-only]" >&2; exit 1
+fi
+if [[ "$rehearsal_mode" == --sql-only && "$release_environment" != uat ]]; then
+  echo "SQL-only preservation is supported only by UAT deployment." >&2; exit 1
+fi
 case "$release_environment" in
   dev) release_project=hushh-pda-dev; release_instance=hushh-pda-dev:us-central1:hushh-dev-pg ;;
   uat) release_project=hushh-pda-uat; release_instance=hushh-pda-uat:us-central1:hushh-uat-pg ;;
@@ -62,6 +69,14 @@ echo "::add-mask::$PGPASSWORD"
 export PGUSER PGPASSWORD PGHOST=127.0.0.1 PGPORT="$proxy_port" PGDATABASE=postgres
 export DB_USER="$PGUSER" DB_PASSWORD="$PGPASSWORD" DB_HOST="$PGHOST" DB_PORT="$PGPORT"
 export DB_NAME="$PGDATABASE" DB_UNIX_SOCKET=""
+
+# UAT CD verifies the actual database. Source suites remain with the unchanged
+# CI gate; this rehearsal rolls back all of its synthetic SQL writes.
+if [[ "$rehearsal_mode" == --sql-only ]]; then
+  psql --no-psqlrc -v ON_ERROR_STOP=1 \
+    -f consent-protocol/db/verify/pkm_v7_zero_loss_rehearsal.sql
+  exit 0
+fi
 
 BOOTSTRAP_FOCUS_PROFILE="$release_environment" bash scripts/env/bootstrap_profiles.sh --strict
 bash scripts/env/use_profile.sh "$release_environment"

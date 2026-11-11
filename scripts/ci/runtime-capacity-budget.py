@@ -11,11 +11,13 @@ candidate. Both phases include retained revisions, jobs and administrative reser
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import re
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -40,6 +42,89 @@ _CLI_SPEC.loader.exec_module(_cli)
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 CAPACITY_PHASES = ("pre-deploy", "post-release")
 CapacityPhase = Literal["pre-deploy", "post-release"]
+
+
+@lru_cache(maxsize=1)
+def production_recovery_profile():
+    # Historical UAT checkouts overlay the shared budget reader. Resolve this
+    # production-only companion only for the exact production backend budget.
+    spec = importlib.util.spec_from_file_location(
+        "production_recovery_capacity", Path(__file__).with_name("production_recovery_capacity.py")
+    )
+    if spec is None or spec.loader is None:
+        raise BudgetError("Production recovery capacity policy is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except OSError as exc:
+        raise BudgetError("Production recovery capacity policy is unavailable") from exc
+    return module
+
+
+def selected_uat_profile(profile: dict[str, Any], target_sha: str) -> dict[str, Any]:
+    """Keep Main's admission policy; bind worker size to the approved source."""
+    if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+        raise BudgetError("selected capacity requires a full application SHA")
+    reference = f"{target_sha}:config/runtime-capacity.json"
+    try:
+        size = int(
+            subprocess.check_output(
+                ["git", "cat-file", "-s", reference], stderr=subprocess.PIPE, timeout=15
+            )
+        )
+    except (subprocess.SubprocessError, ValueError):
+        raise BudgetError("selected capacity profile is unavailable") from None
+    if not 0 < size <= 131072:
+        raise BudgetError("selected capacity profile exceeds its bound")
+    try:
+        source = json.loads(
+            subprocess.check_output(
+                ["git", "show", reference], stderr=subprocess.PIPE, timeout=15
+            )
+        )
+    except (subprocess.SubprocessError, ValueError, UnicodeError):
+        raise BudgetError(
+            "selected capacity profile is unavailable or malformed"
+        ) from None
+    if not all(
+        isinstance(value, dict) and type(value.get("schema_version")) is int
+        and value["schema_version"] == 1 for value in (profile, source)
+    ):
+        raise BudgetError("selected capacity profile schema is unsupported")
+    try:
+        trusted = profile["environments"]["uat"]
+        selected = source["environments"]["uat"]
+        if profile["region"] != source["region"] or any(
+            trusted[key] != selected[key] for key in ("project", "database_instance")
+        ):
+            raise BudgetError("selected worker capacity identifies another environment")
+        name = "consent-protocol-drive-worker"
+        expected, observed = trusted["services"][name], selected["services"][name]
+        if any(
+            type(expected[key]) is not type(observed[key])
+            or expected[key] != observed[key]
+            for key in ("container", "workers_per_instance")
+        ):
+            raise BudgetError("selected worker identity differs from admission policy")
+        ceiling, desired = expected["candidate"], observed["candidate"]
+        if set(ceiling) != set(desired) or any(
+            type(ceiling[key]) is not type(desired[key]) or ceiling[key] != desired[key]
+            for key in ceiling
+            if key != "max_instances"
+        ):
+            raise BudgetError("selected worker pools differ from admission policy")
+        maximum = positive_int(desired["max_instances"], "selected worker maximum")
+        if maximum > positive_int(ceiling["max_instances"], "reviewed worker ceiling"):
+            raise BudgetError(
+                "selected worker size exceeds the reviewed admission ceiling"
+            )
+    except (KeyError, TypeError):
+        raise BudgetError("selected worker capacity contract is incomplete") from None
+    effective = copy.deepcopy(profile)
+    effective["environments"]["uat"]["services"][name]["candidate"]["max_instances"] = (
+        maximum
+    )
+    return effective
 POOL_KEYS = (
     "DB_POOL_MAX_SIZE",
     "DB_SQLALCHEMY_POOL_SIZE",
@@ -365,10 +450,25 @@ def service_budget(
         # Deferred UAT retirement allows several old generations to drain at
         # once. Until they are deleted, reserve each one's full connection cap.
         referenced.update(by_name)
-    return [
-        revision_connections(by_name[name], service, settings, database_connection_name)
-        for name in sorted(referenced)
-    ]
+    recovery = (
+        production_recovery_profile()
+        if service == "consent-protocol"
+        and database_connection_name == "hushh-pda:us-central1:hushh-vault-db"
+        else None
+    )
+    rows = []
+    for name in sorted(referenced):
+        revision = by_name[name]
+        if recovery is not None and recovery.has_inert_identity(revision):
+            if not recovery.verified_inert(service_doc, revision):
+                raise BudgetError(f"{name}: inert recovery revision is unverified or routable")
+            rows.append({
+                "name": name, "max_instances": 1, "workers_per_instance": 0,
+                "connections_per_worker": 0, "connections": 0,
+            })
+        else:
+            rows.append(revision_connections(revision, service, settings, database_connection_name))
+    return rows
 
 
 def job_budget(
@@ -655,7 +755,8 @@ def evaluate(
         retained_budget=service_budget, candidate_budget=candidate_connections,
         inherited_budget=inherited_candidate_connections,
     )
-    expected_jobs = set(config["jobs"]) | {row["name"] for row in non_target_jobs}
+    observers = _inventory.observer_rows(inventory, config["project"])
+    expected_jobs = set(config["jobs"]) | {row["name"] for row in non_target_jobs + observers}
     if set(inventory["jobs"]) != expected_jobs:
         extra = set(inventory["jobs"]) - expected_jobs
         missing = expected_jobs - set(inventory["jobs"])
@@ -668,6 +769,7 @@ def evaluate(
     ]
     service_rows.extend(non_target_services)
     job_rows.extend(non_target_jobs)
+    job_rows.extend(observers)
     service_rows.extend(extra_rows)
     projected = reserve + sum(row["connections"] for row in service_rows + job_rows)
     return {
@@ -675,6 +777,10 @@ def evaluate(
         "phase": phase,
         "project": config["project"],
         "database": connection_name,
+        "admission_scope": (
+            "isolated-project" if _inventory.isolated_dev_scope(config, profile["region"], environment)
+            else "profiled-application"
+        ),
         "verified_max_connections": live_maximum,
         "admission_limit": limit,
         "administrative_reserve": reserve,
@@ -703,6 +809,15 @@ def main() -> int:
     args = _cli.parse_args(__doc__, CAPACITY_PHASES, DEFAULT_PROFILE)
     try:
         profile = json.loads(args.profile.read_text())
+        if args.target_sha:
+            if args.environment != "uat":
+                raise BudgetError("source-bound worker capacity is UAT-only")
+            profile = selected_uat_profile(profile, args.target_sha)
+        if args.resolve_profile_only:
+            if not args.target_sha:
+                raise BudgetError("profile resolution requires an approved source")
+            print(json.dumps(profile, sort_keys=True, indent=2))
+            return 0
         if args.frontend_only:
             if args.additional_candidate_service:
                 raise BudgetError("frontend-only admission cannot reserve a fallback")
@@ -749,7 +864,8 @@ def main() -> int:
         capacity_label = "projected" if args.phase == "pre-deploy" else "current"
         print(
             f"{args.environment}: {capacity_label} {report['projected_connections']} / {report['admission_limit']} "
-            f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']})"
+            f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']}; "
+            f"scope {report['admission_scope']})"
         )
         for row in report["services"] + report["jobs"]:
             print(f"  {row['name']}: {row['connections']}")

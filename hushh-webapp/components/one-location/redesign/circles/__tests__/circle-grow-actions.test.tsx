@@ -68,7 +68,8 @@ describe("CircleGrowActions", () => {
     const choice = await screen.findByRole("button", {
         name: /Select Asha Meena for Circle invitation/i,
       });
-    expect(choice).toHaveAccessibleDescription("From your contacts");
+    expect(choice).toHaveAccessibleDescription("Connected from your contacts");
+    expect(screen.getByText("Connected from your contacts")).toHaveClass("sr-only");
     fireEvent.click(choice);
     fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
 
@@ -260,7 +261,7 @@ describe("CircleInvitePeopleSheet", () => {
       within(ashaRow).getByLabelText("Connected from your contacts"),
     ).toBeTruthy();
 
-    fireEvent.click(within(ashaRow).getByRole("button"));
+    fireEvent.click(within(ashaRow).getByRole("button", { name: /^(Select|Deselect) / }));
     fireEvent.change(screen.getByLabelText("Search connections"), {
       target: { value: "neel" },
     });
@@ -273,7 +274,7 @@ describe("CircleInvitePeopleSheet", () => {
     fireEvent.click(
       within(
         await screen.findByTestId("one-location-circle-grow-eligible-neel-user"),
-      ).getByRole("button"),
+      ).getByRole("button", { name: /^(Select|Deselect) / }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
 
@@ -318,13 +319,13 @@ describe("CircleInvitePeopleSheet", () => {
           screen.getByTestId(
             `one-location-circle-grow-eligible-${invitee.userId}`,
           ),
-        ).getByRole("button"),
+        ).getByRole("button", { name: /^(Select|Deselect) / }),
       );
     }
     expect(
       within(
         screen.getByTestId("one-location-circle-grow-eligible-user-21"),
-      ).getByRole("button"),
+      ).getByRole("button", { name: /^(Select|Deselect) / }),
     ).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Invite 20 people" }));

@@ -52,6 +52,7 @@ from hushh_mcp.one_adk.output_privacy import (
     CHAT_KEY_RUN_ERROR,
     ThoughtSummaryReplayFilter,
     drop_empty_history_parts,
+    drop_replayed_tool_placeholders,
     normalize_history_error,
     public_event,
     safe_exception_event,
@@ -273,6 +274,7 @@ class TurnTiming:
     error_code: str = "none"
     tools_peak: int | None = None
     terminal_observed: bool = False
+    context_usage_events: list[dict[str, Any]] = field(default_factory=list)
 
     def begin_agent(self) -> None:
         if self.agent_started_at is None:
@@ -593,6 +595,11 @@ class TimedADKAgent(ADKAgent):
                 aclosing(super().run(input)) as run,
             ):
                 async for event in run:
+                    while timing.context_usage_events:
+                        yield CustomEvent(
+                            name="hussh.chat_context_usage",
+                            value=timing.context_usage_events.pop(0),
+                        )
                     event = normalize_history_error(event)
                     events = confirmations.project(event) if self.head == HEAD_ONE else [event]
                     for event in events:
@@ -846,9 +853,17 @@ def record_session_phase(phase: str, elapsed_ms: float) -> None:
         timing.session_persistence_count += 1
 
 
+def record_chat_context_usage(value: dict[str, Any]) -> None:
+    """Queue content-free model accounting for this run's existing SSE stream."""
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.context_usage_events.append(dict(value))
+
+
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
     """Preserve the external-read barrier and record privacy-safe request sizes."""
     drop_empty_history_parts(llm_request)
+    drop_replayed_tool_placeholders(llm_request)
     render_text_attachments_for_model(llm_request)
     guarded_response = before_external_read_model(callback_context, llm_request)
     if guarded_response is not None:

@@ -123,8 +123,8 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
 
         return cast(str | None, await self._transaction(operation))
 
-    async def due(self, limit: int = 8) -> list[dict[str, Any]]:
-        """Inspect a fair, bounded set without handing provider authority to it."""
+    async def due(self, limit: int = 8, types: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+        """Inspect a fair, bounded set, of named types only if given; never provider authority."""
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("invalid notification outbox limit")
 
@@ -160,8 +160,8 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                       WHERE notification_state IN ('queued','dispatching')
                         AND notification_attempt_count<:attempts
                         AND notification_next_attempt_at<=clock_timestamp()
-                        AND (notification_lease_id IS NULL
-                          OR notification_lease_expires_at<=clock_timestamp())
+                        AND (notification_lease_id IS NULL OR notification_lease_expires_at<=clock_timestamp())
+                        AND (cardinality(CAST(:types AS text[]))=0 OR event_type=ANY(CAST(:types AS text[])))
                       ORDER BY notification_inspected_at,created_at,event_id
                       LIMIT :limit FOR UPDATE SKIP LOCKED
                     )
@@ -171,7 +171,7 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                       event.notification_state,event.notification_attempt_count
                 """)
                     ),
-                    {"attempts": MAX_NOTIFICATION_ATTEMPTS, "limit": limit},
+                    {"attempts": MAX_NOTIFICATION_ATTEMPTS, "limit": limit, "types": list(types)},
                 ).mappings()
             ]
 

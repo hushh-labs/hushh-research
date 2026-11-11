@@ -12,6 +12,7 @@ import {
 } from "./connector-read-receipt";
 import { parseCustomConnectorProbe, type CustomConnectorProbeExperience } from "./custom-connector-probe";
 import { parseOwnerStyleProposal, type OwnerStyleProposal } from "./owner-style-settings";
+import { parseMailBriefExperience, type MailBriefExperience, type ReceiptSetupExperience } from "./mail-chat-experiences";
 
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
@@ -250,7 +251,9 @@ export type AgentStructuredExperience =
   | KycReadinessExperience
   | MemoryImportReviewExperience
   | EvidenceBriefExperience
-  | StyleSettingsOfferExperience;
+  | StyleSettingsOfferExperience
+  | MailBriefExperience
+  | ReceiptSetupExperience;
 
 export type AgentStructuredExperienceWithPresentation = AgentStructuredExperience & {
   presentation?: AgentExperiencePresentation;
@@ -785,6 +788,8 @@ export function parseAgentToolResultExperience(
   const sharedCard = parseSharedWithMeCard(content);
   if (sharedCard) return sharedCard;
   if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
+    const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapToolResult(content)) : null;
+    if (brief) return brief;
     const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
     return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
       ? receipt : null;

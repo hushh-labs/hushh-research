@@ -182,6 +182,20 @@ describe("connectGmailInPlace (web)", () => {
     await expect(start.result).resolves.toBe("not_connected");
   });
 
+  // A switched-off send still reads as connected with the send scope, so the
+  // status cannot tell a refused consent from a granted one.
+  it.each([
+    ["cancelled", "not_connected"],
+    ["failed", "not_connected"],
+    ["succeeded", "connected"],
+  ] as const)("reports a %s send consent as %s when status already shows the send scope", async (outcome, expected) => {
+    mocks.gmailGetStatus.mockResolvedValue({ connected: true, send_permission_granted: true });
+    const start = connectGmailInPlace({ owner, purpose: "send" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    post(gmailSettlement(attemptIn(popup, GMAIL_ATTEMPT_KEY).attemptId, outcome), popup);
+    await expect(start.result).resolves.toBe(expected);
+  });
+
   it("verifies the modify grant for mailbox changes and settles through storage when the opener is severed", async () => {
     mocks.gmailGetStatus.mockResolvedValue({ connected: true, modify_permission_granted: true });
     const start = connectGmailInPlace({ owner, purpose: "modify" });
@@ -348,6 +362,31 @@ describe("connectCalendarInPlace", () => {
     const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
     post(calendarSettlement(attemptId), popup);
     await expect(start.result).resolves.toBe(expected);
+  });
+
+  it.each(["account-b", "account-c"])("reconnects only %s and rejects a successful primary grant", async accountId => {
+    mocks.calendarStatus.mockResolvedValue({ connected: true, status: "connected", access_level: "manage", accounts: [
+      { account_id: "default", connected: true, status: "connected", access_level: "manage" },
+      { account_id: accountId, connected: false, status: "needs_reauth", access_level: "manage" },
+    ] });
+    const start = connectCalendarInPlace({ owner, accountId, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    expect(mocks.calendarStartConnect).toHaveBeenCalledWith(expect.objectContaining({ accountId, additional: true }));
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId), popup);
+    await expect(start.result).resolves.toBe("not_connected");
+  });
+
+  it("verifies the same additional account after native consent", async () => {
+    mocks.native = true;
+    mocks.calendarStartNative.mockResolvedValue({ server_client_id: "native-client", access_level: "manage", state: "selected-state" });
+    mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "synthetic-auth-code" });
+    mocks.calendarCompleteNative.mockResolvedValue({ connected: false, accounts: [
+      { account_id: "account-b", connected: true, status: "connected", access_level: "manage" },
+    ] });
+    const start = connectCalendarInPlace({ owner, accountId: "account-b", accessLevel: "manage" });
+    await expect(start.result).resolves.toBe("connected");
+    expect(mocks.calendarStartNative).toHaveBeenCalledWith(expect.objectContaining({ accountId: "account-b", additional: true }));
   });
 
   it("does not report connected after denied Calendar consent", async () => {

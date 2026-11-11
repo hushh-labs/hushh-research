@@ -26,7 +26,8 @@ class OneChatRetentionFixture:
             "head_branch": "main",
             "head_sha": "c" * 40,  # a replay's dispatch ref differs from target
             "event": "workflow_dispatch",
-            "actor": {"login": "ankitkumarsingh1702"},
+            "actor": {"login": "historical-operator", "id": 55, "type": "User"},
+            "triggering_actor": {"login": "historical-operator", "id": 55, "type": "User"},
             "status": "completed",
             "conclusion": "success",
             "repository": {"full_name": "org/repo"},
@@ -144,6 +145,17 @@ class OneChatReceiptRetentionTest(OneChatRetentionFixture, unittest.TestCase):
                                 self.load(report)
 
 class OneChatHistoryRetentionTest(OneChatRetentionFixture, unittest.TestCase):
+    def test_retired_history_uses_repository_bound_numeric_identity(self):
+        endpoint = "workflows/deploy-uat-one-chat.yml/runs?per_page=100"
+        with mock.patch.object(maintenance, "command", return_value='{"workflow_runs": []}') as command:
+            self.assertEqual(maintenance.api("hushh-labs/hushh-research", endpoint), {"workflow_runs": []})
+            command.assert_called_once_with(
+                "gh", "api", "repos/hushh-labs/hushh-research/actions/workflows/382099846/runs?per_page=100")
+            with self.assertRaises(maintenance.retention.UnsafeState):
+                maintenance.api("other/repository", endpoint)
+            self.assertEqual(command.call_count, 1)
+
+
     def test_latest_one_chat_source_wins_over_older_standard_release(self):
         standard = {
             **self.run,

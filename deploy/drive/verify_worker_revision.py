@@ -24,6 +24,33 @@ def _digest(image: Any) -> str | None:
     return digest
 
 
+def verify_activity_controls(
+    revision: dict, *, enabled: str | None, paused: str | None
+) -> None:
+    if enabled is None and paused is None:
+        return  # Historical callers do not claim this version's rollout contract.
+    if enabled not in {"true", "false"} or paused not in {"true", "false"}:
+        raise ValueError("Invalid expected activity policy controls")
+    worker = next(
+        (
+            item
+            for item in revision.get("spec", {}).get("containers", [])
+            if item.get("name") == "drive-worker"
+        ),
+        {},
+    )
+    for name, expected in (
+        ("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", enabled),
+        ("DRIVE_REQUEST_ACTIVITY_UNION_PAUSED", paused),
+    ):
+        if [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == name
+        ] != [expected]:
+            raise ValueError("Drive worker activity policy mismatch")
+
+
 def _verify_scaling(
     revision: dict[str, Any], *, max_instances: str | None, concurrency: str | None
 ) -> None:
@@ -142,6 +169,26 @@ SCANNER_AMD64 = (
     "sha256:e8388295191bff0893fb889d9415ae975491201c989b205e30c9057b1985d36a"
 )
 SERVICE = "consent-protocol-drive-worker"
+
+
+def same_worker_spec(desired: dict, observed: dict) -> bool:
+    """Compare exact settings after resolving only the reviewed scanner image pair."""
+    normalized = []
+    for spec in (desired, observed):
+        value = copy.deepcopy(spec)
+        scanners = [
+            item for item in value.get("containers", []) if item.get("name") == "clamav"
+        ]
+        allowed = {
+            f"{repository}@{digest}"
+            for repository in ("clamav/clamav", "mirror.gcr.io/clamav/clamav")
+            for digest in (SCANNER_INDEX, SCANNER_AMD64)
+        }
+        if len(scanners) != 1 or scanners[0].get("image") not in allowed:
+            return False
+        scanners[0]["image"] = f"clamav/clamav@{SCANNER_AMD64}"
+        normalized.append(value)
+    return normalized[0] == normalized[1]
 
 
 def scheduler_command(action: str, path: Path, origin: str) -> list[str]:
@@ -343,6 +390,11 @@ def main() -> int:
             managed_text_provider=os.environ.get("EXPECTED_MANAGED_TEXT_PROVIDER"),
             max_instances=os.environ.get("EXPECTED_MAX_INSTANCES"),
             concurrency=os.environ.get("EXPECTED_CONCURRENCY"),
+        )
+        verify_activity_controls(
+            revision,
+            enabled=os.environ.get("EXPECTED_ACTIVITY_UNION_ENABLED"),
+            paused=os.environ.get("EXPECTED_ACTIVITY_UNION_PAUSED"),
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"Drive worker candidate provenance failed: {exc}", file=sys.stderr)

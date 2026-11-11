@@ -447,7 +447,7 @@ def test_calendar_client_lookup_and_binding_separate_accounts(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("current_email", ["organizer@example.invalid", "stale@example.invalid"])
 async def test_calendar_organizer_requires_current_verified_peer(monkeypatch, current_email):
-    from hushh_mcp.services import calendar_meeting_request_service as service
+    from hushh_mcp.services import calendar_organizer_resolution as service
 
     connection = SimpleNamespace(
         fetch=AsyncMock(return_value=[{"peer": "owner"}]),
@@ -467,10 +467,10 @@ async def test_calendar_organizer_requires_current_verified_peer(monkeypatch, cu
     )
 
     if current_email == "organizer@example.invalid":
-        assert await service._connected_organizer("recipient", current_email) == "owner"
+        assert await service.connected_organizer("recipient", current_email) == "owner"
     else:
         with pytest.raises(DriveSharingError, match="calendar_organizer_unavailable"):
-            await service._connected_organizer("recipient", "organizer@example.invalid")
+            await service.connected_organizer("recipient", "organizer@example.invalid")
 
     assert connection.fetch.await_args.args[1:] == ("recipient", "organizer@example.invalid")
     sync.assert_awaited_once_with("owner", force=True, require_success=True)

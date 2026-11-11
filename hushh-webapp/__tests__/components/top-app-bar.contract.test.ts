@@ -178,11 +178,8 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("onBack={handleTopShellBack}");
     expect(read("components/app-ui/native-shell-back.tsx")).toContain("onClick={onBack}");
     expect(back).toContain("resolveTopShellBreadcrumb");
-    // An open panel or Location action closes in place; everything else is a
-    // step in the trail and retraces.
-    expect(back).toContain(
-      "if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen || sameScreenParent)",
-    );
+    // In-place closes are exercised in top-shell-back.test.ts. Keep both
+    // callers delegated to that owner without copying its branch conditions.
     expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
     expect(source).toContain('replace: action.mode === "replace"');

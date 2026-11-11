@@ -29,6 +29,8 @@ pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="no PostgreSQL bin
     "field", ["user_cloud_tenant_id", "user_cloud_subscription_id", "user_cloud_resource_group"]
 )
 async def test_azure_coordinate_changes_refuse_stale_claim_and_publication(pg, engine, field):  # noqa: F811 -- canonical fixtures
+    from psycopg2.errors import InsufficientPrivilege
+
     from db.db_client import DatabaseClient
 
     _row(pg)
@@ -45,15 +47,56 @@ async def test_azure_coordinate_changes_refuse_stale_claim_and_publication(pg, e
     observed = await repo.get(_USER)
     lease = await repo.claim_image_upgrade(user_id=_USER, observed=observed, target_image="target")
     assert lease
-    pg.execute(f"UPDATE personal_agent_registry SET {field}=%s WHERE user_id=%s", (second, _USER))
+    observed = await repo.get(_USER)
+    assert observed["backend_metadata"]["upgradeLease"] == lease
+    with pytest.raises(InsufficientPrivilege, match="host-bound personal-agent upgrade lease"):
+        pg.execute(
+            f"UPDATE personal_agent_registry SET {field}=%s WHERE user_id=%s", (second, _USER)
+        )
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=backend_metadata || "
+        '\'{"raceWitness":"concurrent"}\'::jsonb WHERE user_id=%s',
+        (_USER,),
+    )
     assert not await repo.record_image_upgrade(
         user_id=_USER,
         observed=observed,
         expected_lease=lease,
         previous_metadata={},
         backend_metadata={"image": "stale"},
+        require_unchanged_metadata=True,
     )
-    assert (await repo.get(_USER))["backend_metadata"] == {"upgradeLease": lease}
+    current = await repo.get(_USER)
+    assert current[field] == first
+    assert current["backend_metadata"] == {
+        **observed["backend_metadata"],
+        "raceWitness": "concurrent",
+    }
+    assert current["backend_metadata"]["upgradeLease"] == lease
+
+
+def _set_model_mode_with_held_lease_authority(server, owner, mode):
+    rows = server.execute(
+        """WITH lease_authority AS MATERIALIZED (
+               SELECT set_config(
+                   'hushh.upgrade_lease_host_binding',
+                   format('%%s|%%s', registry.backend_metadata->>'upgradeLease',
+                          (registry.backend_metadata->'upgradeLeaseHost')::text),
+                   true
+               )
+               FROM personal_agent_registry AS registry
+               WHERE registry.user_id=%s
+                 AND registry.backend_metadata->>'upgradeLease' IS NOT NULL
+                 AND registry.backend_metadata->'upgradeLeaseHost' IS NOT NULL
+           )
+           UPDATE personal_agent_registry AS registry
+           SET model_credential_mode=%s
+           FROM lease_authority
+           WHERE registry.user_id=%s
+           RETURNING registry.model_credential_mode""",
+        (owner, mode, owner),
+    )
+    assert rows == [(mode,)]
 
 
 async def _claim_model_repair(server, connection_engine, fixture_and_plan):
@@ -141,10 +184,7 @@ async def test_model_mode_and_completion_share_one_bound_postgres_publication(
     if variant == "forged_plan":
         desired["modelEnablement"]["plan"]["model_name"] = "other-model"
     elif variant == "stale_mode":
-        pg.execute(
-            "UPDATE personal_agent_registry SET model_credential_mode='user_adc' WHERE user_id=%s",
-            (_USER,),
-        )
+        _set_model_mode_with_held_lease_authority(pg, _USER, "user_adc")
     elif variant == "stale_journal":
         pg.execute(
             "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{modelEnablement,status}','\"changed\"') WHERE user_id=%s",
@@ -163,3 +203,6 @@ async def test_model_mode_and_completion_share_one_bound_postgres_publication(
     assert result is (variant == "accepted")
     assert (current["model_credential_mode"] == "user_azure_mi") is (variant == "accepted")
     assert ("upgradeLease" not in current["backend_metadata"]) is (variant == "accepted")
+    if variant == "stale_mode":
+        assert current["model_credential_mode"] == "user_adc"
+        assert current["backend_metadata"] == observed["backend_metadata"]

@@ -49,6 +49,7 @@ PERMISSION_FIELDS = (
     "permissionDetails(inherited,inheritedFrom,permissionType,role)"
 )
 LIST_FIELDS = f"nextPageToken,permissions({PERMISSION_FIELDS})"
+INSPECTION_ACL_FIELDS = f"{FILE_FIELDS},driveId,permissions({PERMISSION_FIELDS})"
 VERSION = re.compile(r"[0-9]{1,30}\Z")
 EMAIL = re.compile(r'[^@\s<>"(),;:\\]+@[^@\s<>"(),;:\\]+\.[^@\s<>"(),;:\\]+\Z')
 ROLES = frozenset({"owner", "organizer", "fileOrganizer", "writer", "commenter", "reader"})
@@ -359,6 +360,30 @@ def _permission(value: object) -> dict:
     return result
 
 
+def _embedded_snapshot(result) -> PermissionSnapshot | None:
+    """Only an explicitly returned complete My Drive ACL can replace listing."""
+    capabilities = result.get("capabilities")
+    values = result.get("permissions")
+    if (
+        result.get("driveId") is not None
+        or not isinstance(capabilities, dict)
+        or capabilities.get("canShare") is not True
+        or type(values) is not list
+        or len(values) > PERMISSION_LIMIT
+    ):
+        return None
+    try:
+        permissions = tuple(_permission(value) for value in values)
+        if len({item["id"] for item in permissions}) != len(permissions) or any(
+            item["type"] == "user" and not item.get("deleted") and not item.get("emailAddress")
+            for item in permissions
+        ):
+            return None
+        return PermissionSnapshot(permissions)
+    except DrivePermissionError:
+        return None
+
+
 class GoogleDrivePermissionAdapter:
     async def _exchange(
         self,
@@ -373,6 +398,7 @@ class GoogleDrivePermissionAdapter:
         send_notification_email: bool = True,
         resource_key: str | None = None,
         expiration_time: str | None = None,
+        include_permissions: bool = False,
     ) -> dict:
         started = time.perf_counter()
         outcome = "error"
@@ -392,6 +418,7 @@ class GoogleDrivePermissionAdapter:
                 send_notification_email=send_notification_email,
                 resource_key=resource_key,
                 expiration_time=expiration_time,
+                include_permissions=include_permissions,
             )
             outcome = "ok"
             return result
@@ -448,12 +475,15 @@ class GoogleDrivePermissionAdapter:
         send_notification_email: bool = True,
         resource_key: str | None = None,
         expiration_time: str | None = None,
+        include_permissions: bool = False,
     ) -> dict:
+        if type(include_permissions) is not bool or include_permissions and operation != "inspect":
+            raise DrivePermissionError("operation_not_allowed")
         path = f"/files/{_identifier(file_id)}"
         body, method = None, "GET"
         params = {"supportsAllDrives": "true"}
         if operation == "inspect" and email is permission_id is page_token is None:
-            params["fields"] = FILE_FIELDS
+            params["fields"] = INSPECTION_ACL_FIELDS if include_permissions else FILE_FIELDS
         elif operation == "list" and email is permission_id is None:
             path += "/permissions"
             params.update({"fields": LIST_FIELDS, "pageSize": "100"})
@@ -499,7 +529,9 @@ class GoogleDrivePermissionAdapter:
         mutation = method != "GET"
         try:
             with suppress_instrumentation():
-                async with asyncio.timeout(DEADLINE_SECONDS):
+                from hushh_mcp.services.drive_rest_admission import rest_admission
+
+                async with rest_admission(require_current), asyncio.timeout(DEADLINE_SECONDS):
                     await require_current()
                     async with httpx.AsyncClient(
                         timeout=15, follow_redirects=False, trust_env=False
@@ -588,16 +620,25 @@ class GoogleDrivePermissionAdapter:
         start_time: str | None = None,
         end_time: str | None = None,
         resource_key: str | None = None,
-    ) -> None:
+        include_permissions: bool = False,
+    ) -> PermissionSnapshot | None:
         if not isinstance(expected_version, str) or not VERSION.fullmatch(expected_version):
             raise DrivePermissionError("operation_not_allowed")
-        result = await self._exchange(
-            "inspect",
+        inspect_args = dict(
             file_id=file_id,
             access_token=access_token,
             require_current=require_current,
             resource_key=resource_key,
         )
+        try:
+            result = await self._exchange(
+                "inspect", **inspect_args, include_permissions=include_permissions
+            )
+        except DrivePermissionError as error:
+            if not include_permissions or str(error) != "permission_response_invalid":
+                raise
+            result = await self._exchange("inspect", **inspect_args)
+            include_permissions = False
         capabilities, encryption = result.get("capabilities"), result.get("clientEncryptionDetails")
         mime = result.get("mimeType")
         if (
@@ -676,6 +717,7 @@ class GoogleDrivePermissionAdapter:
             except (TypeError, ValueError):
                 raise DrivePermissionError("source_changed") from None
         await require_current()
+        return _embedded_snapshot(result) if include_permissions else None
 
     async def list_permissions(
         self,

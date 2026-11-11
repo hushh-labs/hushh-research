@@ -25,6 +25,7 @@ import { pickAvatar } from "@/lib/profile/avatar-capture";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { isNative } from "@/lib/capacitor/platform";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { recordLiveActivity, snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
 import { cn } from "@/lib/utils";
 
 function initialsOf(name?: string | null): string | null {
@@ -87,6 +88,7 @@ export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = fals
     // "Updated" only on persisted identity evidence. The service resolves
     // null when there was no session or the server returned no identity;
     // a resolved promise is not a stored photo.
+    const activityOwner = snapshotLiveActivityOwner();
     const upload = AccountIdentityService.uploadAvatar(user, dataUrl).then(
       (identity) => {
         if (!identity) throw new Error("Photo wasn't saved. Try again.");
@@ -101,6 +103,7 @@ export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = fals
     });
     try {
       await upload;
+      recordLiveActivity({ kind: "profile_updated" }, activityOwner);
     } catch {
       setPreviewPhoto(null);
     } finally {
@@ -115,6 +118,7 @@ export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = fals
     setBusy(true);
     // Removal clears the custom override only; the provider photo may
     // reappear, and that is the returned identity, not an error.
+    const activityOwner = snapshotLiveActivityOwner();
     const removal = AccountIdentityService.removeAvatar(user).then(
       (identity) => {
         if (!identity) throw new Error("Photo wasn't removed. Try again.");
@@ -129,6 +133,7 @@ export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = fals
     });
     try {
       await removal;
+      recordLiveActivity({ kind: "profile_updated" }, activityOwner);
     } catch {
       // The morphing toast owns the user-facing error state.
     } finally {

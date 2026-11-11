@@ -161,7 +161,8 @@ async def test_owner_coverage_dedup_and_resource_key_stay_encrypted(store):
     assert "private-folder" not in encoded and "private-folder-key" not in encoded
 
 
-async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_instances(store):
+@pytest.mark.parametrize("total", [1000, 5001])
+async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_instances(store, total):
     state, _ = await create(store)
     calls, concurrency = [], {"active": 0, "peak": 0}
 
@@ -180,8 +181,8 @@ async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_inst
         return ExternalMcpToolResult(
             False,
             {
-                "files": [file(n) for n in range(page * 100, (page + 1) * 100)],
-                "nextPageToken": str(page + 1) if page < 9 else None,
+                "files": [file(n) for n in range(page * 100, min(total, (page + 1) * 100))],
+                "nextPageToken": str(page + 1) if (page + 1) * 100 < total else None,
                 "incompleteSearch": False,
             },
             False,
@@ -206,10 +207,10 @@ async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_inst
         final["pagesScanned"],
         final["matched"],
     )
-    assert final["matched"] == 1000
-    assert final["pagesScanned"] == 11 and final["incompleteSearch"] is False
+    assert final["matched"] == total
+    assert final["pagesScanned"] == (total + 99) // 100 + 1 and final["incompleteSearch"] is False
     assert concurrency["peak"] == 1
-    assert len([call for call in calls if call[0] == "search_files"]) == 10
+    assert len([call for call in calls if call[0] == "search_files"]) == (total + 99) // 100
     cursor, identifiers = None, []
     while True:
         page = await store.results(user_id="owner", job_id=state["jobId"], cursor=cursor)
@@ -218,7 +219,7 @@ async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_inst
         cursor = page["nextCursor"]
         if cursor is None:
             break
-    assert identifiers == [f"file-{n}" for n in range(1000)]
+    assert identifiers == [f"file-{n}" for n in range(total)]
     rows = sql(store, "SELECT metadata_envelope FROM drive_owner_search_results").all()
     assert "Synthetic private" not in str(rows) and '"file-' not in str(rows)
 

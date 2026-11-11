@@ -110,8 +110,8 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Professional Domain" }));
     fireEvent.click(screen.getByRole("button", { name: "Professional role" }));
     fireEvent.click(screen.getByRole("button", { name: "Review request" }));
-    expect(screen.getByText("This includes all available information in this area, not just one detail.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "What you are asking for" }).parentElement)
+    expect(screen.getByText("Includes all available information in this area.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Requested information" }).parentElement)
       .not.toHaveTextContent("Professional role");
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic professional review" } });
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));

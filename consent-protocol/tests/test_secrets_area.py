@@ -192,3 +192,22 @@ def test_a_summary_that_could_leak_a_secret_or_label_is_refused(summary: dict) -
 
 def test_other_domains_are_untouched_by_the_secrets_envelope() -> None:
     _enforce_secrets_write_policy(SimpleNamespace(summary={"note": "free text"}), "notes")
+
+
+class TestPKMAgentLabSensitiveSecretClassifier:
+    def test_names_the_secret_kind(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        assert S._contains_sensitive_secret("Card on file: 4111 1111 1111 1111") == "card_number"
+        assert S._contains_sensitive_secret("my pin is 4321 for the door") == "card_security_code"
+        assert S._contains_sensitive_secret("Bank login password: hunter2-please") == "credential"
+        SYNTHETIC_STRIPE_TEST_VALUE = "sk" + "_test_synthetic0000000000000000"
+        assert S._contains_sensitive_secret((SYNTHETIC_STRIPE_TEST_VALUE)) == "credential"
+        assert S._contains_sensitive_secret("SSN 123-45-6789") == "government_id"
+        assert (
+            S._contains_sensitive_secret("Passport number: X12345678 renew soon") == "government_id"
+        )
+        assert (
+            S._contains_sensitive_secret("account number: 12345678901 for payroll")
+            == "bank_account"
+        )

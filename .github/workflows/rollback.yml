@@ -53,11 +53,30 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
+  actions: read
   contents: read
   id-token: write
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+    with:
+      application_ref: ${{ github.sha }}
+      environment_name: ${{ inputs.environment }}
+      scope: ${{ 'all' }}
+
   rollback-uat:
+    permissions:
+      pull-requests: read
+      actions: write
+      contents: read
+      id-token: write
+    needs: deployment-security
     name: "Rollback — UAT"
     if: github.event.inputs.environment == 'uat'
     runs-on: ubuntu-latest
@@ -73,7 +92,21 @@ jobs:
       HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD: "true"
       BACKEND_SERVICE: consent-protocol
       FRONTEND_SERVICE: hushh-webapp
+      ROLLBACK_SCOPE: ${{ inputs.scope }}
+      BACKEND_REVISION: ${{ inputs.backend_revision }}
+      FRONTEND_REVISION: ${{ inputs.frontend_revision }}
+      ROLLBACK_REASON: ${{ inputs.reason }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
@@ -88,13 +121,21 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
+
+      - name: Validate rollback dispatch inputs
+        shell: bash
+        run: bash scripts/ci/resolve-rollback-target.sh --validate-inputs "uat"
 
       - name: Fetch last-known-good deploy tags
         run: git fetch origin 'refs/tags/deployed/*:refs/tags/deployed/*' 2>&1 || true
@@ -111,7 +152,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         id: gcp-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -120,7 +161,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Set GCP project context
         run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
@@ -147,7 +188,7 @@ jobs:
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat backend "${{ github.event.inputs.backend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat backend "$BACKEND_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -169,7 +210,7 @@ jobs:
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat frontend "${{ github.event.inputs.frontend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat frontend "$FRONTEND_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -184,22 +225,37 @@ jobs:
       - name: Rollback summary
         if: always()
         shell: bash
-        run: |
-          {
-            echo "## UAT Rollback"
-            echo ""
-            echo "- Actor: \`${GITHUB_ACTOR}\`"
-            echo "- Reason: ${{ github.event.inputs.reason }}"
-            echo "- Scope: \`${{ github.event.inputs.scope }}\`"
-            echo "- Backend target revision: \`${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}\`"
-            echo "- Frontend target revision: \`${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          ROLLBACK_ENVIRONMENT: UAT
+          BACKEND_TARGET: ${{ steps.rollback-backend.outputs.revision }}
+          FRONTEND_TARGET: ${{ steps.rollback-frontend.outputs.revision }}
+        run: &rollback_summary |
+          python3 - <<'PYCODE'
+          import os
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              print(f"## {os.environ['ROLLBACK_ENVIRONMENT']} Rollback", file=summary)
+              for label, key in (
+                  ("Actor", "GITHUB_ACTOR"),
+                  ("Scope", "ROLLBACK_SCOPE"),
+                  ("Backend target revision", "BACKEND_TARGET"),
+                  ("Frontend target revision", "FRONTEND_TARGET"),
+                  ("Drive worker target revision", "WORKER_TARGET"),
+                  ("Reason", "ROLLBACK_REASON"),
+              ):
+                  if key not in os.environ:
+                      continue
+                  print(f"\n{label}\n", file=summary)
+                  for line in (os.environ[key] or "n/a").splitlines():
+                      print(f"    {line}", file=summary)
+          PYCODE
 
   rollback-production:
+    needs: deployment-security
     name: "Rollback — Production"
     permissions:
       contents: read
-      actions: read
+      actions: write
       id-token: write
     if: github.event.inputs.environment == 'production'
     runs-on: ubuntu-latest
@@ -216,7 +272,22 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BACKEND_SERVICE: consent-protocol
       FRONTEND_SERVICE: hushh-webapp
+      ROLLBACK_SCOPE: ${{ inputs.scope }}
+      BACKEND_REVISION: ${{ inputs.backend_revision }}
+      FRONTEND_REVISION: ${{ inputs.frontend_revision }}
+      WORKER_REVISION: ${{ inputs.drive_worker_revision }}
+      ROLLBACK_REASON: ${{ inputs.reason }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
@@ -231,13 +302,20 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
+
+      - name: Validate rollback dispatch inputs
+        shell: bash
+        run: bash scripts/ci/resolve-rollback-target.sh --validate-inputs "production"
 
       - name: Fetch last-known-good deploy tags
         run: git fetch origin 'refs/tags/deployed/*:refs/tags/deployed/*' 2>&1 || true
@@ -254,7 +332,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         id: gcp-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -263,7 +341,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Set GCP project context
         run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
@@ -290,7 +368,7 @@ jobs:
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production backend "${{ github.event.inputs.backend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production backend "$BACKEND_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -312,7 +390,7 @@ jobs:
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production frontend "${{ github.event.inputs.frontend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production frontend "$FRONTEND_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -327,13 +405,8 @@ jobs:
       - name: Rollback summary
         if: always()
         shell: bash
-        run: |
-          {
-            echo "## Production Rollback"
-            echo ""
-            echo "- Actor: \`${GITHUB_ACTOR}\`"
-            echo "- Reason: ${{ github.event.inputs.reason }}"
-            echo "- Scope: \`${{ github.event.inputs.scope }}\`"
-            echo "- Backend target revision: \`${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}\`"
-            echo "- Frontend target revision: \`${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          ROLLBACK_ENVIRONMENT: Production
+          BACKEND_TARGET: ${{ steps.rollback-backend.outputs.revision }}
+          FRONTEND_TARGET: ${{ steps.rollback-frontend.outputs.revision }}
+        run: *rollback_summary

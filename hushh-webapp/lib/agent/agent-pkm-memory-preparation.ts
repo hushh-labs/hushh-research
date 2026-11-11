@@ -11,6 +11,30 @@ import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
+/** Closed, logging-only codes naming the calling surface, mirrored by the
+ * backend's `CaptureSource`. They never carry content or reach an agent. */
+export type MemoryCaptureSource =
+  | "agent_chat_auto_capture" | "app_activity_digest" | "gmail_receipt_radar"
+  | "kyc_identity_onboarding" | "explicit_save" | "memory_workspace" | "first_connect_insights"
+  | "drive_read_review" | "business_profile_review" | "profile_research_review" | "public_profile_claim";
+
+// Existing source labels mapped to codes under the log redactor's 24-character
+// bound. A Map, so an inherited key can never resolve; an unmapped or free-text
+// label sends nothing and logs as unspecified.
+const CAPTURE_SOURCE_BY_LABEL: ReadonlyMap<string, MemoryCaptureSource> = new Map<string, MemoryCaptureSource>([
+  ["agent_chat_auto_capture", "agent_chat_auto_capture"],
+  ["app_activity_digest", "app_activity_digest"],
+  ["gmail_receipt_memory_save_button", "gmail_receipt_radar"],
+  ["kyc_identity_onboarding", "kyc_identity_onboarding"],
+  ["agent_chat_owner_request", "explicit_save"],
+  ["memory_workspace", "memory_workspace"],
+  ["first_connect_insights", "first_connect_insights"],
+  ["drive_read_review", "drive_read_review"],
+  ["business_profile_review", "business_profile_review"],
+  ["profile_research_review", "profile_research_review"],
+  ["public_profile_claim", "public_profile_claim"],
+]);
+
 export type AgentPkmPreparationInput = {
   userId: string;
   message: string;
@@ -25,6 +49,9 @@ export type AgentPkmPreparationInput = {
   memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1" | "profile_review_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
+  /** The caller's existing source label. In-process only: just its closed code
+   * goes on the wire, for logging; it is never an agent input. */
+  sourceLabel?: string;
   signal?: AbortSignal;
   isEffectCurrent?: () => boolean;
 };
@@ -47,6 +74,7 @@ export async function requestPkmMemoryPreparation(
   if (params.isEffectCurrent && !params.isEffectCurrent()) {
     throw new DOMException("The effect session changed.", "AbortError");
   }
+  const captureSource = params.sourceLabel ? CAPTURE_SOURCE_BY_LABEL.get(params.sourceLabel) : undefined;
   const init = {
     method: "POST",
     signal: params.signal,
@@ -67,6 +95,7 @@ export async function requestPkmMemoryPreparation(
         .filter(Boolean)
         .slice(0, 256),
       memory_profile: params.memoryProfile || "general",
+      ...(captureSource ? { capture_source: captureSource } : {}),
       allow_identifier_processing: params.allowIdentifierProcessing === true,
       ...(params.reconciliationCandidates?.length
         ? {
@@ -240,7 +269,7 @@ async function refusePreparationResponse(
   }
   throw new Error(
     response.status === 404
-      ? "Your private agent needs an update before preparing Memory. Nothing was saved."
+      ? "Agent One needs an update before preparing Memory. Nothing was saved."
       : `Memory preparation failed (${errorCode}). Please try again.`,
   );
 }

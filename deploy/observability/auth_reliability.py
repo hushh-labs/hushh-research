@@ -15,7 +15,8 @@ METRICS = (
     "obs_auth_allowlist_failure_count",
     "obs_auth_allowlist_health_count",
 )
-POLICIES = ("auth-service-failures-policy", "auth-allowlist-health-policy")
+POLICIES = ("auth-service-failures-policy", "auth-allowlist-health-policy",
+            "protected-configuration-job-policy")
 
 
 def selected_policies(args: argparse.Namespace) -> tuple[str, ...]:

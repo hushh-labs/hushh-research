@@ -57,6 +57,11 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
                 text("""SELECT account_owner_id,user_id_hash,provider_cleanup_id,erasure_phase,cleanup_status,
               provider_cleanup_inventory,provider_cleanup_receipt,
               provider_cleanup_next_attempt_at,
+              (erasure_phase='erased' AND cleanup_status='completed'
+                AND cleanup_last_outcome='deleted'
+                AND cleanup_last_classification='firebase_isolated_identity_absent'
+                AND to_jsonb(account_deletion_tombstones)->'firebase_erasure_checkpoint'->>'state'='absent')
+                IS TRUE AS identity_removed,
               (erasure_phase='provider_cleanup' AND (cleanup_status IN ('pending','retry_pending')
                 OR (cleanup_status='running' AND cleanup_claimed_at<now()-interval '5 minutes'))
                 AND provider_cleanup_next_attempt_at<now()-make_interval(secs=>:stall_seconds))
@@ -87,11 +92,23 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
             state = "waiting_for_provider"
         else:
             state = "cleaning_up"
+        from hushh_mcp.services.account_cloud_retirement import summary_in_transaction
+
+        cloud_cleanup = summary_in_transaction(
+            conn, owner_hash=row["user_id_hash"], cleanup_id=str(row["provider_cleanup_id"])
+        )
+        # The current isolated Firebase contract proves local erasure and native
+        # identity absence together. A provider wait is independent of admission.
+        account_deleted = state == "complete" and row["identity_removed"] is True
         return {
+            "account_deleted": account_deleted,
+            "ready_to_start_fresh": account_deleted,
+            **({"cloud_cleanup": cloud_cleanup} if cloud_cleanup is not None else {}),
             "id": str(row["provider_cleanup_id"]),
             "owner_hash": row["user_id_hash"],
             "owner_id": row["account_owner_id"] if state != "complete" else None,
             "state": state,
+            "identity_removed": row["identity_removed"],
             "credential_count": len(inventory),
             "local_erasure_confirmation_required": bool(
                 unsupported and receipt.get("localErasureAccepted") is not True
@@ -184,6 +201,7 @@ class ProviderCleanupClaim:
     inventory: dict = field(repr=False)
     receipt: dict = field(repr=False)
     requested_target: str = "both"
+    firebase_erasure_authority: dict | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,7 +290,8 @@ def claim_due(*, limit: int = 5) -> list[ProviderCleanupClaim]:
         rows = (
             conn.execute(
                 text("""SELECT user_id_hash,account_owner_id,firebase_uid,provider_cleanup_requested_target,
-            provider_cleanup_id,provider_cleanup_inventory,provider_cleanup_receipt
+            provider_cleanup_id,provider_cleanup_inventory,provider_cleanup_receipt,
+            to_jsonb(account_deletion_tombstones)->'firebase_erasure_authority' AS firebase_erasure_authority
             FROM account_deletion_tombstones
             WHERE erasure_phase='provider_cleanup' AND provider_cleanup_next_attempt_at<=now()
               AND (cleanup_status IN ('pending','retry_pending') OR
@@ -307,6 +326,7 @@ def claim_due(*, limit: int = 5) -> list[ProviderCleanupClaim]:
                 ProviderCleanupClaim(
                     owner_id=row["account_owner_id"],
                     firebase_uid=row["firebase_uid"],
+                    firebase_erasure_authority=row["firebase_erasure_authority"],
                     cleanup_id=str(row["provider_cleanup_id"]),
                     claim_token=claimed,
                     inventory=row["provider_cleanup_inventory"],
@@ -601,7 +621,22 @@ def is_ready(claim: ProviderCleanupClaim) -> bool:
 
 
 def settle_local_erasure(conn, claim: ProviderCleanupClaim) -> None:
-    """Commit with local erasure; retain the person's external Firebase identity."""
+    """Commit the exact qualified identity outcome with local erasure."""
+    if claim.firebase_erasure_authority is not None:
+        updated = conn.execute(
+            text("""UPDATE account_deletion_tombstones SET erasure_phase='erased',
+            cleanup_status='completed',firebase_uid=NULL,provider_cleanup_next_attempt_at=NULL,
+            cleanup_next_attempt_at=NULL,cleanup_claim_token=NULL,cleanup_claimed_at=NULL,
+            cleanup_last_outcome='deleted',cleanup_last_classification='firebase_isolated_identity_absent',updated_at=now()
+            WHERE user_id_hash=:owner_hash AND provider_cleanup_id=CAST(:cleanup_id AS uuid)
+              AND cleanup_claim_token=CAST(:claim_token AS uuid) AND erasure_phase='local_erasure'
+              AND firebase_erasure_authority=CAST(:authority AS jsonb)
+              AND public.account_firebase_erasure_qualified(account_deletion_tombstones) IS TRUE"""),
+            {**_parameters(claim), "authority": json.dumps(claim.firebase_erasure_authority)},
+        )
+        if updated.rowcount != 1:
+            raise ProviderCleanupClaimLost("isolated erasure lost its exact cleanup claim")
+        return
     updated = conn.execute(
         text("""UPDATE account_deletion_tombstones SET erasure_phase='erased',
         cleanup_status='quarantined',firebase_uid=NULL,provider_cleanup_next_attempt_at=NULL,

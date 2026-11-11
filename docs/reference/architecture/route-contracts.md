@@ -242,6 +242,12 @@ The runtime parent authority remains `resolveTopShellBackAction`. Shell Back and
 
 Memory registers card, nested path and category unwind without putting private details or queries in URLs. Wallet closes edit, preview or success before the selected card, then returns to all cards; inactive panes release their layers and busy card mutations consume Back. Location Share/Ask unwind their selection steps before leaving the flow; Share also clears its consent-review flag. SMS Circle retains Settings/SOS origin. Circle-owned tasks retain their Circle parent. Profile keeps a validated origin through detail, panel and root.
 
+A fresh Profile open from the shell or edge gesture starts at the Profile home.
+Closing the pane ends that navigation session; reopening does not restore a
+previous Hosting, settings panel or detail. Explicit links to a Profile setting
+still open their authored destination and retain their Back origin. An already
+open pane keeps its current URL during session recovery or vault readmission.
+
 `backVerification` in the existing route layout contract is verification metadata, not a second runtime router. Its cases exercise production parent resolution, canonical targets, query replacements and eventual root reachability. Every physical route needs coverage, every Location action needs cases for Now/People/Links, and new history bypasses fail. Existing entry, redirect and hidden surfaces explicitly describe their shell boundary; this gate does not invent a parent for them.
 
 Before UI edits, follow the [UI contract contributor scaffold](./ui-contract-contributor-guide.md) and run `npm run ui:doctor`. After reviewing changed behavior and updating cases, run `npm run build:ui-contracts` (Back before Search). It runs the shared hierarchy regressions before stamping the source revision. The mandatory UI Contracts job runs `npm run verify:ui-contracts` read-only, including stale-source checks, AST bypass checks, generated mirrors and mutation controls. Required frontend lanes retain Memory integration and native gesture regressions. Both Preflight Gate and CI Status Gate require success, including on documentation-only PRs. Authenticated browser and physical-device certification remains a separate release check.

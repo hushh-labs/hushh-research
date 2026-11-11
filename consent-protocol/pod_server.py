@@ -89,7 +89,6 @@ from hushh_mcp.services.pod_hub_client import (  # noqa: E402
 from hushh_mcp.services.pod_platform import pod_revision_name  # noqa: E402
 from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_key_is_durable,
-    pod_keypair,
     pod_public_key_payload,
     pod_signing_public_payload,
 )
@@ -510,32 +509,14 @@ async def _pod_startup() -> None:
     from hushh_mcp.services.pod_azure_vm_identity import initialize_vm_installation
     from hushh_mcp.services.pod_identity_store import (
         durable_identity_enabled,
-        restore_durable_private_key,
+        initialize_pod_identity,
     )
     from hushh_mcp.services.pod_storage import resolve_boot_custody
 
     await asyncio.to_thread(initialize_vm_installation)
     boot_storage, boot_dek = await resolve_boot_custody()
     boot_log = getattr(boot_storage, "_log", None)
-    await restore_durable_private_key(storage=boot_storage, dek=boot_dek, log=logger)
-
-    # Generate identity before authority; recover configuration, credentials and
-    # trust together below before admitting any owner turn.
-    keypair_is_durable = False
-    pod_keypair()
-    try:
-        from hushh_mcp.services.pod_self_registration import pod_key_is_durable  # noqa: PLC0415
-
-        keypair_is_durable = pod_key_is_durable()
-    except Exception:  # noqa: BLE001
-        pass
-    # Stated at boot, because "is this pod's identity stable across restarts" is
-    # a question the fleet has been answering wrongly and silently.
-    logger.info("pod.identity durable=%s", keypair_is_durable)
-    if durable_identity_enabled() and not keypair_is_durable:
-        # Owner-cloud deployments require stable identity. A storage/custody
-        # outage must not publish a replacement identity or start consumers.
-        raise RuntimeError("POD_DURABLE_IDENTITY_UNAVAILABLE")
+    await initialize_pod_identity(storage=boot_storage, dek=boot_dek, log=logger)
 
     # Owner-local authority: claim the incarnation fence, replay the trust and
     # tombstone records, derive the session key. Strictly AFTER the keypair, because

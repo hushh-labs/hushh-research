@@ -137,6 +137,7 @@ inventory until it passes every admission rule above.
 | E10 | Reviewed PWM claims | Later | PWM is a separate authority and its review-and-approve projection is not built. |
 | E11, A11 | Specialist-agent outcomes | Later | No single authority exists; each outcome needs its own durable source. Raw tool logs stay excluded. |
 | Reviewed To-do tasks | Owner-approved task titles, completion and dismissal | Excluded | Existing encrypted `one_todos` remains authoritative. One-off obligations are not general memories; suggestions stay ephemeral until Add task. Live Memory is read only for freshness/conflict counts, never written by the suggestion flow. |
+| In-app activity (founder decision 2026-10-29) | In-app activity journal | Excluded from the source inventory | Device-encrypted log consolidated into `one_memory` by the private agent's existing memory pipeline. No raw event enters the inventory, the Live Mirror or its history; see the [P0 decision](./live-memory-p0-acceptance-stories.md#in-app-activity-decision-2026-10-29). |
 
 ## Owner projection writer admission
 

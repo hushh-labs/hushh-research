@@ -1337,18 +1337,12 @@ export function useGmailConnectorStatus(
   const disconnectGmail = useCallback(async () => {
     const provider = idTokenProviderRef.current;
     if (!enabled || !normalizedUserId || !provider) return null;
+    // Stop every receipt sync (Mail page, chat, background) first, so none reads Mail or saves receipts after this.
+    clearCachedGmailReceipts(normalizedUserId);
     const idToken = await provider();
-    const next = await GmailReceiptsService.disconnect({
-      idToken,
-      userId: normalizedUserId,
-    });
+    const next = await GmailReceiptsService.disconnect({ idToken, userId: normalizedUserId });
     clearConnectorStatus(normalizedUserId);
-    primeConnectorStatus({
-      userId: normalizedUserId,
-      status: next,
-      routeHref,
-      source: "disconnect",
-    });
+    primeConnectorStatus({ userId: normalizedUserId, status: next, routeHref, source: "disconnect" });
     return next;
   }, [enabled, normalizedUserId, routeHref]);
 

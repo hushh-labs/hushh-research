@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from . import hosted_schema_readiness as _hosted_schema_readiness
 from .capability_checkpoint import FilesUpgradeCheckpoint
 from .capability_update import FilesCapabilityPlan
 
@@ -46,51 +47,40 @@ async def schema_ready(repo, version: int, *, join_on_cancel: bool = False) -> b
 
 
 async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
-    """Fail closed until hosted Files and interrupted erasure share a reviewed contract.
+    """Require the complete durable executor family before managed Files is offered."""
+    from db.hosted_custody_qualification import hosted_custody_profile_from_environment
 
-    A late provider receipt does not by itself prove that every upgrade executor
-    has drained.  The custody family must include an independently qualified
-    settlement predicate and the erasure functions that enforce it before this
-    capability can be offered or applied.
-    """
-    from db.hosted_custody_adoption import QUALIFIED
+    try:
+        profile = hosted_custody_profile_from_environment()
+    except ValueError:
+        return False
+
+    from db.hosted_custody_adoption import (
+        HOSTED_FILES_NEW_SIGNATURES,
+        HOSTED_FILES_QUALIFIED,
+        HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
+        HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+        QUALIFIED,
+    )
+    from db.hosted_custody_qualification import complete_family_qualification_sql
 
     if not await schema_ready(repo, 1, join_on_cancel=join_on_cancel):
         return False
-    signatures = (
-        "private_gcp_coordinates(jsonb)",
-        "valid_erasure_gcp_files_upgrade_observation(jsonb,jsonb)",
-        "hosted_pod_upgrade_admitted(text,text,jsonb,boolean)",
-        "hosted_files_queue_erasure_settled(jsonb)",
-        "valid_erasure_memory_binding(jsonb,jsonb)",
-        "valid_erasure_substrate_inventory(jsonb,jsonb)",
-        "personal_agent_erasure_complete(text)",
+    qualification_sql = complete_family_qualification_sql(
+        base_family=QUALIFIED,
+        files_family=HOSTED_FILES_QUALIFIED,
+        upgrade_family=PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+        native_contract_family=HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        service_role_signatures=HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
+        hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
+        native_contract_new_signatures=frozenset(),
+        require_family=True,
+        profile=profile,
     )
-    if any(signature not in QUALIFIED for signature in signatures):
-        return False
-    values = ",".join(f"(:signature{i},:digest{i})" for i in range(len(signatures)))
-    params = {
-        key: value
-        for i, signature in enumerate(signatures)
-        for key, value in (
-            (f"signature{i}", "public." + signature),
-            (f"digest{i}", QUALIFIED[signature]),
-        )
-    }
-    query = (
-        "SELECT COALESCE(bool_and(to_regprocedure(signature) IS NOT NULL AND "
-        "encode(sha256(convert_to(pg_get_functiondef(to_regprocedure(signature)), 'UTF8')), 'hex') "
-        "= digest), false) AS ready FROM (VALUES " + values + ") AS required(signature, digest)"
+    return await _hosted_schema_readiness.read_hosted_family_ready(
+        repo, qualification_sql=qualification_sql, join_on_cancel=join_on_cancel
     )
-    try:
-        from .managed_worker import database_thread
-
-        result = await database_thread(
-            repo._db().execute_raw, query, params, join_on_cancel=join_on_cancel
-        )
-    except Exception:
-        return False
-    return bool(result.data and result.data[0].get("ready") is True)
 
 
 async def provider_schema_ready(client, version: int) -> bool:

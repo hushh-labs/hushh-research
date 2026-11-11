@@ -264,9 +264,8 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
         encryptedBlob: { ciphertext: "ciphertext", iv: "iv", tag: "tag", algorithm: "aes-256-gcm" },
         vaultOwnerToken: "owner-token-fixture",
       }),
-    ).rejects.toThrow(
-      /422.*PKM_MUTATION_PLAN_INVALID.*The PKM mutation plan does not match this write\./,
-    );
+    ).rejects.toMatchObject({ status: 422, name: "PkmStoreDomainError",
+      message: expect.stringMatching(/422.*PKM_MUTATION_PLAN_INVALID.*The PKM mutation plan does not match this write\./) });
   });
 
   it("falls back to the bare status when a non-409 failure has no parseable JSON body", async () => {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-"""Attach one VALID TestFlight build to internal and external beta groups.
+"""Attach one VALID TestFlight build to the explicitly selected beta groups.
 
 This tool is deliberately limited to App Store Connect's TestFlight beta
 resources. It never creates an App Store version, an App Store submission, or
@@ -57,6 +57,11 @@ class AppStoreConnectHTTPError(DistributionError):
         self.status_code = status_code
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 @dataclass(frozen=True)
 class BetaReviewContact:
     first_name: str
@@ -93,8 +98,9 @@ class BetaReviewContact:
 class DistributionConfiguration:
     internal_group_id: str
     external_group_id: str
-    review_contact: BetaReviewContact
+    review_contact: BetaReviewContact | None
     review_notes: str
+    internal_only: bool = False
 
     @classmethod
     def from_values(
@@ -104,8 +110,11 @@ class DistributionConfiguration:
         external_group_id: str,
         review_contact_json: str,
         review_notes: str,
+        internal_only: bool = False,
     ) -> "DistributionConfiguration":
         internal = validate_resource_id("internal TestFlight group", internal_group_id)
+        if internal_only:
+            return cls(internal, "", None, "", internal_only=True)
         external = validate_resource_id("external TestFlight group", external_group_id)
         if internal == external:
             raise DistributionError("internal and external TestFlight groups must differ")
@@ -149,7 +158,11 @@ class AppStoreConnectClient:
 
     @staticmethod
     def absolute_url(path_or_url: str) -> str:
-        return path_or_url if path_or_url.startswith("https://") else f"{ASC_API_ROOT}{path_or_url}"
+        url = urllib.parse.urljoin(ASC_API_ROOT, path_or_url)
+        parsed = urllib.parse.urlsplit(url)
+        if f"{parsed.scheme}://{parsed.netloc}" != ASC_API_ROOT or not parsed.path.startswith("/v1/"):
+            raise DistributionError("App Store Connect URL left the expected API origin")
+        return url
 
     def _urllib_request(
         self, method: str, url: str, payload: dict[str, Any] | None
@@ -166,7 +179,7 @@ class AppStoreConnectClient:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.build_opener(_NoRedirect()).open(request, timeout=60) as response:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             # Apple responses can contain reviewer-facing information. Status is
@@ -450,7 +463,16 @@ def distribute_valid_build(
         client, app_id, marketing_version, build_number, build_id=build_id
     )
     require_group_type(client, configuration.internal_group_id, is_internal=True)
+    if configuration.internal_only:
+        assignment = attach_build_once(client, configuration.internal_group_id, build_id)
+        return {
+            "build_id": build_id, "internal": "active", "internal_assignment": assignment,
+            "external": "not_requested", "external_assignment": "not_requested",
+            "external_beta_review_state": "NOT_REQUESTED",
+        }
     require_group_type(client, configuration.external_group_id, is_internal=False)
+    if configuration.review_contact is None:
+        raise DistributionError("external TestFlight requires beta review contact")
     # Apple requires the beta-review metadata to be present before an external
     # group can accept a build. Prepare it before the relationship writes, but
     # leave the actual beta-review submission to an explicit operator action.
@@ -471,6 +493,55 @@ def distribute_valid_build(
     }
 
 
+def configured_tester_access(
+    client: AppStoreConnectClient,
+    app_id: str,
+    build_id: str,
+    configuration: DistributionConfiguration,
+    email: str,
+) -> str:
+    """Check the named tester's eligibility through the configured groups."""
+    email = email.strip().casefold()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+", email):
+        return "lookup_unavailable"
+    query = urllib.parse.urlencode(
+        {"filter[email]": email, "filter[apps]": app_id,
+         "fields[betaTesters]": "email,state", "limit": 20}
+    )
+    testers = client.get(f"/v1/betaTesters?{query}")
+    matches = [
+        row for row in testers["data"]
+        if row.get("type") == "betaTesters"
+        and (row.get("attributes") or {}).get("email", "").casefold() == email
+    ]
+    if (testers.get("links") or {}).get("next") or len(matches) > 1:
+        return "lookup_unavailable"
+    if not matches:
+        return "no_matching_tester"
+    tester = matches[0]
+    state = tester["attributes"].get("state")
+    if state not in {"ACCEPTED", "INSTALLED"}:
+        return "invitation_pending" if state == "INVITED" else "tester_inactive"
+    tester_id = validate_resource_id("TestFlight tester", tester["id"])
+    membership = client.get(f"/v1/betaTesters/{tester_id}/relationships/betaGroups?limit=200")
+    group_ids = {row["id"] for row in membership["data"] if row.get("type") == "betaGroups"}
+    build = require_resource(client.get(f"/v1/builds/{build_id}"), "builds", "TestFlight build")
+    attrs = build.get("attributes") or {}
+    if (build["id"] != build_id or attrs.get("expired") is not False
+            or attrs.get("processingState") != "VALID"):
+        return "build_unavailable"
+    detail = require_resource(
+        client.get(f"/v1/builds/{build_id}/buildBetaDetail"),
+        "buildBetaDetails", "TestFlight beta status",
+    ).get("attributes") or {}
+    for group, lane in ((configuration.internal_group_id, "internal"),
+                        (configuration.external_group_id, "external")):
+        if (group in group_ids and detail.get(f"{lane}BuildState") == "IN_BETA_TESTING"
+                and relationship_contains_build(client, group, build_id)):
+            return f"eligible_{lane}"
+    return "configured_group_access_unconfirmed"
+
+
 def die(message: str) -> NoReturn:
     print(f"distribute-testflight-build: {message}", file=sys.stderr, flush=True)
     raise SystemExit(1)
@@ -478,6 +549,7 @@ def die(message: str) -> NoReturn:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--internal-only", action="store_true", help="Attach only to the internal group; do not prepare external review")
     parser.add_argument("--p8-path", default=os.environ.get("APPSTORE_CONNECT_API_KEY_PATH"))
     parser.add_argument("--key-id", default=os.environ.get("ASC_KEY_ID"))
     parser.add_argument("--issuer-id", default=os.environ.get("ASC_ISSUER_ID"))
@@ -548,10 +620,10 @@ def read_build_id_file(path: str, *, build_number: str) -> str:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     try:
-        review_contact_json = read_optional_file(
+        review_contact_json = None if args.internal_only else read_optional_file(
             args.beta_review_contact_file, "beta review contact"
         ) or args.beta_review_contact_json
-        review_notes = read_optional_file(
+        review_notes = None if args.internal_only else read_optional_file(
             args.beta_review_notes_file, "beta review notes"
         ) or args.beta_review_notes
         if args.build_id and args.build_id_file:
@@ -574,7 +646,9 @@ def main(argv: list[str]) -> int:
             ("--beta-review-contact-json", review_contact_json),
             ("--beta-review-notes", review_notes),
         )
-        if not value
+        if not value and not (args.internal_only and name in {
+            "--external-group-id", "--beta-review-contact-json", "--beta-review-notes",
+        })
     ]
     if missing:
         die(f"missing required argument(s): {', '.join(missing)}")
@@ -584,6 +658,7 @@ def main(argv: list[str]) -> int:
             external_group_id=args.external_group_id,
             review_contact_json=review_contact_json,
             review_notes=review_notes,
+            internal_only=args.internal_only,
         )
         token = mint_jwt(args.p8_path, args.key_id, args.issuer_id)
         client = AppStoreConnectClient(token)
@@ -596,6 +671,15 @@ def main(argv: list[str]) -> int:
             configuration=configuration,
             build_id=build_id,
         )
+        if tester_email := os.environ.get("TESTFLIGHT_TESTER_EMAIL"):
+            try:
+                result["tester_access"] = configured_tester_access(
+                    client, app_id, result["build_id"], configuration, tester_email,
+                )
+            except (DistributionError, AttributeError, KeyError, OSError, TypeError, ValueError):
+                # Tester lookup is read-only. Keep the verified distribution
+                # receipt when Apple cannot establish individual access.
+                result["tester_access"] = "lookup_unavailable"
     except DistributionError as exc:
         die(str(exc))
 

@@ -227,7 +227,7 @@ export function focusLabel(focus: ChatOnboardingFocus | "chat"): string {
 export function welcomeText(displayName: string): string {
   const greeting = displayName && displayName !== "there" ? `Welcome, ${displayName}.` : "Welcome.";
   return [
-    `${greeting} I'm One, your private agent on Hussh. I only work with what you choose to share, and you decide who else sees it.`,
+    `${greeting} I'm Agent One on Hussh. I only work with what you choose to share, and you decide who else sees it.`,
     "Three optional questions so I can help the right way. Skipping a question moves to the next one.",
     "First, what should I call you?",
   ].join("\n\n");

@@ -774,7 +774,7 @@ html.native-keyboard-inset.kb-open
    * The inset is symmetric and clears a landscape notch on either side.
    * Held by e2e/bottom-chrome-width.layout.spec.ts. */
   --app-bottom-shell-max-width: 760px;
-  --app-messages-sidebar-width: 30vw;
+  --app-messages-sidebar-width: max(30vw, 272px);
   --app-bottom-shell-inline-inset: max(
     1rem,
     env(safe-area-inset-left, 0px),
@@ -3410,6 +3410,12 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
  * Send and the mic (the probe classed them as bottom-nav taps, bug log B45).
  * `visibility: hidden` cannot be overridden by a child's pointer-events; it
  * flips once the fade has run and returns at once. */
+/* Profile's modal blocks pointer input outside its own content. Plaid Link
+ * mounts directly under body and owns the dialog while it is above Profile. */
+body:has(.profile-pane-sheet[data-state="open"]) > iframe[id^="plaid-link-iframe"] {
+  pointer-events: auto;
+}
+
 /* Plaid Link mounts its own iframe on the page, `position: fixed; inset: 0`
  * inline, so on the native shell (whose WebView runs under the status bar)
  * the Link card and its close control sat under the clock and the battery
@@ -6865,6 +6871,12 @@ html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shel
 html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([data-command-active="true"])):is(:not(:has([data-agent-dock-composer]:not([hidden]))), :has([data-direct-message-inbox-composer="true"])) [data-bottom-shell-agent-slot] {
   visibility: hidden;
   pointer-events: none;
+}
+/* Messages keeps the shared stack inside the conversation's grid column. */
+@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
+  [data-messages-dock] {
+    padding-inline-start: calc(var(--app-messages-sidebar-width) + var(--app-bottom-shell-inline-inset));
+  }
 }
 html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-motion-stack] {
   transform: none !important;

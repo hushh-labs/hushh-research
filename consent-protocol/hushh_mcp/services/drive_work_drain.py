@@ -40,7 +40,7 @@ WORKER_JOB_LIMITS = {
     "suggestions": 1,
     "searches": 1,
     "permissions": 20,
-    "bulk_shares": 400,
+    "bulk_shares": 250,
     "bulk_removals": 20,
     "checkouts": 4,
     "notifications": 20,

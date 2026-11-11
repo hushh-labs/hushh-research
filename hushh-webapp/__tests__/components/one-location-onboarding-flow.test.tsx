@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 import {
@@ -81,11 +81,12 @@ describe("OneLocationOnboardingFlow introduction", () => {
     const { unmount } = renderFlow();
     expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(true);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(screen.getByText("1 of 3")).toBeTruthy();
+    expect(screen.queryByLabelText("One Location setup progress")).toBeNull();
     expect(screen.queryByTestId("one-location-onboarding-welcome")).toBeNull();
     expect(screen.queryByText("Your location stays private until you share.")).toBeNull();
+    expect(screen.queryByText("Private until you share.")).toBeNull();
     expect(screen.queryByText("Location is ready. Your next tap opens the place picker.")).toBeNull();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled();
     unmount();
     expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(false);
   });
@@ -97,9 +98,9 @@ describe("OneLocationOnboardingFlow introduction", () => {
       return <OneLocationOnboardingFlow {...props} activeScreen={activeScreen} onScreenChange={setScreen} />;
     }
     const { unmount } = render(<ControlledFlow />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
-    expect(screen.getByText("3 of 3")).toBeTruthy();
+    expect(screen.queryByLabelText("One Location setup progress")).toBeNull();
     act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     expect(props.onBack).not.toHaveBeenCalled();
@@ -109,12 +110,12 @@ describe("OneLocationOnboardingFlow introduction", () => {
     expect(unwindBackLayer(routeId)).toBe(false);
   });
 
-  describe("Save a place step", () => {
+  describe("optional location access without a third screen", () => {
     function ControlledFlow(
       props: React.ComponentProps<typeof OneLocationOnboardingFlow>,
     ) {
       const [activeScreen, setScreen] = useState<
-        "features" | "place" | "ready"
+        "features" | "ready"
       >("features");
       return (
         <OneLocationOnboardingFlow
@@ -125,62 +126,84 @@ describe("OneLocationOnboardingFlow introduction", () => {
       );
     }
 
-    it("hands Features to the hosted place surface once it has opened", async () => {
-      const onPreparePlace = vi.fn().mockResolvedValue(true);
-      render(<ControlledFlow {...createProps({ onPreparePlace })} />);
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-      await waitFor(() =>
-        expect(screen.getByTestId("one-location-onboarding-place")).toBeTruthy(),
-      );
-      expect(onPreparePlace).toHaveBeenCalledTimes(1);
-    });
-
     it.each([false, "rejects"] as const)(
-      "reaches Ready instead of trapping the person when the place cannot open (%s)",
+      "requests location on entry and offers a retry after failure (%s)",
       async (outcome) => {
-        const onPreparePlace =
+        const onPrepareLocation =
           outcome === "rejects"
             ? vi.fn().mockRejectedValue(new Error("denied"))
-            : vi.fn().mockResolvedValue(false);
-        render(<ControlledFlow {...createProps({ onPreparePlace })} />);
-        fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-        await waitFor(() =>
-          expect(
-            screen.getByTestId("one-location-onboarding-ready"),
-          ).toBeTruthy(),
-        );
+            : vi.fn().mockResolvedValue(outcome);
+        render(<ControlledFlow {...createProps({ onPrepareLocation })} />);
+        await screen.findByText(/Couldn't find your location/);
+        expect(onPrepareLocation).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+        await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(2));
+        await screen.findByText(/Couldn't find your location/);
+        expect(screen.queryByTestId("one-location-onboarding-ready")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
+        expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
+        expect(screen.queryByTestId("one-location-onboarding-place")).toBeNull();
       },
     );
 
-    it("unwinds the place step to Features", async () => {
+    it("coalesces location acquisition and consumes Back while it settles", async () => {
       const routeId = "/one/location";
+      let resolveLocation!: (ready: boolean) => void;
+      const onPrepareLocation = vi.fn(() => new Promise<boolean>((resolve) => {
+        resolveLocation = resolve;
+      }));
       render(
         <ControlledFlow
-          {...createProps({ onPreparePlace: vi.fn().mockResolvedValue(true) })}
+          {...createProps({ onPrepareLocation })}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-      await waitFor(() =>
-        expect(screen.getByTestId("one-location-onboarding-place")).toBeTruthy(),
-      );
+      expect(await screen.findByRole("button", { name: /Finding location/ })).toBeDisabled();
+      expect(onPrepareLocation).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Set up later" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
       act(() => {
         expect(unwindBackLayer(routeId)).toBe(true);
       });
       expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+      await act(async () => resolveLocation(true));
+      expect(screen.queryByTestId("one-location-onboarding-ready")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
+      expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
+      act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
+      expect(onPrepareLocation).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits for the account session and does not request again for a saved place", async () => {
+      const onPrepareLocation = vi.fn().mockResolvedValue(true);
+      const props = createProps();
+      const view = render(<ControlledFlow {...props} />);
+      view.rerender(<ControlledFlow {...props} onPrepareLocation={onPrepareLocation} />);
+      await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(1));
+      view.unmount();
+      render(<ControlledFlow {...props} onPrepareLocation={onPrepareLocation} savedPlace />);
+      await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 0)); });
+      expect(onPrepareLocation).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts one request after Strict Mode mount cleanup", async () => {
+      const onPrepareLocation = vi.fn().mockResolvedValue(true);
+      render(<StrictMode><ControlledFlow {...createProps({ onPrepareLocation })} /></StrictMode>);
+      await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(1));
     });
   });
 
-  it("keeps Skip independent of Back", () => {
+  it("defers the place without skipping the capability or leaving onboarding", () => {
     const { props } = renderFlow();
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(props.onSkip).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
+    expect(props.onSkip).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
     expect(props.onBack).not.toHaveBeenCalled();
   });
 
   it.each(["welcome", "permissions"] as const)("maps legacy %s entries to Features", (startAt) => {
     renderFlow({ startAt });
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(screen.getByText("1 of 3")).toBeTruthy();
+    expect(screen.queryByLabelText("One Location setup progress")).toBeNull();
   });
 });
 
@@ -192,7 +215,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
       onSyncOnboardingContacts,
     });
 
-    expect(screen.getByText("Meena Family")).toBeTruthy();
+    expect(screen.getByText("Your circle code")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Join with a code" }),
     ).toHaveAttribute("aria-expanded", "false");
@@ -205,6 +228,17 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
   });
 
+  it("uses an evergreen heading while sharing the original circle invite", async () => {
+    const invite = { ...INVITE, circleName: "Diwali Special" };
+    const { props } = await renderReady({
+      onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+    });
+    expect(screen.getByText("Your circle code")).toBeTruthy();
+    expect(screen.queryByText("Diwali Special")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    expect(props.onShareOnboardingCircleCode).toHaveBeenCalledWith(invite);
+  });
+
   it("keeps only one optional disclosure open", async () => {
     await renderReady({
       contactsStepAvailable: true,
@@ -213,6 +247,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Join with a code" }));
     expect(screen.getByLabelText("Circle code")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
 
     expect(screen.queryByLabelText("Circle code")).toBeNull();
@@ -258,6 +293,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     await waitFor(() =>
       expect(onAddOnboardingContact).toHaveBeenCalledWith("friend-1"),
     );
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(
       screen.getByRole("button", { name: "Open One Location" }),
     ).toBeEnabled();
@@ -516,6 +552,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     expect(await screen.findByText("Contacts access is off.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
     expect(onOpenContactSettings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(
       screen.getByRole("button", { name: "Open One Location" }),
     ).toBeEnabled();
@@ -528,10 +565,10 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     fireEvent.change(screen.getByLabelText("Circle code"), {
       target: { value: "ZXCVBNMASDFG" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Look up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
 
     expect(await screen.findByText("Family")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Join Family" }));
+    fireEvent.click(screen.getByRole("button", { name: "Join circle", exact: true }));
     await waitFor(() =>
       expect(onAcceptCircleCode).toHaveBeenCalledWith("ZXCVBNMASDFG"),
     );
@@ -547,7 +584,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     fireEvent.change(screen.getByLabelText("Circle code"), {
       target: { value: "ABCD-EFGH-JKLM" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Look up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("your own code");
     expect(onPreviewCircleCode).not.toHaveBeenCalled();
@@ -595,7 +632,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
   it("keeps the map claim honest", async () => {
     await renderReady({ mapPoint: null });
     expect(
-      screen.getByRole("heading", { name: "You're all set." }),
+      screen.getByRole("heading", { name: "Your people." }),
     ).toBeTruthy();
     expect(screen.getByText("Turn on Location when you're ready.")).toBeTruthy();
   });

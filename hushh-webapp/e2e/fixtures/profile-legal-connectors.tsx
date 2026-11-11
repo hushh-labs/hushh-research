@@ -6,6 +6,8 @@ import { ProfilePane } from "../../components/app-ui/profile-pane";
 import { ReleaseNoticeDialog } from "../../components/app-ui/release-notice-dialog";
 import type { ReleaseNotice } from "../../lib/agent/managed-app-release";
 import { ProfileConnectorsLink } from "../../components/profile/profile-connectors-link";
+import { AgentConnectionsDrawer } from "../../components/agent/agent-connections-drawer";
+import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 import { useAuth } from "@/hooks/use-auth";
 import { publishValidatedAuthSessionPrincipal } from "../../lib/auth/session-owner";
@@ -32,6 +34,8 @@ function subscribe(listener: () => void) {
  */
 function Host() {
   const [draft, setDraft] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyTrigger = useRef<HTMLButtonElement>(null);
   const { user } = useAuth();
   const owner = user?.uid ?? null;
   const returnFocus = useRef<{ owner: string | null; target: HTMLElement } | null>(null);
@@ -72,6 +76,9 @@ function Host() {
         onOpenConnections={(_, trigger) => openProfilePane(window.location.pathname, window.location.search,
           profileConnectorsLocation("gmail"), { returnsToOrigin: true, returnFocus: trigger })} />
       <div className="mt-4 flex flex-col gap-3">
+        <button ref={historyTrigger} type="button" data-testid="chat-history-opener" onClick={() => setHistoryOpen(true)}>
+          Chats
+        </button>
         <ProfileConnectorsLink connectorId="google_drive" data-testid="drive-card-reconnect">
           Reconnect Google Drive
         </ProfileConnectorsLink>
@@ -97,6 +104,17 @@ function Host() {
           Profile
         </button>
       </div>
+      <AgentConnectionsDrawer open={historyOpen} onOpenChange={setHistoryOpen} mode="chats"
+        externalModalOpen={false} triggerRef={historyTrigger} connections={null}
+        chats={<AgentHistorySidebar conversations={[]} activeConversationId={null}
+          onCreateNew={() => undefined} onSelectConversation={() => undefined}
+          onRenameConversation={() => undefined} onDeleteConversation={() => undefined}
+          onClose={() => setHistoryOpen(false)} mode="mobile"
+          className="h-full w-full" onOpenConnectors={() => {
+            setHistoryOpen(false);
+            openProfilePane(window.location.pathname, window.location.search, profileConnectorsLocation(),
+              { returnsToOrigin: true, returnFocus: historyTrigger.current });
+          }} />} />
       <ReleaseNoticeDialog notice={notice} onPresented={() => undefined} onClose={() => setNotice(null)} />
       <ProfilePane
         owner={owner}

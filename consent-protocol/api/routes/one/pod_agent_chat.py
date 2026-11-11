@@ -20,7 +20,6 @@ from api.routes.one.pod_chat_owner import owner_context
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk import owner_style
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
-from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text,
@@ -32,6 +31,7 @@ from hushh_mcp.one_adk.history_projection import _call_providers, project_conver
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
 from hushh_mcp.one_adk.pod_chat_stream import (
@@ -39,12 +39,15 @@ from hushh_mcp.one_adk.pod_chat_stream import (
     stop_preparing_turn,
     turn_is_preparing,
 )
+from hushh_mcp.one_adk.pod_chat_tool_admission import (
+    PodChatToolAdmissionError,
+    admit_pod_chat_tools,
+)
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.receipt_client_tools import STATE_RECEIPT_RESULT
 from hushh_mcp.one_adk.receipt_turn_admission import (
     admit_receipt_continuation,
-    admit_receipt_tool,
 )
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.specialist_focus import (
@@ -54,7 +57,6 @@ from hushh_mcp.one_adk.specialist_focus import (
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
-from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.message_feedback_service import MessageFeedbackError
 
@@ -103,24 +105,13 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     if any(message.role == "system" for message in input.messages):
         raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
     forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
-    if input.context or any(
-        forwarded.get(key)
-        for key in (
-            "driveSearchSelection",
-            "pendingEmailDraft",
-            "gmailInformationRequestWorkflowId",
-        )
-    ):
+    hub_only = ("driveSearchSelection", "pendingEmailDraft", "gmailInformationRequestWorkflowId")
+    if input.context or any(forwarded.get(key) for key in hub_only):
         raise HTTPException(409, detail={"code": "POD_CHAT_AUTHORITY_UNAVAILABLE"})
-    for tool in input.tools:
-        try:
-            if admit_receipt_tool(tool):
-                continue
-        except ValueError:
-            raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"}) from None
-        action_id = action_id_from_tool_name(tool.name)
-        if not action_id or get_action_gateway_action(action_id) is None:
-            raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"})
+    try:
+        input.tools = admit_pod_chat_tools(input.tools)
+    except PodChatToolAdmissionError:
+        raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"}) from None
     options = PodTurnRequest.model_validate(
         {
             "message": "AG-UI turn",
@@ -163,6 +154,8 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
             :128
         ],
+        # As on the hub: only a draft-contract-2 app fills the card from the envelope.
+        "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
         "temp:one_execution_surface": "typed_chat",
         "temp:hussh:workspace_chat_admission": False,
         "hussh:user_id": owner.owner,
@@ -180,6 +173,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         STATE_SPECIALIST_FOCUS: focus,
         "hussh:voice_context": screen,
         "hussh:pkm_context": store_request_secret(options.pkm_context or "", ttl_seconds=240),
+        STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=True),
     }
     return state, options
 

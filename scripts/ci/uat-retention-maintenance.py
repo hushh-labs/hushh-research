@@ -23,9 +23,12 @@ from pathlib import Path
 from typing import Literal
 
 import release_artifact_receipts
+import release_acceptance_provenance as release_provenance
 import production_phone_receipt
 import production_phone_lease
+import production_phone_nonproducer
 import production_retention_context
+import retention_pass_diagnostics as pass_diagnostics
 
 retention = importlib.import_module("cloudrun-retention")
 capacity_bridge = importlib.import_module("production-capacity-bridge")
@@ -49,6 +52,9 @@ LANES = {
         "workflow": "deploy-production.yml",
         "prefix": "prod",
         "deploy_job": "Deploy Production Scope",
+        "deploy_job_aliases": tuple(
+            sorted(production_phone_nonproducer.PRODUCTION_JOB_NAME_ALIASES)
+        ),
         "upload_step": "Upload production deploy artifacts",
         "state_artifact": "production-retention-state",
         "services": {"consent-protocol": 2, "hushh-webapp": 10, "consent-protocol-drive-worker": 1},
@@ -104,11 +110,10 @@ REQUIRED_PRODUCTION_STEPS = (
 
 
 GITHUB_LOOKUP_SECONDS = 90
+PRODUCTION_RELEASE_LOOKUP_SECONDS = 150
 PASS_SECONDS = 300
 _LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
 _API_CACHE: ContextVar[dict | None] = ContextVar("api_cache", default=None)
-
-
 def command(*args: str) -> str:
     timeout = 180.0
     deadline = _LOOKUP_DEADLINE.get()
@@ -138,7 +143,13 @@ def api(repository: str, endpoint: str):
     key = (repository, endpoint)
     if cache is not None and key in cache:
         return deepcopy(cache[key])
-    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{endpoint}"))
+    # GitHub may stop resolving a retired workflow by filename. Preserve its
+    # observed repository-local ID for history reads; origin checks still verify path.
+    retired = f"workflows/{ONE_CHAT_WORKFLOW}/"
+    if endpoint.startswith(retired) and repository != "hushh-labs/hushh-research":
+        raise retention.UnsafeState("retired workflow identity belongs to a different repository")
+    resolved = "workflows/382099846/" + endpoint[len(retired):] if endpoint.startswith(retired) else endpoint
+    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{resolved}"))
     if cache is not None:
         cache[key] = deepcopy(result)
     return result
@@ -380,9 +391,7 @@ def download(repository: str, run_id: int, name: str, directory: Path) -> None:
 def governed_dispatch(
     run: dict, repository: str, environment: str, *, workflow: str | None = None
 ) -> bool:
-    policy = json.loads(
-        (Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text()
-    )
+    """Recognize historical origin; downstream outcome/serving proofs still apply."""
     if (
         environment == "production"
         and trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
@@ -399,8 +408,7 @@ def governed_dispatch(
     return (
         trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
         and run.get("event") == "workflow_dispatch"
-        and (run.get("actor") or {}).get("login")
-        in policy[environment]["manual_dispatch_users"]
+        and release_provenance.historical_human_dispatch(run)
     )
 
 
@@ -1206,7 +1214,8 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
         jobs = result.get("jobs")
         if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
             raise retention.UnsafeState("maintenance job inventory is incomplete")
-        matched = [job for job in jobs if job.get("name") == name]
+        current_name = ("UAT" if environment == "uat" else "Production") + " revision maintenance"
+        matched = [job for job in jobs if job.get("name") in {name, current_name}]
         if len(matched) != 1 or matched[0].get("status") != "completed":
             continue
         authored = matched[0].get("steps", [])
@@ -1216,6 +1225,9 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
             f"Authenticate to {environment}", f"Save {environment} cleanup checkpoint",
         )):
             continue
+        if (matched[0].get("name") == current_name
+                and importlib.import_module("retention_publication").maintenance_mode(steps) != "cleanup"):
+            continue
         if artifact is not None:
             saved = steps[f"Save {environment} cleanup checkpoint"]
             created = _github_timestamp(artifact.get("created_at"))
@@ -1224,6 +1236,12 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
             if not (created and started and finished and started - timedelta(seconds=5) <= created <= finished + timedelta(seconds=30)):
                 continue
         return True
+    # A completed immutable upload can independently prove missing step metadata.
+    publication = importlib.import_module("retention_publication")
+    for job in matched:
+        if publication.uploaded_checkpoint_proof(sys.modules[__name__], repository, run, attempt,
+                                                job, environment, artifact) is not None:
+            return True
     return False
 
 
@@ -1378,8 +1396,71 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
             and (run.get("repository") or {}).get("full_name") == repository
             and (run.get("head_repository") or {}).get("full_name") == repository
         ):
+            if environment == "production" and _is_read_only_production_verification(repository, run):
+                continue
             return int(run["id"])
     raise retention.UnsafeState("no completed deployment observation")
+
+
+def _is_read_only_production_verification(repository: str, run: dict) -> bool:
+    """Exclude only a completed verify run proven non-producing by its exact jobs."""
+    if run.get("display_title") != "VERIFY CURRENT PRODUCTION — read only":
+        return False
+    run_id = run.get("id")
+    attempt = run.get("run_attempt")
+    if type(run_id) is not int or run_id < 1 or type(attempt) is not int or attempt < 1:
+        raise retention.UnsafeState("read-only production verification identity is invalid")
+    result = api(
+        repository,
+        f"runs/{run_id}/attempts/{attempt}/jobs?per_page=100",
+    )
+    jobs = result.get("jobs")
+    if (
+        type(result.get("total_count")) is not int
+        or not isinstance(jobs, list)
+        or result["total_count"] != len(jobs)
+        or len(jobs) > 100
+        or any(not isinstance(job, dict) for job in jobs)
+    ):
+        raise retention.UnsafeState("read-only production verification job inventory is invalid")
+    by_name = {job.get("name"): job for job in jobs}
+    if len(by_name) != len(jobs):
+        raise retention.UnsafeState("read-only production verification job inventory is ambiguous")
+    expected_names = {
+        "Validate Production dispatch mode",
+        "Verify current Production release",
+        "Deployment security",
+        "Deploy Production Scope",
+        "Stage qualified production Drive worker",
+        "Deploy Production Scope · Phone activation",
+        "Deploy Production Scope · Restoration activation",
+    }
+    if set(by_name) != expected_names:
+        raise retention.UnsafeState("read-only production verification job inventory is unexpected")
+    validator = by_name.get("Validate Production dispatch mode")
+    verifier = by_name.get("Verify current Production release")
+    if validator is None or verifier is None:
+        raise retention.UnsafeState("read-only production verification jobs are incomplete")
+    # A skipped verifier is not evidence that verification ran. Leave such a
+    # run in the ordinary observation stream; it cannot prove live health.
+    if validator.get("status") != "completed" or validator.get("conclusion") != "success":
+        return False
+    if verifier.get("status") != "completed" or verifier.get("conclusion") == "skipped":
+        return False
+    non_producer_jobs = (
+        "Deployment security",
+        "Deploy Production Scope",
+        "Stage qualified production Drive worker",
+        "Deploy Production Scope · Phone activation",
+        "Deploy Production Scope · Restoration activation",
+    )
+    if any(
+        by_name.get(name, {}).get("status") != "completed"
+        or by_name.get(name, {}).get("conclusion") != "skipped"
+        for name in non_producer_jobs
+    ):
+        return False
+    return True
 
 
 def completion_receipt(directory: Path, environment: str) -> dict | None:
@@ -1585,7 +1666,7 @@ def checkpoint(args, run_id, observed, pending, status):
         receipt_file,
         {
             "schema_version": 1,
-            "checkpoint_version": 2,
+            "checkpoint_version": 3 if status == "preparing" else 2,
             "environment": args.environment,
             "project": LANES[args.environment]["project"],
             "release_run_id": run_id,
@@ -1717,36 +1798,38 @@ def maintenance_cli():
 
 
 def maintenance_pass() -> int:
-    args = maintenance_cli()
+    args = pass_diagnostics.run_stage("arguments", maintenance_cli)
     repository = os.environ["GITHUB_REPOSITORY"]
     lane_config = LANES[args.environment]
     args.state_dir.mkdir(parents=True, exist_ok=True)
     if args.check_mutations:
-        assert_no_pending_mutations(repository, args.state_dir, args.environment)
+        pass_diagnostics.reconcile_pending(assert_no_pending_mutations, repository, args)
         return 0
     if args.apply:
-        assert_checkpoint_publication(repository, args.environment)
-        restore_state(repository, args.state_dir, environment=args.environment)
+        pass_diagnostics.checkpoint_guard(assert_checkpoint_publication, repository, args)
+        pass_diagnostics.restore_checkpoint(restore_state, repository, args)
         importlib.import_module("retention_publication").preserve(sys.modules[__name__], args)
-    args.operational_anchor = production_retention_context.load_operational(sys.modules[__name__], args)
-    args.worker_anchor = production_retention_context.worker(sys.modules[__name__], args, repository)
-    if (
-        (args.verify_source_only or args.apply)
-        and not args.force_inspection
-        and not maintenance_due(
-            repository,
-            args.state_dir,
-            environment=args.environment,
-            release_run_id=int(args.release_run_id) if args.release_run_id else None,
-            restore=not args.apply,
-        )
+        if (
+            args.environment == "production"
+            and args.force_inspection
+            and args.release_run_id
+            and os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
+            and os.getenv("GITHUB_REF_NAME") == "main"
+        ):
+            # The checkpoint proof has completed. Give the independent live
+            # release proof its own bounded window inside the same pass deadline.
+            _LOOKUP_DEADLINE.set(
+                time.monotonic()
+                + retention.remaining_seconds(PRODUCTION_RELEASE_LOOKUP_SECONDS)
+            )
+    pass_diagnostics.load_release_context(
+        production_retention_context, args, repository, sys.modules[__name__]
+    )
+    if not pass_diagnostics.should_run_preflight(
+        args, repository, maintenance_due, os.environ.get("GITHUB_OUTPUT")
     ):
-        output = os.environ.get("GITHUB_OUTPUT")
-        if output:
-            with Path(output).open("a") as stream:
-                stream.write("cleanup_ready=false\n")
         return 0
-    found = preflight_release(args, repository)
+    found = pass_diagnostics.find_release(preflight_release, args, repository)
     if found is None:
         return 0
     run_id, release = found
@@ -1758,6 +1841,7 @@ def maintenance_pass() -> int:
     for service in list(pending):
         if not args.apply:
             break
+        pass_diagnostics.CURRENT_STAGE.set("pending_mutation_reconcile")
         try:
             retention.reconcile_mutation(
                 args.state_dir / f"{service}.json",
@@ -1775,6 +1859,7 @@ def maintenance_pass() -> int:
             record_uat_cleanup_outcome(args, outcome)
             return 0
     if args.apply and args.environment == "production":
+        pass_diagnostics.CURRENT_STAGE.set("capacity_bridge")
         try:
             capacity_bridge.maintain(release, args.state_dir / "completed.json", create=args.production_capacity_bridge)
         except (retention.BudgetExpired, retention.MutationUncertain) as exc:
@@ -1784,6 +1869,7 @@ def maintenance_pass() -> int:
             record_uat_cleanup_outcome(args, outcome)
             return 0
     for service, keep in service_settings.items():
+        pass_diagnostics.CURRENT_STAGE.set("revision_cleanup")
         try:
             # The workflow holds the environment's deployment lock for this short pass.
             # Recheck the release before each service as defense against external changes.
@@ -1842,6 +1928,7 @@ def maintenance_pass() -> int:
         if args.apply:
             checkpoint(args, run_id, observation, pending, "in_progress")
     if args.apply and args.environment == "uat":
+        pass_diagnostics.CURRENT_STAGE.set("deferred_clock_validation")
         deadlines: list[int] = []
         for service in lane_config["services"]:
             state_file = args.state_dir / f"{service}.json"
@@ -1883,6 +1970,7 @@ def maintenance_pass() -> int:
                     f"drain_not_before={max(deadlines) if deadlines else ''}\n"
                 )
     if args.apply:
+        pass_diagnostics.CURRENT_STAGE.set("completion_checkpoint")
         checkpoint(args, run_id, observation, [], "complete")
         record_uat_cleanup_outcome(args, "applied")
     elif os.environ.get("GITHUB_OUTPUT"):
@@ -1890,6 +1978,7 @@ def maintenance_pass() -> int:
             output.write("cleanup_outcome=dry_run\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
+        pass_diagnostics.CURRENT_STAGE.set("summary")
         retry_path = (
             "Pending deletions are retried by hourly scheduled maintenance passes. "
         )
@@ -1918,7 +2007,7 @@ def maintenance_pass() -> int:
 
 if __name__ == "__main__":
     try:
-        sys.exit(main())
+        sys.exit(pass_diagnostics.run_stage("startup", main))
     except (
         retention.UnsafeState,
         retention.BudgetExpired,
@@ -1928,5 +2017,10 @@ if __name__ == "__main__":
         OSError,
         KeyError,
     ) as exc:
-        print(f"Hosted maintenance stopped: {exc}", file=sys.stderr)
+        print(
+            pass_diagnostics.safe_failure_diagnostic(
+                pass_diagnostics.CURRENT_STAGE.get(), exc, retention
+            ),
+            file=sys.stderr,
+        )
         sys.exit(1)

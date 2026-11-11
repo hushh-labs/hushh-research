@@ -37,13 +37,15 @@ def _authority_snapshot(value):
     }
 
 
-async def verify_storage_prerequisite(plan) -> None:
+async def verify_storage_prerequisite(plan, *, guard=None) -> None:
     from hushh_mcp.services.pod_files.capability_bootstrap import FilesCapabilityBootstrap
     from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, mint_bootstrap_token
 
     try:
-        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=plan.bootstrapAccount)
-        bootstrap = FilesCapabilityBootstrap(capability=plan, token=token)
+        token = await asyncio.to_thread(
+            mint_bootstrap_token, bootstrap_sa=plan.bootstrapAccount, guard=guard
+        )
+        bootstrap = FilesCapabilityBootstrap(capability=plan, token=token, guard=guard)
         await asyncio.to_thread(bootstrap.verify_existing_bucket)
     except BootstrapError:
         raise FilesStoragePrerequisite(FilesStoragePrerequisite.public_message) from None
@@ -132,7 +134,10 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
         # workload custody stay in the owner's project.
         bridge = None if hosted else _approved_dev_model_project(observation)
         plan = plan_from_observation(row, target_image, observation, dev_model_project=bridge)
-        await verify_storage_prerequisite(plan)
+        if hosted:
+            await verify_storage_prerequisite(plan, guard=spec.hosted_admission_guard)
+        else:
+            await verify_storage_prerequisite(plan)
     current = await repo.get(row["user_id"])
 
     if _authority_snapshot(current) != _authority_snapshot(row) or (

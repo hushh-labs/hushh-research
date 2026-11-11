@@ -16,6 +16,7 @@
  */
 
 import { type MouseEvent, useEffect, useRef } from "react";
+import { PersonProfileButton } from "@/components/connections/person-profile-button";
 import { Loader2, MapPin, MessageSquareIcon as MessageSquare } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ export type LiveShareStatus = {
    */
   names: string[];
   people?: Array<{
+    userId?: string | null;
     displayName: string;
     photoUrl?: string | null;
   }>;
@@ -126,7 +128,7 @@ function initialsForName(name: string): string {
 }
 
 function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
-  const people =
+  const people: NonNullable<LiveShareStatus["people"]> =
     status.people?.length
       ? status.people
       : status.names
@@ -138,7 +140,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
     // identify the relationship; the remaining count carries the rest.
     const visiblePeople = people.slice(0, 2);
     const fallbackCount = Math.min(status.count, 2);
-    const slots = visiblePeople.length
+    const slots: NonNullable<LiveShareStatus["people"]> = visiblePeople.length
       ? visiblePeople
       : Array.from({ length: fallbackCount }, (_, index) => ({
           displayName: `${index + 1}`,
@@ -147,12 +149,11 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
     const remaining = Math.max(status.count - slots.length, 0);
     return (
       <span
-        aria-hidden="true"
         className="flex h-7 shrink-0 items-center"
         data-testid="one-location-live-share-identities"
       >
         {slots.map((person, index) => (
-          <span
+          <PersonProfileButton userId={person.userId} label={person.displayName}
             key={`${person.displayName}-${index}`}
             data-live-share-avatar
             className="-ml-2 first:ml-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
@@ -167,7 +168,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
             ) : (
               initialsForName(person.displayName)
             )}
-          </span>
+          </PersonProfileButton>
         ))}
         {remaining > 0 ? (
           <span
@@ -182,8 +183,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
   }
 
   return (
-    <span
-      aria-hidden="true"
+    <PersonProfileButton userId={people[0]?.userId} label={names[0] ?? "this person"}
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-inset ring-[color:var(--app-separator)]"
       data-testid="one-location-live-share-identities"
     >
@@ -197,7 +197,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
       ) : (
         initialsForName(names[0] ?? "1")
       )}
-    </span>
+    </PersonProfileButton>
   );
 }
 
@@ -249,6 +249,7 @@ export function LiveShareStatusCard({
   const singleGrant = status.grantCount === 1 && Boolean(status.stoppableGrantId);
   const canChangeDuration =
     singleGrant && !status.singleGrantIsSms && Boolean(onChangeDuration);
+  const shareMoreOnly = Boolean(onShareMore) && !canChangeDuration;
 
   // Seconds only matter inside the last hour. Above that they are noise, and a
   // once-a-second re-render for a 24-hour share is waste.
@@ -342,7 +343,8 @@ export function LiveShareStatusCard({
 
         {singleGrant && onStop ? (
           <Button
-            variant="ghost"
+            variant="link"
+            disableHoverRipple
             size="sm"
             onClick={runChildAction(onStop)}
             disabled={stopBusy}
@@ -361,7 +363,8 @@ export function LiveShareStatusCard({
           </Button>
         ) : (
           <Button
-            variant="ghost"
+            variant="link"
+            disableHoverRipple
             size="sm"
             onClick={runChildAction(onManage)}
             className={cn(
@@ -473,13 +476,14 @@ export function LiveShareStatusCard({
 
       {onShareMore || canChangeDuration ? (
         // Content-width actions wrap at narrow widths without shrinking targets.
-        <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
+        <div className={cn(LIVE_SHARE_FOOTER_ROW_CLASSNAME, shareMoreOnly && "items-start justify-start")}>
           {onShareMore ? (
             <Button
               type="button"
               onClick={runChildAction(onShareMore)}
               className={cn(
                 LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+                shareMoreOnly && "w-auto px-4",
                 "inline-flex items-center justify-center font-[family-name:var(--font-app-body)] tracking-normal transition-[background-color,transform]",
               )}
               data-ui-contract="occlusion-sensitive"
@@ -494,6 +498,7 @@ export function LiveShareStatusCard({
             <Button
               type="button"
               variant="secondary"
+              size="standard"
               onClick={runDurationAction(onChangeDuration)}
               className={cn(
                 LIVE_SHARE_ACTION_CLASSNAME,
@@ -502,7 +507,7 @@ export function LiveShareStatusCard({
               )}
               data-ui-contract="occlusion-sensitive"
               data-ui-role="control"
-              data-ui-id="location-live-share-duration" data-location-type-role="compact-action"
+              data-ui-id="location-live-share-duration"
               data-testid="one-location-live-share-change-time"
             >
               {openEnded ? "Set an end time" : "Change end time"}

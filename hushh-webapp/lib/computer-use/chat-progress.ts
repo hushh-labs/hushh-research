@@ -49,7 +49,7 @@ export function browserTaskProgress(content: unknown, ownerId: string) {
       execution: accepted ? "server" : "blocked",
       message: accepted
         ? "Browser task prepared."
-        : "Browser isn’t available on this private agent yet.",
+        : "Browser isn’t available on this Agent One yet.",
       raw: { protocol: "ag-ui", toolName: "start_browser_task" },
     },
   };

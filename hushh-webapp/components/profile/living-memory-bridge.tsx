@@ -23,6 +23,7 @@ import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-
 import { payoutChangeTouches, subscribePayoutStateChanged } from "@/lib/payouts/payout-events";
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 import {
+  clearLivingSourceLastSeen,
   LIVING_SOURCE_DOMAIN,
   LivingSourcesIncompleteError,
   syncLivingSources,
@@ -283,6 +284,7 @@ export function LivingMemoryBridge() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       clearMemoryDocument(userId);
       clearLivingSourceSessionVerification(userId);
+      clearLivingSourceLastSeen(userId);
     };
   }, [ownerId, vaultKey, vaultOwnerToken, isVaultUnlocked]);
   return null;
