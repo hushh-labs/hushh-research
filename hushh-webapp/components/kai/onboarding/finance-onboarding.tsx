@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import {
   Building2,
   Check,
+  ChevronRight,
   Database,
   FileUp,
 } from "@/components/icons";
 import { usePathname } from "next/navigation";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { Button } from "@/components/ui/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { FinanceDemoPhone } from "./finance-demo-phone";
@@ -244,7 +244,9 @@ export function FinanceSourcePicker({
     {
       id: "plaid" as const,
       title: "Connect an account",
-      description: plaidAvailable ? null : "Bank connection unavailable",
+      description: plaidAvailable
+        ? "Read-only, via Plaid"
+        : "Bank connection unavailable",
       Icon: Building2,
       disabled: !plaidAvailable,
       start: onConnect,
@@ -252,7 +254,7 @@ export function FinanceSourcePicker({
     {
       id: "statement" as const,
       title: "Upload a statement",
-      description: null,
+      description: "PDF or CSV",
       Icon: FileUp,
       disabled: false,
       start: onStatement,
@@ -260,7 +262,7 @@ export function FinanceSourcePicker({
     {
       id: "sample" as const,
       title: "Try a sample",
-      description: sampleAvailable ? null : "Sample unavailable",
+      description: sampleAvailable ? "Sample holdings" : "Sample unavailable",
       Icon: Database,
       disabled: !sampleAvailable,
       start: onSample,
@@ -270,8 +272,8 @@ export function FinanceSourcePicker({
     <section className={`app-type-compact ${styles.surface} ${styles.sourcePicker}`} aria-label="Add your portfolio">
       <div className={styles.sourceContent}>
         <div className={styles.importHeading}>
-          <p className={styles.eyebrow}>Optional</p>
-          <PageHeader title="Add your portfolio" accent="neutral" />
+          <p className={styles.sourceEyebrow}>Optional</p>
+          <h1 className={styles.sourceTitle}>Add your portfolio</h1>
         </div>
         <div
           className={styles.sourceGrid}
@@ -292,8 +294,11 @@ export function FinanceSourcePicker({
               }}
             >
               <span className={styles.sourceIcon} aria-hidden="true"><Icon size={22} /></span>
-              <span className={styles.cardTitle}>{title}</span>
-              {description && <span className={styles.description}>{description}</span>}
+              <span className={styles.cardText}>
+                <span className={styles.cardTitle}>{title}</span>
+                <span className={styles.description}>{description}</span>
+              </span>
+              <ChevronRight size={18} className={styles.chevron} aria-hidden="true" />
             </button>
           ))}
         </div>

@@ -177,9 +177,9 @@ it("saves the original three starter preferences before import without overwriti
     expect(unwindBackLayer("/one/setup/finance")).toBe(false);
   });
   expect(screen.getAllByRole("group").map((group) => group.querySelector("legend")?.textContent)).toEqual([
-    "01How long will this stay invested?",
-    "02Portfolio down 20%, what's your move?",
-    "03Which feels more comfortable to you?",
+    "How long will this stay invested?",
+    "Portfolio down 20%, what's your move?",
+    "Which feels more comfortable to you?",
   ]);
   for (const label of [
     "Less than 3 years",

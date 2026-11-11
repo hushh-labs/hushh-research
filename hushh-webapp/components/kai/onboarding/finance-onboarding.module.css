@@ -54,6 +54,20 @@
   color: var(--app-accent);
   margin: 0;
 }
+.sourceEyebrow {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.sourceTitle {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--foreground);
+}
 .primary {
   min-height: 52px;
   width: 100%;
@@ -352,9 +366,9 @@
   flex-direction: row;
   align-items: center;
   gap: 14px;
-  min-height: 72px;
+  min-height: 88px;
   min-width: 0;
-  padding: clamp(12px, 3vw, 20px);
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: 24px;
   background: var(--app-card-surface-default-solid, var(--background));
@@ -364,30 +378,33 @@
 }
 .sourceCard:disabled { opacity: 0.55; }
 .surface .sourceCard:focus-visible { outline-offset: -2px; }
+.cardText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .cardTitle {
   font-size: 14px;
   line-height: 21px;
   font-weight: 550;
 }
+.chevron {
+  flex: none;
+  color: var(--muted-foreground);
+}
 .sourceIcon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
 }
 .sourceIcon {
   background: var(--app-accent-tint);
   color: var(--app-accent);
-}
-.sourceCard[data-source="statement"] > .sourceIcon {
-  color: #07818a;
-  background: color-mix(in srgb, #07818a 12%, transparent);
-}
-.sourceCard[data-source="sample"] > .sourceIcon {
-  color: #8050df;
-  background: color-mix(in srgb, #8050df 12%, transparent);
 }
 .sourceFooter {
   flex: none;

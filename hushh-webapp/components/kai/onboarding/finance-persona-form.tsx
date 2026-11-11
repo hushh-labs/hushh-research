@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState, type FormEvent } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { Check } from "@/components/icons";
 import { KAI_PREFERENCE_QUESTIONS } from "@/lib/kai/preference-questions";
 import {
   getInvestingPersona,
@@ -181,8 +182,8 @@ export function FinancePersonaForm({
     >
       {onboarding ? (
         <header>
-          <p className="ui-text-helper-text">Finance setup</p>
-          <h1 className="ui-text-page-title">
+          <p className={styles.eyebrow}>Finance setup</p>
+          <h1 className={styles.title}>
             Let’s build your financial persona
           </h1>
         </header>
@@ -203,9 +204,11 @@ export function FinancePersonaForm({
               aria-describedby={"hint" in question ? hintId : undefined}
             >
               <legend>
-                <span aria-hidden="true">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
+                {onboarding ? null : (
+                  <span aria-hidden="true">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                )}
                 {question.prompt}
               </legend>
               {"hint" in question ? (
@@ -227,7 +230,10 @@ export function FinancePersonaForm({
                         })
                       }
                     >
-                      {label}
+                      <span className={styles.box} aria-hidden="true">
+                        <Check size={14} />
+                      </span>
+                      <span>{label}</span>
                     </button>
                   ))
                 : [
