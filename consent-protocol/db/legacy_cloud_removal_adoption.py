@@ -33,6 +33,8 @@ FOOTPRINT += f""" OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid
 def qualification_sql(*, resume_required: bool = False) -> str:
     """All bodies, authority, overloads, column, bound and guard must agree."""
     pins = dict(PINS)
+    from db import account_cloud_retirement_adoption as retirement
+
     if resume_required:
         pins["legacy_cloud_removal_event_valid(jsonb,jsonb)"] = RESUME_EVENT_SHA256
     values = ",".join(f"('{signature}','{digest}')" for signature, digest in pins.items())
@@ -41,8 +43,16 @@ def qualification_sql(*, resume_required: bool = False) -> str:
         if resume_required
         else f"spec.signature='legacy_cloud_removal_event_valid(jsonb,jsonb)' AND encode(sha256(convert_to(installed.definition,'UTF8')),'hex')='{RESUME_EVENT_SHA256}'"
     )
+    retired_successors = " OR ".join(
+        f"(spec.signature='{signature}' AND encode(sha256(convert_to(installed.definition,'UTF8')),'hex')='{pin['hash']}')"
+        for signature, pin in retirement.PINS.items()
+        if signature in pins
+    )
+    successor = f"({successor}) OR (({retirement.FOOTPRINT}) AND ({retired_successors}))"
     constraint = BOUNDED.replace("'", "''")
-    return f"""DO $legacy_removal_qualified$
+    return (
+        retirement.qualification_sql()
+        + f"""DO $legacy_removal_qualified$
 DECLARE spec record; installed record; owner_oid oid; service_oid oid;
 BEGIN
  IF NOT ({FOOTPRINT}) THEN RETURN; END IF;
@@ -81,6 +91,7 @@ BEGIN
  THEN RAISE EXCEPTION 'Unqualified legacy removal trigger'; END IF;
 END $legacy_removal_qualified$;
 """
+    )
 
 
 def _once(sql: str, old: str, new: str) -> str:
@@ -146,9 +157,18 @@ def installation_sql(entry) -> str:
             or hashlib.sha256(entry.sql.encode()).hexdigest() != SOURCE_986_SHA256
         ):
             raise MigrationAuthorityError("Legacy cloud-removal resume checksum changed")
-        sql = _once(entry.sql, "BEGIN;", "BEGIN;\n" + qualification_sql())
-        before, after = sql.rsplit("COMMIT;", 1)
-        return before + qualification_sql(resume_required=True) + "COMMIT;" + after
+        from db.account_cloud_retirement_adoption import FOOTPRINT as RETIREMENT
+
+        body = entry.sql.split("BEGIN;", 1)[1].rsplit("COMMIT;", 1)[0]
+        return f"""BEGIN;
+{qualification_sql()}
+DO $preserve_retired_986$ BEGIN
+ IF {RETIREMENT} THEN RETURN; END IF;
+ EXECUTE $reviewed_986${body}$reviewed_986$;
+END $preserve_retired_986$;
+{qualification_sql(resume_required=True)}
+COMMIT;
+"""
     if (
         entry.filename != "985_legacy_cloud_removal_recovery.sql"
         or entry.checksum_sha256 != SOURCE_985_SHA256

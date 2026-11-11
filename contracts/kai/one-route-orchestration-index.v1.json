@@ -1133,6 +1133,8 @@
       "canonical_screen": "login",
       "voice_contract_file": "app/login/page.voice-action-contract.json",
       "action_ids": [
+        "auth.deletion_done",
+        "auth.deletion_start_fresh",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",

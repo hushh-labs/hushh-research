@@ -138,6 +138,7 @@ class PreparedProviderCleanup:
     state: str
     credential_count: int
     local_erasure_confirmation_required: bool = True
+    cloud_cleanup: dict | None = None
 
 
 def account_deletion_user_hash(user_id: str) -> str:
@@ -384,6 +385,7 @@ class AccountDeletionLifecycleService:
         requested_target: str = "both",
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
     ) -> PreparedProviderCleanup:
         """Fence the exact owner and preserve its current encrypted source rows.
 
@@ -406,13 +408,16 @@ class AccountDeletionLifecycleService:
         ):
             raise RuntimeError("current provider cleanup contract is required")
         AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=(owner,))
+        from hushh_mcp.services.account_cloud_retirement import (
+            CloudRetirementReviewRequired,
+            bind_in_transaction,
+            review_in_transaction,
+            summary_in_transaction,
+        )
         from hushh_mcp.services.account_personal_agent_erasure import (
             assert_external_resources_absent,
         )
 
-        assert_external_resources_absent(
-            conn, params={"user_id": owner}, table_exists=table_exists, finalize_erasure=False
-        )
         params = {
             "user_id_hash": account_deletion_user_hash(owner),
             "owner": owner,
@@ -450,6 +455,18 @@ class AccountDeletionLifecycleService:
                     for item in previous["provider_cleanup_inventory"].values()
                 )
                 and previous["provider_cleanup_receipt"].get("localErasureAccepted") is not True,
+                summary_in_transaction(conn, owner),
+            )
+
+        cloud_review = review_in_transaction(conn, owner)
+        if cloud_review is not None:
+            if reviewed_cloud_plan_sha256 != cloud_review["plan_sha256"]:
+                raise CloudRetirementReviewRequired(cloud_review)
+        else:
+            if reviewed_cloud_plan_sha256 is not None:
+                raise ProviderCleanupReviewChanged("cloud cleanup review changed")
+            assert_external_resources_absent(
+                conn, params={"user_id": owner}, table_exists=table_exists, finalize_erasure=False
             )
 
         inventory, review = review_provider_inventory_in_transaction(
@@ -515,11 +532,14 @@ class AccountDeletionLifecycleService:
                 else None,
             },
         )
+        if cloud_review is not None:
+            bind_in_transaction(conn, owner=owner, cleanup_id=cleanup_id, review=cloud_review)
         return PreparedProviderCleanup(
             cleanup_id,
             "cleaning_up",
             len(inventory),
             review.local_erasure_required and not accept_local_erasure,
+            summary_in_transaction(conn, owner) if cloud_review is not None else None,
         )
 
     @staticmethod
@@ -1503,6 +1523,10 @@ async def drain_account_deletion_cleanup_with_report(
             raise
         except Exception:
             logger.exception("account_deletion.cleanup_intent_failed")
+    if service is None and paused_reason is None:
+        from hushh_mcp.services.account_cloud_retirement_worker import drain as drain_retired_cloud
+
+        await drain_retired_cloud()
     return AccountDeletionDrainReport(settled, paused_reason)
 
 

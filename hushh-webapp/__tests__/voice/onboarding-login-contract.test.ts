@@ -31,6 +31,8 @@ describe("One Voice Login onboarding contracts", () => {
       "auth.open_terms",
       "auth.open_privacy",
       "onboarding.back_to_intro",
+      "auth.deletion_start_fresh",
+      "auth.deletion_done",
     ]);
     expect(actions.get("auth.sign_in_google")).toMatchObject({
       activation_policy: "trusted_activation_required",

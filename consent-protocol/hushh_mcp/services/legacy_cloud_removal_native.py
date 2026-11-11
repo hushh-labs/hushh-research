@@ -28,10 +28,18 @@ from hushh_mcp.services.legacy_cloud_removal import (
 class RecoverySession(requests.Session):
     """Keep every provider write bound to the original, live operator DB session."""
 
-    def __init__(self, *, token: str, project: str, journal: LegacyRemovalJournal | None = None):
+    def __init__(
+        self,
+        *,
+        token: str,
+        project: str,
+        journal: LegacyRemovalJournal | None = None,
+        dispatch_guard=None,
+    ):
         super().__init__()
         self.headers.update({"Authorization": "Bearer " + token, "x-goog-user-project": project})
         self.journal = journal
+        self.dispatch_guard = dispatch_guard
         self.resource: dict | None = None
 
     def request(self, method: str, url: str, **kwargs):
@@ -45,6 +53,8 @@ class RecoverySession(requests.Session):
         )
         request_id = None
         if not readonly:
+            if self.dispatch_guard is not None:
+                self.dispatch_guard()
             _require(self.journal is not None and self.resource is not None)
             _require(
                 self.resource["authority"] == "owner_reviewed", "CLOUD_REMOVAL_PROTECTED_RESOURCE"
@@ -106,6 +116,8 @@ class RecoverySession(requests.Session):
                 **kwargs.get("headers", {}),
                 "User-Agent": "hussh-legacy-removal/" + plan["attemptId"] + "/" + request_id,
             }
+        if not readonly and self.dispatch_guard is not None:
+            self.dispatch_guard()
         response = super().request(method, url, **kwargs)
         if request_id is not None:
             # Only an authenticated response from our fixed endpoint is an ACK.
@@ -422,3 +434,92 @@ def observe_bootstrap_access(session, *, project: str, region: str, bootstrap: s
             "bindings": bindings,
         },
     }
+
+
+def verify_retired_plan(session: RecoverySession, *, reservation: dict, recovery: dict) -> None:
+    """Fresh incarnation checks after compute is gone; never invent a new plan."""
+    from hushh_mcp.services.legacy_cloud_removal import resource_key, resource_state, validate_plan
+
+    plan = recovery["plan"]
+    validate_plan(reservation, plan)
+    project = plan["project"]["projectId"]
+    _require(project not in PROTECTED_PROJECTS)
+    observed = session.get(f"https://cloudresourcemanager.googleapis.com/v3/projects/{project}")
+    _require(observed.status_code == 200)
+    body = observed.json()
+    _require(
+        body.get("state") == "ACTIVE"
+        and body.get("projectId") == project
+        and body.get("name") == "projects/" + plan["project"]["projectNumber"]
+        and body.get("createTime") == plan["project"]["createTime"],
+        "CLOUD_REMOVAL_PLACEMENT_CHANGED",
+    )
+    region = plan["runtime"]["serviceName"].split("/")[3]
+    for resource in plan["resources"]:
+        kind = resource["type"]
+        state = resource_state(recovery, resource_key(resource))
+        if kind == "project_iam_policy":
+            continue  # Existing etag merge and exclusivity checks own IAM writes.
+        if kind == "bootstrap_access":
+            current = observe_bootstrap_access(
+                session, project=project, region=region, bootstrap=resource["id"]
+            )
+            terminal = state.get("observation", {}).get("status") in {"deleted", "observed_absent"}
+            _require(
+                current["identity"]["account"] == resource["identity"]["account"]
+                and (not current["identity"]["bindings"] if terminal else current == resource),
+                "CLOUD_REMOVAL_BOOTSTRAP_IDENTITY_UNAVAILABLE",
+            )
+            continue
+        response = session.get(resource_url(project, region, resource))
+        _require(response.status_code in {200, 404}, "CLOUD_REMOVAL_PROVIDER_OUTCOME_UNKNOWN")
+        terminal = state.get("observation", {}).get("status") in {"deleted", "observed_absent"}
+        if terminal and kind == "kms_key" and response.status_code == 200:
+            _require(
+                native_identity(kind, response.json()) == resource["identity"],
+                "CLOUD_REMOVAL_PLACEMENT_CHANGED",
+            )
+            token, seen, versions = "", set(), []
+            for _ in range(128):
+                observed = session.get(
+                    resource_url(project, region, resource) + "/cryptoKeyVersions",
+                    params={"pageSize": 1000, **({"pageToken": token} if token else {})},
+                )
+                _require(observed.status_code == 200)
+                payload = observed.json()
+                _require(
+                    not payload.get("error")
+                    and not payload.get("unreachable")
+                    and isinstance(payload.get("cryptoKeyVersions", []), list)
+                )
+                versions.extend(payload.get("cryptoKeyVersions", []))
+                token = payload.get("nextPageToken", "")
+                _require(isinstance(token, str) and token not in seen)
+                if not token:
+                    break
+                seen.add(token)
+            _require(
+                not token
+                and bool(versions)
+                and all(v.get("state") == "DESTROYED" for v in versions),
+                "CLOUD_REMOVAL_PROVIDER_OUTCOME_UNKNOWN",
+            )
+        elif terminal:
+            _require(response.status_code == 404, "CLOUD_REMOVAL_PLACEMENT_CHANGED")
+        elif response.status_code == 200:
+            _require(
+                kind != "service_account"
+                or resource["id"] != plan["runtime"]["principal"]["email"]
+                or response.json().get("disabled") is True,
+                "CLOUD_REMOVAL_WRITER_NOT_FENCED",
+            )
+            _require(
+                native_identity(kind, response.json()) == resource["identity"],
+                "CLOUD_REMOVAL_PLACEMENT_CHANGED",
+            )
+        else:
+            _require(
+                kind not in {"cloud_run_service", "reasoning_engine"}
+                and ("intent" not in state or "acknowledgement" in state),
+                "CLOUD_REMOVAL_PROVIDER_OUTCOME_UNKNOWN",
+            )

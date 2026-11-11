@@ -476,6 +476,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
                     "985_legacy_cloud_removal_recovery.sql",
                     "986_legacy_cloud_removal_resume.sql",
                     "987_account_firebase_erasure.sql",
+                    "988_account_cloud_retirement.sql",
                 }:
                     continue
                 with conn.cursor() as cur:
@@ -488,6 +489,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
                     "985_legacy_cloud_removal_recovery.sql",
                     "986_legacy_cloud_removal_resume.sql",
                     "987_account_firebase_erasure.sql",
+                    "988_account_cloud_retirement.sql",
                 ],
             ):
                 with conn.cursor() as cur:

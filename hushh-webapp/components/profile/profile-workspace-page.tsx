@@ -1701,7 +1701,7 @@ function ProfilePageContent({
   // Returns what actually happened so the voice wrapper narrates the same
   // outcome the screen shows. "unknown" (a lost response after a possible
   // commit) is kept distinct from "failed"; neither is ever spoken as deleted.
-  const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
+  const handleDeleteAccount = async (reviewedCloudPlanSha256?: string): Promise<LifecycleOutcome> => {
     const owner = snapshotValidatedAuthSessionPrincipal();
     if (!user || !owner || owner.firebaseUid !== user.uid) return "auth_failed";
 
@@ -1753,6 +1753,7 @@ function ProfilePageContent({
               vaultOwnerToken: token,
               sessionUser: user,
               vaultKey,
+              ...(reviewedCloudPlanSha256 ? { reviewedCloudPlanSha256 } : {}),
             });
           })(),
           {
@@ -4985,7 +4986,7 @@ function ProfilePageContent({
               {deleteDialogTitle}
             </AlertDialogTitle>
             <AlertDialogDescription className={accountStyles.accountDialogDescription}>
-              {cloudCleanupRequired ? "Cloud cleanup is required before account deletion." : deleteDialogDescription}
+              {cloudCleanupRequired ? "Review cloud cleanup to continue account deletion." : deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {cloudCleanupRequired && applicationOwnerId ? <AccountCloudCleanup key={applicationOwnerId} userId={applicationOwnerId} token={vaultOwnerToken ?? null}

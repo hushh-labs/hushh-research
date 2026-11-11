@@ -16,19 +16,36 @@ function ports(retained: { token: string; userId: string; epoch: number } | null
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("confirmLinkedDeletion", () => {
-  it("reads a lost response back instead of re-sending the deletion, then claims with the same proof", async () => {
+  it("reads a lost response back once and requires fresh verification without reusing its SMS proof", async () => {
     vi.useFakeTimers();
     const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new TypeError("Failed to fetch"));
     const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
     const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone").mockResolvedValue(verified as never);
     const owner = ports();
-    const result = confirmLinkedDeletion(input, owner);
+    const result = confirmLinkedDeletion(input, owner).catch(error => error);
     await vi.runAllTimersAsync();
-    await expect(result).resolves.toBe(user);
+    expect(apiErrorCode(await result)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
     expect(confirm).toHaveBeenCalledOnce();
     expect(status).toHaveBeenCalledOnce();
-    expect(claim).toHaveBeenCalledExactlyOnceWith(user, "sms-proof");
+    expect(claim).not.toHaveBeenCalled();
     expect(owner.requireOwner).toHaveBeenCalledWith("owner", 3);
+    expect(owner.finalize).not.toHaveBeenCalled();
+  });
+
+  it("uses a new configured-test challenge after deletion without claiming the spent SMS proof", async () => {
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
+    const start = vi.spyOn(AccountIdentityService, "startUatTestPhoneVerification").mockResolvedValue({
+      success: true, eligible: true, verification_id: "fresh-test-challenge",
+    } as never);
+    const confirm = vi.spyOn(AccountIdentityService, "confirmUatTestPhoneVerification").mockResolvedValue(verified as never);
+    const claim = vi.spyOn(AccountIdentityService, "claimCurrentUserPhone");
+    const owner = ports(null);
+    await expect(confirmLinkedDeletion({ ...input, testCode: "123456" }, owner)).resolves.toBe(user);
+    expect(start).toHaveBeenCalledExactlyOnceWith(user, input.phoneNumber);
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(user, {
+      phoneNumber: input.phoneNumber, verificationCode: "123456", verificationId: "fresh-test-challenge",
+    });
+    expect(claim).not.toHaveBeenCalled();
     expect(owner.finalize).toHaveBeenCalledExactlyOnceWith(user);
   });
 

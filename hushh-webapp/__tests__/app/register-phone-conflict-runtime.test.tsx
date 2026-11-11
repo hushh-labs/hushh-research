@@ -127,10 +127,12 @@ describe("register-phone conflict runtime", () => {
     expect(destination.href).not.toContain("6505550101");
     expect(destination.href).not.toContain("123456");
   });
-  it("deletes the linked account in place with the retained SMS proof, then claims the number", async () => {
+  it.each([false, true])("settles linked deletion without reusing SMS or replaying an uncertain confirmation (lost ACK: %s)", async (lostAck) => {
     const operation = "d2a5e0f0-8c5e-4f2c-9a51-3f0d6b5f9a11";
     const bodies: Record<string, unknown>[] = [];
     let claims = 0;
+    let confirmations = 0;
+    let reconciled = false;
     const identity = await vi.importActual<typeof import("@/lib/services/account-identity-service")>("@/lib/services/account-identity-service");
     const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
     Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone });
@@ -145,7 +147,14 @@ describe("register-phone conflict runtime", () => {
       if (path.endsWith("/phone/linked-account/deletions")) {
         return Response.json({ operation_id: operation, state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport: "sms" });
       }
-      if (path.endsWith("/phone/linked-account/deletions/confirm")) return Response.json({ operation_id: operation, state: "admitted" });
+      if (path.endsWith("/phone/linked-account/deletions/confirm")) {
+        confirmations += 1;
+        if (lostAck) throw new TypeError("confirmation response lost");
+        return Response.json({ operation_id: operation, state: "admitted" });
+      }
+      if (path.endsWith(`/phone/linked-account/deletions/${operation}`)) {
+        return Response.json({ operation_id: operation, state: reconciled ? "admitted" : "prepared" });
+      }
       if (path.endsWith("/phone/claim") && ++claims === 1) {
         return Response.json({ success: true, user_id: "account-owner", phone_verified: true,
           identity: { user_id: "account-owner", phone_number: "+16505550101", phone_verified: true } });
@@ -165,17 +174,24 @@ describe("register-phone conflict runtime", () => {
     expect(remove).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(remove);
-    await waitFor(() => expect(claims).toBe(1));
+    if (lostAck) {
+      const check = await screen.findByRole("button", { name: "Check again" }, { timeout: 5_000 });
+      reconciled = true;
+      fireEvent.click(check);
+    }
+    await screen.findByText("Deletion requested. Verify this number again to continue.");
+    expect(confirmations).toBe(1);
+    expect(claims).toBe(0);
     expect(bodies.find(body => String(body.path).endsWith("/deletions/confirm"))).toEqual({
       path: "/api/account/phone/linked-account/deletions/confirm", operation_id: operation,
       phone_number: "+16505550101", confirmed: true, phone_id_token: "phone-id-token",
     });
-    // The verified provider-conflict proof serves deletion and the single follow-up claim.
+    // The provider-conflict proof authorizes deletion only; linking needs fresh verification.
     expect(mocks.phoneLinkConfirm).toHaveBeenCalledOnce();
     expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
     expect(bodies.some(body => String(body.path).endsWith("/phone/recovery/continuations"))).toBe(false);
     expect(mocks.replaceDocument).not.toHaveBeenCalled();
-  });
+  }, 10_000);
   it.each(["manual", "instant", "retry save"] as const)("keeps Dev's explicit %s SMS recovery and owner-approved transfer for a partially saved phone", async proofMode => {
     const identity = await vi.importActual<typeof import("@/lib/services/account-identity-service")>("@/lib/services/account-identity-service");
     const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");

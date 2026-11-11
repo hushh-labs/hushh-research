@@ -222,7 +222,27 @@ def delete_remaining(worker, *, token: str, reservation: dict) -> list[str]:
             "service_account",
             "bootstrap_access",
         }:
-            continue
+            # A positively evidenced Storage recovery window does not depend on
+            # an enabled KMS version. Overlap the two provider timers while all
+            # final IAM, secret and bootstrap custody stays fenced.
+            if kind != "kms_key":
+                continue
+            independent = True
+            for key in pending:
+                coverage = (
+                    resource_state(worker.journal.read(), key)
+                    .get("observation", {})
+                    .get("coverage", {})
+                )
+                if not key.startswith("gcs_bucket:") or (
+                    coverage.get("providerRetention") is not True
+                    or coverage.get("inventoryComplete") is not True
+                    or not coverage.get("nextEligibleAt")
+                ):
+                    independent = False
+                    break
+            if not independent:
+                continue
         if kind in {"project_iam_policy", "bootstrap_access"}:
             remove_project_bindings(worker, resource)
             continue

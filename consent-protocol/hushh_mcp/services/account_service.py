@@ -1100,7 +1100,12 @@ class AccountService:
         table_presence = self._assert_personal_agent_external_resources_absent(
             conn, params=params, finalize_erasure=True
         )
-        results["personal_agent_external_resources_absent"] = True
+        from hushh_mcp.services.account_cloud_retirement import local_erasure_ready
+
+        deferred = local_erasure_ready(conn, params["user_id"])
+        results["personal_agent_external_resources_absent"] = not deferred
+        if deferred:
+            results["personal_agent_cloud_cleanup_deferred"] = True
         for table_name, present in table_presence.items():
             if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)
@@ -1439,6 +1444,7 @@ class AccountService:
         *,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Delete either the whole account or one persona.
@@ -1470,6 +1476,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
 
@@ -1988,6 +1999,7 @@ class AccountService:
         backend_only: bool = False,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Prepare durable cleanup, or execute the attested UAT-only local reset."""
@@ -2003,6 +2015,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         if admission_check is not None:
@@ -2021,13 +2038,21 @@ class AccountService:
         requested_target: DeleteAccountTarget,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Persist approval and custody before returning; the existing worker continues."""
 
+        from hushh_mcp.services.account_cloud_retirement import CloudRetirementReviewRequired
         from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
 
         try:
+            if reviewed_cloud_plan_sha256 is not None:
+                from hushh_mcp.services.account_cloud_retirement import verify_reviewed_authority
+
+                await settle_cleanup_database_call(
+                    verify_reviewed_authority, user_id, reviewed_cloud_plan_sha256
+                )
             prepared = await settle_cleanup_database_call(
                 prepare_full_account_cleanup_transaction,
                 self,
@@ -2036,6 +2061,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         except AccountDeletionAdmissionRefused as refused:
@@ -2047,7 +2077,7 @@ class AccountService:
                 "error_code": "PHONE_TRANSFER_IN_PROGRESS",
                 "error": "PHONE_TRANSFER_IN_PROGRESS",
             }
-        except ProviderCleanupReviewChanged as changed:
+        except (ProviderCleanupReviewChanged, CloudRetirementReviewRequired) as changed:
             return changed.result()
         except PersonalAgentDeprovisioningRequiredError:
             from hushh_mcp.services.account_personal_agent_erasure import (
@@ -2069,6 +2099,12 @@ class AccountService:
             "success": True,
             "account_deleted": False,
             "cleanup_pending": True,
+            "ready_to_start_fresh": False,
+            **(
+                {"cloud_cleanup": prepared.cloud_cleanup}
+                if prepared.cloud_cleanup is not None
+                else {}
+            ),
             "requested_target": requested_target,
             "cleanup_operation": {
                 "id": prepared.cleanup_id,
@@ -2180,6 +2216,7 @@ class AccountService:
         provider_cleanup: ProviderCleanupClaim | None = None,
     ) -> tuple[Dict[str, Any], ProviderCredentialSnapshot]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
+        cloud_cleanup = None
         results = {
             "actor_identity_cache": False,
             "actor_verified_email_aliases": False,
@@ -2715,6 +2752,10 @@ class AccountService:
                     from hushh_mcp.services import account_deletion_provider_journal as journal
 
                     journal.settle_local_erasure(conn, backend_cleanup)
+                if results.get("personal_agent_cloud_cleanup_deferred"):
+                    from hushh_mcp.services.account_cloud_retirement import summary_in_transaction
+
+                    cloud_cleanup = summary_in_transaction(conn, user_id)
 
             logger.info("✅ FULL ACCOUNT DELETION completed for %s", user_id)
         except PersonalAgentDeprovisioningRequiredError:
@@ -2762,6 +2803,11 @@ class AccountService:
             "requested_target": requested_target,
             "deleted_target": "both",
             "account_deleted": True,
+            **(
+                {"cloud_cleanup": cloud_cleanup, "ready_to_start_fresh": True}
+                if cloud_cleanup is not None
+                else {}
+            ),
             "remaining_personas": [],
             "details": results,
         }, provider_credentials

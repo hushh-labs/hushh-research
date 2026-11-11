@@ -119,7 +119,7 @@ describe("in-place deletion of the account linked to the number", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(remove);
     await waitFor(() => expect(flow.onCompleted).toHaveBeenCalledWith(verified));
-    expect(confirmLinkedDeletion).toHaveBeenCalledExactlyOnceWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: "123456" });
+    expect(confirmLinkedDeletion).toHaveBeenCalledExactlyOnceWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: "123456", recheck: false });
   });
 
   it("cancels from the review, and an unconfirmed deletion offers Check again without trapping Back", async () => {
@@ -142,8 +142,8 @@ describe("in-place deletion of the account linked to the number", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("We couldn’t confirm the deletion. Check again, or contact one@hushh.ai."));
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(confirmLinkedDeletion).toHaveBeenCalledTimes(2));
-    // Re-reading the same operation is safe: the server never dispatches it twice.
-    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined });
+    // Check again requests observation of the original operation, not confirmation replay.
+    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined, recheck: true });
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     await screen.findByRole("heading", { name: "This number is linked to another account" });
     expect(flow.onCompleted).not.toHaveBeenCalled();

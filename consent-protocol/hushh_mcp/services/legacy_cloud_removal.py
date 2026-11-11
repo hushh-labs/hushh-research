@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import select
 import subprocess
+import time
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -349,6 +352,22 @@ class LegacyRemovalJournal:
             "(p.backend_metadata->'erasure'->'registrySnapshot')::text,'UTF8')),'hex')",
             (self.owner, self.attempt),
         )
+        if (
+            value is None
+            and self._one(
+                "SELECT to_regprocedure('public.account_cloud_retirement_handoff_valid(text,jsonb)') IS NOT NULL"
+            )
+            is True
+        ):
+            # Local erasure removes the ordinary registry. Only the original,
+            # database-qualified custody transfer can replace that read binding.
+            value = self._one(
+                "SELECT c.recovery FROM public.personal_agent_cloud_removals c "
+                "WHERE c.user_id=%s AND c.attempt_id=%s AND c.completed_at IS NULL "
+                "AND c.cancelled_at IS NULL AND "
+                "public.account_cloud_retirement_handoff_valid(c.user_id,c.retirement_handoff)",
+                (self.owner, self.attempt),
+            )
         _require(isinstance(value, dict), "CLOUD_REMOVAL_RECOVERY_CHANGED")
         return value
 
@@ -438,3 +457,80 @@ def record_supervised_exit(
         },
     )
     return status
+
+
+def supervise_removal(
+    journal, payload, *, command, cwd=None, startup_timeout=30.0, execution_timeout=300.0
+):
+    deadline = time.monotonic() + execution_timeout
+    startup_deadline = min(deadline, time.monotonic() + startup_timeout)
+    read_fd, write_fd = os.pipe()
+    payload["startedFd"] = write_fd
+    try:
+        process = subprocess.Popen(  # noqa: S603 - Both internal callers supply fixed Python worker commands.
+            command,
+            stdin=subprocess.PIPE,
+            pass_fds=(write_fd,),
+            cwd=cwd,
+            text=True,
+        )
+    except BaseException:
+        os.close(read_fd)
+        os.close(write_fd)
+        raise
+    os.close(write_fd)
+    recorded = False
+    try:
+        with os.fdopen(read_fd, "rb", buffering=0) as pipe:
+            # Bound both directions: a child wedged before reading stdin must
+            # not hold the release admission through a full pipe either.
+            outgoing = memoryview(json.dumps(payload).encode())
+            with process.stdin as input_pipe:
+                os.set_blocking(input_pipe.fileno(), False)
+                while outgoing:
+                    remaining = startup_deadline - time.monotonic()
+                    _require(
+                        remaining > 0 and select.select([], [input_pipe], [], max(0, remaining))[1],
+                        "CLOUD_REMOVAL_WORKER_START_TIMEOUT",
+                    )
+                    written = os.write(input_pipe.fileno(), outgoing[:4096])
+                    outgoing = outgoing[written:]
+            incoming = bytearray()
+            while b"\n" not in incoming:
+                remaining = startup_deadline - time.monotonic()
+                _require(
+                    remaining > 0
+                    and len(incoming) < 4096
+                    and select.select([pipe], [], [], max(0, remaining))[0],
+                    "CLOUD_REMOVAL_WORKER_START_TIMEOUT",
+                )
+                chunk = os.read(pipe.fileno(), 4096 - len(incoming))
+                _require(bool(chunk), "CLOUD_REMOVAL_WORKER_START_UNCONFIRMED")
+                incoming.extend(chunk)
+            started = json.loads(incoming.split(b"\n", 1)[0])
+        process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        status = record_supervised_exit(journal, process, started)
+        recorded = True
+        return status
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        if not recorded:
+            # EOF or cancellation can lose the pipe receipt after SQL retained
+            # it. Join the real child, then recover only this invocation's start.
+            started = next(
+                (
+                    event["receipt"]
+                    for event in journal.read()["events"]
+                    if event["stage"] == "executor_started"
+                    and event["receipt"]["executionId"] == payload["args"]["execution_id"]
+                ),
+                None,
+            )
+            if started is not None:
+                record_supervised_exit(journal, process, started)

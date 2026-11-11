@@ -804,8 +804,23 @@ class UserGcpBootstrap:
         project, region = self._project, self._region
         by_type = {r["type"]: r for r in plan.get("resources", [])}
         destruction_delay = by_type.get("kms_key", {}).get("destroyScheduledDuration")
+        from hushh_mcp.runtime_settings import (
+            get_app_runtime_settings,
+            get_firebase_credential_settings,
+        )
+
+        isolated_dev = (
+            get_app_runtime_settings().environment == "dev"
+            and get_firebase_credential_settings().auth_project_id == "hushh-pda-dev"
+        )
+        soft_delete = by_type.get("gcs_bucket", {}).get("softDeletePolicy")
+        if soft_delete is not None and (
+            not isolated_dev or soft_delete != {"retentionDurationSeconds": "0"}
+        ):
+            raise BootstrapError("Dev storage deletion policy is not admitted")
         if destruction_delay is not None and (
-            plan.get("tenancy") != "hussh-hosted" or destruction_delay != "86400s"
+            (plan.get("tenancy") != "hussh-hosted" and not isolated_dev)
+            or destruction_delay != "86400s"
         ):
             raise BootstrapError("Disposable key destruction policy is not admitted")
         keyring = "hushh-one"
@@ -1097,6 +1112,7 @@ class UserGcpBootstrap:
                 "params": {"project": project},
                 "body": {
                     "name": bucket,
+                    **({"softDeletePolicy": soft_delete} if soft_delete is not None else {}),
                     "location": region.upper(),
                     "encryption": {"defaultKmsKeyName": key_path},
                     "iamConfiguration": {

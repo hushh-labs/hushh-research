@@ -39,17 +39,119 @@ worker rollout 7m55s and migration checks 4m35s. Deployment remains above the
 activation is not a valid shortcut. No production application rollout or new
 native publication is claimed by this checkpoint.
 
-## Dev deletion incident — 7 November 2026
+## Dev deletion incident — 10 November 2026
+
+**Source implemented; Dev deployment authorized after required checks.**
+[Dev PR #9228](https://github.com/hushh-labs/hushh-research/pull/9228) passed
+[exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42818597779)
+on `23a03973f2f4`; subsequent accepted Dev changes require combined-source
+qualification before landing. No candidate deployment or account erasure is claimed.
+PR #9008 is merged to UAT as source only and is not a Dev-retirement blocker.
+ The isolated Dev
+candidate adds migration 988 and the existing-worker handoff described in the
+[canonical deletion runbook](../operations/account-deletion-rollout.md#current-dev-application--10-november-2026).
+Account retirement and fresh signup are separated from native cloud erasure; the
+original cleanup retains immutable custody after ordinary owner rows are removed.
+The qualified Files family is preserved during 420/421 replay and rollback. New
+placements cannot overlap a project still owned by retired cleanup. No live account
+or Firebase mutation, provider destruction or deployment occurred for this candidate.
+
+| Outcome | Current live result |
+|---|---|
+| Dev account deleted | Not yet; current deployed account/vault remain |
+| Fresh journey | Not yet measured on the candidate |
+| Physical cloud erasure | Pending native provider evidence |
+
+The candidate passed 159 focused backend/database/operator checks, 283 frontend
+deletion/session checks, 522 navigation cases, typecheck and UI contract verification.
+The real PostgreSQL rehearsal erased ordinary owner rows, rejected old-owner writes,
+advanced the existing HusshID allocator, admitted a separate fresh placement and
+resumed the original cleanup through an actual joined child process. Failed but
+settled executions remain retryable; ambiguous requests do not. The existing drain
+uses native deadlines and the child's release/session guard. The broad quality
+diagnostic has two inherited direct-DB route failures, with identical findings on
+Dev `dbc4e4b3cb7b`; it is not a green full-quality claim. CI policy and those
+unrelated routes remain owned by the existing CI workstream.
+The earlier local core attempt stopped at `skill-lint` and the architecture
+baseline ratchet; later stages were not reached. Current landed CI policy treats
+those global hygiene checks as diagnostics. The 38 candidate-owned size findings
+remain recorded debt; no policy or finding is suppressed here. Secret scanning
+passed with pinned Gitleaks 8.24.2. Finished-candidate affected checks, exact-source
+CI and governed Dev deployment remain pending; local evidence is not live acceptance.
+
+Fresh read-only Dev evidence at 10 November 08:31:20 UTC identifies source
+`84692d554b6f`, schema through 987, the original profile/vault and no admitted
+full-account deletion. Its removal remains incomplete (70 dispatches, 70 matching
+acknowledgements, four exits). The older full browser/revision receipt below is
+historical; no new browser or deployed-candidate acceptance is claimed.
+
+The candidate was refreshed against Dev `26f4156f5796`, including its new encrypted
+message-draft integration. A reproduced failure showed local cleanup swallowing
+draft-removal errors. Confirmed Reset/delete now keeps departure retryable until
+that purge settles; ordinary sign-out remains nonblocking. The regression failed
+on the prior behavior; 188 focused client cases and typecheck passed after the
+correction. UI generation and its 522 navigation cases passed. Backend/SQL
+contracts are unchanged, so their prior evidence is retained. The user lifted the
+Dev deployment hold on 10 November, conditional on required checks passing. The candidate incorporates
+Dev `233d1471e9f6` without changing its CI pipeline or current phone-deletion flow.
+PR [9008](https://github.com/hushh-labs/hushh-research/pull/9008) has green exact-head
+source CI and remains in the UAT merge queue; it neither deploys UAT nor completes
+the separate Dev retirement journey. No candidate deployment is claimed.
+
+These are separate acceptance gates. Local candidate checks do not change the
+live measurements below. Managed pilot, UAT and production remain outside this release.
+
+**Dev account erasure only.** Separate UAT Auth preparation does not gate this
+acceptance; no UAT erasure rollout is part of this task.
 
 **Operational, cleanup pending.** PR [9057](https://github.com/hushh-labs/hushh-research/pull/9057)
 passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42317327082)
 and the governed [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42322308693).
-Native readback confirmed source `328f02b7448d`, backend
-`consent-protocol-00359-hrh` and frontend `hushh-webapp-00309-gz2`, both Ready at
-100% traffic. Complete migration-987 qualification passed and all 82 earlier
-ledger checksums are preserved. Fresh cleanup Scheduler delivery returned HTTP 200
-and the deletion release fence is absent. No pod image was built; the
-retained removal executor stays pinned to `9dcabd53478f`.
+The later [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42619172270)
+serves source `bc03cfb74802`, backend `consent-protocol-00362-8jk` and frontend
+`hushh-webapp-00312-q9k`, observed at 100% traffic. Its
+[exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42615919865)
+passed. Earlier complete migration-987, checksum, cleanup-activation and Scheduler
+receipts remain retained. The removal executor stays pinned to `9dcabd53478f`.
+
+Dev Google login was blocked by its inherited internal-only `Hushh Metrics Dev`
+OAuth brand. The provider now reuses the established `Hushh` client while keeping
+Firebase tokens and administrator authority in `hushh-pda-dev`. Native callback
+checks pass and reject an unapproved domain. Fresh owner Google sign-in is now
+verified by the Dev issuer/audience and backend session response, preserving the
+original UID and generation zero. The vault remains present. The secure interface
+shows the original 10/17 removal progress, provider retention time, Refresh and
+Close through normal Delete account confirmation, without a new provider execution. Decrypted history and
+native acceptance remain separate checks.
+
+Both new domains serve the Firebase auth handler and iframe over strict HTTPS;
+native certificates are `CERT_ACTIVE` at 16:25 UTC. The Dev app still uses
+its working default Firebase auth domain; the frontend cutover remains held
+while the separate CI repairs are active. Google, Microsoft and Apple callback/provider
+configuration is prepared for both realms, reusing the existing registrations
+and retaining production callbacks. The reported Dev India SMS failure exposed
+an empty region allowlist; both new realms now admit `IN`, with actual delivery
+pending one retry. No SMS, identity mutation, CI run or application build was
+triggered by these configuration repairs.
+
+Production's `id.hussh.ai` and the metrics brand are preserved. UAT's staged
+domain/Auth setup remains separate and its application still uses production
+Auth; this work makes no UAT identity or schema mutations. The out-of-scope UAT
+preflight was removed from the active candidate, with its unpublished history
+retained. The [sign-in domain contract](../operations/account-deletion-rollout.md#environment-specific-sign-in-domains)
+owns those separate boundaries. Landed Dev phone hardening is preserved without
+an application deployment or CI/protected-source edit.
+
+Fresh Dev SQL qualifies the installed Firebase-erasure contract and original
+owner/generation. The normal Dev Delete account confirmation now reaches the
+expected GCP prerequisite screen: 10/17, exact retention time, Sign out, Refresh
+and Close, with Delete hidden/disabled. Full account deletion remains unadmitted;
+cloud removal is not finalizable. There are no unjoined executor starts or
+unacknowledged provider dispatches, and no unsettled owner Firebase mutations.
+The next eligible provider read is 13 November 07:03:50.404 UTC (12 November
+11:03:50 PM Pacific). Native readback and finalization are still required afterward;
+the clock does not establish erasure. No UAT work is required to unblock this Dev
+flow.
 
 Fresh owner approval and append-only operator-source adoption preserved the
 original removal plan. The resumed worker used the existing compute-first writer
@@ -60,8 +162,13 @@ all four executions have retained exits. Temporary IAM grants are removed.
 
 Cleanup is **10/17**, with **144 provider-retained object generations**. The
 next eligible native observation is **2026-11-13 07:03:50.404 UTC**; later key or
-bucket retention may extend completion. No remaining fence is released by elapsed
-time. The current interface passed server-verified owner/generation, normal password
+bucket retention may extend completion. Native KMS readback on 9 November now
+confirms one **ENABLED** version with an immutable **30-day** destruction period;
+destruction has not started. The pinned executor starts that period after Storage
+settles. The full-account request is not yet admitted or automatically queued.
+The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
+records the exact continuation and source-adoption boundary. No remaining fence
+is released by elapsed time. The current interface passed server-verified owner/generation, normal password
 unlock, waiting state, exact provider date and Close/reopen checks through
 background Apple Events with foreground focus unchanged. No approval or
 continuation control is available during retention. Sign out retains its earlier
@@ -72,7 +179,7 @@ The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-clou
 owns the exact continuation and phone-audit boundaries. Its
 [Auth separation section](../operations/account-deletion-rollout.md#firebase-auth-separation)
 records the installed project-bound erasure contract 987 and native fixture proof.
-The isolated Auth selector remains off. The refreshed active cohort is 156;
+Dev browser and backend now select isolated Auth in `hushh-pda-dev`. The active cohort is 156;
 three retired identities and one providerless, event-only identity are excluded
 from ordinary import. 156 identities passed disabled import and activation with exact native readback. The iOS configuration follow-up
 binds Google's client and callback to the selected Firebase plist; focused tests
@@ -92,14 +199,22 @@ one HTTP-200 import request settled, and the native fences and proxy are removed
 The activation manifest additionally pins WorkOS attribution without creating a binding.
 Activation completed on executor `cdc2cabca6cd`: all 156 original UIDs and credential
 postimages verified, worker exit zero, fences removed and SQL proxy released.
-No source/production identities changed. Live sign-in has not switched yet. The existing Dev SDK client now
-has only gmail.send Workspace delegation; native token minting passed, no mail was
-sent, and all seven previous grants remain unchanged. Current live mail still
-depends on the production SDK pending the coordinated canonical credential
-replacement. Two unused Dev copies of that production credential are disabled
-and native access refuses them; the live copy is still active. Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
-credential isolation and project-bound erasure qualification remain release
-gates. Phone-only or missing source identities are not deletion authority.
+No source/production identities changed. PR [9101](https://github.com/hushh-labs/hushh-research/pull/9101)
+merged at `7e02cfe58395` after [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/42448729098)
+passed on `843ce2e1a165`. The configuration rollout retains the earlier application
+source and builds no pod image. Native SDK checks grant Dev user management and
+no tested production Auth permissions; the shipped browser asset selects Dev.
+The existing Dev SDK client has only gmail.send Workspace delegation; token
+minting passed, no mail was sent and all seven previous grants are unchanged.
+No duplicate service account, project or mailbox was created. Two unused Dev
+copies of the production credential are disabled. Previous canonical version 423
+and old Dev revisions remain for paired rollback pending fresh owner acceptance;
+complete credential containment is not yet established. Fresh Google sign-in,
+vault/history and pending-removal interface proof on the new realm remain open,
+as do native/device/provider acceptance and unresolved historical owner mappings.
+UAT application/identities and production provider/domain were not changed.
+Phone-only or missing source identities do not
+authorize deletion.
 The managed pilot/PR workflow remains paused. Earlier GCP/Azure journey receipts
 below are historical acceptance; this owner-requested GCP removal does not establish
 managed-pilot or production readiness.
