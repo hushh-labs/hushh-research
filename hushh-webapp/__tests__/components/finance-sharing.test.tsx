@@ -228,6 +228,19 @@ it("renders the Agent One review as formatted text instead of raw markdown", asy
   expect(document.body.textContent).not.toContain("**");
 });
 
+it("returns from allocation to the portfolio before closing the shared view", async () => {
+  const close = vi.fn();
+  render(<FinanceSharedDetail grantId="grant" onClose={close} />);
+  await screen.findByText(/decrypted-sentinel/);
+  fireEvent.click(screen.getByRole("tab", { name: "Allocation" }));
+  expect(screen.getByRole("tab", { name: "Allocation" })).toHaveAttribute("aria-selected", "true");
+  act(() => { expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(true); });
+  expect(screen.getByRole("tab", { name: "Portfolio" })).toHaveAttribute("aria-selected", "true");
+  expect(close).not.toHaveBeenCalled();
+  act(() => { expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(true); });
+  expect(close).toHaveBeenCalledOnce();
+});
+
 it("selects and clears every stock with one button", async () => {
   const two = mapPortfolioToDashboardViewModel({ total_value: 20000, holdings: [
     { symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 },

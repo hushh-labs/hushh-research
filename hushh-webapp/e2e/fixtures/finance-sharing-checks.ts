@@ -143,7 +143,9 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
     await page.getByRole("button", { name: "Open sample received Finance", exact: true }).click();
     const received = page.getByRole("dialog", { name: "Sample sender · Finance", exact: true });
+    await received.getByRole("tab", { name: "Allocation" }).click();
     await expect(received.getByRole("region", { name: "Shared allocation" })).toBeVisible();
+    await received.getByRole("tab", { name: "Portfolio" }).click();
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-reviews");
     await received.getByRole("button", { name: "Review with Agent One", exact: true }).click();
     await expect(received.getByText(/^Synthetic review:/)).toBeVisible();

@@ -11,12 +11,12 @@ const money = (value: number, currency = "USD") => new Intl.NumberFormat(undefin
 const percent = (value: number) => `${value.toFixed(1)}%`;
 
 /** Renders the already filtered recipient object. Never receives the owner's model. */
-export function FinanceSharingPreview({ projection }: { projection: FinanceProjection }) {
+export function FinanceSharingPreview({ projection, section }: { projection: FinanceProjection; section?: "portfolio" | "allocation" | "stocks" }) {
   const chartId = `finance-share-${useId().replace(/:/g, "")}`;
   const performance = projection.performance;
   const formatValue = (value: number) => performance?.unit === "USD" ? money(value) : percent(value);
   return <div className={styles.section}>
-    {performance ? <section className={styles.group} aria-label="Shared performance">
+    {performance && (!section || section === "portfolio") ? <section className={styles.group} aria-label="Shared performance">
       <h3 className="text-sm font-semibold">Performance</h3>
       {performance.total ? <p className={styles.value}>{money(performance.total.value, performance.total.currency)}</p> : null}
       <p className="mt-1 text-sm tabular-nums">{performance.balanceChangePct === null ? "Period balance change is unavailable for this source." : `${performance.balanceChangePct > 0 ? "+" : ""}${percent(performance.balanceChangePct)} balance change over the shared period`}</p>
@@ -32,20 +32,22 @@ export function FinanceSharingPreview({ projection }: { projection: FinanceProje
         </AreaChart>
       </ChartContainer> : <p className={`${styles.caption} mt-4`}>No saved value history is available. No chart has been estimated.</p>}
     </section> : null}
-    {projection.allocation ? <section className={styles.group} aria-label="Shared allocation">
+    {projection.allocation && (!section || section === "allocation") ? <section className={styles.group} aria-label="Shared allocation">
       <h3 className="mb-4 text-sm font-semibold">Allocation</h3>
       <div className={styles.bar} aria-hidden="true">{projection.allocation.map((row, i) => <span key={row.name} style={{ width: `${Math.max(0, row.percent)}%`, background: colors[i % colors.length] }} />)}</div>
       {projection.allocation.map((row, i) => <div key={row.name} className={styles.row}><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: colors[i % colors.length] }} />{row.name}</span><span className="text-right tabular-nums">{row.amount ? <>{money(row.amount.value, row.amount.currency)}<br /></> : null}{percent(row.percent)}</span></div>)}
       {projection.sectors?.length ? <div className="mt-4"><p className={styles.caption}>Equity sectors</p>{projection.sectors.map(row => <div key={row.name} className={styles.row}><span>{row.name}</span><span className="tabular-nums">{percent(row.percent)}</span></div>)}</div> : null}
     </section> : null}
-    {projection.holdings ? <section className={styles.group} aria-label={projection.schema === "finance-share-v2" ? "Positions in the selected source" : "Shared stocks"}><h3 className="text-sm font-semibold">{projection.schema === "finance-share-v2" ? "Positions in the selected source" : "Selected stocks"}</h3>
+    {projection.holdings && (!section || section === "stocks") ? <section className={styles.group} aria-label={projection.schema === "finance-share-v2" ? "Positions in the selected source" : "Shared stocks"}><h3 className="text-sm font-semibold">{projection.schema === "finance-share-v2" ? "Positions in the selected source" : "Selected stocks"}</h3>
       {!projection.holdings.length ? <p className={styles.caption}>No individual positions reported.</p> : null}
       {projection.holdings.map((row, index) => <div key={`${row.symbol}-${index}`} className={styles.row}><div><p className="font-semibold">{row.symbol}</p><p className={styles.caption}>{row.name}</p>{"assetType" in row && row.assetType ? <p className={styles.caption}>{row.assetType}</p> : null}{"sector" in row && row.sector ? <p className={styles.caption}>Sector: {row.sector}</p> : null}{"isCashEquivalent" in row ? <p className={styles.caption}>{row.isCashEquivalent ? "Cash equivalent" : "Non-cash position"}</p> : null}{"quantity" in row && row.quantity !== undefined ? <p className={styles.caption}>{row.quantity.toLocaleString()} {projection.schema === "finance-share-v2" ? "units" : "shares"}</p> : null}</div><div className="text-right tabular-nums">{row.amount ? <p>{money(row.amount.value, row.amount.currency)}</p> : null}<p>{percent(row.weightPct)} weight</p>{"costBasis" in row && row.costBasis ? <p className={styles.caption}>Cost basis {money(row.costBasis.value, row.costBasis.currency)}</p> : null}{"price" in row && row.price ? <p className={styles.caption}>Price {money(row.price.value, row.price.currency)}</p> : null}{"gainLoss" in row && row.gainLoss ? <p className={styles.caption}>{money(row.gainLoss.value, row.gainLoss.currency)} unrealized</p> : null}{row.gainLossPct !== null ? <p className={styles.caption}>{percent(row.gainLossPct)} unrealized</p> : null}</div></div>)}
     </section> : null}
-    {projection.schema === "finance-share-v2" ? <p className={styles.caption}>Cash balance: {projection.cashBalance ? money(projection.cashBalance.value, projection.cashBalance.currency) : "Unavailable"}</p> : null}
-    {projection.note !== undefined ? <section className={styles.group} aria-label="Shared note"><h3 className="mb-2 text-sm font-semibold">A note from the owner</h3><p className="whitespace-pre-wrap break-words text-sm leading-[21px]">{projection.note || "No note added."}</p></section> : null}
-    {projection.schema === "finance-share-v2" ? <p className={styles.caption}>Unrealized percentages may be calculated from available amounts.</p> : null}
-    {projection.schema === "finance-share-v2" && projection.source === "plaid" ? <p className={styles.caption}>Linked values may be calculated from supplied quantities and prices. Accounts without reported positions are not included.</p> : null}
-    <p className={styles.caption}>{projection.source === "statement" ? "Statement information" : "Linked portfolio information"}{projection.sourcePeriod ? ` · ${projection.sourcePeriod}` : ""}</p>
+    {projection.schema === "finance-share-v2" && (!section || section === "portfolio") ? <p className={styles.caption}>Cash balance: {projection.cashBalance ? money(projection.cashBalance.value, projection.cashBalance.currency) : "Unavailable"}</p> : null}
+    {projection.note !== undefined && (!section || section === "portfolio") ? <section className={styles.group} aria-label="Shared note"><h3 className="mb-2 text-sm font-semibold">A note from the owner</h3><p className="whitespace-pre-wrap break-words text-sm leading-[21px]">{projection.note || "No note added."}</p></section> : null}
+    {projection.schema === "finance-share-v2" && (!section || section === "stocks") ? <p className={styles.caption}>Unrealized percentages may be calculated from available amounts.</p> : null}
+    {projection.schema === "finance-share-v2" && projection.source === "plaid" && (!section || section === "stocks") ? <p className={styles.caption}>Linked values may be calculated from supplied quantities and prices. Accounts without reported positions are not included.</p> : null}
+    {(!section || section === "portfolio") ? <p className={styles.caption}>{projection.source === "statement" ? "Statement information" : "Linked portfolio information"}{projection.sourcePeriod ? ` · ${projection.sourcePeriod}` : ""}</p> : null}
+    {section === "allocation" && !projection.allocation ? <p className={styles.caption}>Allocation was not shared.</p> : null}
+    {section === "stocks" && !projection.holdings ? <p className={styles.caption}>Stocks were not shared.</p> : null}
   </div>;
 }
