@@ -139,7 +139,7 @@ describe("network permission and journey return @feature_connected_profiles", ()
       fireEvent.click(throughConnections);
       expect(throughConnections).toHaveAttribute("aria-pressed", "true");
       expect(screen.queryByText("People who share a connection with you.")).toBeNull();
-      await waitFor(() => expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 2 })));
+      await waitFor(() => expect(state.list).toHaveBeenCalledWith(expect.objectContaining({ degree: 2 })));
     } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
   });
 
@@ -193,6 +193,61 @@ describe("network permission and journey return @feature_connected_profiles", ()
     await act(async () => finish(page()));
     await screen.findByText("No profiles to show right now.");
     expect(screen.queryByText("Person 1")).toBeNull();
+  });
+
+  it("warms the filters and updates a sent request without reloading the open list", async () => {
+    state.list.mockImplementation(async ({ degree }) => ({
+      ...page(), hasMore: false,
+      items: [{ ...row(degree === 1 ? "Direct" : "Peer"), relationship: degree === 1 ? "connected" : "none" }],
+    }));
+    state.connect.mockResolvedValue({ status: "pending_outgoing" });
+    state.invalidate.mockImplementation((owner: string) => dispatchConnectionGraphChanged(owner));
+    render(<NetworkPeopleList mode="discovery" visitKey="warm-filters" />);
+    await screen.findByRole("button", { name: "Open Peer's profile" });
+    expect(state.list.mock.calls.map(([options]) => options.degree)).toEqual([undefined, 1, 2, 3]);
+    fireEvent.click(screen.getByRole("button", { name: "My connections" }));
+    expect(screen.getByRole("button", { name: "Open Direct's profile" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Through connections" }));
+    const peer = screen.getByRole("button", { name: "Open Peer's profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Connect with Peer" }));
+    await screen.findByText("Request sent");
+    expect(screen.getByRole("button", { name: "Open Peer's profile" })).toBe(peer);
+    fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+    expect(screen.getByText("Request sent")).toBeVisible();
+    expect(state.list).toHaveBeenCalledTimes(4);
+
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [] });
+    act(() => dispatchConnectionGraphChanged("acct_recreated_owner"));
+    expect(screen.queryByRole("button", { name: "Open Peer's profile" })).toBeNull();
+    await screen.findByText("No people to show yet. Search by name to get started.");
+  });
+
+  it("keeps suggestions after loading more and prefers a newly qualified network row", async () => {
+    const third = (name: string) => ({ ...row(name), networkDegree: 3 });
+    state.list.mockImplementation(async ({ degree, page: requestedPage }) => {
+      if (degree !== 3) return { ...page(), hasMore: false };
+      if (requestedPage === 2) {
+        return { ...page(2), items: [third("Now third degree")] };
+      }
+      return {
+        ...page(),
+        items: [third("Third degree")],
+        suggestions: ["Now third degree", "Advisor"].map(name => ({
+          ...row(name), networkDegree: null, suggestionReason: "verified_advisor",
+        })),
+      };
+    });
+    render(<NetworkPeopleList mode="discovery" visitKey="extended-pages" />);
+    fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+    await screen.findByRole("button", { name: "Open Advisor's profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Load more connections" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open Now third degree's profile" })).not.toHaveAccessibleDescription());
+    expect(screen.getAllByRole("button", { name: /^Open .* profile$/ }).map(
+      button => button.getAttribute("aria-label"),
+    )).toEqual(["Open Third degree's profile", "Open Now third degree's profile", "Open Advisor's profile"]);
+    expect(screen.getByRole("button", { name: "Open Advisor's profile" })).toHaveAccessibleDescription("Suggested · Verified advisor");
+    expect(state.list).toHaveBeenCalledWith(expect.objectContaining({ degree: 3, page: 1, includeSuggestions: true }));
+    expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 3, page: 2 }));
   });
 
   it("keeps authorized rows and scroll while a next-page request settles", async () => {

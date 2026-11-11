@@ -30,7 +30,34 @@ def test_network_routes_bind_viewer_and_validate_private_read_contract():
         assert response.status_code == 200
         assert response.headers["cache-control"] == "private, no-store"
         service.return_value.browse.assert_called_once_with(
-            "user-a", person_ref=person_ref, degree=3, query="Alice", page=2, limit=20
+            "user-a",
+            person_ref=person_ref,
+            degree=3,
+            query="Alice",
+            page=2,
+            limit=20,
+            include_suggestions=False,
+        )
+        service.return_value.browse.reset_mock()
+        service.return_value.browse.return_value = {
+            "items": [],
+            "suggestions": [],
+            "page": 1,
+            "hasMore": False,
+        }
+        suggestions = client.get(
+            "/api/one/connections/network", params={"degree": 3, "include_suggestions": True}
+        )
+        assert suggestions.status_code == 200
+        assert suggestions.json()["suggestions"] == []
+        service.return_value.browse.assert_called_once_with(
+            "user-a",
+            person_ref=None,
+            degree=3,
+            query="",
+            page=1,
+            limit=20,
+            include_suggestions=True,
         )
         for params in (
             {"degree": 0},

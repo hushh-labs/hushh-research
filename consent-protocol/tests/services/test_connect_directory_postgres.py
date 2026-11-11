@@ -486,6 +486,69 @@ def test_extended_network_shortest_degrees_require_shared_paths_and_live_account
     assert "dave" not in network.degrees(OWNER)
 
 
+def test_extended_network_suggests_eligible_people_without_exposing_contact_or_path(connection):
+    network = _network(connection)
+    for uid, name in (
+        (OWNER, "Viewer"),
+        ("alice", "A First"),
+        ("bob", "A Second"),
+        ("carol", "A Third"),
+        ("advisor", "Z Advisor"),
+        ("blocked", "A Blocked"),
+        ("ordinary", "Z Ordinary"),
+    ):
+        _person(connection, uid, name, email=f"{uid}@example.test")
+    connection.execute(
+        text("UPDATE actor_profiles SET public_person_ref = gen_random_uuid()::text")
+    )
+    connection.execute(
+        text("""
+            INSERT INTO ria_profiles (user_id, verification_status)
+            VALUES ('advisor', 'verified'), ('blocked', 'verified'), ('carol', 'verified')
+        """)
+    )
+    connection.execute(
+        text("""INSERT INTO connection_requests
+                VALUES ('blocked', 'owner', 'rejected', '{"blocked_by":"blocked"}')""")
+    )
+    fresh = network.browse(OWNER, degree=3, include_suggestions=True)
+    assert fresh["items"] == []
+    assert [p["displayName"] for p in fresh["suggestions"]] == ["A Third", "Z Advisor"]
+    assert all(p["suggestionReason"] == "verified_advisor" for p in fresh["suggestions"])
+    for a, b in ((OWNER, "alice"), ("alice", "bob"), ("bob", "carol")):
+        _network_edge(connection, a, b)
+    network.set_preference("alice", True)
+    network.set_preference("bob", True)
+    _requested(connection, OWNER, "advisor")
+    established = network.browse(OWNER, degree=3, include_suggestions=True)
+    assert [(p["displayName"], p["networkDegree"]) for p in established["items"]] == [
+        ("A Third", 3)
+    ]
+    [suggested] = established["suggestions"]
+    assert suggested == {
+        "publicPersonRef": fresh["suggestions"][1]["publicPersonRef"],
+        "displayName": "Z Advisor",
+        "photoUrl": None,
+        "relationship": "pending_outgoing",
+        "suggestionReason": "verified_advisor",
+    }
+    assert "suggestions" not in network.browse(OWNER, degree=3, page=2, include_suggestions=True)
+    assert "suggestions" not in network.browse(OWNER, degree=2, include_suggestions=True)
+    private_search = network.browse(
+        OWNER, degree=3, query="ordinary@example.test", include_suggestions=True
+    )
+    assert private_search["suggestions"] == []
+    [name_match] = network.browse(OWNER, degree=3, query="Ordinary", include_suggestions=True)[
+        "suggestions"
+    ]
+    assert (name_match["displayName"], name_match["suggestionReason"]) == (
+        "Z Ordinary",
+        "name_match",
+    )
+    _network_edge(connection, OWNER, "advisor")
+    assert network.browse(OWNER, degree=3, include_suggestions=True)["suggestions"] == []
+
+
 def test_network_cycles_do_not_extend_degrees_or_include_viewer(connection):
     network = _network(connection)
     for uid in (OWNER, "a", "b", "c", "d"):
