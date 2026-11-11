@@ -31,7 +31,10 @@ export async function buildWorkingPresence({ check = false } = {}) {
     const destination = path.join(target, file);
     if (check) {
       if (!(await fs.readFile(destination)).equals(value)) throw Error(`Stale working asset: ${file}`);
-    } else await fs.writeFile(destination, value);
+    } else {
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await fs.writeFile(destination, value);
+    }
   };
 
   const sourceBytes = await fs.readFile(source);
@@ -137,10 +140,22 @@ export async function buildWorkingPresence({ check = false } = {}) {
     width: hdSize * 4, height: hdSize * 4, channels: 4, background: "#00000000",
   } }).composite(hdImages.map((input, index) => ({ input, left: index % 4 * hdSize,
     top: Math.floor(index / 4) * hdSize }))).png().toBuffer());
-  return { bytes: hdRiv.length, sha256: sha(hdRiv), source: "../../assets/one-presence/working-keyframes.png",
-    source_sha256: sha(sourceBytes), texture_width: hdSize, texture_height: hdSize,
-    textures: hdImages.length, artboard: size, fps: 24, frames: 72, quantized: true,
-    motion: { type: "typing-keyframes", pose_sequence: sequence } };
+  const compactSize = 256;
+  const compactPoses = await renderPoses(compactSize);
+  const compactImages = await Promise.all(compactPoses.map(pixels => sharp(pixels,
+    { raw: { width: compactSize, height: compactSize, channels: 4 } }).webp({ quality: 93 }).toBuffer()));
+  const compactRiv = serialize("working-compact", compactSize, compactImages, sequence);
+  await write("compact/working.riv", compactRiv);
+  const describe = (riv, edge, textures) => ({
+    bytes: riv.length, sha256: sha(riv), source: "../../assets/one-presence/working-keyframes.png",
+    source_sha256: sha(sourceBytes), texture_width: edge, texture_height: edge,
+    textures, artboard: size, fps: 24, frames: 72, quantized: true,
+    motion: { type: "typing-keyframes", pose_sequence: sequence },
+  });
+  return {
+    profile: describe(hdRiv, hdSize, hdImages.length),
+    compact: describe(compactRiv, compactSize, compactImages.length),
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
