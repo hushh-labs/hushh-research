@@ -253,6 +253,10 @@ test("affected shard exits before npm setup; diagnostic shard still reaches its 
         HUSHH_WEB_TEST_MAX_WORKERS: "2",
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         NPM_TEST_LOG: npmLog,
+        // This fixture proves install ownership, independent of its parent's
+        // legitimate dependency reuse during a local core run.
+        WEB_CI_DEPS_INSTALLED: "0",
+        WEB_CI_CLEAN_INSTALL: "0",
         CI_VALIDATION_LEVEL: level,
         CI_CHANGED_FILES: `hushh-webapp/${DIRECT_TEST}`,
         CI_CHANGED_FILES_FILE: "",

@@ -1676,3 +1676,5 @@ tests/services/test_calendar_email_followup_reassess_postgres.py
 tests/services/test_calendar_email_followup_reminder_timing_postgres.py
 tests/services/test_calendar_email_followup_boundaries.py
 tests/test_uat_paused_drive_maintenance.py
+tests/test_secret_metadata_inventory.py
+tests/test_managed_provider_collection.py

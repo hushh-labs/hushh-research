@@ -105,7 +105,12 @@ ISOLATED_RELEASE_AUTHORITY_PATHS = (
 UAT_PRIVILEGED_PATHS = (
     "deploy/backend.cloudbuild.yaml", "deploy/backend-image.cloudbuild.yaml",
     "deploy/frontend.cloudbuild.yaml", "deploy/frontend-image.cloudbuild.yaml",
-    "deploy/drive", "deploy/email-auth", "deploy/sso", "deploy/plg/bind_secrets.sh",
+    "deploy/drive",
+    # Proven production-only launchers are not executed by Dev/UAT. Keep the
+    # directory default so new or shared credentialed inputs remain protected.
+    ":(exclude)deploy/drive/deploy_worker_service_prod.sh",
+    ":(exclude)deploy/drive/setup_work_drain_scheduler_prod.sh",
+    "deploy/email-auth", "deploy/sso", "deploy/plg/bind_secrets.sh",
     "scripts/deploy", "consent-protocol/db/migrate.py", "consent-protocol/db/migration_authority.py",
     "consent-protocol/db/dev_migration_manifest.py", "consent-protocol/db/connection.py",
     "consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py",

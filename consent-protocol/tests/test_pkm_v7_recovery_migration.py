@@ -162,7 +162,9 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
         ROOT.parent / "scripts/ci/run-candidate-pkm-structure-agent-eval.sh"
     ).read_text()
 
-    assert "run: bash scripts/ci/run-release-pkm-gate.sh uat" in workflow
+    assert "bash scripts/ci/run-release-pkm-gate.sh uat --sql-only" in workflow
+    assert 'if [[ "$UAT_SOURCE_BRANCH" == uat-isolated ]]; then' in workflow
+    assert "bash scripts/ci/run-release-pkm-gate.sh uat\n" in workflow
     assert "PKM_UPGRADE_PROTECTED_UAT=1" in release_gate
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1" not in workflow
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1" not in release_gate

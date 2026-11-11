@@ -502,8 +502,21 @@ validation_finish
     assert "test_capacity_clock_refuses_to_queue_before_its_wait" in seen
 
 
+def test_generated_mirrors_recompute_contracts_without_selecting_controller_regressions():
+    import repo_governance_plan as plan
+    for path in plan.GENERATED_MIRROR_INPUTS:
+        selection = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selection.error is None
+        assert selection.groups == ()
+        assert {"capability-graph-integrity", "route-index-integrity", "route-index-reader"} <= set(selection.check_ids)
+        assert "release-controller-contracts" not in selection.check_ids
+    ordinary = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "docs/README.md"})
+    assert not plan.GENERATED_MIRROR_CHECKS.intersection(ordinary.check_ids)
+
+
 def main() -> int:
     tests = (
+        test_generated_mirrors_recompute_contracts_without_selecting_controller_regressions,
         test_hosted_protocol_ownership_removes_only_whole_module_duplicates,
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,
