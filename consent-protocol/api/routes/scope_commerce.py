@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+from typing import Literal
 from uuid import UUID
 
 from asyncpg import UndefinedTableError
@@ -34,6 +36,7 @@ from hushh_mcp.services.scope_commerce_requests import (
 
 router = APIRouter(prefix="/api/scope-commerce", tags=["scope-commerce"])
 webhook_router = APIRouter(prefix="/api/payments/scope-commerce", tags=["scope-commerce"])
+logger = logging.getLogger(__name__)
 
 
 class OperationBody(StrictBody):
@@ -64,10 +67,12 @@ class PurchaseBody(OperationBody):
 
 class FundingBody(OperationBody):
     amount_cents: int = Field(strict=True, ge=50, le=100_000)
+    return_surface: Literal["one", "website"] = "one"
 
 
 class OnboardingBody(OperationBody):
     country: str = Field(pattern=r"^[A-Z]{2}$")
+    return_surface: Literal["one", "website"] = "one"
 
 
 class RefundPreviewBody(StrictBody):
@@ -311,6 +316,7 @@ async def checkout(body: FundingBody, response: Response, user_id: Payer):
                 buyer_app_id="shared",
                 amount_cents=body.amount_cents,
                 operation_id=str(body.idempotency_key),
+                **({"return_surface": "website"} if body.return_surface == "website" else {}),
             )
         )
         return {
@@ -331,6 +337,7 @@ async def onboarding(body: OnboardingBody, response: Response, user_id: Payer):
                 user_id=user_id,
                 country=body.country,
                 operation_id=str(body.idempotency_key),
+                **({"return_surface": "website"} if body.return_surface == "website" else {}),
             )
         )
         return {"url": result["onboarding_url"], "return_url": result["return_url"]}
@@ -457,7 +464,20 @@ async def webhook(request: Request, signature: str | None = Header(None, alias="
     try:
         await _provider().process_webhook(payload=payload, signature=signature)
     except Exception as error:
-        raise _error(error) from None
+        rejection = _error(error)
+        # Serialize only the public error projection. Standalone error-code
+        # arguments resemble IDs to the runtime privacy filter.
+        logger.warning(
+            json.dumps(
+                {
+                    "message": "scope_commerce.webhook_rejected",
+                    "status_code": rejection.status_code,
+                    "error": rejection.detail,
+                },
+                separators=(",", ":"),
+            )
+        )
+        raise rejection from None
     return {"received": True}
 
 

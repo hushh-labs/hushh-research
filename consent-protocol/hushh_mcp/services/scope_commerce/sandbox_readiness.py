@@ -12,6 +12,7 @@ from db.migration_authority import (
 from db.migration_readiness import verified_manifest_head
 
 from .domain import CommerceError
+from .provider_return_surfaces import validate_website_return
 
 
 class SandboxReadiness:
@@ -23,6 +24,10 @@ class SandboxReadiness:
         if policy is None or viewer_user_id not in policy.reviewer_user_ids:
             raise CommerceError("sandbox_readiness_unavailable")
         config.validate(new_activity=False)
+        admitted_origins = {config.frontend_origin}
+        if config.website_origin:
+            validate_website_return(config.website_origin, config.website_return_path)
+            admitted_origins.add(config.website_origin)
         commerce_enabled = (
             self.enabled
             if self.enabled is not None
@@ -30,7 +35,7 @@ class SandboxReadiness:
         )
         if (
             config.livemode
-            or app_origin != config.frontend_origin
+            or app_origin not in admitted_origins
             or (
                 set(config.countries) != {"US"}
                 and not (
@@ -64,7 +69,7 @@ class SandboxReadiness:
                 except (MigrationAuthorityError, OSError, ValueError, KeyError):
                     head = None
             return {
-                "app_origin": config.frontend_origin,
+                "app_origin": app_origin,
                 "environment": "sandbox",
                 "platform_account_id": policy.platform_account_id,
                 "livemode": False,

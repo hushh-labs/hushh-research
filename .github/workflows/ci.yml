@@ -267,8 +267,6 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    outputs:
-      unit_matrix: ${{ steps.unit-plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -307,20 +305,6 @@ jobs:
           CI_IMPACT_BASE_SHA: ${{ inputs.uat_base_sha }}
           CI_IMPACT_HEAD_SHA: *recovery_sha
         run: bash scripts/ci/resolve-ci-changed-files.sh
-
-      - name: Plan unit concurrency
-        id: unit-plan
-        env:
-          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
-          PRODUCTION_RECOVERY_SHA: *recovery_sha
-        run: |
-          if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
-            # The historical runner uses the complete Vitest suite in three shards.
-            matrix='{"shard":["1/3","2/3","3/3"]}'
-          else
-            matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
-          fi
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
@@ -825,10 +809,12 @@ jobs:
     name: "UI Contracts"
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      unit_matrix: ${{ steps.unit-plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          fetch-depth: 0
           persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
       - *prepare_recovery
@@ -855,6 +841,22 @@ jobs:
         working-directory: hushh-webapp
         env:
           UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}
+
+      - *ci_impact
+
+      - name: Plan unit concurrency
+        id: unit-plan
+        env:
+          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
+          PRODUCTION_RECOVERY_SHA: *recovery_sha
+        run: |
+          if [ -n "$PRODUCTION_RECOVERY_SHA" ]; then
+            # The historical runner uses the complete Vitest suite in three shards.
+            matrix='{"shard":["1/3","2/3","3/3"]}'
+          else
+            matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   preflight-gate:
     name: "Preflight Gate"
@@ -1034,7 +1036,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_PART: node
-          WEB_TARGETED_FULL_SUITE_OWNED: "0"
+          WEB_TARGETED_FULL_SUITE_OWNED: ${{ inputs.production_recovery_sha == '' && 'static' || '0' }}
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
           CAPABILITY_GRAPH_BASE_REF: &application_capability_graph_base ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || inputs.production_recovery_sha || github.sha }}
@@ -1042,7 +1044,7 @@ jobs:
 
   web-full-suite-check:
     name: "Web Unit Contracts"
-    needs: [preflight-gate, repo-governance]
+    needs: [preflight-gate, ui-contracts]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
@@ -1052,7 +1054,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJSON(needs.repo-governance.outputs.unit_matrix || '{"shard":["1/3","2/3","3/3"]}') }}
+      matrix: ${{ fromJSON(needs.ui-contracts.outputs.unit_matrix || '{"shard":["1/3","2/3","3/3"]}') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1499,6 +1501,7 @@ jobs:
         timeout-minutes: 32
         run: bash scripts/ci/orchestrate.sh protocol
         env:
+          PYTEST_ADDOPTS: "--durations=20 --durations-min=1"
           PROTOCOL_TEST_PARTITION: parallel
           CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
@@ -1561,6 +1564,7 @@ jobs:
         timeout-minutes: 32
         run: bash scripts/run-test-ci.sh
         env:
+          PYTEST_ADDOPTS: "--durations=20 --durations-min=1"
           PROTOCOL_TEST_PARTITION: database
           # The pinned recovery runner predates sharding and runs this entire partition.
           PROTOCOL_DATABASE_SHARD_COUNT: "2"

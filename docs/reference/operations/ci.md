@@ -824,15 +824,22 @@ jobs.
    commands. It installs no browser, runs no layout matrix and emits no synthetic
    browser artifacts. `CI Status Gate` still requires successful selected Node
    contracts. Browser npm commands remain available as explicit diagnostics.
+   The first required unit leg owns the exact voice-gateway, capability-graph,
+   surface-map and native-plugin verifier commands. Targeted CI does not repeat
+   those four commands; functional packs, composite commands and invocations
+   with additional arguments retain their checks. Local targeted-only runs and
+   historical recovery retain their original ownership.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
-   validation level retain historical full-suite behavior. Governance uses that
+   validation level retain historical full-suite behavior. UI Contracts uses that
    same exact-source plan to select one focused/release leg or three native
    Vitest legs for diagnostic fallback, with two workers per runner. Verifiers
    run once on the first leg. Release admission requires the complete successful
    shard set; historical unstamped evidence is accepted only from its verified
    pre-matrix workflow. Late execution fallbacks remain serial. Explicit local
    diagnostic shards remain available through `WEB_FULL_SUITE_SHARD`.
+   Planning runs before Governance finishes; the final status gate still requires
+   Governance independently. Historical recovery keeps its three-shard plan.
    The selector sends registered JSON contract inputs through Vitest's related
    dependency graph, keeps unknown runtime JSON fail-closed, and leaves the exact
    iOS XCTest and phone-flow browser harness to their platform/browser owners.
@@ -2057,6 +2064,17 @@ deployment does not repeat those frontend/backend suites. Schema compatibility,
 account-work fences, activation and rollback remain required operational work.
 Secret inventory overlaps at most three metadata reads, preserves ordered
 results and fails closed on unknown access. It never logs secret values.
+Ordinary UAT defers local profile hydration to candidate/serving verification,
+which reads fresh credentials. Only legacy or explicitly requested reviewer
+analytics hydrates earlier for its intervening consumer. This removes one
+redundant setup pass without caching secret authority.
+
+Pre-mutation refusal is not a failed deployment. Missing qualification pins name
+the required input and inspection action before scope lookup. Dev acceptance
+cannot run before trusted tools are staged. Maintenance emits only allowlisted
+reason identifiers for authored safety refusals; unknown/provider text stays
+private. A diagnostic code never grants permission to erase a checkpoint or
+repeat an uncertain operation.
 
 Ordinary UAT/Dev privileged-input checks retain Main recipe/migration authority.
 Only the two proven production-only Drive launchers are excluded; new/shared

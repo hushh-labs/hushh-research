@@ -146,7 +146,8 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
     runs: dict[str, list[str]] = {}
     for part in ("all", "node", "browser"):
         code, calls, output = _run(
-            TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed}
+            TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed,
+                       "WEB_TARGETED_FULL_SUITE_OWNED": "0"}
         )
         assert code == 0, (
             f"web-targeted-check.sh ({part}) exited {code}:\n{output[-2000:]}"
@@ -171,6 +172,43 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
     for call in node:
         name = call.split()[1]
         assert not _reaches_playwright(name, scripts, set()), f"{name} needs a browser"
+
+    static_commands = {
+        f"run {name}" for name in (
+            "verify:voice-gateway", "verify:capability-graph",
+            "verify:surface-map", "verify:capacitor:plugins",
+        )
+    }
+    assert static_commands <= set(node), "fixture must exercise every static owner"
+    code, owned, output = _run(TARGETED, {
+        "WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": changed,
+        "WEB_TARGETED_FULL_SUITE_OWNED": "static",
+    })
+    assert code == 0, output[-2000:]
+    assert owned == [call for call in node if call not in static_commands]
+    # A local or unfamiliar caller retains every static and functional check.
+    for ownership in ("0", "unknown"):
+        code, retained, output = _run(TARGETED, {
+            "WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": changed,
+            "WEB_TARGETED_FULL_SUITE_OWNED": ownership,
+        })
+        assert code == 0, output[-2000:]
+        assert retained == node
+
+    # Extra arguments change a verifier's contract and must not inherit reuse.
+    with tempfile.TemporaryDirectory() as temporary:
+        script = Path(temporary) / "targeted.sh"
+        script.write_text(TARGETED.read_text().replace(
+            'run_full_suite_check "workflow catalog compiler" npm run verify:capability-graph',
+            'run_full_suite_check "workflow catalog compiler" npm run verify:capability-graph --changed',
+        ))
+        code, calls, output = _run(script, {
+            "WEB_TARGETED_PART": "node",
+            "WEB_TARGETED_CHANGED_FILES": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
+            "WEB_TARGETED_FULL_SUITE_OWNED": "static",
+        })
+        assert code == 0, output[-2000:]
+        assert "run verify:capability-graph --changed" in calls
 
     # Hosted Vitest replaces only its own cases, never the Node-only remainder.
     analytics = "hushh-webapp/lib/observability/schema.ts"
