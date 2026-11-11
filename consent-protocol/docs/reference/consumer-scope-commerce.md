@@ -1967,6 +1967,18 @@ state contains only bounded intent identifiers and
 timestamps; uncertain capital attempts remain reserved, and expired provider
 idempotency windows require reconciliation before another submission.
 
+Webhook setup uses snapshot Event Destinations with explicit `events_from`:
+`@self` for platform notices and `@accounts` for Connect notices. The provider
+receipt must confirm that exact scope, callback, API version, event list, test
+mode and intent metadata before the signing secret reaches its private sink.
+A label or legacy `connect=true` create intent is not routing evidence. Stripe
+does not let an update change the destination's event scope; an incorrectly
+scoped destination requires a fresh, recorded `--operation-id`; never reuse a
+legacy v1 intent with the new request format. Preserve the old
+destination until the replacement's genuine signed delivery is verified, then
+disable only the superseded destination. Never loosen receiver signature or
+account-scope checks to accommodate a misconfigured sender.
+
 Preflight checks actual provider identity, signed-source settlement receipts,
 capital provenance, original-source refunds, attributed treasury backing and
 balanced journals. Canonical `funding_fee_conservation()` verifies funding
