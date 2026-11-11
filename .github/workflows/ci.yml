@@ -1036,7 +1036,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_PART: node
-          WEB_TARGETED_FULL_SUITE_OWNED: "0"
+          WEB_TARGETED_FULL_SUITE_OWNED: ${{ inputs.production_recovery_sha == '' && 'static' || '0' }}
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
           CAPABILITY_GRAPH_BASE_REF: &application_capability_graph_base ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || inputs.production_recovery_sha || github.sha }}
@@ -1501,6 +1501,7 @@ jobs:
         timeout-minutes: 32
         run: bash scripts/ci/orchestrate.sh protocol
         env:
+          PYTEST_ADDOPTS: "--durations=20 --durations-min=1"
           PROTOCOL_TEST_PARTITION: parallel
           CAPABILITY_GRAPH_BASE_REF: *application_capability_graph_base
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
@@ -1563,6 +1564,7 @@ jobs:
         timeout-minutes: 32
         run: bash scripts/run-test-ci.sh
         env:
+          PYTEST_ADDOPTS: "--durations=20 --durations-min=1"
           PROTOCOL_TEST_PARTITION: database
           # The pinned recovery runner predates sharding and runs this entire partition.
           PROTOCOL_DATABASE_SHARD_COUNT: "2"
