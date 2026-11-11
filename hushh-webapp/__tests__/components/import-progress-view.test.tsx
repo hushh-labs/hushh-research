@@ -1,18 +1,36 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ImportProgressView } from "@/components/kai/views/import-progress-view";
 import { replaceLiveHoldingPreviewRows } from "@/lib/kai/import/live-holdings-preview";
 
 describe("ImportProgressView", () => {
-  it("reports the current step without a progress bar or stream", () => {
+  it("reports the current step with a forward-only progress bar and no stream", () => {
     const { rerender } = render(<ImportProgressView stage="extracting" onCancel={vi.fn()} />);
     expect(screen.getByRole("status")).toHaveTextContent("Finding holdings");
-    expect(screen.queryByRole("progressbar")).toBeNull();
+    const first = Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"));
+    expect(first).toBeGreaterThan(0);
     expect(screen.queryByText("AI stream")).toBeNull();
     rerender(<ImportProgressView stage="validating" onCancel={vi.fn()} />);
     expect(screen.getByRole("status")).toHaveTextContent("Checking holdings");
+    expect(Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"))).toBeGreaterThan(first);
     expect(screen.queryByRole("button", { name: "Review holdings" })).toBeNull();
+  });
+
+  it("keeps moving and says it is still working when extraction runs long", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ImportProgressView stage="extracting" onCancel={vi.fn()} />);
+      const at = () => Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"));
+      const start = at();
+      expect(screen.queryByText(/still working/i)).toBeNull();
+      act(() => { vi.advanceTimersByTime(20_000); });
+      expect(at()).toBeGreaterThan(start);
+      expect(at()).toBeLessThan(89);
+      expect(screen.getByText(/still working/i)).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offers a single back action and retry after a failed import", () => {
@@ -25,6 +43,7 @@ describe("ImportProgressView", () => {
     expect(retry).toHaveBeenCalledOnce();
     expect(back).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 });
 
