@@ -1,6 +1,7 @@
 "use client";
 
 import { captureProductAttempt } from "@/lib/observability/product-activity-client";
+import { useAccountPhoneBinding } from "@/components/profile/use-account-phone-binding";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type SetStateAction } from "react";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useWorldModelOwnerState as useWorldModelSessionState } from "./world-model-owner-state";
@@ -356,7 +357,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     (paneState.open
       ? paneState.location.panel === "world-model"
       : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
-  const { user, userId, loading, sessionVerificationRequired, phoneNumber } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired, phoneNumber, phoneNumberStatus } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
     useVault();
   // mounted is false only while no app-level reader is attached. retryAt is
@@ -831,12 +832,19 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const namesakeNotice = preparing ? identityNotice(shownProgress) : null;
   const namesakesFound =
     status.kind === "nothing" && offered !== null && offered.research.candidates.length > 0;
-  const phone = phoneNumber ?? user?.phoneNumber ?? null;
+  const { linkedPhone: phone, status: phoneStatus } = useAccountPhoneBinding({
+    active: ready && present,
+    ownerId: userId,
+    firebaseUid: user?.uid,
+    appPhone: phoneNumber,
+    appStatus: phoneNumberStatus,
+  });
   const identity = {
     name: user?.displayName,
     email: user?.email,
     emailVerified: Boolean(user?.emailVerified),
     phone,
+    phoneStatus,
   };
   // The landmark carries the group's own title, so both read the same.
   const identityLabel = identityGroupTitle(identity);

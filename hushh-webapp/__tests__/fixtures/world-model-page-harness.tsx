@@ -3,6 +3,8 @@ import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { PwmProgress, PwmValidatedFact } from "@/lib/services/world-model-research-service";
 import { memoryOf } from "./world-model-review";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { AuthService } from "@/lib/services/auth-service";
 
 const mock = vi.hoisted(() => ({
   research: {} as Record<string, unknown>,
@@ -30,6 +32,7 @@ vi.mock("@/lib/firebase/auth-context", () => ({
     user: mock.auth.user,
     userId: (mock.auth.user?.uid as string | undefined) ?? null,
     phoneNumber: mock.auth.phoneNumber,
+    phoneNumberStatus: mock.auth.phoneNumber ? "verified" : "missing",
     loading: false,
     sessionVerificationRequired: false,
   }),
@@ -147,11 +150,16 @@ beforeEach(() => {
   mock.claimable = false;
   mock.auth.user = { uid: "owner-a", displayName: "Alice" };
   mock.auth.phoneNumber = null;
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 });
+  vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockImplementation(async () => ({
+    uid: mock.auth.user.uid, phoneNumber: mock.auth.phoneNumber,
+  }) as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
   clock.intervals.length = 0;
   mock.load.mockResolvedValue(memoryOf());
 });
 
 afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
   vi.useRealTimers();
 });
 

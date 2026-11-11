@@ -263,6 +263,7 @@ export type WorldModelIdentityInput = {
   email: string | null | undefined;
   emailVerified: boolean;
   phone: string | null | undefined;
+  phoneStatus?: import("@/components/profile/use-account-phone-binding").AccountPhoneBindingStatus;
 };
 
 /** The identity group's title for an account, as its landmark is named too. */
@@ -284,6 +285,7 @@ export function WorldModelIdentityGroup({
   email,
   emailVerified,
   phone,
+  phoneStatus,
 }: WorldModelIdentityInput) {
   const masked = phone ? formatMaskedPhoneNumber(phone) : "";
   const title = identityGroupTitle({ name, email, emailVerified, phone });
@@ -313,7 +315,9 @@ export function WorldModelIdentityGroup({
         icon={ProfileAccountPhoneIcon}
         iconTone="capability"
         title="Phone"
-        description={masked || "Not added"}
+        description={masked || (phoneStatus === "needs-verification" ? "Finish phone verification"
+          : phoneStatus === "loading" ? "Checking phone number…"
+          : phoneStatus === "unavailable" ? "Phone number temporarily unavailable" : "Not added")}
         trailing={masked ? <Badge variant="secondary">Verified</Badge> : undefined}
       />
     </SettingsGroup>

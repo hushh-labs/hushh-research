@@ -832,7 +832,7 @@ describe("Personal World Model page", () => {
     expect(name).toHaveTextContent("Alice Example");
     // The card says which verified details research pivots on, and its
     // landmark carries the same name.
-    expect(screen.getByText("Using your name, email and phone")).toBeInTheDocument();
+    expect(await screen.findByText("Using your name, email and phone")).toBeInTheDocument();
     expect(
       screen.getByRole("region", { name: "Using your name, email and phone" }),
     ).toContainElement(name);

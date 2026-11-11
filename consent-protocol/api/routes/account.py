@@ -1885,7 +1885,7 @@ async def claim_account_phone(
     payload: PhoneClaimRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Persist a Firebase phone-auth session as the app-level verified phone claim."""
+    """Finalize a phone already linked to the signed-in Firebase identity."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
     from hushh_mcp.services.phone_transfer_service import assert_claim_available, refuse
@@ -1926,12 +1926,37 @@ async def claim_account_phone(
             },
         )
 
+    if phone_session_uid != protected_identity:
+        if phone_session_cleanup == "pending" and phone_session_uid:
+            await _delete_firebase_auth_user(
+                phone_session_uid,
+                intent_kind="phone_orphan",
+                expected_phone_digest=account_deletion_phone_digest(phone_number),
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_CHANGED",
+                "message": "Link this phone to your signed-in account and verify it again.",
+            },
+        )
+
     try:
-        identity = await ActorIdentityService().claim_verified_phone(
-            user_id=firebase_uid, phone_number=phone_number
+        identity = await ActorIdentityService().finalize_verified_phone_from_firebase(
+            firebase_uid, phone_number
         )
     except ActorIdentityPhoneClaimConflictError:
         raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED") from None
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_CHANGED",
+                "message": "The linked phone changed. Please verify it again.",
+            },
+        ) from None
+    except ActorIdentitySyncUnavailableError:
+        identity = None
     if not identity:
         raise HTTPException(
             status_code=503,
@@ -1941,17 +1966,7 @@ async def claim_account_phone(
             },
         )
 
-    logger.info(
-        "Account phone claim persisted user=%s phone_session_uid_present=%s",
-        firebase_uid,
-        bool(phone_session_uid),
-    )
-    if phone_session_cleanup == "pending" and phone_session_uid:
-        phone_session_cleanup = await _delete_firebase_auth_user(
-            phone_session_uid,
-            intent_kind="phone_orphan",
-            expected_phone_digest=account_deletion_phone_digest(phone_number),
-        )
+    logger.info("Account phone claim persisted user=%s", firebase_uid)
     return {
         "success": True,
         "user_id": firebase_uid,
