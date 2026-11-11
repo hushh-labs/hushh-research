@@ -62,7 +62,11 @@ class ExactUatCiTest(unittest.TestCase):
                        "scripts/ops/scope_commerce_runtime_policy.py",
                        "consent-protocol/db/migration_authority.py", "deploy/backend.cloudbuild.yaml",
                        "consent-protocol/db/hosted_custody_qualification.py",
-                       "consent-protocol/db/firebase_erasure_adoption.py")
+                       "consent-protocol/db/firebase_erasure_adoption.py",
+                       "deploy/drive/deploy_worker_service.sh",
+                       "deploy/drive/setup_work_drain_scheduler.sh",
+                       "deploy/drive/verify_worker_revision.py",
+                       "deploy/drive/new_privileged_input.py")
             for path in guarded:
                 write(path, "original\n")
             authority = commit()
@@ -93,6 +97,13 @@ class ExactUatCiTest(unittest.TestCase):
                                              git("rev-parse", f"{changed}^{{tree}}").decode().strip())
                     write(path, "original\n")
                     commit()
+                for path in ("deploy/drive/deploy_worker_service_prod.sh",
+                             "deploy/drive/setup_work_drain_scheduler_prod.sh"):
+                    write(path, "production-only change\n")
+                    changed = commit()
+                    self.assertEqual(subject.verify_git_authority(changed, authority, authority, current=False),
+                                     git("rev-parse", f"{changed}^{{tree}}").decode().strip())
+                    git("reset", "--hard", candidate)
                 # Each invocation projection and branch-owned manifest may
                 # evolve independently of Main, even without Main-only tests.
                 for path in (*subject.MANIFEST_FILES, subject.BACKEND_TEST_MANIFEST):

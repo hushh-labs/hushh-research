@@ -58,6 +58,8 @@ Non-owned surfaces:
 
 Follow [Main-owned release control](../../../docs/reference/operations/ci.md#main-owned-release-control) for live-team authority, exact-source admission and protected secret pass-through. Workflow execution stays on Main; application sources remain isolated; a merge never deploys.
 
+For CI timing work, follow the runbook's [deployment-overhead policy](../../../docs/reference/operations/ci.md#deployment-overhead-and-retention-limits). Preserve normal worker rollout until complete accepted input/state proof and measured benefit qualify reuse; image equality alone is insufficient. Selected UAT SQL preservation does not repeat already-qualified source suites or install browser dependencies. Browser analytics remains explicit secondary diagnostics; failed restoration of any partially changed deployment template still blocks promotion. Keep measurements separate from the 10–15-minute routine design target.
+
 Private GCP hosting shares one immutable image. Follow `deployment-standard.md` and the dev runbook's hosted-pilot section: rendered assignments or shared inference readiness never replace durable admission, the spend ceiling, per-owner identity/custody and reconciled cleanup. The runbook also owns managed-operator erasure, frozen inspection and exact approved writer-operation readback. Its failed-bucket reconciliation procedure preserves the original journal and requires native absence before a same-name retry. Use [independent Dev publication](../../../docs/reference/operations/dev-pod-first-light-runbook.md#independent-dev-pod-publication) for separate artifact preparation and coordinated, qualified catalog activation.
 
 For existing private-pod image updates and explicitly authorized legacy bootstrap,

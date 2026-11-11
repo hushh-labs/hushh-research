@@ -104,6 +104,7 @@ permissions:
 env:
   UAT_SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
   PREPROMOTION_UAT_GATES: ${{ inputs.source_branch == 'uat-isolated' || inputs.verify_candidate_before_promotion }}
+  LEGACY_UAT_ANALYTICS_REQUIRED: ${{ inputs.source_branch == 'uat-isolated' }}
   GCP_PROJECT_ID: hushh-pda-uat
   UAT_FIREBASE_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
@@ -1138,7 +1139,8 @@ jobs:
           if-no-files-found: error
 
       - name: Set up Node runtime for UAT browser verification
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
+        continue-on-error: ${{ env.LEGACY_UAT_ANALYTICS_REQUIRED != 'true' && !inputs.run_pwm_acceptance }}
+        if: inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -1146,7 +1148,8 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Cache UAT Chromium binaries
-        if: steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
+        continue-on-error: ${{ env.LEGACY_UAT_ANALYTICS_REQUIRED != 'true' && !inputs.run_pwm_acceptance }}
+        if: inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
@@ -1154,12 +1157,13 @@ jobs:
           key: ${{ runner.os }}-uat-chromium-${{ hashFiles('hushh-webapp/package-lock.json') }}
 
       - name: Install UAT browser verification dependencies
+        continue-on-error: ${{ env.LEGACY_UAT_ANALYTICS_REQUIRED != 'true' && !inputs.run_pwm_acceptance }}
         id: install-browser-dependencies
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
+        if: inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true'
         timeout-minutes: 8
         shell: bash
         env:
-          RUN_CHROMIUM_VERIFICATION: ${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
+          RUN_CHROMIUM_VERIFICATION: ${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true' }}
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
@@ -1928,7 +1932,12 @@ jobs:
         id: verify-pkm-preservation
         if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
-        run: bash scripts/ci/run-release-pkm-gate.sh uat
+        run: |
+          if [[ "$UAT_SOURCE_BRANCH" == uat-isolated ]]; then
+            bash scripts/ci/run-release-pkm-gate.sh uat
+          else
+            bash scripts/ci/run-release-pkm-gate.sh uat --sql-only
+          fi
 
       - name: Verify One mail sender configuration
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -2514,8 +2523,9 @@ jobs:
           echo "Frontend candidate ${FRONTEND_REVISION} runs the pinned image ${deployed_image}."
 
       - name: Resolve zero-traffic frontend analytics candidate
+        continue-on-error: ${{ env.LEGACY_UAT_ANALYTICS_REQUIRED != 'true' && !inputs.run_pwm_acceptance }}
         id: frontend-analytics-candidate
-        if: steps.scope.outputs.deploy_frontend == 'true'
+        if: steps.scope.outputs.deploy_frontend == 'true' && (inputs.repeat_reviewer_byok || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -2582,7 +2592,7 @@ jobs:
 
       - name: Verify governed analytics transport on zero-traffic UAT candidate
         id: verify-analytics-uat
-        if: steps.scope.outputs.deploy_frontend == 'true'
+        if: steps.scope.outputs.deploy_frontend == 'true' && (inputs.repeat_reviewer_byok || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true')
         continue-on-error: true
         shell: bash
         working-directory: hushh-webapp
@@ -2662,7 +2672,7 @@ jobs:
 
       - name: Verify isolated UAT candidates before promotion
         id: verify-isolated-uat-candidates
-        if: env.PREPROMOTION_UAT_GATES == 'true' && (steps.scope.outputs.deploy_frontend != 'true' || steps.verify-analytics-uat.outcome == 'success')
+        if: env.PREPROMOTION_UAT_GATES == 'true' && (env.LEGACY_UAT_ANALYTICS_REQUIRED != 'true' || steps.scope.outputs.deploy_frontend != 'true' || steps.verify-analytics-uat.outcome == 'success')
         shell: bash
         env:
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
@@ -2723,7 +2733,7 @@ jobs:
           fi
 
       - name: Remove zero-traffic frontend analytics candidate tag
-        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
+        if: always() && (inputs.repeat_reviewer_byok || env.PREPROMOTION_UAT_GATES == 'true') && steps.scope.outputs.deploy_frontend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -2757,7 +2767,7 @@ jobs:
           fi
 
       - name: Restore canonical frontend backend bindings
-        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
+        if: always() && (inputs.repeat_reviewer_byok || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true') && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -2871,7 +2881,8 @@ jobs:
           set -euo pipefail
           echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
-          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+          if [ "$LEGACY_UAT_ANALYTICS_REQUIRED" = "true" ] \
+            && [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
             && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
             echo "Analytics smoke failed; both zero-traffic candidates stay unpromoted."
             exit 0
@@ -2965,6 +2976,7 @@ jobs:
               "${{ steps.scope.outputs.deploy_backend }}" == "true"
               and (
                   "${{ steps.scope.outputs.deploy_frontend }}" != "true"
+                  or "${{ env.LEGACY_UAT_ANALYTICS_REQUIRED }}" != "true"
                   or "${{ steps.verify-analytics-uat.outcome }}" == "success"
               ),
           )
@@ -2972,7 +2984,8 @@ jobs:
               "/tmp/uat-frontend-promoted-service.json",
               "${{ steps.candidate-state.outputs.frontend_revision }}",
               "${{ steps.scope.outputs.deploy_frontend }}" == "true"
-              and "${{ steps.verify-analytics-uat.outcome }}" == "success",
+              and ("${{ env.LEGACY_UAT_ANALYTICS_REQUIRED }}" != "true"
+                   or "${{ steps.verify-analytics-uat.outcome }}" == "success"),
           )
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               output.write(f"backend_revision={backend_revision}\n")
@@ -3245,6 +3258,7 @@ jobs:
           PWM_ACCEPTANCE_REQUIRED: ${{ inputs.run_pwm_acceptance }}
           PWM_ACCEPTANCE_OUTCOME: ${{ steps.verify-pwm-acceptance.outcome }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
+          ANALYTICS_SMOKE_REQUIRED: ${{ steps.scope.outputs.deploy_frontend == 'true' && (inputs.repeat_reviewer_byok || env.LEGACY_UAT_ANALYTICS_REQUIRED == 'true') }}
           ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
           PKM_EVALUATOR_OUTCOME: ${{ steps.verify-candidate-pkm-evaluator.outputs.outcome }}
@@ -3330,7 +3344,7 @@ jobs:
               not passkey_associations_required
               or os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME") == "success"
           )
-          analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"
+          analytics_smoke_required = os.environ.get("ANALYTICS_SMOKE_REQUIRED") == "true"
           analytics_smoke_success = (
               not analytics_smoke_required
               or os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
@@ -3431,7 +3445,7 @@ jobs:
               append_unique(blocking, ["passkey_domain_association_failed"])
               frontend_failure = True
 
-          if not analytics_smoke_success:
+          if os.environ.get("LEGACY_UAT_ANALYTICS_REQUIRED") == "true" and not analytics_smoke_success:
               append_unique(blocking, ["analytics_transport_failed"])
               frontend_failure = True
               if os.environ.get("DEPLOY_BACKEND") == "true":
@@ -3512,7 +3526,7 @@ jobs:
               "analytics_smoke": {
                   "required": analytics_smoke_required,
                   "outcome": os.environ.get("ANALYTICS_SMOKE_OUTCOME", ""),
-                  "success": analytics_smoke_success,
+                  "success": analytics_smoke_success if analytics_smoke_required else None,
               },
               "candidate_pkm_evaluator": {
                   "required": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0") != 0,
