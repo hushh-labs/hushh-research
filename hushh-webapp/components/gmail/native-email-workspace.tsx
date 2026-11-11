@@ -1,5 +1,7 @@
 "use client";
 
+import { useNativeWorkspaceEvent } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -35,10 +37,12 @@ function EmailBody({ presentation, ...model }: EmailPresentation & { presentatio
   useLayoutEffect(() => { latest.current = { model, pathname }; });
   const owner = model.owner!;
   const current = () => mounted.current && latest.current.model.owner === owner && latest.current.pathname === ROUTES.EMAIL_AGENT;
-  const ids = useMemo(() => ({ intro: crypto.randomUUID(), status: crypto.randomUUID(), mail: crypto.randomUUID(), chat: crypto.randomUUID() }), [owner]);
+  const ids = useMemo(() => ({ owner, intro: crypto.randomUUID(), status: crypto.randomUUID(), mail: crypto.randomUUID(), chat: crypto.randomUUID() }), [owner]);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void>();
-  actions.set(ids.mail, () => { if (current() && !latest.current.model.loading && !latest.current.model.connected) latest.current.model.openMail(); });
-  actions.set(ids.chat, () => { if (current() && !latest.current.model.loading && latest.current.model.connected) latest.current.model.askOne(); });
+  const onMail = useNativeWorkspaceEvent(() => { if (current() && !latest.current.model.loading && !latest.current.model.connected) latest.current.model.openMail(); });
+  actions.set(ids.mail, onMail);
+  const onChat = useNativeWorkspaceEvent(() => { if (current() && !latest.current.model.loading && latest.current.model.connected) latest.current.model.askOne(); });
+  actions.set(ids.chat, onChat);
   const phase = useNativeWorkspace({ owner, content: {
     workspace: "email", page: "overview", title: "Mail Agent", enabled: true, backEnabled: false,
     sections: [

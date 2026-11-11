@@ -1,12 +1,14 @@
 "use client";
 
+import { useNativeWorkspaceEvent, createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PkmNaturalPanelBody } from "@/components/profile/pkm-natural-panel";
 import { usePkmNaturalModel } from "@/components/profile/use-pkm-natural-model";
 import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
-import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { nativePrivacyCanInteract, nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
@@ -23,14 +25,7 @@ export function NativeRecentMemory() {
   const { handoff, activationRevision, intent } = useNativeWorkspaceHandoff(presentation.retireForWeb, model.presentationIdentity);
   const latest = useRef({ model, pathname });
   useLayoutEffect(() => { latest.current = { model, pathname }; });
-  const handle = useMemo(() => {
-    const values = new Map<string, string>();
-    return (key: string) => {
-      let value = values.get(key);
-      if (!value) { value = crypto.randomUUID(); values.set(key, value); }
-      return value;
-    };
-  }, [model.ownerId]);
+  const handle = useMemo(() => createNativeWorkspaceHandles(String(model.ownerId)), [model.ownerId]);
   const routeCurrent = () => latest.current.pathname === ROUTES.PKM_RECENT &&
     latest.current.model.ownerId === model.ownerId && latest.current.model.presentationIdentity === model.presentationIdentity &&
     latest.current.model.captureSessionCurrent() &&
@@ -42,9 +37,7 @@ export function NativeRecentMemory() {
     !model.selectedCard && representable;
   const active = eligible && model.captureSessionCurrent();
   const actions = new Map<string, () => Promise<void>>();
-  const list = representable ? rows.map(({ card, labels }, index) => {
-    const id = handle(`recent:${index}:${card.id}`);
-    actions.set(id, async () => {
+  const openMemory = useNativeWorkspaceEvent(async (card: (typeof rows)[number]["card"]) => {
       let currentCard: typeof card | undefined;
       await handoff(routeCurrent, () => {
         currentCard = latest.current.model.recentMemories.find(item => item.id === card.id);
@@ -59,6 +52,9 @@ export function NativeRecentMemory() {
         });
       });
     });
+  const list = representable ? rows.map(({ card, labels }, index) => {
+    const id = handle(`recent:${index}:${card.id}`);
+    actions.set(id, () => openMemory(card));
     return { id, label: labels.primary, ...(labels.secondary ? { detail: labels.secondary } : {}), enabled: true, chevron: true };
   }) : [];
   const content: NativeWorkspaceContent = {

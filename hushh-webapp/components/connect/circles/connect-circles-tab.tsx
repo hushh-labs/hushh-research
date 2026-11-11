@@ -1,5 +1,8 @@
 "use client";
 
+import { createNativeWorkspaceHandles } from "@/lib/capacitor/use-native-workspace-handoff";
+
+
 import { NativeConnectWorkspace, type NativeConnectPerson } from "../native-connect-workspace";
 import { CircleDiscoveryCardBody, type CircleDiscoveryCardModel } from "../circle-discovery-card";
 import type { ReactNode, RefObject } from "react";
@@ -687,7 +690,7 @@ export function ConnectCirclesTab({
       onCreateDialogOpenChange?.(false);
     },
   });
-  const createDestination = useMemo(() => createActive && creation.step === "details" ? crypto.randomUUID() : null, [createActive, creation.step, listSession]);
+  const createDestination = useMemo(() => createActive && creation.step === "details" ? createNativeWorkspaceHandles(String(listSession))("create") : null, [createActive, creation.step, listSession]);
   const cancelledCreateDestination = useRef<string | null>(null);
   const currentCreateDestination = useRef(createDestination);
   currentCreateDestination.current = createDestination;

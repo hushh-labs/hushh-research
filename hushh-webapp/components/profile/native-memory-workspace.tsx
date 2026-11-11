@@ -1,12 +1,14 @@
 "use client";
 
+import { useNativeWorkspaceEvent, createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { usePathname } from "next/navigation";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
 import type { NativeWorkspaceChoice, NativeWorkspaceMemoryDraft } from "@/lib/capacitor/native-workspace";
 import { nativePrivacyCanInteract, nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
-import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { ROUTES, normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { useProfilePanePresentation } from "@/lib/navigation/use-profile-pane-presentation";
@@ -50,18 +52,11 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
   const mirror = useLiveMirrorView(model.soul.active && !model.soul.editing);
   const commerce = useMemoryCommerceSummary(model.soul.active);
   const sharing = usePkmSharingExpansion(model.ownerId, model.soul.active, model.presentationIdentity);
-  const handles = useMemo(() => {
-    const values = new Map<string, string>();
-    return (key: string) => {
-      let value = values.get(key);
-      if (!value) { value = crypto.randomUUID(); values.set(key, value); }
-      return value;
-    };
-  }, [model.ownerId]);
-  const routeCurrent = () => latest.current.pathname === ROUTES.PKM && latest.current.model.ownerId === model.ownerId &&
+  const handles = useMemo(() => createNativeWorkspaceHandles(String(model.ownerId)), [model.ownerId]);
+  const routeCurrent = useNativeWorkspaceEvent(() => latest.current.pathname === ROUTES.PKM && latest.current.model.ownerId === model.ownerId &&
     latest.current.model.presentationIdentity === model.presentationIdentity &&
-    latest.current.model.captureSessionCurrent() && nativePrivacyCanInteract(nativePrivacyObservation().state);
-  const handoff: NativeMemorySavedHandoff = async (kind, action) => {
+    latest.current.model.captureSessionCurrent() && nativePrivacyCanInteract(nativePrivacyObservation().state));
+  const handoff: NativeMemorySavedHandoff = useNativeWorkspaceEvent<Parameters<NativeMemorySavedHandoff>, ReturnType<NativeMemorySavedHandoff>>(async (kind, action) => {
     return retireForChild(routeCurrent, () => {
       const currentModel = latest.current.model;
       return !(kind === "detail" && (currentModel.memoryCards !== model.memoryCards || currentModel.metadata !== model.metadata ||
@@ -69,7 +64,7 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
         kind === "soul-editor" && currentModel.soul.current?.document !== model.soul.current?.document ||
         kind === "sharing" && currentModel.sharingManifests !== model.sharingManifests);
     }, () => { setChild({ kind, seen: false }); action(); });
-  };
+  });
   const profileOpen = profilePane?.open === true;
   const childOpen = child?.kind === "soul-editor" ? model.soul.editing : child?.kind === "sharing" ? sharing.section !== "" :
     child?.kind === "detail" ? !!model.selectedCard || !!model.selectedMetadataDomain : child?.kind === "payments" ? profileOpen : false;
@@ -93,7 +88,7 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
       });
     }
     else if (!childOpen && child.seen) setChild(null);
-  }, [child, childOpen, pathname]);
+  }, [child, childOpen, pathname, intent, routeCurrent]);
   const nativeRequested = customNativePresentationEnabled();
   const nativePrivateReady = nativeRequested && model.canOpen && nativePrivacyCanInteract(nativePrivacyObservation().state);
   const markdown = nativePrivateReady ? model.soul.current?.document.markdown : undefined;
@@ -101,7 +96,7 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
     if (markdown === undefined) return undefined;
     try { return { source: markdown, blocks: nativeMemoryMarkdown(markdown) }; }
     catch { return { source: markdown, blocks: null }; }
-  }, [model.ownerId, markdown]);
+  }, [markdown]);
   const saved = nativePrivateReady ? nativeMemorySaved({ model, mirror, commerce, handle: handles, handoff,
     markdownProjection,
     openSharing: () => sharing.setSection("sharing"),

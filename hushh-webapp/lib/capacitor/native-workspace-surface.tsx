@@ -1,5 +1,7 @@
 "use client";
 
+import { useNativeWorkspaceEvent, createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "./use-native-workspace-handoff";
+
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useVault } from "@/lib/vault/vault-context";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
@@ -9,7 +11,7 @@ import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { nativeFeedbackToast } from "./native-feedback";
 import { useNativeWorkspace, useNativeWorkspacePresentation, type WorkspaceEditor } from "./use-native-workspace";
-import { useNativeWorkspaceHandoff } from "./use-native-workspace-handoff";
+
 import { nativePersonInitials, useNativeWorkspacePortraits } from "@/components/app-ui/use-native-workspace-portraits";
 import type { NativeWorkspaceChoice, NativeWorkspaceIdentity, NativeWorkspaceTextDraft } from "./native-workspace";
 import type { NativeWorkspaceLocationShare } from "./native-drawers";
@@ -110,11 +112,8 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
   const live = useRef(props), mounted = useRef(false);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useLayoutEffect(() => { live.current = props; });
-  const current = () => mounted.current && live.current.current();
-  const handles = useMemo(() => {
-    const map = new Map<string, string>();
-    return (key: string) => { let id = map.get(key); if (!id) { id = crypto.randomUUID(); map.set(key, id); } return id; };
-  }, [props.owner, props.workspace]);
+  const current = useNativeWorkspaceEvent(() => mounted.current && live.current.current());
+  const handles = useMemo(() => createNativeWorkspaceHandles(String(props.owner) + ":" + String(props.workspace)), [props.owner, props.workspace]);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const confirmation = props.confirmation;
   const projected: NativeWorkspaceSurfaceSection[] = confirmation ? [{ key: "confirmation", rows: [
@@ -161,37 +160,48 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
     return { id, label: option.label, selected: option.selected };
   });
   const searchId = handles("search");
-  if (props.search) actions.set(searchId, choice => { if (current() && typeof choice.text === "string") live.current.search?.change(choice.text); });
+  const onSearch = useNativeWorkspaceEvent((choice: NativeWorkspaceChoice) => { if (current() && typeof choice.text === "string") live.current.search?.change(choice.text); });
+  if (props.search) actions.set(searchId, onSearch);
   const dateId = handles(`date:${props.calendarDate?.key}`);
-  if (props.calendarDate) actions.set(dateId, choice => { if (current() && live.current.calendarDate?.enabled && typeof choice.text === "string") live.current.calendarDate.change(choice.text); });
+  const onDate = useNativeWorkspaceEvent((choice: NativeWorkspaceChoice) => { if (current() && live.current.calendarDate?.enabled && typeof choice.text === "string") live.current.calendarDate.change(choice.text); });
+  if (props.calendarDate) actions.set(dateId, onDate);
   // Retain accepted edits until the feature's matching React render arrives.
   // All ordering, final-edit reconciliation and retirement stay in useNativeWorkspace.
-  const input = useRef({ key: "", rendered: "", value: "", revision: 0, visit: 0 });
   const text = props.confirmation ? undefined : props.textEditor;
-  if (input.current.key !== (text?.key ?? "")) input.current = { key: text?.key ?? "", rendered: text?.value ?? "", value: text?.value ?? "", revision: 0, visit: input.current.visit + 1 };
-  else if (input.current.rendered !== (text?.value ?? "")) {
-    input.current.rendered = text?.value ?? "";
-    if (input.current.value !== input.current.rendered) { input.current.value = input.current.rendered; input.current.revision++; }
-  }
-  const textKey = text?.key, replica = input.current, visit = replica.visit;
+  const textKey = text?.key ?? "";
+  const visit = useMemo(() => `${textKey}:${crypto.randomUUID()}`, [textKey]);
+  const replicaRef = useMemo(() => ({ current: { visit, key: textKey, initialized: false, rendered: "", value: "", revision: 0 } }), [visit, textKey]);
+  const currentInputRef = useRef(replicaRef);
+  useLayoutEffect(() => {
+    currentInputRef.current = replicaRef;
+    const replica = replicaRef.current;
+    const rendered = text?.value ?? "";
+    if (!replica.initialized) {
+      replica.initialized = true;
+      replica.rendered = replica.value = rendered;
+    } else if (replica.rendered !== rendered) {
+      replica.rendered = rendered;
+      if (replica.value !== rendered) { replica.value = rendered; replica.revision++; }
+    }
+  }, [replicaRef, text?.value]);
   const editor: WorkspaceEditor<NativeWorkspaceTextDraft> | undefined = text && !confirmation ? {
-    destinationId: handles(`editor:${text.key}:${visit}`), current: () => current() && input.current.visit === visit && live.current.textEditor?.key === textKey,
+    destinationId: handles(`editor:${text.key}:${visit}`), current: () => current() && currentInputRef.current === replicaRef && live.current.textEditor?.key === textKey,
     draft: { text: text.value }, busy: text.busy === true, error: text.error ?? null, canSave: text.enabled !== false && text.value.length <= text.maximum,
-    inputRevision: () => replica.revision, readDraft: () => ({ text: replica.value }), mutationPending: () => live.current.textEditor?.busy === true,
+    inputRevision: () => replicaRef.current.revision, readDraft: () => ({ text: replicaRef.current.value }), mutationPending: () => live.current.textEditor?.busy === true,
     changeDraft: (draft, expected) => {
       const currentEditor = live.current.textEditor;
-      if (!current() || !currentEditor || input.current.visit !== visit || currentEditor.key !== textKey || expected !== undefined && expected !== input.current.revision) return false;
+      if (!current() || !currentEditor || currentInputRef.current !== replicaRef || currentEditor.key !== textKey || expected !== undefined && expected !== replicaRef.current.revision) return false;
       const next = currentEditor.normalize?.(draft.text) ?? draft.text;
-      if (input.current.value !== next) { input.current.value = next; input.current.revision++; currentEditor.change(next); }
+      if (replicaRef.current.value !== next) { replicaRef.current.value = next; replicaRef.current.revision++; currentEditor.change(next); }
       return true;
     },
     // A retiring editor may commit its final IME edit after the feature has
     // returned to its parent. It must never overwrite a successor visit.
-    finalCurrent: () => current() && (input.current === replica || input.current.key !== textKey),
+    finalCurrent: () => current() && (currentInputRef.current === replicaRef || currentInputRef.current.current.key !== textKey),
     reconcileFinal: (draft, expected) => {
-      if (!current() || input.current !== replica && input.current.key === textKey || replica.revision !== expected) return false;
+      if (!current() || currentInputRef.current !== replicaRef && currentInputRef.current.current.key === textKey || replicaRef.current.revision !== expected) return false;
       const next = text.normalize?.(draft.text) ?? draft.text;
-      if (replica.value !== next) { replica.value = next; replica.revision++; text.change(next); }
+      if (replicaRef.current.value !== next) { replicaRef.current.value = next; replicaRef.current.revision++; text.change(next); }
       return true;
     },
     save: async () => { await live.current.textEditor?.submit(); return false; },

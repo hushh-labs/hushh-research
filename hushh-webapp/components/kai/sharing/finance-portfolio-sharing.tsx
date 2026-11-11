@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { usePathname, useSearchParams } from "next/navigation";
 import { SectionLabel } from "@/components/app-ui/typography";
@@ -16,11 +16,11 @@ export type FinancePortfolioPresentation = { view: "share" | "advisor" | "histor
 export function FinancePortfolioSharing({ model, source, presentation }: { model?: DashboardViewModel; source?: FinanceSource; presentation?: FinancePortfolioPresentation }) {
   const [localOpen, setLocalOpen] = useState(false);
   const open = presentation ? presentation.view === "share" : localOpen;
-  const setOpen = (value: boolean) => presentation ? presentation.change(value ? "share" : null) : setLocalOpen(value);
+  const setOpen = useCallback((value: boolean) => presentation ? presentation.change(value ? "share" : null) : setLocalOpen(value), [presentation]);
   const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const params = useSearchParams();
   const active = pathname !== "/one/kai" || params.get("tab") === "portfolio";
-  useEffect(() => { if (!active) setOpen(false); }, [active]);
+  useEffect(() => { if (!active && open) setOpen(false); }, [active, open, setOpen]);
   return <SurfaceCard><SurfaceCardContent className="space-y-3 p-5 sm:p-6">
     <SectionLabel role="heading" aria-level={2}>Sharing</SectionLabel>
     <div className="flex flex-wrap gap-2">

@@ -1,6 +1,4 @@
-import { NATIVE_FEEDBACK_TOASTER_ID, nativeSinkFeedbackOptions, reconcileNativeSinkFeedback, isNativeSinkFeedback,
-  clearNativeSinkFeedback, dismissNativeSinkFeedback, releaseNativeSinkFeedback, type NativeFeedbackActionToken,
-  type NativeFeedbackSinkEndReason, type NativeFeedbackSinkNotice } from "./native-feedback-sink";
+import { NATIVE_FEEDBACK_TOASTER_ID, nativeSinkFeedbackOptions, reconcileNativeSinkFeedback, isNativeSinkFeedback, clearNativeSinkFeedback, dismissNativeSinkFeedback, type NativeFeedbackActionToken, type NativeFeedbackSinkEndReason, type NativeFeedbackSinkNotice } from "./native-feedback-sink";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { toast, type ToastT, type ToastToDismiss, type ExternalToast } from "sonner";
 import type { NativeDrawerIdentity, NativeDrawerProjection } from "./native-drawers";

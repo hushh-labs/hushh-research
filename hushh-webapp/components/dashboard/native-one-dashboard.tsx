@@ -1,5 +1,7 @@
 "use client";
 
+import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { OneAgentRosterBody, useOneAgentRosterModel, type OneAgentMode, type OneAgentRosterProps } from "./one-agent-roster";
@@ -13,7 +15,7 @@ import { nativeColorTokenHex } from "@/lib/capacitor/native-control-appearance";
 import { resolvedAccentHex, useAccent } from "@/lib/theme/accent";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useNativeWorkspace, useNativeWorkspacePresentation } from "@/lib/capacitor/use-native-workspace";
-import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
 import type { NativeDrawerRow, NativeDrawerSection } from "@/lib/capacitor/native-drawers";
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
@@ -89,14 +91,11 @@ function LauncherBody({ roster, discovery, tasks, frame, presentation, openDisco
   useLayoutEffect(() => { setPage(0); }, [tasks.open]);
   const owner = roster.userId!;
   const current = () => mounted.current && live.current.pathname === ROUTES.ONE_HOME && live.current.roster.userId === owner;
-  const handles = useMemo(() => {
-    const values = new Map<string, string>();
-    return (key: string) => { let id = values.get(key); if (!id) { id = crypto.randomUUID(); values.set(key, id); } return id; };
-  }, [owner]);
+  const handles = useMemo(() => createNativeWorkspaceHandles(String(owner)), [owner]);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const row = (key: string, label: string, run?: () => unknown, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
     const id = handles(key);
-    if (run) actions.set(id, () => { if (current()) return run() as void | Promise<unknown>; });
+    if (run) actions.set(id, () => run() as void | Promise<unknown>);
     return { id, label, enabled: !tasks.busy, ...(!run ? { readOnly: true } : {}), ...extra };
   };
   const sections: NativeDrawerSection[] = [];
@@ -118,7 +117,7 @@ function LauncherBody({ roster, discovery, tasks, frame, presentation, openDisco
       })];
       if (task.last_run?.state === "outcome_uncertain") values.push(row(`uncertain:${task.id}`, "Check the result before scheduling again."));
       const action = (operation: "pause" | "resume" | "cancel", label: string) => row(`${operation}:${task.id}`, label,
-        () => live.current.tasks.control(task, operation), { enabled: !tasks.checking && !tasks.busy && (operation !== "resume" || Boolean(tasks.status?.available)) });
+        () => tasks.control(task, operation), { enabled: !tasks.checking && !tasks.busy && (operation !== "resume" || Boolean(tasks.status?.available)) });
       if (["scheduled", "pending_delivery"].includes(task.state)) values.push(action("pause", "Pause"));
       if (task.state === "paused") values.push(action("resume", "Resume"));
       if (!["cancelled", "completed", "cancelling"].includes(task.state)) values.push(action("cancel", "Cancel"));
@@ -130,34 +129,34 @@ function LauncherBody({ roster, discovery, tasks, frame, presentation, openDisco
     ]);
     section("task-return", [
       row("task-destination", tasks.placementMessage ? "Hosting" : "Open Files", () => {
-        if (live.current.tasks.busy) return;
-        live.current.tasks.close();
-        router.push(live.current.tasks.placementMessage ? ROUTES.PROFILE_HOSTING : ROUTES.ONE_FILES);
+        if (tasks.busy) return;
+        tasks.close();
+        router.push(tasks.placementMessage ? ROUTES.PROFILE_HOSTING : ROUTES.ONE_FILES);
       }, { chevron: true }),
-      row("task-close", "Close", () => live.current.tasks.close()),
+      row("task-close", "Close", () => tasks.close()),
     ]);
   } else {
     section("utilities", [
-      row("scheduled", "Scheduled tasks", () => live.current.tasks.changeOpen(true), { symbol: "calendar.badge.clock", chevron: true }),
+      row("scheduled", "Scheduled tasks", () => tasks.changeOpen(true), { symbol: "calendar.badge.clock", chevron: true }),
       ...(discovery.visible ? [row("discovery", discovery.ready ? "Review your profile" : "Claim your profile",
-        () => live.current.discovery.ready ? router.push(ROUTES.ONE_PROFILE_DISCOVERY) : openDiscovery(), { chevron: true })] : []),
+        () => discovery.ready ? router.push(ROUTES.ONE_PROFILE_DISCOVERY) : openDiscovery(), { chevron: true })] : []),
     ]);
   }
   const agents = roster.visibleModes.map(mode => {
     const id = handles(`agent:${mode.id}`);
-    actions.set(id, () => { if (current() && !live.current.tasks.open) router.push(mode.href); });
+    actions.set(id, () => { if (!tasks.open) router.push(mode.href); });
     return nativeLauncherAgent(mode, id, resolvedAccentHex());
   });
   const options = (["grid", "list"] as const).map(view => {
     const id = handles(`view:${view}`);
-    actions.set(id, () => { if (current() && !live.current.tasks.open) live.current.roster.selectView(view); });
+    actions.set(id, () => { if (!tasks.open) roster.selectView(view); });
     return { id, label: view === "grid" ? "Grid" : "List", selected: roster.view === view };
   });
   const phase = useNativeWorkspace({ owner, content: {
     workspace: "launcher", page: "overview", title: tasks.open ? "Scheduled tasks" : `Agents (${roster.modes.length})`,
     enabled: true, backEnabled: tasks.open, sections,
     ...(!tasks.open ? { tabs: { label: "Agent roster view", options }, launcher: { view: roster.view, agents } } : {}),
-  }, actions, current, back: () => live.current.tasks.close(), contentFrame: frame, presentationOwner: presentation.owner,
+  }, actions, current, back: () => tasks.close(), contentFrame: frame, presentationOwner: presentation.owner,
     active: pathname === ROUTES.ONE_HOME, activationRevision });
   return <div aria-busy={phase !== "native"} data-native-launcher-workspace={phase} />;
 }

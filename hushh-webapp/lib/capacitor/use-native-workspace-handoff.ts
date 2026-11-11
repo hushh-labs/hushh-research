@@ -1,8 +1,26 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { nativePrivacyObservation } from "./session-privacy";
+
+/** Native events use the committed callback. Presentation owners retain their
+ * owner, session and lifetime checks before dispatch. */
+export function useNativeWorkspaceEvent<A extends unknown[], R>(callback: (...args: A) => R) {
+  const callbackRef = useRef(callback);
+  useLayoutEffect(() => { callbackRef.current = callback; });
+  return useCallback((...args: A) => callbackRef.current(...args), []);
+}
+
+export function createNativeWorkspaceHandles(namespace: string) {
+  const handles = new Map<string, string>();
+  return (key: string) => {
+    const scoped = `${namespace}:${key}`;
+    let id = handles.get(scoped);
+    if (!id) { id = crypto.randomUUID(); handles.set(scoped, id); }
+    return id;
+  };
+}
 
 /** Retire the native owner before exposing an authored web child. The feature
  * supplies its own current-state checks and owns the resulting child state. */

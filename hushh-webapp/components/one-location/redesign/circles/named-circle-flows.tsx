@@ -736,7 +736,7 @@ export function useCreateCircleFlow({
     submittingRef.current = false; setName(""); setKind("family"); setCustomTypeLabel(""); setNameRequirementActive(false); setNameFocused(false);
     setStep("details"); setSavedCircle(null); setSaving(false); setAddingPeople(false);
     setError(null);
-  }, [active, resetKey]);
+  }, [active, resetKey, sessionChanged]);
   const prepare = async (draft = input.current) => {
     if (!current() || submittingRef.current || busy || saving) return false;
     const nextName = draft.name.trim();

@@ -1,5 +1,7 @@
 "use client";
 
+import { createNativeWorkspaceHandles } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -50,10 +52,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
   const latest = useRef({ model, pathname });
   useLayoutEffect(() => { latest.current = { model, pathname }; });
   const current = () => mounted.current && latest.current.pathname === "/one/todos" && latest.current.model.current();
-  const handles = useMemo(() => {
-    const map = new Map<string, string>();
-    return (key: string) => { let id = map.get(key); if (!id) { id = crypto.randomUUID(); map.set(key, id); } return id; };
-  }, [model.owner]);
+  const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
   const closeEditor = () => { if (!saving.current) latest.current.model.closeEditor(); };
   const back = () => {
     if (saving.current || latest.current.model.saving) return true;

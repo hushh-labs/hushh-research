@@ -15,7 +15,7 @@ export function FinanceAdvisorAction({ model, source, open: externalOpen, onOpen
   const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const params = useSearchParams();
   const active = pathname !== "/one/kai" || params.get("tab") === "portfolio";
-  useEffect(() => { if (!active) setOpen(false); }, [active]);
+  useEffect(() => { if (!active && open) setOpen(false); }, [active, open, setOpen]);
   return <>
     <ShellActionSurface variant="pill" className="min-h-11" onClick={() => setOpen(true)}>Ask an advisor</ShellActionSurface>
     <FinanceShareFlow advisorOnly open={open && active} onOpenChange={setOpen} model={model} source={source} />

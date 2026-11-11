@@ -204,6 +204,8 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
   const [supported, setSupported] = useState(false);
   const [interactionIsolation, setInteractionIsolation] = useState(false);
   const [ready, setReady] = useState(false);
+  const readyRef = useRef(ready);
+  useLayoutEffect(() => { readyRef.current = ready; }, [ready]);
   const [discovering, setDiscovering] = useState(() => enabled && isNativeIOS());
   const [statePending, setStatePending] = useState(false);
   const [height, setHeight] = useState(52);
@@ -395,10 +397,10 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
   useLayoutEffect(() => {
     const retainedColumn = column ?? current.current?.column;
     if (!supported || !documentId || !retainedColumn || !/^#[\da-f]{6}$/i.test(accentHex) || !/^#[\da-f]{6}$/i.test(foregroundHex)) {
-      if (!ready) setStatePending(false);
+      if (!readyRef.current) setStatePending(false);
       return;
     }
-    if (!ready) setStatePending(true);
+    if (!readyRef.current) setStatePending(true);
     const nextInteractionEnabled = visible && column !== null && interactionEnabled && !overlayBlocked;
     // Legacy wrappers lack a separate interaction fence: retain their safe hide
     // behavior. Negotiated wrappers retain presentation during overlay isolation.
@@ -419,7 +421,7 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
     }).then((result) => {
       if (cancelled || current.current !== state) return;
       if (!result || result.presentationApplied === false || result.supported !== true) {
-        if (ready) console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
+        if (readyRef.current) console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
         else fallBackToReact();
         return;
       }
@@ -448,7 +450,7 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
       // native bar is accepted, keep its slot reserved on uncertain updates
       // instead of exposing a duplicate React bar over it.
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
-      if (!ready) fallBackToReact();
+      if (!readyRef.current) fallBackToReact();
     });
     return () => { cancelled = true; };
   }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, fallBackToReact, regionRevision, column, scrollFailed, privacyAdmissionRevision]);

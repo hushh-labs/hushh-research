@@ -216,9 +216,9 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   const [nativeHistoryStart, setNativeHistoryStart] = useState(0);
   const nativeHistoryPageSize = 80;
   useEffect(() => { setNativeHistoryStart(0); }, [ownerId, direction]);
-  const nativeActionsRef = useRef<Map<string, () => void>>(new Map());
+  const nativeSnapshotRef = useRef<{ actions: Map<string, () => void>; projection: WalletNativeHistoryProjection | null }>({ actions: new Map(), projection: null });
   const nativeActions = new Map<string, () => void>();
-  const activateNative = useCallback((key: string) => nativeActionsRef.current.get(key)?.(), []);
+  const activateNative = useCallback((key: string) => nativeSnapshotRef.current.actions.get(key)?.(), []);
   const nativeSections: NativeDrawerSection[] = [];
   const pushSection = (id: string, rows: NativeDrawerRow[], title?: string) => nativeSections.push({ id: `wallet-history-${id}`, ...(title ? { title } : {}), rows });
   const readOnly = (id: string, label: string, detail?: string, trailing?: string): NativeDrawerRow => ({
@@ -285,12 +285,13 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
     if (failed) pushSection("error", [readOnly("history-error", unavailable ? "Card sharing is unavailable. Automatic refresh is paused." : "Could not refresh card sharing."),
       action("history-retry", "Try again", retry)]);
   }
-  nativeActionsRef.current = nativeActions;
   const shouldProjectNative = nativePresentation && active && direction === "received";
-  const nativeProjection: WalletNativeHistoryProjection | null = shouldProjectNative ? {
-    signature: JSON.stringify({ title: nativeTitle, sections: nativeSections }), title: nativeTitle, sections: nativeSections, activate: activateNative,
+  const nativeSignature = shouldProjectNative ? JSON.stringify({ title: nativeTitle, sections: nativeSections }) : null;
+  const nativeProjection: WalletNativeHistoryProjection | null = nativeSignature !== null ? {
+    signature: nativeSignature, title: nativeTitle, sections: nativeSections, activate: activateNative,
   } : null;
-  useLayoutEffect(() => { onNativeProjection?.(nativeProjection); }, [onNativeProjection, nativeProjection?.signature]);
+  useLayoutEffect(() => { nativeSnapshotRef.current = { actions: nativeActions, projection: nativeProjection }; });
+  useLayoutEffect(() => { onNativeProjection?.(nativeSnapshotRef.current.projection); }, [onNativeProjection, nativeSignature]);
   if (nativePresentation && direction === "received") return null;
   return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
     {direction === "outgoing" && active && profile?.context.isCurrent() && profile.context.userId === ownerId ? <WalletSavedCardSharing card={{ cardId: profile.cardId }} getContext={getContext} disabled={Boolean(busy)} showHistory={false} /> : null}

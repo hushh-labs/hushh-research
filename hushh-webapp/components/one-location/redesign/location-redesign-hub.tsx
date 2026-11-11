@@ -1,5 +1,8 @@
 "use client";
 
+import { useNativeWorkspaceEvent } from "@/lib/capacitor/use-native-workspace-handoff";
+
+
 /**
  * LocationRedesignHub — mobile-first re-skin of the One Location feature.
  *
@@ -1495,10 +1498,10 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
     });
   }, [pathname, router, searchParams]);
 
-  const closeShareFlow = useCallback(() => {
+  const closeShareFlow = useNativeWorkspaceEvent(() => {
     resetShareDraft();
     closeFlow();
-  }, [closeFlow, resetShareDraft]);
+  });
 
   const returnToNearbyCheckIn = useCallback(() => {
     setFlow("none");
@@ -2795,7 +2798,6 @@ function LocationDetailFlow({
     },
   }[kind];
 
-  const groups = kind === "active-shares" ? ownerGrantGroups : receivedGrantGroups;
   const activeSections: NativeWorkspaceSurfaceSection[] = ([false, true] as const).flatMap(sms => {
     const rows: NativeWorkspaceSurfaceSection["rows"] = ownerGrantGroups.flatMap(group => group.grants.filter(grant => isSmsTriggeredGrant(grant) === sms).map(grant => {
       const end = grant.durationMode === "until_stopped" ? null : parseTimestamp(grant.expiresAt);

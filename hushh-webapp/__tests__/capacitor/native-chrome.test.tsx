@@ -206,7 +206,7 @@ describe("private route-body presentation boundary", () => {
     } finally { view.unmount(); }
   });
 
-  it("reconciles a retiring Location text visit without overwriting its reopened successor", async () => {
+  it.each([false, true])("reconciles a retiring Location text visit without overwriting its reopened successor (confirmation: %s)", async confirmation => {
     vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     publishValidatedAuthSessionOwner("synthetic-location-owner");
     bridge.documentId = crypto.randomUUID(); profile.pathname = "/";
@@ -225,7 +225,8 @@ describe("private route-body presentation boundary", () => {
       const [text, setText] = useState("");
       return <><output data-testid="retained-text">{text}</output><NativeWorkspaceSurface owner="synthetic-location-owner" workspace="location" active current={() => true}
         backPath="/" presentation={presentation} frame={frame} title="Synthetic field" sections={[]} fallback={null}
-        textEditor={open ? { key: "code", label: "Invite code", placeholder: "Code", maximum: 14, submitLabel: "Review", value: text, normalize: value => value.toUpperCase(), change: setText, submit: () => {}, cancel: () => {} } : undefined} /></>;
+        textEditor={open || confirmation ? { key: "code", label: "Invite code", placeholder: "Code", maximum: 14, submitLabel: "Review", value: text, normalize: value => value.toUpperCase(), change: setText, submit: () => {}, cancel: () => {} } : undefined}
+        confirmation={!open && confirmation ? { title: "Review", description: "Synthetic confirmation", confirm: { key: "confirm", label: "Confirm", run: () => {} }, cancelLabel: "Cancel", cancel: () => {} } : undefined} /></>;
     }
     const view = render(<Form open />);
     const latest = () => drawerBridge.applyWorkspace.mock.calls.at(-1)![0];

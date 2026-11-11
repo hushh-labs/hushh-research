@@ -84,7 +84,7 @@ const defaultSession = Symbol("synthetic-session");
 function Fixture({ owner = "synthetic-owner", session = defaultSession, version = 1, onEdit = vi.fn(), onNavigate = vi.fn(), pendingDocument = false, pendingDuringEdit = false }: { owner?: string; session?: symbol; version?: number; onEdit?: () => void; onNavigate?: (href: string) => void; pendingDocument?: boolean; pendingDuringEdit?: boolean }) {
   const [tab, setTab] = useState<"browse" | "add">("browse");
   const [editing, setEditing] = useState(false);
-  const stable = useMemo(() => ({ document: { markdown: `synthetic ${version}`, persisted: true }, memoryCards: [], metadata: {}, sharingManifests: {} }), [owner, version]);
+  const stable = useMemo(() => ({ owner, document: { markdown: `synthetic ${version}`, persisted: true }, memoryCards: [], metadata: {}, sharingManifests: {} }), [owner, version]);
   const model = {
     ownerId: owner, presentationIdentity: session, workspaceTab: tab, setWorkspaceTab: setTab, authLoading: false, canOpen: true, signedIn: true,
     nativeDataState: "loaded", selectedCard: null, selectedMetadataDomain: null, homeSearchQuery: "",

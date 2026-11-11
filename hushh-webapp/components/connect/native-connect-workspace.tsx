@@ -1,11 +1,13 @@
 "use client";
 
+import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { usePathname } from "next/navigation";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useNativeWorkspace, useNativeWorkspacePresentation, type WorkspaceEditor } from "@/lib/capacitor/use-native-workspace";
-import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import type { NativeDrawerRow, NativeDrawerSection } from "@/lib/capacitor/native-drawers";
 import type { NativeWorkspaceChoice, NativeWorkspaceCircleDraft, NativeWorkspaceProjection } from "@/lib/capacitor/native-workspace";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -90,10 +92,7 @@ function NativeConnectBody({ model, presentation, runWeb, activationRevision, se
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useLayoutEffect(() => { latest.current = { model, pathname }; });
   const current = () => mounted.current && latest.current.pathname === "/one/connect" && latest.current.model.current();
-  const handles = useMemo(() => {
-    const map = new Map<string, string>();
-    return (key: string) => { let id = map.get(key); if (!id) { id = crypto.randomUUID(); map.set(key, id); } return id; };
-  }, [model.owner]);
+  const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const run = async (action: NativeConnectAction) => {
     if (!current() || running.current || action.enabled === false) return;

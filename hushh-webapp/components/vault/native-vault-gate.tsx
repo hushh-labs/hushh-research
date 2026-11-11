@@ -2,18 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
-import {
-  NativeVaultGateFence,
-  nativeVaultGate,
-  sameNativeVaultGate,
-  validNativeVaultGateProjection,
-  validNativeVaultGateReceipt,
-  type NativeVaultGateAction,
-  type NativeVaultGateEdit,
-  type NativeVaultGateIdentity,
-  type NativeVaultGateProjection,
-  type NativeVaultGateReceipt,
-} from "@/lib/capacitor/native-vault-gate";
+import { NativeVaultGateFence, nativeVaultGate, sameNativeVaultGate, validNativeVaultGateProjection, validNativeVaultGateReceipt, type NativeVaultGateAction, type NativeVaultGateEdit, type NativeVaultGateIdentity, type NativeVaultGateProjection } from "@/lib/capacitor/native-vault-gate";
 import { readNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import {
   getNativeSessionPrivacyState,

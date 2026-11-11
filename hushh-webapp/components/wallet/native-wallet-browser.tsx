@@ -1,5 +1,7 @@
 "use client";
 
+import { useNativeWorkspaceEvent } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useNativeWorkspace, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
@@ -14,7 +16,7 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import type { NativeWalletProfileDraft } from "@/lib/capacitor/native-wallet-profile-editor";
 import { NativeWalletPaymentPanel, type WalletPanelProjection } from "./native-wallet-payment-panel";
 import type { WalletCardBrowserProps } from "./wallet-card-browser";
-import type { WalletNativeHistoryProjection } from "./wallet-sharing-history";
+
 import { WALLET_DEMO_CARDS, isAgentWalletCard } from "./wallet-demo-cards";
 import { cardNetworkLabel } from "./card-network-mark";
 
@@ -59,18 +61,19 @@ export function NativeWalletBrowser(props: WalletCardBrowserProps & { renderFall
   for (const id of value?.actions.keys() ?? []) actions.set(id, choice => ports.dispatch(id, choice));
   const addId = handle("add"), closeId = handle("close"), accessId = handle("access");
   const accessSelected = selected === "wallet-access" && !!props.nativeHistoryContext;
-  const onClose = useCallback(() => {
+  const onClose = useNativeWorkspaceEvent(() => {
     const returnToSharing = selected === "wallet-access" && accessReturnTab.current === "sharing";
     setSelected(null);
     if (returnToSharing && props.onSharing) props.onSharing();
     else onOverview();
-  }, [onOverview, props.onSharing, selected]);
+  });
   actions.set(addId, () => props.onAdd());
-  if (props.nativeHistoryContext) actions.set(accessId, () => {
+  const onAccess = useNativeWorkspaceEvent(() => {
     accessReturnTab.current = props.activeTab ?? "cards";
     if (accessReturnTab.current === "sharing") onOverview();
     setSelected("wallet-access");
   });
+  if (props.nativeHistoryContext) actions.set(accessId, onAccess);
   actions.set(closeId, choice => { if (choice.dismissed) onClose(); else ports.back(); });
   const cards = [...props.cards, ...WALLET_DEMO_CARDS].map(card => {
     const kind = card.cardId === "agent-one-profile" ? "profile" as const : card.cardId === "agent-one-referral" ? "referral" as const : card.cardId === "agent-one-nws" ? "nws" as const : "payment" as const;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useEffect, useMemo, useRef, useState } from "react";
 import { ProfilePaneShareIcon } from "@/components/profile/profile-pane-icons";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { withNativeFeedbackScope } from "@/lib/capacitor/native-feedback-sink";
@@ -24,9 +24,9 @@ export function useWalletCardImageShare({ cardId, profile, disabled = false, nat
     shareUrl: profile.shareUrl, referralUrl: profile.referralUrl,
   }), [profile.ownerId, profile.displayName, profile.cardPayload?.full_name, profile.memberSince, profile.walletId, profile.shareUrl, profile.referralUrl]);
   const key = JSON.stringify([kind, identity]);
-  const lease = useMemo(() => ({ active: true }), [key, disabled]);
+  const lease = useMemo(() => ({ active: true, key, disabled }), [key, disabled]);
   const currentLease = useRef(lease);
-  currentLease.current = lease;
+  useLayoutEffect(() => { currentLease.current = lease; });
   useEffect(() => {
     lease.active = true;
     setSharing(false);

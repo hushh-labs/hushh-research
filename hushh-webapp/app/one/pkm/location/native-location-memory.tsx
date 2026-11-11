@@ -1,5 +1,7 @@
 "use client";
 
+import { useNativeWorkspaceEvent, createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -9,7 +11,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { nativePrivacyCanInteract, nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import type { NativeDrawerSection } from "@/lib/capacitor/native-drawers";
 import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
-import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -25,25 +27,18 @@ export function NativeLocationMemory() {
   const vaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const [query, setQuery] = useState("");
   const [child, setChild] = useState<{ seen: boolean } | null>(null);
-  const { handoff, activationRevision, intent } = useNativeWorkspaceHandoff(presentation.retireForWeb, model.presentationIdentity);
+  const { handoff, activationRevision, intent: intentRef } = useNativeWorkspaceHandoff(presentation.retireForWeb, model.presentationIdentity);
   const contentFrame = useRef<HTMLElement | null>(null);
   const latest = useRef({ model, pathname, query });
   useLayoutEffect(() => { latest.current = { model, pathname, query }; });
   useLayoutEffect(() => { setChild(null); }, [model.presentationIdentity]);
-  useLayoutEffect(() => { setQuery(""); intent.current += 1; }, [model.ownerId, model.canOpen, model.sessionVerificationRequired, privacy?.generation, vaultEpoch]);
+  useLayoutEffect(() => { setQuery(""); intentRef.current += 1; }, [model.ownerId, model.canOpen, model.sessionVerificationRequired, privacy?.generation, vaultEpoch, intentRef]);
   useLayoutEffect(() => {
     if (!child) return;
     if (pathname !== ROUTES.PKM_LOCATION && !child.seen) setChild({ seen: true });
     else if (pathname === ROUTES.PKM_LOCATION && child.seen) setChild(null);
   }, [child, pathname]);
-  const handle = useMemo(() => {
-    const values = new Map<string, string>();
-    return (key: string) => {
-      let value = values.get(key);
-      if (!value) { value = crypto.randomUUID(); values.set(key, value); }
-      return value;
-    };
-  }, [model.ownerId]);
+  const handle = useMemo(() => createNativeWorkspaceHandles(String(model.ownerId)), [model.ownerId]);
   const routeCurrent = () => latest.current.pathname === ROUTES.PKM_LOCATION &&
     latest.current.model.ownerId === model.ownerId && latest.current.model.presentationIdentity === model.presentationIdentity &&
     latest.current.model.captureSessionCurrent() &&
@@ -62,12 +57,7 @@ export function NativeLocationMemory() {
     representable && !child;
   const active = eligible && model.captureSessionCurrent();
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<void>>();
-  const sections: NativeDrawerSection[] = [];
-  if (representable && source) {
-    filtered.forEach((section, sectionIndex) => {
-      sections.push({ id: handle(`section:${sectionIndex}:${section.key}`), title: section.title, rows: section.fields.map((field, fieldIndex) => {
-        const id = handle(`field:${sectionIndex}:${fieldIndex}:${section.key}`);
-        if (field.selector) actions.set(id, async () => {
+  const openField = useNativeWorkspaceEvent(async (field: (typeof filtered)[number]["fields"][number]) => {
           let selector: string | undefined;
           await handoff(routeCurrent, () => {
             const current = latest.current;
@@ -81,6 +71,12 @@ export function NativeLocationMemory() {
             latest.current.model.navigate(`${ROUTES.PKM_LOCATION_DETAIL}?memory=${selector}`);
           });
         });
+  const sections: NativeDrawerSection[] = [];
+  if (representable && source) {
+    filtered.forEach((section, sectionIndex) => {
+      sections.push({ id: handle(`section:${sectionIndex}:${section.key}`), title: section.title, rows: section.fields.map((field, fieldIndex) => {
+        const id = handle(`field:${sectionIndex}:${fieldIndex}:${section.key}`);
+        if (field.selector) actions.set(id, () => openField(field));
         return { id, label: field.label, detail: field.value, enabled: !!field.selector, chevron: !!field.selector, readOnly: !field.selector };
       }) });
     });

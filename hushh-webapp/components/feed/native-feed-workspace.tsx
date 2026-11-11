@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode } from "react";
+import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useNativeWorkspace, useNativeWorkspacePresentation } from "@/lib/capacitor/use-native-workspace";
-import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import type { NativeDrawerRow, NativeDrawerSection, NativeWorkspaceInlineAction } from "@/lib/capacitor/native-drawers";
@@ -105,10 +107,10 @@ function NativeFeedBody({ model, presentation, runWeb, activationRevision, view,
   useLayoutEffect(() => { latest.current = { model, pathname }; });
   const current = () => mounted.current && latest.current.pathname === "/one/feed" && latest.current.model.current();
   const { selectedKey, smsKey, page, groupPage } = view;
-  const setSelectedKey = (selectedKey: string | null) => setView(value => ({ ...value, selectedKey }));
-  const setSmsKey = (smsKey: string | null) => setView(value => ({ ...value, smsKey }));
+  const setSelectedKey = useCallback((selectedKey: string | null) => setView(value => ({ ...value, selectedKey })), [setView]);
+  const setSmsKey = useCallback((smsKey: string | null) => setView(value => ({ ...value, smsKey })), [setView]);
   const setPage = (page: number) => setView(value => ({ ...value, page }));
-  const setGroupPage = (groupPage: number) => setView(value => ({ ...value, groupPage }));
+  const setGroupPage = useCallback((groupPage: number) => setView(value => ({ ...value, groupPage })), [setView]);
   const [armed, setArmed] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   useEffect(() => {
@@ -116,10 +118,7 @@ function NativeFeedBody({ model, presentation, runWeb, activationRevision, view,
     const timer = setTimeout(() => setArmed(null), ARMED_ACTION_DEFAULT_DISARM_MS);
     return () => clearTimeout(timer);
   }, [armed]);
-  const handles = useMemo(() => {
-    const values = new Map<string, string>();
-    return (key: string) => { let id = values.get(key); if (!id) { id = crypto.randomUUID(); values.set(key, id); } return id; };
-  }, [model.owner]);
+  const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
   const push = useFeedPushPrompt();
   const bank = usePayoutSnapshot(DocumentPayoutService.bankPayouts, { bankOnly: true, refreshOnFeedChange: true, ignoreReadyEvent: true });
   const latestBank = bank.token ? bank.data?.payouts[0] : null;
@@ -166,7 +165,7 @@ function NativeFeedBody({ model, presentation, runWeb, activationRevision, view,
   useLayoutEffect(() => {
     if (selectedKey && !selected) { setSelectedKey(null); setArmed(null); }
     if (smsKey && !smsVisible) { setSmsKey(null); setGroupPage(0); }
-  }, [selectedKey, selected, smsKey, smsVisible]);
+  }, [selectedKey, selected, smsKey, smsVisible, setSelectedKey, setSmsKey, setGroupPage]);
   const select = (record: NativeFeedRecord) => {
     setArmed(null);
     if (record.kind === "sms") { setSmsKey(smsKey === record.key ? null : record.key); setSelectedKey(null); setGroupPage(0); }

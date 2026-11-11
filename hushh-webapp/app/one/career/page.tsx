@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useMemo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
@@ -31,7 +31,7 @@ function CareerWorkspace({ auth, vault }: { auth: ReturnType<typeof useAuth>; va
   const { user, userId } = auth;
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = vault;
   const ready = Boolean(userId && isVaultUnlocked && vaultKey && vaultOwnerToken);
-  const write = ready ? { userId: userId!, vaultKey: vaultKey!, vaultOwnerToken: vaultOwnerToken! } : null;
+  const write = useMemo(() => ready ? { userId: userId!, vaultKey: vaultKey!, vaultOwnerToken: vaultOwnerToken! } : null, [ready, userId, vaultKey, vaultOwnerToken]);
 
   const [saved, setSaved] = useState<Resume | null>(null);
   const [draft, setDraft] = useState<Resume | null>(null);
@@ -78,7 +78,7 @@ function CareerWorkspace({ auth, vault }: { auth: ReturnType<typeof useAuth>; va
     return () => {
       cancelled = true;
     };
-  }, [ready, userId, vaultKey, vaultOwnerToken, readRevision]);
+  }, [write, readRevision]);
 
   const onFile = useCallback(
     async (file: File | undefined) => {

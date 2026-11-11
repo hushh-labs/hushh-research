@@ -1,9 +1,12 @@
 "use client";
 
+import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
+
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
-import { useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
 import type { NativeDrawerRow } from "@/lib/capacitor/native-drawers";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -3750,17 +3753,10 @@ export function ConsentCenterPage() {
   const presentation = useNativeWorkspacePresentation();
   const nativeVaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const nativeFrame = useRef<HTMLElement | null>(null);
-  const nativeHandles = useMemo(() => {
-    const handles = new Map<string, string>();
-    return (key: string) => {
-      let handle = handles.get(key);
-      if (!handle) { handle = crypto.randomUUID(); handles.set(key, handle); }
-      return handle;
-    };
-  }, [userId]);
+  const nativeHandles = useMemo(() => createNativeWorkspaceHandles(String(userId)), [userId]);
   const [expandedNativeGroups, setExpandedNativeGroups] = useState<Set<string>>(() => new Set());
   const [nativeChild, setNativeChild] = useState<{ seen: boolean } | null>(null);
-  const nativeSession = useMemo(() => ({}), [userId, isVaultUnlocked]);
+  const nativeSession = useMemo(() => ({ owner: userId, unlocked: isVaultUnlocked }), [userId, isVaultUnlocked]);
   const { handoff: retireForNativeChild, activationRevision: nativeActivation } = useNativeWorkspaceHandoff(presentation.retireForWeb, nativeSession);
   const nativeLatest = useRef({ userId, pathname, isVaultUnlocked, items, tab, selectedId, selectedBundleId });
   useLayoutEffect(() => { nativeLatest.current = { userId, pathname, isVaultUnlocked, items, tab, selectedId, selectedBundleId }; });

@@ -1,5 +1,7 @@
 "use client";
 
+import { useNativeWorkspaceEvent } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import {
   type FormEvent,
   useState,
@@ -1833,7 +1835,7 @@ function OwnerVaultFlow({
     if (phase === "preparing") setNativeGateEditRevision(0);
   }, []);
 
-  const handleNativeVaultGateAction = useCallback(async (event: NativeVaultGateAction) => {
+  const handleNativeVaultGateAction = useNativeWorkspaceEvent(async (event: NativeVaultGateAction) => {
     if (!isValidatedAuthSessionOwnerCurrent({ userId: ownerId, generation: ownerBrowserGeneration }) ||
         currentUserIdRef.current !== ownerId || signOutRequestedRef.current ||
         event.editRevision !== nativeGateEditRevision) return;
@@ -1895,11 +1897,7 @@ function OwnerVaultFlow({
         }
         break;
     }
-  }, [availableGeneratedMethod, createQuickUnlockMethod, handleConfirmSignOut, handleCreatePassphrase,
-    handleCopyRecoveryKey, handleDownloadRecoveryKey, handleEnableQuickUnlock, handleNativeVaultGateInterrupted,
-    handleRecoveryKeyContinue, handleRecoveryKeySubmit, handleRetryGeneratedUnlock, handleShowRecoveryKey,
-    handleSkipQuickUnlock, handleUnlockPassphrase, isUnlocking, nativeGateEditRevision, ownerBrowserGeneration, ownerId, recoveryKey,
-    step]);
+  });
 
   const nativeGateFields = useMemo<NativeVaultGateFields | null>(() => {
     if (!isHardGate || !["create", "unlock", "recovery"].includes(step)) return null;
