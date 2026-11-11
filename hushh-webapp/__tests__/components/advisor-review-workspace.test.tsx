@@ -252,7 +252,7 @@ it("opens accepted reviews on Meeting and supports keyboard navigation without c
   const close = vi.fn();
   mocks.view.mockResolvedValue({ ...value, status: "accepted", direction: "outgoing" });
   render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }} onClose={close} />);
-  expect(await screen.findByRole("button", { name: "Stop advisor review" })).toHaveTextContent(/^Stop$/);
+  expect(await screen.findByRole("button", { name: "Cancel advisor review" })).toHaveTextContent(/^Cancel$/);
   const meeting = screen.getByRole("tab", { name: "Meeting" });
   expect(meeting).toHaveAttribute("aria-selected", "true");
   expect(await screen.findByRole("link", { name: "Connect Calendar" })).toBeVisible();
