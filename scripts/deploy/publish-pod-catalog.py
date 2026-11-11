@@ -280,6 +280,38 @@ def activate(session, pin: dict, release: dict, *, sha: str, run: str, save) -> 
     return promoted
 
 
+def require_publication_capacity(
+    session, pin: dict, release: dict, *, sha: str, run: str
+) -> None:
+    profile = json.loads((ROOT / "config/runtime-capacity.json").read_text())
+    dev = profile.get("environments", {}).get("dev", {})
+    if (
+        profile.get("region") != "us-central1"
+        or dev.get("project") != "hushh-pda-dev"
+        or dev.get("capacity_scope") != "plg-isolated-dev-v1"
+        or dev.get("database_instance") != "plg-qualification-pg"
+        or "consent-protocol" not in dev.get("non_database_services", [])
+        or "consent-protocol" in dev.get("services", {})
+    ):
+        raise ValueError("Publication requires the fixed non-target Dev capacity scope")
+    original = api(session, "GET", SERVICE)
+    if not already_active(original, pin["baseline"], release):
+        require_baseline(original, pin["baseline"])
+        candidate_patch(original, release, sha=sha, run=run)
+    # This guard accounts the PLG instance, not the shared hub's separate DB.
+    # Audit every retained workload and route without inventing a PLG candidate.
+    # Shared pool/scaling configuration stays unchanged; activate rechecks it.
+    command(
+        sys.executable,
+        "scripts/ci/runtime-capacity-budget.py",
+        "--environment",
+        "dev",
+        "--no-candidates",
+        "--output",
+        "json",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True)
@@ -318,6 +350,7 @@ def main() -> None:
             "--",
             str(path.relative_to(ROOT)),
             "scripts/deploy",
+            "config/runtime-capacity.json",
         )
         raw = path.read_bytes()
         if len(raw) > 16384:
@@ -326,17 +359,8 @@ def main() -> None:
         save("qualification_check", pinSha256=hashlib.sha256(raw).hexdigest())
         release, evidence = reviewed_release(session, pin, source=args.source)
         save("qualified", evidence=evidence)
-        # An unchanged application still creates one candidate revision.
-        command(
-            sys.executable,
-            "scripts/ci/runtime-capacity-budget.py",
-            "--environment",
-            "dev",
-            "--candidate-service",
-            "consent-protocol",
-            "--output",
-            "json",
-        )
+        save("capacity_check")
+        require_publication_capacity(session, pin, release, sha=sha, run=run)
         activate(session, pin, release, sha=sha, run=run, save=save)
 
 
