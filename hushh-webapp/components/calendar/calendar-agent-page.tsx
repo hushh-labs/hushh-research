@@ -643,7 +643,7 @@ export function CalendarAgentPage({
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
-              This disconnects the selected Calendar account. Your Mail connection and other Calendar accounts stay available.
+              Disconnect this Calendar account? Mail and your other calendars stay connected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-row justify-center gap-2">

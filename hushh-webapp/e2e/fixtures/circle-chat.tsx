@@ -1,4 +1,3 @@
-import { RequestCard } from "../../components/one-location/redesign/cards";
 import { ConnectTypeScale } from "../../lib/morphy-ux/ui/connect-type-scale";
 import { MoonIcon } from "../../components/icons";
 import { FeedRow } from "../../components/feed/feed-row";
@@ -100,7 +99,7 @@ function GroupedFeed() {
 }
 const Scope = new URLSearchParams(location.search).has("v14") ? ConnectTypeScale : Fragment;
 createRoot(document.getElementById("root")!).render(<Scope><div data-app-scroll-root="true" className="h-dvh overflow-y-auto overscroll-contain">
-  {new URLSearchParams(location.search).has("lane") ? <AgentDockProvider><AgentDockVoiceBoundary><Lane /></AgentDockVoiceBoundary></AgentDockProvider> : new URLSearchParams(location.search).has("feed") ? <GroupedFeed /> : new URLSearchParams(location.search).has("review") ? <main className="mx-auto max-w-3xl p-4"><RequestCard name="Alex" promptLine="Asks to see your location for 24 hours" approveLabel="Approve 24 hours" onApprove={() => {}} onDecline={() => {}} onApproveShorter={() => {}} shorterApprovals={[{hours: .5, label: "30 min"}, {hours: 1, label: "1 hour"}, {hours: 2, label: "2 hours"}, {hours: 4, label: "4 hours"}]} /></main> : new URLSearchParams(location.search).has("workspace") ? <Workspace /> : <main className="mx-auto max-w-2xl space-y-4 px-4 py-6">
+  {new URLSearchParams(location.search).has("lane") ? <AgentDockProvider><AgentDockVoiceBoundary><Lane /></AgentDockVoiceBoundary></AgentDockProvider> : new URLSearchParams(location.search).has("feed") ? <GroupedFeed /> : new URLSearchParams(location.search).has("workspace") ? <Workspace /> : <main className="mx-auto max-w-2xl space-y-4 px-4 py-6">
   <h1 className="text-xl font-semibold">Weekend friends</h1>
   <CircleChat initialOpen circleName="Weekend friends" session={{ userId: "alice", circleId: "circle", vaultKey: "fixture", vaultOwnerToken: "fixture" }} />
 </main>}
