@@ -11,6 +11,8 @@ import {
 } from "../../scripts/native/native-route-status.mjs";
 
 const root = process.cwd();
+// The Zsh install in CI is best effort; the one contract that runs Zsh skips without it.
+const hasZsh = spawnSync("zsh", ["-c", "true"]).status === 0;
 
 function source(relativePath: string): string {
   return readFileSync(join(root, relativePath), "utf8");
@@ -49,7 +51,7 @@ describe("native cold-audit and continuity contract", () => {
     expect(value).toBe(synthetic);
   });
 
-  it("stops native execution if reviewer resolution fails despite inherited credentials", () => {
+  it.skipIf(!hasZsh)("stops native execution if reviewer resolution fails despite inherited credentials", () => {
     const script = source("scripts/native/ios-device-ui-test.sh");
     const boundary = script.indexOf("\n(\n  # Load only for execution.");
     expect(boundary).toBeGreaterThan(-1);

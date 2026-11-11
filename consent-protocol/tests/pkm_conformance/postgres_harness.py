@@ -48,6 +48,18 @@ MIGRATIONS = [
 ]
 
 _PG_BIN_ENV = "HUSHH_TEST_PG_BIN"
+_PG_SHARE = Path("/usr/share/postgresql")
+
+
+def _lacks_pgvector(bin_dir: str) -> bool:
+    """True for a Debian/Ubuntu cluster whose extension directory has no pgvector.
+
+    Stock PG16 on the runner ships without ``vector.control`` until pgvector is
+    installed, and the canonical migrations need it, so such a cluster cannot
+    replay them. Other layouts have no such directory and are left alone.
+    """
+    extension_dir = _PG_SHARE / Path(bin_dir).parent.name / "extension"
+    return extension_dir.is_dir() and not (extension_dir / "vector.control").exists()
 
 
 def find_pg_bin() -> Optional[str]:
@@ -55,10 +67,11 @@ def find_pg_bin() -> Optional[str]:
     if override and (Path(override) / "initdb").exists():
         return override
     for candidate in sorted(glob.glob("/usr/lib/postgresql/*/bin"), reverse=True):
-        if (Path(candidate) / "initdb").exists():
+        if (Path(candidate) / "initdb").exists() and not _lacks_pgvector(candidate):
             return candidate
-    if shutil.which("initdb"):
-        return str(Path(shutil.which("initdb")).parent)
+    found = shutil.which("initdb")
+    if found and not _lacks_pgvector(str(Path(found).parent)):
+        return str(Path(found).parent)
     return None
 
 

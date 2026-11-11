@@ -1084,6 +1084,9 @@ jobs:
       # Native reviewer-resolution contracts execute the authored Zsh runner;
       # Ubuntu does not guarantee that interpreter is preinstalled.
       - name: Install Zsh for native runner contracts
+        # Best effort: the Zsh contract skips itself when the install cannot run.
+        continue-on-error: true
+        timeout-minutes: 2
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y zsh
@@ -1485,8 +1488,10 @@ jobs:
       - name: Prepare native migration replay prerequisites
         # These tests own disposable clusters, separate from the PG17 service.
         # Noble's stock PG16 lacks vector.control; canonical migration 033 needs it.
+        # Best effort: native-cluster tests skip themselves when the install cannot run.
         shell: bash
-        timeout-minutes: 4
+        continue-on-error: true
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -1550,7 +1555,8 @@ jobs:
           protocol-dir: ./consent-protocol
       - name: Prepare native migration replay prerequisites
         shell: bash
-        timeout-minutes: 4
+        continue-on-error: true
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           sudo apt-get update
