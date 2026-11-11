@@ -524,6 +524,46 @@ async def _async(value):
     return value
 
 
+def test_a_503_logs_where_it_failed_without_logging_what_it_said(caplog):
+    import logging
+
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes.one.finance_sharing import PrivateFinanceRoute
+
+    router = APIRouter(route_class=PrivateFinanceRoute)
+
+    @router.get("/boom/{item}")
+    async def boom(item: str):
+        raise TypeError("owner portfolio 1234")
+
+    @router.get("/unconfirmed")
+    async def unconfirmed():
+        raise AdvisorReviewError("ADVISOR_BILLING_UNCONFIRMED", 503)
+
+    @router.get("/changed")
+    async def changed():
+        raise AdvisorReviewError("ADVISOR_PLAN_CHANGED", 409)
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="api.routes.one.finance_sharing"):
+        generic = client.get("/boom/abc")
+        coded = client.get("/unconfirmed")
+        client.get("/changed")
+    assert generic.json() == {"detail": {"code": "FINANCE_SHARE_UNAVAILABLE"}}
+    assert coded.status_code == 503
+    lines = [record.getMessage() for record in caplog.records]
+    unavailable = next(line for line in lines if line.startswith("finance_sharing.unavailable"))
+    assert "error=TypeError" in unavailable and "route=/boom/{item}" in unavailable
+    assert "tests/test_advisor_review_contract.py:" in unavailable and ":boom" in unavailable
+    assert "owner portfolio 1234" not in unavailable and "abc" not in unavailable
+    assert "finance_sharing.error reason=advisor.billing.unconfirmed status=503" in " ".join(lines)
+    assert not any("ADVISOR_PLAN_CHANGED" in line for line in lines)
+
+
 def test_advisor_stripe_calls_return_plain_dicts_the_billing_code_can_read(monkeypatch):
     from types import SimpleNamespace
 
