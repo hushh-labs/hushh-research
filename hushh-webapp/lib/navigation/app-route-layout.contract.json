@@ -3859,7 +3859,7 @@
   {
     "route": "/one/setup/finance",
     "mode": "flow",
-    "exemptionReason": "Finance introduction, investing preferences and source selection share the existing fullscreen setup coordinator.",
+    "exemptionReason": "Investing preferences and portfolio source selection share the existing fullscreen setup coordinator.",
     "shellVerification": {
       "file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
       "includes": [
@@ -3868,9 +3868,9 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.finance",
-      "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
+      "purpose": "Answer or skip investing preferences, choose an optional portfolio source, then finish setup.",
       "screen": "one_setup_finance",
-      "entryCue": "Explore the introduction, then answer or skip investing preferences.",
+      "entryCue": "Answer or skip the three investing questions, then choose how to add a portfolio.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.finish_finance",
       "happyPathActionIds": [

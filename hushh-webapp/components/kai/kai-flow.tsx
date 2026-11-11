@@ -140,7 +140,7 @@ interface KaiFlowProps {
   /** Root setup stages a reviewed portfolio for its one vault boundary. */
   deferSensitiveActionsUntilSetupFinalized?: boolean;
   setupSourcePicker?: boolean;
-  onSetupIntroductionBack?: () => void;
+  onSetupPersonaBack?: () => void;
 }
 
 interface AnalysisResult {
@@ -709,7 +709,7 @@ export function KaiFlow({
   dashboardSection = "overview",
   deferSensitiveActionsUntilSetupFinalized = false,
   setupSourcePicker = false,
-  onSetupIntroductionBack,
+  onSetupPersonaBack,
 }: KaiFlowProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -3848,7 +3848,7 @@ export function KaiFlow({
       {state === "import_required" && (
         <PortfolioImportView
           presentation={setupSourcePicker ? "onboarding" : "list"}
-          onIntroductionBack={onSetupIntroductionBack}
+          onSetupBack={onSetupPersonaBack}
           onFileSelect={handleFileUpload}
           onSkip={handleSkipImport}
           onPreloadSchema={() => void handlePreloadSchema()}
