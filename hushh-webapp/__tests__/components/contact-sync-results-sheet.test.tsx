@@ -10,32 +10,26 @@ vi.mock("sonner", () => ({
 }));
 
 describe("ContactSyncResultsSheet", () => {
-  it("uses the Location onboarding measure for its decision CTAs", () => {
+  it("uses Invite contacts as the only results footer action", () => {
+    const onInvite = vi.fn();
     render(
       <ContactSyncResultsSheet
         open
         onOpenChange={vi.fn()}
-        result={result()}
+        result={result({ inviteCandidateCount: 1 })}
         syncing={false}
         onSyncAgain={vi.fn()}
-        onInvite={vi.fn()}
+        onInvite={onInvite}
         onRequestConnection={vi.fn()}
       />,
     );
 
-    const proceed = screen.getByRole("link", {
-      name: "Proceed to connections",
-    });
     const invite = screen.getByRole("button", { name: "Invite contacts" });
-    for (const action of [proceed, invite]) {
-      expect(action).toHaveClass(
-        "h-[50px]",
-        "min-h-[50px]",
-        "w-full",
-        "max-w-[244px]",
-      );
-    }
-    expect(proceed.parentElement).toHaveClass("justify-center");
+    expect(invite).toHaveClass("h-[50px]", "min-h-[50px]", "w-full", "max-w-[244px]");
+    expect(invite.parentElement).toHaveClass("justify-center");
+    expect(screen.queryByRole("link", { name: "Proceed to connections" })).toBeNull();
+    fireEvent.click(invite);
+    expect(onInvite).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the launcher inert, traps focus, and still dismisses with Escape", async () => {
@@ -57,9 +51,7 @@ describe("ContactSyncResultsSheet", () => {
     const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
     const header = sheet.querySelector('[data-slot="sheet-header"]');
     expect(header).toHaveClass("pr-14");
-    expect(screen.getByText("Only eligible Hushh accounts are shown.")).toHaveClass(
-      "line-clamp-1",
-    );
+    expect(sheet).not.toHaveAttribute("aria-describedby");
     expect(
       screen.queryByRole("button", { name: "Launch contacts" }),
     ).toBeNull();
@@ -200,9 +192,6 @@ describe("ContactSyncResultsSheet", () => {
 
     expect(screen.getByText("Asha Rao")).toBeInTheDocument();
     expect(screen.getByText("1199")).toBeInTheDocument();
-    expect(
-      screen.getByText("Only eligible Hushh accounts are shown."),
-    ).toBeInTheDocument();
     expect(screen.queryByText(/raw phone numbers/i)).toBeNull();
     expect(screen.getByText("No match")).toBeInTheDocument();
     expect(screen.queryByText("Not on Hushh")).toBeNull();
@@ -317,19 +306,12 @@ describe("ContactSyncResultsSheet", () => {
       });
       fireEvent.click(recovery);
       expect(onSyncAgain).toHaveBeenCalledTimes(1);
-      const proceed = screen.getByRole("link", {
-        name: "Proceed to connections",
-      });
-      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-      proceed.addEventListener("click", (event) => event.preventDefault(), {
-        once: true,
-      });
-      fireEvent.click(proceed);
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
       expect(onOpenChange).toHaveBeenCalledWith(false);
       view.rerender(<ContactSyncResultsSheet {...props} syncing />);
       expect(
-        screen.getByRole("link", { name: "Proceed to connections" }),
-      ).toBeInTheDocument();
+        screen.getByRole("button", { name: "Invite contacts" }),
+      ).toBeDisabled();
       expect(
         screen.getByRole("button", { name: partial.recoveryLabel }),
       ).toBeDisabled();
@@ -393,7 +375,7 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.getByText(/not counted as unmatched or inviteable/i)).toBeInTheDocument();
   });
 
-  it("uses the same connections destination for bounded and ambiguous results", () => {
+  it("offers sync recovery for ambiguous results and preserves dismissal", () => {
     const view = render(
       <ContactSyncResultsSheet
         open
@@ -410,9 +392,7 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(
-      screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
+    expect(screen.getByRole("button", { name: "Close" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
 
     view.rerender(
@@ -434,9 +414,6 @@ describe("ContactSyncResultsSheet", () => {
       />,
     );
     expect(
-      screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-    expect(
       screen.getByRole("button", { name: "Sync again" }),
     ).toBeInTheDocument();
 
@@ -456,9 +433,6 @@ describe("ContactSyncResultsSheet", () => {
         onRequestConnection={vi.fn()}
       />,
     );
-    expect(
-      screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(
       screen.getByRole("button", { name: "Sync again" }),
     ).toBeInTheDocument();

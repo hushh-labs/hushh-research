@@ -272,6 +272,16 @@ describe("ConnectionsService", () => {
     expect(new URL(path, "https://example.test").searchParams.get("name_only")).toBe("true");
   });
 
+  it("sends the typed search mode with the original directory query", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ items: [], page: 2, hasMore: false }));
+    await ConnectionsService.searchDirectory({ idToken: "tok", query: "Sharu  K", typedSearch: true, page: 2 });
+    const [path] = mockApiFetch.mock.calls[0];
+    const params = new URL(path, "https://example.test").searchParams;
+    expect(params.get("typed_search")).toBe("true");
+    expect(params.get("query")).toBe("Sharu  K");
+    expect(params.get("page")).toBe("2");
+  });
+
   it("sendRequest POSTs the addressee id", async () => {
     mockApiFetch.mockResolvedValue(jsonResponse({ request: { id: "r1" } }));
     await ConnectionsService.sendRequest({ idToken: "tok", addresseeUserId: "u2" });

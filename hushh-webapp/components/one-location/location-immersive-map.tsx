@@ -4531,7 +4531,7 @@ export function LocationImmersiveMap({
                                   {personInitials(attendee.displayName)}
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium underline-offset-4 group-hover/nearby-person:underline">
+                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium group-hover/nearby-person:text-[color:var(--app-accent)]">
                                     {attendee.displayName}
                                   </span>
                                   <span data-location-type-role="row-description" className="block truncate text-xs text-muted-foreground">

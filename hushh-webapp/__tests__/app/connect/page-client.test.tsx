@@ -1850,6 +1850,41 @@ describe("Connect — People", () => {
     expect(screen.queryByText('No one matches "N"')).toBeNull();
   });
 
+  it("submits Find people on Enter and hides rows for the previous query", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({
+      items: [person("previous", "Other Person")],
+      hasMore: true,
+      page: 1,
+    }).mockResolvedValueOnce({
+      items: [person("match", "Dinesh Kumar")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await screen.findByText("Other Person");
+
+    vi.useFakeTimers();
+    try {
+      const search = screen.getByLabelText("Search people");
+      fireEvent.change(search, { target: { value: "Ne" } });
+      expect(screen.queryByText("Other Person")).toBeNull();
+      fireEvent.keyDown(search, { key: "Enter", isComposing: true });
+      expect(mocks.searchDirectory).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.keyDown(search, { key: "Enter" });
+      });
+      expect(screen.getByText("Dinesh Kumar")).toBeVisible();
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(expect.objectContaining({
+        query: "Ne",
+        page: 1,
+        typedSearch: true,
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("preserves the directory's A-Z order rather than re-sorting the page", async () => {
     // A client sort can only order the rows it can see, so re-sorting one page
     // of a paged list makes the index lie at every page boundary: a name on
@@ -3464,14 +3499,7 @@ describe("Connect — contact sync", () => {
     ).toBeInTheDocument();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
 
-    const proceed = within(sheet).getByRole("link", {
-      name: "Proceed to connections",
-    });
-    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-    proceed.addEventListener("click", (event) => event.preventDefault(), {
-      once: true,
-    });
-    fireEvent.click(proceed);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(sheet).not.toBeInTheDocument());
     expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
   });

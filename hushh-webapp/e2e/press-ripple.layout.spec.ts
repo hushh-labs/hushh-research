@@ -226,6 +226,7 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
   ["composer Send", (page) => page.getByRole("button", { name: "Send message" })],
   ["Location Share", (page) => page.getByTestId("location-people-actions").getByRole("button", { name: "Share", exact: true })],
   ["Location Ask", (page) => page.getByTestId("location-people-actions").getByRole("button", { name: "Ask", exact: true })],
+  ["inline text action", (page) => page.getByRole("button", { name: "Refresh results" })],
 ];
 
 const RIPPLED_CONTROLS = TARGETS.length + 4;
@@ -263,6 +264,16 @@ test("Location People actions keep hover transparent with working press and focu
       }
     }
   }
+});
+
+test("inline text actions hover without a fill or underline", async ({ page }) => {
+  await openFixture(page, "no-preference");
+  const action = page.getByRole("button", { name: "Refresh results" });
+
+  await action.hover();
+  await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(action).toHaveCSS("text-decoration-line", "none");
+  await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
 });
 
 test("welcome starters keep foreground text without a hover background", async ({ page, browserName }) => {

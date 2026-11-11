@@ -909,7 +909,7 @@ for (const width of [393, 1440]) {
     await profile.hover();
     await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     const title = page.getByTestId("connect-person-row").filter({ has: profile }).locator('[data-slot="settings-row-title"]');
-    await expect(title).toHaveCSS("text-decoration-line", "underline");
+    await expect(title).toHaveCSS("text-decoration-line", "none");
     await page.screenshot({ path: test.info().outputPath(`inline-hover-${width}.png`), animations: "disabled" });
   });
 
