@@ -46,9 +46,10 @@ struct NativeWorkspaceAvatar: Codable {
     let initials: String
     var jpeg: String?
     var verified: Bool?
+    var active: Bool?
     static func closed(_ raw: Any) -> Bool {
         guard let value = raw as? [String: Any] else { return false }
-        return Set(value.keys).isSubset(of: ["initials", "jpeg", "verified"]) && !value.values.contains(where: { $0 is NSNull })
+        return Set(value.keys).isSubset(of: ["initials", "jpeg", "verified", "active"]) && !value.values.contains(where: { $0 is NSNull })
     }
     var valid: Bool {
         initials.utf16.count <= 8 && (jpeg == nil || (jpeg!.utf16.count <= 40_000 &&
@@ -76,6 +77,7 @@ struct NativeDrawerRow: Codable, Identifiable {
     let symbol: String?
     let enabled: Bool
     let destructive: Bool?
+    var prominent: Bool? = nil
     let selected: Bool?
     let pending: Bool?
     var readOnly: Bool? = nil
@@ -107,6 +109,7 @@ struct NativeDrawerSection: Codable, Identifiable {
     let id: String
     let title: String?
     let rows: [NativeDrawerRow]
+    var layout: String? = nil
 }
 
 struct NativeMemorySearch: Codable {

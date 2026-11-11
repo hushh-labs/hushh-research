@@ -130,9 +130,10 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
   const ids = new Set<string>(); let count = 0, avatars = 0, avatarBytes = 0;
   const insert = (key: unknown) => id(key) && !ids.has(key) && !!ids.add(key);
   const admitAvatar = (avatar: NonNullable<NativeDrawerRow["avatar"]>) => {
-    if (!avatar || !closed(avatar, ["initials", "jpeg", "verified"]) || ++avatars > 48 ||
+    if (!avatar || !closed(avatar, ["initials", "jpeg", "verified", "active"]) || ++avatars > 48 ||
         typeof avatar.initials !== "string" || avatar.initials.length > 8 ||
-        avatar.verified !== undefined && (value.workspace !== "connect" || typeof avatar.verified !== "boolean")) return false;
+        avatar.verified !== undefined && (!["connect", "location"].includes(value.workspace) || typeof avatar.verified !== "boolean")) return false;
+    if (avatar.active !== undefined && (value.workspace !== "location" || typeof avatar.active !== "boolean")) return false;
     if (avatar.jpeg !== undefined) {
       if (typeof avatar.jpeg !== "string" || avatar.jpeg.length > 40_000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(avatar.jpeg)) return false;
       avatarBytes += avatar.jpeg.length;
@@ -140,15 +141,17 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     return avatarBytes <= 1_920_000;
   };
   for (const section of value.sections) {
-    if (!section || !closed(section, ["id", "title", "rows"]) || !insert(section.id) || section.title !== undefined && !text(section.title, 256) || !Array.isArray(section.rows)) return false;
+    if (!section || !closed(section, ["id", "title", "rows", "layout"]) || !insert(section.id) || section.title !== undefined && !text(section.title, 256) || !Array.isArray(section.rows)) return false;
+    if (section.layout !== undefined && (value.workspace !== "location" || !["cards", "tiles"].includes(section.layout) || section.layout === "tiles" && section.rows.length > 3)) return false;
     for (const row of section.rows) {
-      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "readOnly", "toggle", "options"]) ||
+      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) ||
         !insert(row.id) || !text(row.label, 4096) || row.detail !== undefined && !text(row.detail, 4096) || row.trailing !== undefined && !text(row.trailing, 32) ||
         row.symbol !== undefined && !id(row.symbol) || row.artworkId !== undefined && !id(row.artworkId) || row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex) ||
         typeof row.enabled !== "boolean" || [row.chevron, row.destructive, row.selected, row.pending, row.readOnly].some(v => v !== undefined && typeof v !== "boolean")) return false;
+      if (row.prominent !== undefined && (value.workspace !== "location" || typeof row.prominent !== "boolean" || row.readOnly || row.options || row.toggle || row.inlineActions || row.avatar || row.formattedText)) return false;
       if (row.toggle !== undefined && typeof row.toggle !== "boolean") return false;
       if (row.avatar !== undefined || row.inlineActions !== undefined || row.milestone !== undefined || row.expanded !== undefined) {
-        if (!["feed", "connect"].includes(value.workspace) || row.formattedText || row.options || row.toggle) return false;
+        if (!["feed", "connect", "location"].includes(value.workspace) || row.formattedText || row.options || row.toggle) return false;
       }
       if (row.avatar !== undefined && !admitAvatar(row.avatar)) return false;
       if (row.inlineActions !== undefined) {
@@ -261,7 +264,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
   // Match Foundation's escaped UTF-8 envelope, including text and actions.
   // Oversized rich pages keep their complete React presentation; no content
   // or callbacks are truncated to squeeze a partially rendered native page in.
-  return !["feed", "connect"].includes(value.workspace) ||
+  return !["feed", "connect", "location"].includes(value.workspace) ||
     new TextEncoder().encode(JSON.stringify(value).replaceAll("/", "\\/")).byteLength <= 900_000;
 }
 export function validWorkspaceTaskDraft(value: unknown): value is NativeWorkspaceTaskDraft {

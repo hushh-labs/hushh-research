@@ -10,14 +10,18 @@ import { ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { nativeFeedbackToast } from "./native-feedback";
 import { useNativeWorkspace, useNativeWorkspacePresentation } from "./use-native-workspace";
 import { useNativeWorkspaceHandoff } from "./use-native-workspace-handoff";
+import { nativePersonInitials, useNativeWorkspacePortraits } from "@/components/app-ui/use-native-workspace-portraits";
 import type { NativeWorkspaceChoice, NativeWorkspaceIdentity } from "./native-workspace";
 import { useNativeShellOverlayBlocked } from "./native-navigation";
 
 export type NativeWorkspaceSurfaceRow = { key: string; label: string; detail?: string; run?: () => unknown; web?: boolean;
-  enabled?: boolean; pending?: boolean; selected?: boolean; destructive?: boolean; symbol?: string;
+  enabled?: boolean; pending?: boolean; selected?: boolean; destructive?: boolean; prominent?: boolean; symbol?: string;
+  artworkId?: string; iconHex?: string; trailing?: string;
+  person?: { name: string; photoUrl?: string | null; verified?: boolean; active?: boolean };
+  inlineActions?: (Pick<NativeWorkspaceSurfaceRow, "key" | "label" | "run" | "web" | "enabled" | "pending" | "symbol"> & { tone: "primary" | "ghost" | "danger" | "success" })[];
   toggle?: { value: boolean; change: (value: boolean) => unknown };
   choices?: { key: string; label: string; selected: boolean; run: () => unknown }[] };
-export type NativeWorkspaceSurfaceSection = { key: string; title?: string; rows: NativeWorkspaceSurfaceRow[] };
+export type NativeWorkspaceSurfaceSection = { key: string; title?: string; layout?: "cards" | "tiles"; rows: NativeWorkspaceSurfaceRow[] };
 export type NativeWorkspaceSurfaceConfirmation = { title: string; description: string; confirm: NativeWorkspaceSurfaceRow; cancel: () => unknown; cancelLabel: string };
 type SurfaceProps = {
   owner: string; workspace: NativeWorkspaceIdentity["workspace"]; active: boolean; current: () => boolean; backPath: string;
@@ -72,8 +76,8 @@ function SurfaceOwner(props: SurfaceProps) {
     const resolve = () => {
       const value = live.current;
       const row = value.confirmation ? sectionKey === "confirmation" && value.confirmation.confirm.key === rowKey ? value.confirmation.confirm : undefined
-        : value.sections.find(section => section.key === sectionKey)?.rows.find(row => row.key === rowKey);
-      return row?.web && (toggleValue === undefined ? row.run : row.toggle && row.toggle.value !== toggleValue) && row.enabled !== false && !row.pending ? row : undefined;
+        : value.sections.find(section => section.key === sectionKey)?.rows.flatMap(row => row.enabled !== false && !row.pending ? [row, ...(row.inlineActions ?? [])] : []).find(row => row.key === rowKey);
+      return row?.web && (toggleValue === undefined ? row.run : "toggle" in row && row.toggle && row.toggle.value !== toggleValue) && row.enabled !== false && !row.pending ? row : undefined;
     };
     await handoff.handoff(current, () => Boolean(resolve()), () => {
       const intent = handoff.intent.current;
@@ -81,7 +85,7 @@ function SurfaceOwner(props: SurfaceProps) {
       void Promise.resolve().then(() => {
         if (intent !== handoff.intent.current || !current()) return;
         const row = resolve();
-        return toggleValue === undefined ? row?.run?.() : row?.toggle?.change(toggleValue);
+        return toggleValue === undefined ? row?.run?.() : row && "toggle" in row ? row.toggle?.change(toggleValue) : undefined;
       }).catch(error => {
         if (intent === handoff.intent.current && current())
           nativeFeedbackToast.error(ownerFacingConsentError(error, "That didn't go through. Try again."));
@@ -109,7 +113,8 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
     { key: "confirmation-description", label: confirmation.title, detail: confirmation.description }, confirmation.confirm,
     { key: "confirmation-cancel", label: confirmation.cancelLabel, enabled: confirmation.confirm.enabled !== false && !confirmation.confirm.pending, run: confirmation.cancel },
   ] }] : props.sections;
-  const sections = projected.filter(section => section.rows.length).map(section => ({ id: handles(`section:${section.key}`), title: section.title,
+  const portraits = useNativeWorkspacePortraits(props.owner, props.active, projected.flatMap(section => section.rows.flatMap(row => row.person ? [{ key: row.key, source: row.person.photoUrl }] : [])));
+  const sections = projected.filter(section => section.rows.length).map(section => ({ id: handles(`section:${section.key}`), title: section.title, ...(section.layout ? { layout: section.layout } : {}),
     rows: section.rows.map(row => {
       const id = handles(`row:${row.key}`);
       const options = row.toggle ? ([true, false] as const).map(value => {
@@ -127,7 +132,14 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
       });
       if (row.run) actions.set(id, () => { if (current() && row.enabled !== false && !row.pending) return row.web ? props.runWeb(section.key, row.key) : row.run!() as void | Promise<unknown>; });
       return { id, label: row.label, detail: row.detail ?? row.choices?.find(choice => choice.selected)?.label, enabled: row.enabled !== false, pending: row.pending, selected: row.selected,
-        destructive: row.destructive, symbol: row.symbol, ...(options ? { ...(row.toggle ? { toggle: true } : {}), options } : {}), ...(!row.run && !options ? { readOnly: true } : {}) };
+        destructive: row.destructive, ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
+        ...(row.person ? { avatar: { initials: nativePersonInitials(row.person.name), verified: row.person.verified === true, ...(row.person.active !== undefined ? { active: row.person.active } : {}), ...(portraits.get(row.key) ? { jpeg: portraits.get(row.key) } : {}) } } : {}),
+        ...(row.inlineActions?.length ? { inlineActions: row.inlineActions.map(action => {
+          const actionId = handles(`row:${row.key}:action:${action.key}`);
+          actions.set(actionId, () => { if (current() && row.enabled !== false && !row.pending && action.enabled !== false && !action.pending)
+            return action.web ? props.runWeb(section.key, action.key) : action.run?.() as void | Promise<unknown>; });
+          return { id: actionId, label: action.label, enabled: action.enabled !== false, pending: action.pending, tone: action.tone, symbol: action.symbol };
+        }) } : {}), ...(options ? { ...(row.toggle ? { toggle: true } : {}), options } : {}), ...(!row.run && !options ? { readOnly: true } : {}) };
     }),
   }));
   const options = props.tabs?.options.map(option => {

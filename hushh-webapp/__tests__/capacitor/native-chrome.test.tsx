@@ -666,6 +666,17 @@ describe("private route-body presentation boundary", () => {
     expect(validNativeWorkspace(withRow({ ...row, inlineActions: [{ id: row.id, label: "Review", enabled: true, tone: "primary" }] }))).toBe(false);
     expect(validNativeWorkspace(withRow({ ...row, inlineActions: [{ ...row.inlineActions![0], pending: null }] }))).toBe(false);
     expect(validNativeWorkspace({ ...rich, workspace: "memory" })).toBe(false);
+    const location: NativeWorkspaceProjection = { ...rich, workspace: "location", sections: [{ id: "people", layout: "cards",
+      rows: [{ ...row, milestone: undefined, avatar: { initials: "PA", verified: true, active: true } }] }] };
+    expect(validNativeWorkspace(location)).toBe(true);
+    const primaryLocation = { ...location, sections: [{ id: "link", rows: [{ id: "create-link", label: "Create link", enabled: true, prominent: true }] }] };
+    expect(validNativeWorkspace(primaryLocation)).toBe(true);
+    expect(validNativeWorkspace({ ...primaryLocation, workspace: "calendar" })).toBe(false);
+    expect(validNativeWorkspace({ ...primaryLocation, sections: [{ id: "link", rows: [{ ...primaryLocation.sections[0]!.rows[0]!, readOnly: true }] }] })).toBe(false);
+    expect(validNativeWorkspace({ ...location, workspace: "feed" })).toBe(false);
+    expect(validNativeWorkspace({ ...location, sections: [{ ...location.sections[0]!, layout: null }] } as unknown as NativeWorkspaceProjection)).toBe(false);
+    expect(validNativeWorkspace({ ...location, sections: [{ id: "people", layout: "cards", rows: [{ ...row, milestone: undefined, avatar: { initials: "PA", active: null } }] }] } as unknown as NativeWorkspaceProjection)).toBe(false);
+    expect(validNativeWorkspace({ ...location, sections: [{ id: "too-many-tiles", layout: "tiles", rows: Array.from({ length: 4 }, (_, i) => ({ id: `tile-${i}`, label: "Action", enabled: true })) }] })).toBe(false);
     const jpeg = `data:image/jpeg;base64,${"A".repeat(39_976)}`;
     expect(validNativeWorkspace({ ...rich, sections: [{ id: "large-page", rows: Array.from({ length: 24 }, (_, index) => ({
       id: `person-${index}`, label: "Public person", enabled: true, readOnly: true, avatar: { initials: "PP", jpeg },

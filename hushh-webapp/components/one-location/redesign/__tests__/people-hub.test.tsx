@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   PeopleHub,
@@ -12,6 +12,13 @@ import type {
   OneLocationGrant,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
+
+const native = vi.hoisted(() => ({ active: false, sections: [] as import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceSection[] }));
+vi.mock("@/components/one-location/redesign/native-location-workspace", () => ({
+  useNativeLocationPaneActive: () => native.active,
+  NativeLocationLayer: ({ sections, children }: { sections: typeof native.sections; children: import("react").ReactNode }) => { native.sections = sections; return children; },
+}));
+beforeEach(() => { native.active = false; native.sections = []; });
 
 const recipient: OneLocationRecipient = {
   userId: "owner_roopmann",
@@ -139,6 +146,25 @@ describe("PeopleHub requests sent manage surface", () => {
       onInvite,
     };
   }
+
+  it("keeps a full 50-person native reader within the portrait limit without dropping people or callbacks", () => {
+    native.active = true;
+    const people = Array.from({ length: 50 }, (_, index) => ({ ...recipient, userId: `person-${index}`, displayName: `Person ${index}` }));
+    const { onStartAsk } = renderPeopleHub({ viewModel: vm({ recipients: people, visibleRecipients: people, requestedByMe: [], receivedGrants: [] }) });
+    const rows = () => native.sections.find(section => section.key === "people")!.rows;
+    const page = (key: string) => act(() => { void native.sections.find(section => section.key === "people-actions")!.rows.find(row => row.key === key)!.run!(); });
+    expect(rows()).toHaveLength(24);
+    expect(rows()[0]!.key).toBe("person-0");
+    page("next-page");
+    expect(rows()).toHaveLength(24);
+    expect(rows()[0]!.key).toBe("person-24");
+    page("next-page");
+    expect(rows().map(row => row.key)).toEqual(["person-48", "person-49"]);
+    act(() => { void rows()[0]!.inlineActions!.find(action => action.key.startsWith("ask:"))!.run!(); });
+    expect(onStartAsk).toHaveBeenCalledExactlyOnceWith("person-48");
+    page("previous-page");
+    expect(rows()[0]!.key).toBe("person-24");
+  });
 
   it("uses the Connect avatar renderer for Location people rows", () => {
     renderPeopleHub({

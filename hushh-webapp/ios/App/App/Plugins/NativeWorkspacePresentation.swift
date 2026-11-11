@@ -188,8 +188,8 @@ struct NativeWorkspaceProjection: Decodable {
         guard Set(value.keys).isSubset(of: keys), let frame = value["frame"] as? [String: Any], Set(frame.keys).isSubset(of: ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset", "bottomContentInset"]),
               let sections = value["sections"] as? [[String: Any]] else { return false }
         for section in sections {
-            guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
-            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "readOnly", "toggle", "options"]) { return false }
+            guard Set(section.keys).isSubset(of: ["id", "title", "rows", "layout"]), !(section["layout"] is NSNull), let rows = section["rows"] as? [[String: Any]] else { return false }
+            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) { return false }
             for row in rows {
                 if let raw = row["formattedText"], !NativeMemoryText.closed(raw) { return false }
                 if let raw = row["avatar"] {
@@ -201,7 +201,7 @@ struct NativeWorkspaceProjection: Decodable {
                             !action.values.contains(where: { $0 is NSNull }) && (action["avatar"] == nil || NativeWorkspaceAvatar.closed(action["avatar"]!))
                     }) else { return false }
                 }
-                if row["milestone"] is NSNull || row["expanded"] is NSNull { return false }
+                if row["milestone"] is NSNull || row["expanded"] is NSNull || row["prominent"] is NSNull { return false }
                 if let raw = row["options"] {
                     guard let options = raw as? [[String: Any]], options.allSatisfy({ Set($0.keys) == ["id", "label", "selected"] }) else { return false }
                 }
@@ -248,18 +248,20 @@ struct NativeWorkspaceProjection: Decodable {
         if let wallet { ids.formUnion(wallet.cards.map(\.id) + [wallet.addId, wallet.closeId] + (wallet.accessId.map { [$0] } ?? [])) }
         for section in sections {
             guard NativeDrawerIdentity.identifier(section.id), ids.insert(section.id).inserted, section.title == nil || NativeDrawerProjection.text(section.title!, 256) else { return false }
+            guard section.layout == nil || (workspace == "location" && ["cards", "tiles"].contains(section.layout!) && (section.layout != "tiles" || section.rows.count <= 3)) else { return false }
             for row in section.rows {
                 count += 1
                 guard count <= 200, NativeDrawerIdentity.identifier(row.id), ids.insert(row.id).inserted, NativeDrawerProjection.text(row.label, 4096),
                       row.detail == nil || NativeDrawerProjection.text(row.detail!, 4096), row.trailing == nil || NativeDrawerProjection.text(row.trailing!, 32),
                       row.symbol == nil || NativeDrawerIdentity.identifier(row.symbol!), row.artworkId == nil || NativeDrawerIdentity.identifier(row.artworkId!),
                       row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil else { return false }
+                if row.prominent != nil { guard workspace == "location", row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.avatar == nil, row.formattedText == nil else { return false } }
                 if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil {
-                    guard ["feed", "connect"].contains(workspace), row.formattedText == nil, row.options == nil, row.toggle != true else { return false }
+                    guard ["feed", "connect", "location"].contains(workspace), row.formattedText == nil, row.options == nil, row.toggle != true else { return false }
                 }
                 if let avatar = row.avatar {
                     avatars += 1; avatarBytes += avatar.jpeg?.utf16.count ?? 0
-                    guard avatar.valid, avatars <= 48, avatarBytes <= 1_920_000, avatar.verified == nil || workspace == "connect" else { return false }
+                    guard avatar.valid, avatars <= 48, avatarBytes <= 1_920_000, avatar.verified == nil || ["connect", "location"].contains(workspace), avatar.active == nil || workspace == "location" else { return false }
                 }
                 if let actions = row.inlineActions {
                     guard (1...6).contains(actions.count), actions.filter({ $0.avatar != nil }).count <= 1 else { return false }
@@ -268,7 +270,7 @@ struct NativeWorkspaceProjection: Decodable {
                         if action.placement != nil { guard workspace == "connect" else { return false } }
                         if let avatar = action.avatar {
                             avatars += 1; avatarBytes += avatar.jpeg?.utf16.count ?? 0
-                            guard workspace == "connect", avatars <= 48, avatarBytes <= 1_920_000 else { return false }
+                            guard workspace == "connect", avatar.active == nil, avatars <= 48, avatarBytes <= 1_920_000 else { return false }
                         }
                     }
                 }
@@ -366,13 +368,22 @@ private struct NativeWorkspaceRichRow: View {
     private var accent: Color { Color(uiColor: HushhNativeControlAppearance.color(accentHex) ?? .label) }
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
-            if let avatar = row.avatar {
+            if row.artworkId == "location-share-pulse" {
+                ZStack {
+                    Circle().fill(accent.opacity(0.07))
+                    Circle().fill(accent.opacity(0.12)).padding(7)
+                    Circle().fill(accent.opacity(0.2)).padding(15)
+                    Circle().fill(accent).padding(22)
+                }.frame(width: 64, height: 64).accessibilityHidden(true)
+            } else if let avatar = row.avatar {
                 NativeProfilePortraitImage(data: avatar.jpeg, initials: avatar.initials).frame(width: 42, height: 42)
                     .overlay(alignment: .bottomTrailing) {
                         if avatar.verified == true {
                             Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(accent)
                                 .background(Color(uiColor: .secondarySystemGroupedBackground), in: Circle()).accessibilityLabel("Verified RIA")
                         }
+                    }.overlay(alignment: .topTrailing) {
+                        if avatar.active == true { Circle().fill(.green).frame(width: 10, height: 10).overlay(Circle().stroke(Color(uiColor: .secondarySystemGroupedBackground), lineWidth: 2)).accessibilityHidden(true) }
                     }.accessibilityHidden(avatar.verified != true)
             } else if let symbol = row.symbol {
                 Image(systemName: symbol).font(.title3).foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex ?? accentHex) ?? .label)).frame(width: 36).accessibilityHidden(true)
@@ -391,15 +402,23 @@ private struct NativeWorkspaceRichRow: View {
             else if row.chevron == true { Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary) }
         }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44).contentShape(Rectangle())
     }
+    @ViewBuilder private var primary: some View {
+        if row.readOnly == true { header.accessibilityElement(children: .combine) }
+        else {
+            Button { _ = choose(row.id) } label: { header }.buttonStyle(.plain)
+                .disabled(!enabled || !row.enabled || row.pending == true)
+                .accessibilityAddTraits(row.selected == true ? .isSelected : [])
+                .accessibilityIdentifier("native-workspace-row-\(row.id)")
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if row.readOnly == true { header.accessibilityElement(children: .combine) }
-            else {
-                Button { _ = choose(row.id) } label: { header }.buttonStyle(.plain)
-                    .disabled(!enabled || !row.enabled || row.pending == true)
-                    .accessibilityAddTraits(row.selected == true ? .isSelected : [])
-                    .accessibilityIdentifier("native-workspace-row-\(row.id)")
-            }
+            if row.avatar?.active != nil, let actions = row.inlineActions {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { primary; ForEach(actions) { decision($0) } }
+                    VStack(alignment: .leading, spacing: 12) { primary; HStack(spacing: 8) { ForEach(actions) { decision($0) } } }
+                }
+            } else { primary }
             if let stage = row.milestone {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 4) {
@@ -411,10 +430,14 @@ private struct NativeWorkspaceRichRow: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage)
             }
-            if let actions = row.inlineActions {
+            if row.avatar?.active == nil, let actions = row.inlineActions {
+                if row.artworkId == "location-share-pulse" {
+                    ForEach(actions) { action in decision(action).controlSize(.large) }.padding(.leading, 76)
+                } else {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) { ForEach(actions.filter { $0.placement != "menu" }) { action in decision(action) }; Spacer(minLength: 0); options(actions) }
                     VStack(alignment: .leading, spacing: 8) { ForEach(actions.filter { $0.placement != "menu" }) { action in decision(action) }; options(actions) }
+                }
                 }
             }
         }.padding(16)
@@ -440,6 +463,7 @@ private struct NativeWorkspaceRichRow: View {
             } else { decisionButton(action).buttonStyle(.bordered).tint(action.tone == "danger" ? .red : accent) }
         }.disabled(!enabled || !row.enabled || row.pending == true || !action.enabled || action.pending == true)
             .accessibilityIdentifier("native-workspace-action-\(action.id)")
+            .accessibilityLabel(row.avatar != nil ? "\(action.label), \(row.label)" : action.label)
     }
     private func decisionButton(_ action: NativeWorkspaceInlineAction) -> some View {
         Button(role: action.tone == "danger" ? .destructive : nil) { _ = choose(action.id) } label: {
@@ -448,7 +472,88 @@ private struct NativeWorkspaceRichRow: View {
                 if let avatar = action.avatar { NativeProfilePortraitImage(data: avatar.jpeg, initials: avatar.initials).frame(width: 22, height: 22).accessibilityHidden(true) }
                 if let symbol = action.symbol { Image(systemName: symbol).accessibilityHidden(true) }
                 Text(action.label).fixedSize(horizontal: false, vertical: true)
-            }.font(.subheadline.weight(.medium)).frame(minHeight: 32)
+            }.font(.subheadline.weight(.medium)).frame(maxWidth: row.artworkId == "location-share-pulse" ? .infinity : nil).frame(minHeight: 32)
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+private struct NativeLocationHeader: View {
+    let rows: [NativeDrawerRow]
+    let enabled: Bool
+    let accentHex: String
+    let choose: (String) -> Bool
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(rows) { row in
+                if let action = row.inlineActions?.first {
+                    HStack(spacing: 12) {
+                        Text(row.label).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+                        Button { _ = choose(action.id) } label: { Text(action.label).font(.subheadline.weight(.medium)).frame(minHeight: 32) }
+                            .buttonStyle(.bordered).disabled(!enabled || !row.enabled || row.pending == true || !action.enabled || action.pending == true)
+                            .accessibilityIdentifier("native-workspace-action-\(action.id)")
+                    }.padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                } else if row.toggle == true, let options = row.options, options.count == 2 {
+                    Toggle(isOn: Binding(get: { options[0].selected }, set: { _ = choose(options[$0 ? 0 : 1].id) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.label).font(.subheadline.weight(.medium))
+                            if let detail = row.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }.disabled(!enabled || !row.enabled || row.pending == true).tint(.green)
+                        .accessibilityIdentifier("native-workspace-row-\(row.id)")
+                } else if row.readOnly == true {
+                    NativeSettingsRowLabel(row: row, accentHex: accentHex).accessibilityElement(children: .combine)
+                } else {
+                    Button { _ = choose(row.id) } label: { NativeSettingsRowLabel(row: row, accentHex: accentHex) }
+                        .buttonStyle(.plain).disabled(!enabled || !row.enabled || row.pending == true)
+                        .accessibilityIdentifier("native-workspace-row-\(row.id)")
+                }
+            }
+        }
+    }
+}
+
+/// Location's authored two action tiles and separate emergency card share the
+/// existing registered callbacks and scroll owner, including large-type fitting.
+@available(iOS 26.0, *)
+private struct NativeLocationActionTiles: View {
+    let rows: [NativeDrawerRow]
+    let enabled: Bool
+    let accentHex: String
+    let choose: (String) -> Bool
+    @Environment(\.dynamicTypeSize) private var textSize
+    private func tile(_ row: NativeDrawerRow) -> some View {
+        Button(role: row.destructive == true ? .destructive : nil) { _ = choose(row.id) } label: {
+            Group {
+                if row.destructive == true {
+                    HStack(spacing: 12) {
+                        Image(systemName: row.symbol ?? "sos.circle").font(.title2).foregroundStyle(.red)
+                            .frame(width: 44, height: 44).background(.red.opacity(0.12), in: Circle()).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(row.label).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                            if let detail = row.detail { Text(detail).font(.subheadline).foregroundStyle(.red) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).accessibilityHidden(true)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if let symbol = row.symbol { Image(systemName: symbol).font(.title2).foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(accentHex) ?? .label)).accessibilityHidden(true) }
+                        Text(row.label).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                        if let detail = row.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+                    }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 76)
+                }
+            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                .contentShape(RoundedRectangle(cornerRadius: 18))
+        }.buttonStyle(.plain).tint(row.destructive == true ? .red : Color(uiColor: HushhNativeControlAppearance.color(accentHex) ?? .label))
+            .disabled(!enabled || !row.enabled || row.pending == true)
+            .accessibilityIdentifier("native-workspace-row-\(row.id)")
+    }
+    var body: some View {
+        VStack(spacing: 10) {
+            if textSize.isAccessibilitySize { ForEach(Array(rows.prefix(2))) { tile($0) } }
+            else { HStack(alignment: .top, spacing: 10) { ForEach(Array(rows.prefix(2))) { tile($0) } } }
+            ForEach(Array(rows.dropFirst(2))) { tile($0) }
         }
     }
 }
@@ -698,6 +803,50 @@ struct NativeWorkspaceAction: Equatable {
         state.sections = []; state.calendarDate = nil; state.launcher = nil; state.tabs = nil; state.secondaryTabs = nil; state.search = nil; state.circleEditor = nil; state.wallet = nil; state.walletProfileEditor = nil; state.memoryEditor = nil; state.taskEditor = nil; state.feedback = nil; state.title = ""
     }
 }
+/// Keep the existing row rendering at a concrete SwiftUI boundary so the
+/// section/pager expression does not accumulate every control's generic type.
+@available(iOS 26.0, *)
+private struct NativeWorkspaceCollectionRow: View {
+    let row: NativeDrawerRow
+    @ObservedObject var model: NativeWorkspaceModel
+    var body: some View {
+        if let formatted = row.formattedText {
+            NativeMemoryTextBody(text: formatted, enabled: row.enabled && row.pending != true && model.pending == nil) { model.choice("row", row: $0) }
+        } else if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil || row.artworkId == "location-share-pulse" {
+            NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
+        } else if row.toggle == true, let options = row.options, options.count == 2 {
+            Toggle(isOn: Binding(get: { options[0].selected }, set: { value in model.choice("row", row: options[value ? 0 : 1].id) })) {
+                NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex)
+            }.tint(Color(uiColor: HushhNativeControlAppearance.color(model.state.accentHex) ?? .label))
+                .padding(.trailing, 16).disabled(!row.enabled || row.pending == true || model.pending != nil)
+                .accessibilityIdentifier("native-workspace-row-\(row.id)")
+        } else if let options = row.options {
+            Menu {
+                ForEach(options, id: \.id) { option in
+                    Button { model.choice("row", row: option.id) } label: {
+                        HStack { Text(option.label); if option.selected { Image(systemName: "checkmark") } }
+                    }.disabled(option.selected)
+                }
+            } label: {
+                HStack { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex); Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary).padding(.trailing, 16) }
+            }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || model.pending != nil)
+                .accessibilityLabel(row.label).accessibilityValue(options.first(where: \.selected)?.label ?? "")
+                .accessibilityIdentifier("native-workspace-row-\(row.id)")
+        } else if row.prominent == true {
+            Button { model.choice("row", row: row.id) } label: { Text(row.label).font(.body.weight(.semibold)).frame(maxWidth: .infinity).frame(minHeight: 32) }
+                .buttonStyle(.borderedProminent).controlSize(.large).padding(16)
+                .disabled(!row.enabled || row.pending == true || model.pending != nil)
+                .accessibilityIdentifier("native-workspace-row-\(row.id)")
+        } else if row.readOnly == true { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex).accessibilityElement(children: .combine) }
+        else {
+            Button { model.choice("row", row: row.id) } label: { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex) }
+                .buttonStyle(.plain).disabled(!row.enabled || row.pending == true)
+                .accessibilityLabel(row.label).accessibilityValue([row.detail, row.trailing].compactMap { $0 }.joined(separator: ", "))
+                .accessibilityAddTraits(row.selected == true ? .isSelected : [])
+                .accessibilityIdentifier("native-workspace-row-\(row.id)")
+        }
+    }
+}
 @available(iOS 26.0, *) private struct NativeWorkspaceBody: View {
     @ObservedObject var model: NativeWorkspaceModel
     @State private var scrollingFromPerson = false
@@ -714,6 +863,10 @@ struct NativeWorkspaceAction: Equatable {
                     Text(model.state.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader)
                 }.padding(.horizontal, model.state.frame.gutter).padding(.vertical, 8)
             }
+            if model.state.workspace == "location", model.state.tabs != nil, let header = model.state.sections.first {
+                NativeLocationHeader(rows: header.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
+                    .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
+            }
             if let tabs = model.state.tabs {
                 NativeWorkspaceTabStrip(tabs: tabs, model: model, identifier: "native-workspace-tabs")
                     .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
@@ -728,6 +881,7 @@ struct NativeWorkspaceAction: Equatable {
             if let editor = model.editor {
                 NativeWorkspaceCircleForm(model: editor, gutter: model.state.frame.gutter).padding(.bottom, model.state.frame.bottomClearance)
             } else {
+            ScrollViewReader { position in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if let search = model.state.search, search.afterSection == 0 {
@@ -739,54 +893,33 @@ struct NativeWorkspaceAction: Equatable {
                         NativeWorkspaceMemoryForm(model: memoryEditor.model)
                     }
                     if let launcher = model.state.launcher { NativeWorkspaceAgentRoster(model: model, launcher: launcher) }
-                    ForEach(Array(model.state.sections.enumerated()), id: \.element.id) { sectionIndex, section in
+                    ForEach(Array(model.state.sections.enumerated()).filter { !(model.state.workspace == "location" && model.state.tabs != nil && $0.offset == 0) }, id: \.element.id) { sectionIndex, section in
                         VStack(alignment: .leading, spacing: 6) {
                             if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
-                            VStack(spacing: 0) {
+                            if section.layout == "tiles" {
+                                NativeLocationActionTiles(rows: section.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
+                            } else {
+                            VStack(spacing: section.layout == "cards" ? 10 : 0) {
                                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
-                                    if let formatted = row.formattedText {
-                                        NativeMemoryTextBody(text: formatted, enabled: row.enabled && row.pending != true && model.pending == nil) { model.choice("row", row: $0) }
-                                    } else if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil {
-                                        NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
-                                    } else if row.toggle == true, let options = row.options, options.count == 2 {
-                                        Toggle(isOn: Binding(get: { options[0].selected }, set: { value in model.choice("row", row: options[value ? 0 : 1].id) })) {
-                                            NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex)
-                                        }.tint(Color(uiColor: HushhNativeControlAppearance.color(model.state.accentHex) ?? .label))
-                                            .padding(.trailing, 16).disabled(!row.enabled || row.pending == true || model.pending != nil)
-                                            .accessibilityIdentifier("native-workspace-row-\(row.id)")
-                                    } else if let options = row.options {
-                                        Menu {
-                                            ForEach(options, id: \.id) { option in
-                                                Button { model.choice("row", row: option.id) } label: {
-                                                    HStack { Text(option.label); if option.selected { Image(systemName: "checkmark") } }
-                                                }.disabled(option.selected)
-                                            }
-                                        } label: {
-                                            HStack { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex); Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary).padding(.trailing, 16) }
-                                        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || model.pending != nil)
-                                            .accessibilityLabel(row.label).accessibilityValue(options.first(where: \.selected)?.label ?? "")
-                                            .accessibilityIdentifier("native-workspace-row-\(row.id)")
-                                    } else if row.readOnly == true { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex).accessibilityElement(children: .combine) }
-                                    else {
-                                        Button { model.choice("row", row: row.id) } label: { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex) }
-                                            .buttonStyle(.plain).disabled(!row.enabled || row.pending == true)
-                                            .accessibilityLabel(row.label).accessibilityValue([row.detail, row.trailing].compactMap { $0 }.joined(separator: ", "))
-                                            .accessibilityAddTraits(row.selected == true ? .isSelected : [])
-                                            .accessibilityIdentifier("native-workspace-row-\(row.id)")
-                                    }
-                                    if index < section.rows.count - 1 && !(row.formattedText != nil && section.rows[index + 1].formattedText != nil) { Divider().padding(.horizontal, 16) }
+                                    NativeWorkspaceCollectionRow(row: row, model: model).background(section.layout == "cards" ? Color(uiColor: .secondarySystemGroupedBackground) : .clear, in: RoundedRectangle(cornerRadius: 18))
+                                    if section.layout == nil && index < section.rows.count - 1 && !(row.formattedText != nil && section.rows[index + 1].formattedText != nil) { Divider().padding(.horizontal, 16) }
                                 }
-                            }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                            }.background(section.layout == "cards" ? .clear : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                            }
                         }
                         if let search = model.state.search, search.afterSection == sectionIndex + 1 {
                             NativeWorkspaceSearchField(model: model, search: search)
                         }
                     }
-                }.padding(.horizontal, model.state.frame.gutter).padding(.top, 8).padding(.bottom, 24 + model.state.frame.bottomClearance)
+                }.id("native-workspace-content-top").padding(.horizontal, model.state.frame.gutter).padding(.top, 8).padding(.bottom, 24 + model.state.frame.bottomClearance)
             }.scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-workspace-scroll")
                 .contentMargins(.bottom, model.state.frame.bottomClearance, for: .scrollIndicators)
                 .onScrollPhaseChange { _, phase in scrollingFromPerson = phase == .interacting || phase == .decelerating }
                 .onScrollGeometryChange(for: CGFloat.self, of: { max(0, $0.contentOffset.y + $0.contentInsets.top) }) { _, value in model.scrolled?(value, scrollingFromPerson) }
+                .onChange(of: model.state.sections.first(where: { $0.layout == "cards" })?.rows.first?.id) { _, _ in
+                    position.scrollTo("native-workspace-content-top", anchor: .top)
+                }
+            }
             }
         }
         }

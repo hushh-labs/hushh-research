@@ -12,7 +12,7 @@ import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocumen
  * process-local replicas of the existing feature owner, not another store. */
 export type NativeDrawerFamily = "history" | "profile" | "agent-profile";
 export type NativeDrawerOption = { id: string; label: string; selected: boolean; symbol?: string; colorHex?: string };
-export type NativeWorkspaceAvatar = { initials: string; jpeg?: string; verified?: boolean };
+export type NativeWorkspaceAvatar = { initials: string; jpeg?: string; verified?: boolean; active?: boolean };
 export type NativeWorkspaceInlineAction = {
   id: string; label: string; enabled: boolean; pending?: boolean;
   tone: "primary" | "ghost" | "danger" | "success"; symbol?: string;
@@ -40,6 +40,7 @@ export type NativeDrawerRow = {
   toggle?: boolean;
   enabled: boolean;
   destructive?: boolean;
+  prominent?: boolean;
   selected?: boolean;
   pending?: boolean;
   readOnly?: boolean;
@@ -50,7 +51,7 @@ export type NativeDrawerRow = {
   renameActionId?: string;
   deleteActionId?: string;
 };
-export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
+export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[]; layout?: "cards" | "tiles" };
 /** Bounded native destinations, not URLs or another routing authority. */
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record" | "memory-shared" | "memory-shared-person" | "memory-received" | "memory-received-files" | "memory-secrets" | "memory-secret" | "memory-secret-remove" | "memory-identity";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";

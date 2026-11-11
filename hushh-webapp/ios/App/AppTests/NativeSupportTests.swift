@@ -1110,6 +1110,24 @@ final class NativeSupportTests: XCTestCase {
         row["inlineActions"] = [["id": "review", "label": "Review", "enabled": true, "tone": "primary"]]
         row["avatar"] = ["initials": "PA", "jpeg": NSNull()]; _ = try projection()
         XCTAssertFalse(NativeWorkspaceProjection.closed(object))
+        object["workspace"] = "location"
+        row.removeValue(forKey: "milestone")
+        row["avatar"] = ["initials": "PA", "verified": true, "active": true]
+        _ = try projection()
+        object["sections"] = [["id": "people", "layout": "cards", "rows": [row]]]
+        let locationData = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertTrue(NativeWorkspaceProjection.closed(object))
+        XCTAssertTrue(try JSONDecoder().decode(NativeWorkspaceProjection.self, from: locationData).valid)
+        object["workspace"] = "feed"
+        XCTAssertFalse(try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object)).valid)
+        object["workspace"] = "location"
+        object["sections"] = [["id": "people", "layout": NSNull(), "rows": [row]]]
+        XCTAssertFalse(NativeWorkspaceProjection.closed(object))
+        row = ["id": "create-link", "label": "Create link", "enabled": true, "prominent": true]
+        XCTAssertTrue(try projection().valid)
+        XCTAssertTrue(try projection().permits("row", row: "create-link"))
+        row["readOnly"] = true
+        XCTAssertFalse(try projection().valid)
     }
 
     @MainActor

@@ -191,7 +191,7 @@ import {
   type LiveShareStatus,
 } from "@/components/one-location/redesign/live-share-status-card";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
-import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
+import { FeedPushPromptView, useFeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
@@ -1093,6 +1093,7 @@ function shareAudienceSelectionCopy(circleCount: number, contactCount: number) {
 }
 
 export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewModel; nativeFrame?: RefObject<HTMLDivElement | null> }) {
+  const pushPrompt = useFeedPushPrompt("location");
   const localFrame = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -1166,6 +1167,9 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
   };
   const recoveryGuide = resolveLocationRecoveryGuide({ userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent, isNativeApp: isNative(), nativePlatform: getPlatform() });
   const nativeRoot: NativeWorkspaceSurfaceSection[] = [{ key: "location-status", rows: [
+    ...(pushPrompt ? [{ key: "notifications", label: pushPrompt.message,
+      inlineActions: [{ key: "notification-recovery", label: pushPrompt.permission === "denied" ? "Open settings" : pushPrompt.permission === "granted" ? "Retry" : "Turn on",
+        tone: "ghost" as const, enabled: !pushPrompt.isRetryingPushRegistration, pending: pushPrompt.isRetryingPushRegistration, run: pushPrompt.enable, web: true }] }] : []),
     ...(vm.loadError ? [{ key: "load-error", label: "Location unavailable", detail: vm.loadError, run: vm.onRetryLoad }] : []),
     { key: "location-enabled", label: "My location", detail: locationHeaderStatusText(vm), toggle: { value: vm.locationEnabled,
       change: value => value ? vm.onShowMyLocation() : vm.onHideMyLocation() } },
@@ -1180,9 +1184,9 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
     ] : []),
   ] }];
   const renderLocationSurface = (children: ReactNode) => (
-    <NativeLocationRoute model={{ owner: vm.userId, tab, flow, select: next => setTab(next), root: nativeRoot }} frame={nativeFrame ?? localFrame}>
+    <NativeLocationRoute model={{ owner: vm.userId, tab, flow, richRoot: Boolean(vm.liveShare), select: next => setTab(next), root: nativeRoot }} frame={nativeFrame ?? localFrame}>
       <div ref={nativeFrame ? undefined : localFrame}>
-        <LocationFeatureRoot vm={vm} liveShareDurationTriggerRef={liveShareDurationTriggerRef}>{children}</LocationFeatureRoot>
+        <LocationFeatureRoot vm={vm} pushPrompt={pushPrompt} liveShareDurationTriggerRef={liveShareDurationTriggerRef}>{children}</LocationFeatureRoot>
       </div>
     </NativeLocationRoute>
   );
@@ -1935,10 +1939,12 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
 
 function LocationFeatureRoot({
   vm,
+  pushPrompt,
   liveShareDurationTriggerRef,
   children,
 }: {
   vm: LocationHubViewModel;
+  pushPrompt: ReturnType<typeof useFeedPushPrompt>;
   liveShareDurationTriggerRef: { current: HTMLElement | null };
   children: ReactNode;
 }) {
@@ -1946,7 +1952,7 @@ function LocationFeatureRoot({
     <>
       <LocationTypographyProvider>
       <SettingsPresentationProvider density="compact">
-        <FeedPushPrompt context="location" />
+        <FeedPushPromptView model={pushPrompt} />
         {children}
         <LiveShareDurationDialog
           vm={vm}
@@ -2131,18 +2137,21 @@ function NowHub({
         ...(!vm.liveShare.singleGrantIsSms ? [{ key: "duration", label: "Change duration", run: () => vm.onEditLiveShareDurationStart(undefined), web: true }] : []),
       ] : []),
       { key: "share-more", label: "Share with more people", run: onStartShare, web: true },
-    ] : [{ key: "share", label: "Share location", run: onStartShare, web: true }] },
-    { key: "actions", rows: [
-      { key: "ask", label: "Ask for location", run: onRequestLocation, web: true },
-      { key: "check-in", label: "Check In", run: onCheckIn, web: true },
-      { key: "sos", label: "Save My Soul", detail: "Emergency alert", run: onSos, web: true },
+    ] : [{ key: "share-intro", label: "You're not sharing", detail: "Choose a Circle or contact.", artworkId: "location-share-pulse",
+      inlineActions: [{ key: "share", label: "Share location", tone: "primary", run: onStartShare, web: true }] }] },
+    { key: "actions", layout: "tiles", rows: [
+      { key: "ask", label: "Ask for location", symbol: "person.crop.circle.badge.questionmark", run: onRequestLocation, web: true },
+      { key: "check-in", label: "Check In", symbol: "mappin.and.ellipse", run: onCheckIn, web: true },
+      { key: "sos", label: "Save My Soul", detail: "Emergency alert", symbol: "sos.circle", destructive: true, run: onSos, web: true },
+    ] },
+    { key: "more", rows: [
       ...activityRows.filter(row => row.value > 0).map(row => ({ key: row.voiceControlId, label: row.title, detail: String(row.value), run: row.onClick, web: true })),
       { key: "map", label: "Map", run: onOpenMap, web: true },
       { key: "settings", label: "Settings", run: onOpenSettings },
     ] },
   ];
   return (
-    <NativeLocationLayer tab="now" contentPresentation="rich" title="Location" sections={nativeSections}>
+    <NativeLocationLayer tab="now" title="Location" sections={nativeSections}>
     <div className="space-y-2.5" data-testid="one-location-now-hub">
       {/* Sharing is the one thing on this screen that keeps running after you
           leave it, so it reports itself first and keeps its own clock. */}
@@ -4132,9 +4141,9 @@ function PersonActionsDialog({
     <Dialog modal open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-label={`Location actions for ${name}`}
-        className="max-w-[420px] rounded-[24px] p-0"
+        className="max-w-[420px] rounded-[24px] p-0 [&>[data-slot=dialog-close]]:min-h-11 [&>[data-slot=dialog-close]]:min-w-11"
       >
-        <DialogHeader className="px-5 pb-3 pt-5 text-left">
+        <DialogHeader className="pb-3 pl-5 pr-16 pt-5 text-left">
           <div className="flex items-center gap-3">
             <ConnectionPersonAvatar
               label={name}
@@ -4198,6 +4207,10 @@ export function PeopleHub({
   const nativePeople = useNativeLocationPaneActive("people");
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
+  const [nativePage, setNativePage] = useState(0);
+  useEffect(() => setNativePage(0), [vm.recipientSearch]);
+  const currentNativePage = Math.min(nativePage, Math.max(0, Math.ceil(filtered.length / 24) - 1));
+  const nativeRecipients = filtered.slice(currentNativePage * 24, (currentNativePage + 1) * 24);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [invitationsOpen, setInvitationsOpen] = useState(false);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -4385,15 +4398,23 @@ export function PeopleHub({
 
   const nativeSections: NativeWorkspaceSurfaceSection[] = [
     ...(!hasSearch ? [{ key: "circles", rows: [
-      { key: "circles", label: "Circles", detail: String(vm.circles.length), run: onOpenCircleManager, web: true },
-      { key: "invitations", label: "Invitations", detail: String(vm.incomingCircleMemberInvites.length), run: () => setInvitationsOpen(true), web: true },
+      { key: "circles", label: "Circles", symbol: "person.2.circle", detail: personalCircleCountLabel(personalCircleSummary(vm.circles)), run: onOpenCircleManager, web: true },
+      ...(vm.incomingCircleMemberInvites.length ? [{ key: "invitations", label: "Circle invitations", detail: String(vm.incomingCircleMemberInvites.length), run: () => setInvitationsOpen(true), web: true }] : []),
     ] }] : []),
-    { key: "people", title: "People", rows: filtered.length ? filtered.map(person => {
+    { key: "people", title: "People", layout: "cards", rows: filtered.length ? nativeRecipients.map(person => {
       const status = peopleDirectoryStatus({ outgoingGroup: ownerGroupsByUserId.get(person.userId) ?? null, incomingGroup: receivedGroupsByOwnerId.get(person.userId) ?? null,
         pendingRequest: pendingRequestByOwnerId.get(person.userId) ?? null, countdownLabel: vm.expiresCountdownLabel });
-      return { key: person.userId, label: vm.recipientLabel(person), detail: status.label ?? undefined, run: () => setSelectedPersonId(person.userId), web: true };
+      return { key: person.userId, label: vm.recipientLabel(person), detail: status.label ?? undefined,
+        person: { name: vm.recipientLabel(person), photoUrl: person.photoUrl, verified: Boolean(person.isRia), active: status.active },
+        run: () => setSelectedPersonId(person.userId), web: true,
+        inlineActions: [
+          { key: `share:${person.userId}`, label: "Share", tone: "ghost" as const, run: () => vm.isRecipientShareReady(person) ? onStartShare(person.userId) : setSelectedPersonId(person.userId), web: true },
+          { key: `ask:${person.userId}`, label: "Ask", tone: "ghost" as const, run: () => onStartAsk(person.userId), web: true },
+        ] };
     }) : [{ key: "empty", label: hasSearch ? "No matching people" : "No people yet" }] },
     { key: "people-actions", rows: [
+      ...(currentNativePage > 0 ? [{ key: "previous-page", label: "Previous people", run: () => setNativePage(currentNativePage - 1) }] : []),
+      ...((currentNativePage + 1) * 24 < filtered.length ? [{ key: "next-page", label: "Next people", run: () => setNativePage(currentNativePage + 1) }] : []),
       ...(!filtered.length ? [{ key: "find-people", label: "Find or invite someone", run: () => hasSearch ? requestInternalAppNavigation({ href: peopleConnectRecoveryHref(vm.recipientSearch), replace: false, scroll: false, source: "tap", transitionMode: "full" }) : onAddConnections(), web: true }] : []),
       ...(vm.recipientPageHasMore ? [{ key: "more", label: vm.recipientPageLoading ? "Loading more…" : "Load more people", pending: vm.recipientPageLoading, enabled: !vm.recipientPageLoading, run: vm.onLoadMoreRecipients }] : []),
       { key: "sync", label: vm.contactSyncSummary ? "Sync contacts again" : "Find contacts", pending: vm.busy === "contactSync", enabled: vm.busy !== "contactSync", run: vm.onSyncContacts, web: true },
@@ -4403,7 +4424,7 @@ export function PeopleHub({
     ] },
   ];
   return (
-    <NativeLocationLayer tab="people" contentPresentation="rich" title="Location" sections={nativeSections} search={{ query: vm.recipientSearch, label: "Search people", change: vm.setRecipientSearch }} webChild={Boolean(selectedPerson) || invitationsOpen}>
+    <NativeLocationLayer tab="people" title="Location" sections={nativeSections} search={{ query: vm.recipientSearch, label: "Search people", change: vm.setRecipientSearch }} webChild={Boolean(selectedPerson) || invitationsOpen}>
     <div className="pt-4 sm:pt-5" data-testid="one-location-people-hub">
       {/* Full-bleed body: same measure as the hub root (Now | People | Links
           tabs), so it is never a narrower shrinked column on desktop. */}
@@ -4776,13 +4797,13 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
   const hasShareableLink = Boolean(vm.publicInviteUrl);
 
   const nativeSections: NativeWorkspaceSurfaceSection[] = [{ key: "temporary-link", title: "Temporary link", rows: hasLiveLink ? [
-    { key: "status", label: "Link is live", detail: hasShareableLink ? `${temp ? publicLinkStatusLabel(vm.expiresCountdownLabel(temp.expiresAt)) : "Active"} · Anyone with this link can see your location.` : "People with this link can still see your location until it expires. Stop it to create a new link." },
+    { key: "status", label: "Link is live", symbol: "link.circle.fill", iconHex: "#34c759", detail: hasShareableLink ? `${temp ? publicLinkStatusLabel(vm.expiresCountdownLabel(temp.expiresAt)) : "Active"} · Anyone with this link can see your location.` : "People with this link can still see your location until it expires. Stop it to create a new link." },
     ...(hasShareableLink ? [{ key: "copy", label: "Copy link", run: vm.onCopyPublicInvite }, { key: "share", label: "Share link", run: vm.onSharePublicInvite, web: true }] : []),
     { key: "stop", label: "Stop link", destructive: true, enabled: Boolean(temp) && vm.busy !== "publicRevoke", pending: vm.busy === "publicRevoke", run: () => { if (temp) vm.onRevokePublicInvite(temp); } },
   ] : [
-    { key: "intro", label: "Create a temporary link", detail: "Anyone with the link can view." },
+    { key: "intro", label: "Create a temporary link", symbol: "link.circle", detail: "Anyone with the link can view." },
     { key: "duration", label: "Duration", choices: PUBLIC_LINK_DURATION_OPTIONS.map(option => ({ key: option.value, label: option.label, selected: vm.publicLinkDurationHours === option.value, run: () => vm.setPublicLinkDurationHours(option.value) })) },
-    { key: "create", label: vm.busy === "publicInvite" ? "Creating link…" : "Create link", pending: vm.busy === "publicInvite", enabled: vm.busy !== "publicInvite", run: vm.onCreatePublicInvite },
+    { key: "create", label: vm.busy === "publicInvite" ? "Creating link…" : "Create link", prominent: true, pending: vm.busy === "publicInvite", enabled: vm.busy !== "publicInvite", run: vm.onCreatePublicInvite },
   ] }, ...(invite ? [{ key: "circle-invite", title: "Invite link", rows: [{ key: "copy-circle", label: "Copy invite link", detail: `${vm.expiresCountdownLabel(invite.expiresAt)} · one person`, run: vm.onCopyCircleInvite }] }] : [])];
   return (
     <NativeLocationLayer tab="links" title="Location" sections={nativeSections}>
