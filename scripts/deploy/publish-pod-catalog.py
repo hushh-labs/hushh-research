@@ -44,9 +44,9 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE_URL = "https://run.googleapis.com/v2/"
 
 
-def command(*args: str) -> bytes:
+def command(*args: str, timeout: int = 60) -> bytes:
     result = subprocess.run(
-        args, cwd=ROOT, capture_output=True, timeout=60, check=False
+        args, cwd=ROOT, capture_output=True, timeout=timeout, check=False
     )  # noqa: S603 -- fixed tools and validated arguments.
     if result.returncode:
         raise ValueError("Publication authority or provenance check failed")
@@ -309,6 +309,7 @@ def require_publication_capacity(
         "--no-candidates",
         "--output",
         "json",
+        timeout=300,
     )
 
 
