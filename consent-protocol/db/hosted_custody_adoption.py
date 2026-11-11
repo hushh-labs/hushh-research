@@ -313,12 +313,15 @@ def hosted_custody_recovery_replay(entry: MigrationManifestEntryV2, sql: str) ->
         raise MigrationAuthorityError("Managed custody recovery guard shape changed")
     digest = QUALIFIED["guard_personal_agent_erasure_registry()"]
     hosted_files_digest = HOSTED_FILES_QUALIFIED["guard_personal_agent_erasure_registry()"]
+    from db import private_agent_adoption_successors as retirement
+
     wrapped = f"""DO $retain_managed_custody$
 DECLARE actual text; expected text;
 BEGIN
  IF to_regprocedure('public.private_gcp_coordinates(jsonb)') IS NOT NULL THEN
   expected:=CASE WHEN to_regclass('public.hosted_files_executor_976_rollback_source') IS NOT NULL
-    THEN '{hosted_files_digest}' ELSE '{digest}' END;
+    THEN CASE WHEN ({retirement.FOOTPRINT}) THEN '{retirement.NATIVE_REGISTRY_HASH}' ELSE '{hosted_files_digest}' END
+    ELSE CASE WHEN ({retirement.FOOTPRINT}) THEN '{retirement.PINS["guard_personal_agent_erasure_registry()"]["hash"]}' ELSE '{digest}' END END;
   SELECT pg_get_functiondef(to_regprocedure('public.guard_personal_agent_erasure_registry()')) INTO actual;
   IF actual IS NULL OR encode(sha256(convert_to(actual,'UTF8')),'hex')<>expected THEN
    RAISE EXCEPTION 'Unqualified managed custody recovery guard';
