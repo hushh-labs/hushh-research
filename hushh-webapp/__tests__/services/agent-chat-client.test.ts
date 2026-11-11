@@ -5,7 +5,7 @@ const mockTransport = vi.hoisted(() => ({
   addMessage: vi.fn(),
   setMessages: vi.fn(),
   nativeMode: false,
-  outcome: "success" as "success" | "interrupt",
+  outcome: "success" as "success" | "interrupt" | "cancelled",
   emitEvents: null as null | ((subscriber: Record<string, (input: any) => void>) => void),
   aborted: false,
   // Mirrors @ag-ui/client 0.0.59 on a non-2xx response (measured): the
@@ -32,6 +32,7 @@ vi.mock("@ag-ui/client", async () => {
       this.realAgent = mockTransport.nativeMode ? new actual.HttpAgent(config) : null;
     }
     addMessage(message: Parameters<typeof actual.HttpAgent.prototype.addMessage>[0]) { mockTransport.addMessage(message); this.realAgent?.addMessage(message); }
+    use(...middleware: Parameters<typeof actual.HttpAgent.prototype.use>) { this.realAgent?.use(...middleware); return this; }
     setMessages(messages: Parameters<typeof actual.HttpAgent.prototype.setMessages>[0]) { mockTransport.setMessages(messages); this.realAgent?.setMessages(messages); }
     abortRun() {
       mockTransport.aborted = true;
@@ -97,7 +98,7 @@ vi.mock("@ag-ui/client", async () => {
       }
       subscriber.onRunFinishedEvent?.({
         event: { type: "RUN_FINISHED" },
-        outcome: "success",
+        outcome: mockTransport.outcome,
       });
     }
   },
@@ -1376,6 +1377,18 @@ describe("AG-UI Agent One client", () => {
     expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
   });
 
+  it.each(["full", "intro"])("does not report a server-cancelled %s run as completed", async tier => {
+    mockTransport.outcome = "cancelled";
+    const onComplete = vi.fn();
+    const onInterrupt = vi.fn();
+    const turn = tier === "intro"
+      ? streamAgentIntro({ message: "Hello", handlers: { onComplete, onInterrupt } })
+      : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", handlers: { onComplete, onInterrupt } });
+    await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onInterrupt).not.toHaveBeenCalled();
+  });
+
   it.each(["full", "intro"])("drops reasoning before SDK storage in the %s tier", async (tier) => {
     const privateMessage = { id: "r1", role: "reasoning", content: "Private reasoning" };
     const answer = { id: "a1", role: "assistant", content: "Public answer" };
@@ -1946,6 +1959,28 @@ describe("a turn the app stops reading keeps running server-side", () => {
         conversationId: "thread-left", vaultOwnerToken: "owner-token", signal: controller.signal });
       expect(result.detached).toBe(watched);
       expect(isAgentTurnWatched("user-1", "thread-left")).toBe(watched);
+    }
+  });
+
+  it("discovers a detached turn whose only progress was a legacy summary", async () => {
+    mockTransport.nativeMode = true;
+    const onThinkingSummary = vi.fn(() => detachAttachedAgentTurns());
+    const wire = [
+      { type: "RUN_STARTED", threadId: "thread-summary", runId: "run-summary" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "summary", delta: "Checking the file.", metadata: { husshThoughtSummary: true } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode(wire)); },
+    }), { headers: { "content-type": "text/event-stream" } }));
+    try {
+      const result = await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Find my file",
+        conversationId: "thread-summary", vaultOwnerToken: "owner-token", handlers: { onThinkingSummary } });
+      expect(onThinkingSummary).toHaveBeenCalledExactlyOnceWith("Checking the file.");
+      expect(result.detached).toBe(true);
+      expect(isAgentTurnWatched("user-1", "thread-summary")).toBe(true);
+      expect(JSON.stringify(listWatchedAgentTurns())).not.toContain("Checking the file.");
+    } finally {
+      mockTransport.nativeMode = false;
     }
   });
 
