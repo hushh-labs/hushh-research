@@ -77,11 +77,13 @@ def build_single_turn_agent(
     scope = (
         {"processing_scope": "drive_document_requests"}
         if agent_id == "agent_documents" or agent_id.startswith("agent_documents_")
+        else {"processing_scope": "one_text_chat"}
+        if agent_id == "one_conversation_title"
         else {}
     )
-    from hushh_mcp.managed_ai_config import load_drive_text_policy
+    from hushh_mcp.managed_ai_config import load_scoped_text_policy
 
-    drive_policy = load_drive_text_policy() if scope else None
+    policy = load_scoped_text_policy(scope["processing_scope"]) if scope else None
     # Managed policy defaults to Azure in UAT; Vertex retains regional failover.
     # Azure failures do not silently switch this turn to Vertex.
     resolved = (
@@ -98,12 +100,12 @@ def build_single_turn_agent(
     generation_options: dict[str, Any] = {
         "response_mime_type": "application/json",
         "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
-        "max_output_tokens": drive_policy["max_output_tokens"]
-        if drive_policy is not None
+        "max_output_tokens": policy["max_output_tokens"]
+        if policy is not None and scope["processing_scope"] == "drive_document_requests"
         else manifest_or_subagent.performance.max_output_tokens,
         "thinking_config": thinking_config_for(
             model_name,
-            drive_policy["thinking_level"] if drive_policy is not None else config.thinking_level,
+            policy["thinking_level"] if policy is not None else config.thinking_level,
             types,
         ),
     }

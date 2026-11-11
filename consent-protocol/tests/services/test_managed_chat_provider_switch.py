@@ -135,7 +135,9 @@ async def _run(sessions, session, lookup, adapter, text):
         await runner.close()
 
 
-def _vertex_transport(monkeypatch, sent, signature, *, advance=None, delayed_call=0):
+def _vertex_transport(
+    monkeypatch, sent, signature, *, advance=None, delayed_call=0, model_name=None
+):
     async def vertex_generate(req, stream=False):
         sent.append(req.model_copy(deep=True))
         if len(sent) == delayed_call:
@@ -154,7 +156,8 @@ def _vertex_transport(monkeypatch, sent, signature, *, advance=None, delayed_cal
         )
 
     native = SimpleNamespace(
-        model=resolve_fleet_model_name("gemini-default"), generate_content_async=vertex_generate
+        model=model_name or resolve_fleet_model_name("gemini-default"),
+        generate_content_async=vertex_generate,
     )
     monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
     return native
@@ -166,13 +169,19 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 ):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
     monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
     sent, effects = [], []
     signature = b"synthetic-native-signature"
 
+    policy = managed.load_scoped_text_policy("one_text_chat")
     native = _vertex_transport(
-        monkeypatch, sent, signature, advance=advance_model_clock, delayed_call=delayed_call
+        monkeypatch,
+        sent,
+        signature,
+        advance=advance_model_clock,
+        delayed_call=delayed_call,
+        model_name=policy["model"],
     )
 
     async def lookup(query: str) -> dict:
@@ -181,7 +190,8 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
         return {"result": query}
 
     vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
-    assert vertex.model == native.model and vertex.allow_fallback is False
+    assert vertex.primary_provider == "vertex"
+    assert vertex.model == native.model == "gemini-4-carbon" and vertex.allow_fallback is False
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="provider_switch", user_id="synthetic", session_id="conversation"
@@ -200,6 +210,8 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 
     await _run(sessions, session, lookup, vertex, "Lookup the current subject")
     assert effects == ["current subject"] and len(sent) == 2
+    assert all(req.config.thinking_config.thinking_level == types.ThinkingLevel.LOW for req in sent)
+    assert all(req.config.max_output_tokens == policy["max_output_tokens"] for req in sent)
     assert [event.model_dump() for event in session.events[: len(stored)]] == stored
     assert all(content.parts for req in sent for content in req.contents)
     parts = [part for content in sent[1].contents for part in content.parts]
@@ -212,7 +224,7 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
     )
     assert any(p.function_response and p.function_response.id == "call_previous" for p in parts)
 
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setattr(managed, "load_scoped_text_policy", lambda _: None)
     with pytest.raises(managed.ManagedTextAuthorityError, match="policy changed"):
         _ = [r async for r in vertex.generate_content_async(request())]
     adapter, client, factory, token = model([response(message("Azure continued the conversation"))])

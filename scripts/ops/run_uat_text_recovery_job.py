@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -185,12 +186,15 @@ def expected_policy_generation(spec: dict) -> str:
     selected = ai or text or "azure_openai"
     if selected not in {"azure_openai", "vertex"} or (ai and text and ai != text):
         raise ValueError("Recovery processor bindings disagree")
-    policy = json.loads(
-        (
-            Path(__file__).resolve().parents[2] / "consent-protocol/config/managed-ai-runtime.json"
-        ).read_text()
-    )["private_drive_text_uat"]
+    profile_path = Path(__file__).resolve().parents[2] / "consent-protocol/config/managed-ai-runtime.json"
+    document = json.loads(profile_path.read_text())
+    policy = document["private_drive_text_uat"]
+    scoped = document.get("drive_text_uat")
     version = policy["version"] + (":vertex" if selected == "vertex" else "")
+    if scoped is not None:
+        # Verify candidate configuration as data in this Main-owned release script.
+        encoded = json.dumps(scoped, sort_keys=True, separators=(",", ":")).encode()
+        version = scoped["version"] + hashlib.sha256(encoded).hexdigest()
     return str(uuid5(UUID(policy["policy_id"]), version))
 
 

@@ -62,6 +62,14 @@ describe("private Azure text approval boundary", () => {
     fetcher.mockResolvedValueOnce(reply(approved));
     await expect(PrivateTextApprovalService.set("owner-token", false, approved.generation)).rejects.toThrow("not acknowledged");
   });
+  it("describes Vertex when both scopes select Gemini", () => {
+    const scopes = { one_text_chat: "gemini", drive_document_requests: "gemini" } as const;
+    const disclosure = managedTextDisclosure("gemini", scopes).join(" ");
+    expect(disclosure).toContain("Google Gemini on Vertex AI");
+    expect(disclosure).toContain("One text chat");
+    expect(disclosure).toContain("Google Drive document-request planning");
+    expect(disclosure).not.toContain("Microsoft Azure AI is a fallback");
+  });
   it("hides only unavailable pilots and keeps auth/store failures retryable", async () => {
     fetcher.mockResolvedValueOnce(reply({ detail: { code: "PRIVATE_AZURE_TEXT_UAT_ONLY" } }, 403));
     expect(await PrivateTextApprovalService.get("token")).toBeNull();

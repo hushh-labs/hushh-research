@@ -197,9 +197,18 @@ async def test_drive_vertex_authority_is_independent_of_chat_and_disclosed_by_sc
         with pytest.raises(approval.PrivateTextApprovalError):
             await drive_current()
         await chat_current()
+    chat_policy = managed_text.load_scoped_text_policy("one_text_chat")
+    with monkeypatch.context() as rotated:
+        rotated.setattr(
+            managed_text,
+            "load_scoped_text_policy",
+            lambda scope: {**chat_policy, "version": "rotated-chat"},
+        )
+        with pytest.raises(approval.PrivateTextApprovalError):
+            await chat_current()
+        await drive_current()
     monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
-    with pytest.raises(approval.PrivateTextApprovalError):
-        await chat_current()
+    await chat_current()
     await drive_current()
     monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
     status = await approval.get_private_text_approval(
@@ -208,18 +217,18 @@ async def test_drive_vertex_authority_is_independent_of_chat_and_disclosed_by_sc
         include_processing_provider=True,
         include_scope_providers=True,
     )
-    assert status["processing_policy"]["provider"] is None
+    assert status["processing_policy"]["provider"] == "gemini"
     assert status["processing_policy"]["scope_providers"] == {
-        "one_text_chat": "azure_openai",
+        "one_text_chat": "gemini",
         "drive_document_requests": "gemini",
     }
     assert status["enabled"] is False and status["accepted_at"] is None
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider,expected", [("azure_openai", None), ("vertex", "gemini")])
+@pytest.mark.parametrize("provider", ["azure_openai", "vertex"])
 async def test_uat_drive_default_has_policy_authority_not_fake_owner_acceptance(
-    monkeypatch, provider, expected
+    monkeypatch, provider
 ):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
@@ -239,7 +248,7 @@ async def test_uat_drive_default_has_policy_authority_not_fake_owner_acceptance(
         assert status["accepted_at"] is None and status["generation"] is None
         assert status["processing_policy"]["enabled"] is True
         assert status["processing_policy"]["basis"] == "uat_policy"
-        assert status["processing_policy"]["provider"] == expected
+        assert status["processing_policy"]["provider"] == "gemini"
         assert status["provider"] == "azure_openai"  # Historical pilot contract stays unchanged.
         legacy = await approval.get_private_text_approval(user_id=owner, include_policy=True)
         assert legacy["processing_policy"] == {
@@ -630,10 +639,8 @@ async def test_private_approval_postgres_replay_revoke_and_generation_fence(monk
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider,label", [("azure_openai", "Azure"), ("vertex", "Vertex")])
-async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(
-    monkeypatch, provider, label
-):
+@pytest.mark.parametrize("provider", ["azure_openai", "vertex"])
+async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(monkeypatch, provider):
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding as binding
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
@@ -650,7 +657,7 @@ async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(
         assert payload["source"] == "administrator_policy"
         assert payload["selected_model"] == selected
         assert len(payload["choices"]) == 1
-        assert payload["choices"][0]["label"] == f"{label} · managed in UAT"
+        assert payload["choices"][0]["label"] == "Vertex · managed in UAT"
         with pytest.raises(prefs.ModelPreferenceError) as denied:
             await prefs.set_preference(user_id="arbitrary-owner", model_id=selected)
         assert denied.value.code == "MODEL_MANAGED_BY_POLICY"

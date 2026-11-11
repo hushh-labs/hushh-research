@@ -11,6 +11,12 @@ export function managedTextProcessorName(provider?: ManagedTextProvider | null):
 
 /** Administrator rollout; this text never creates an owner acceptance receipt. */
 export function managedTextDisclosure(provider?: ManagedTextProvider | null, scopes?: ScopedTextProviders): readonly string[] {
+  if (scopes?.one_text_chat === "gemini" && scopes.drive_document_requests === "gemini") {
+    return [
+      "In UAT, Google Gemini on Vertex AI is the managed primary processor for One text chat, Google Drive document-request planning and existing document-analysis features. New Drive requests deliver search matches without reading each file or running a relevance assessment. Older requests and explicitly requested document features may process relevant document text.",
+      "The model receives the information its task requires, which may include sensitive personal or financial details. A versioned administrator policy controls processing. Current owner consent, file access, recipient permissions and any required payment apply. Your vault key and Google credentials are not sent to the model.",
+    ];
+  }
   if (scopes && scopes.one_text_chat !== scopes.drive_document_requests) {
     return [
       `In UAT, ${managedTextProcessorName(scopes.drive_document_requests)} processes Google Drive document-request planning and existing document-analysis features. ${managedTextProcessorName(scopes.one_text_chat)} processes One text chat. New Drive requests deliver native search matches without reading each file or running a relevance assessment. Older requests and explicitly requested document features may process relevant document text.`,

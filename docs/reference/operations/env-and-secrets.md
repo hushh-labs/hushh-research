@@ -334,9 +334,10 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | --- | --- |
 | `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
 | `drive_text_uat` | UAT Documents genes and Drive request models use native Vertex independently of the fleet default: `gemini-4-carbon`, HIGH thinking, 16,384 output tokens, no Azure fallback. Existing prompts and processing stages remain unchanged. |
+| `one_chat_text_uat` | The UAT managed One chat model, its inherited Search model, and conversation titles use Vertex `gemini-4-carbon` with LOW thinking and no Azure fallback. Explicit owner model connections follow their own bindings. |
 | `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
 | `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
-| `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
+| `managed_runtime_uat.azure.one_text_root` | Azure One root deployment and generation budget for releases using the legacy fleet text binding. |
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
 
@@ -344,22 +345,22 @@ For exhausted Azure quota, choose a compatible provisioned Azure resource or
 deployment with available capacity and update the relevant entries in this file.
 Changing a deployment name alone does not create quota or provision a model.
 To move UAT to Vertex, set `managed_provider_selection.uat` to `vertex`; set it
-back to `azure_openai` to restore Azure. One chat, its specialists and Search,
-voice and the existing managed capability ports use the selected provider.
-Drive's scoped policy takes precedence for its existing model callers; changing
-the fleet pins does not select its processor. Activity-date requests preserve
+back to `azure_openai` to restore Azure. The fleet selection supplies independently
+owned capabilities such as voice and research. The Drive and managed One chat
+policies take precedence for their scoped model callers. Activity-date requests preserve
 their existing single interpretation stage, native retrieval and deterministic date
 checks. Provider changes require the affected authored v2 planner qualification. Saved
 requests retain their processor binding and its current-authority validation.
-Azure chat may use the explicit Vertex alternate once after a classified
+Legacy Azure chat may use the explicit Vertex alternate once after a classified
 transport/quota failure before any response is observed. It never replays tools
 or emitted output. Configured Vertex chat remains single-provider. Authority,
 identity denials, content filtering and malformed output never trigger fallback.
 A classified token-exchange transport outage may use the same bounded alternate;
 an invalid credential or 401/403 denial cannot.
-Drive's scoped policy disables cross-provider fallback. A new fleet provider needs an adapter
-and complete capability qualification before selection. Ordinary UAT release
-readiness uses the configured provider's core proof; broader capabilities remain
+The scoped policies disable cross-provider fallback. The existing UAT core proof
+checks both scopes' effective model, policy generation and runtime binding and
+grades the authored Drive planner cases. The Azure readiness job still verifies
+the independently configured PWM model. Broader capabilities remain
 separate diagnostics under the [CI policy](./ci.md#managed-provider-readiness-policy).
 
 Validate the complete file without model calls or credentials:

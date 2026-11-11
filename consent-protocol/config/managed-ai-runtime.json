@@ -3,6 +3,14 @@
   "managed_provider_selection": {
     "uat": "azure_openai"
   },
+  "one_chat_text_uat": {
+    "version": "one-chat-vertex-carbon-v1",
+    "provider": "vertex",
+    "model": "gemini-4-carbon",
+    "thinking_level": "low",
+    "max_output_tokens": 16384,
+    "allow_cross_provider_fallback": false
+  },
   "drive_text_uat": {
     "version": "drive-vertex-carbon-v1",
     "provider": "vertex",

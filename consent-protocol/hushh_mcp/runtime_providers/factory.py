@@ -596,11 +596,9 @@ def build_managed_regional_gemini_adk_model(
     """Build a tool-less single-turn ADK model with bounded regional failover."""
 
     if processing_scope is not None:
-        if processing_scope != "drive_document_requests":
-            raise ValueError("Unsupported managed text processing scope")
-        from hushh_mcp.managed_ai_config import load_drive_text_policy
+        from hushh_mcp.managed_ai_config import load_scoped_text_policy
 
-        policy = load_drive_text_policy()
+        policy = load_scoped_text_policy(processing_scope)
         if policy is not None:
             return ManagedGeminiRuntimeBinding.from_environment(
                 vertex_project=vertex_project
