@@ -15,6 +15,7 @@ import { PortfolioPersona } from "@/components/kai/advisor/portfolio-persona";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const state = vi.hoisted(() => ({
+  beacon: vi.fn((_props: { routeId: string; marker: string }) => null),
   finish: vi.fn(),
   bootstrap: vi.fn(),
   sync: vi.fn(),
@@ -75,7 +76,7 @@ vi.mock("@/lib/auth/session-owner", () => ({
   isValidatedAuthSessionOwnerCurrent: () => state.current,
 }));
 vi.mock("@/components/app-ui/native-test-beacon", () => ({
-  NativeTestBeacon: () => null,
+  NativeTestBeacon: state.beacon,
 }));
 vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
   SetupCapabilityLoading: () => <p>Preparing</p>,
@@ -131,6 +132,10 @@ beforeEach(() => {
 
 it("starts at the questionnaire and shows Plaid confirmation before automatic settlement", async () => {
   render(<FinanceOnboardingSetupPage />);
+  expect(state.beacon.mock.calls.at(-1)?.[0]).toMatchObject({
+    routeId: "/one/setup/finance",
+    marker: "native-route-one-setup-finance",
+  });
   expect(
     screen.getByRole("heading", { name: "Let’s build your financial persona" }),
   ).toBeVisible();
@@ -235,6 +240,10 @@ it("does not show completion or mutate the journey when the owner retires during
     }),
   );
   render(<FinanceImportOnboardingSetupClient />);
+  expect(state.beacon.mock.calls.at(-1)?.[0]).toMatchObject({
+    routeId: "/one/setup/finance/import",
+    marker: "native-route-one-setup-finance-import",
+  });
   let result!: Promise<boolean>;
   act(() => {
     result = state.source!("later");

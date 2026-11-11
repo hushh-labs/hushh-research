@@ -410,22 +410,15 @@ ${script.slice(boundary)}`], {
     expect(uiTests).not.toContain('redirect=%2Fprofile');
   });
 
-  it("gives Finance import setup its own native route marker instead of borrowing the Kai setup marker", () => {
+  it("declares the Finance import marker in the native route inventory", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
       routes: Array<{ route: string; expectedMarker?: string }>;
     };
-    const setupImport = source(
-      "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
-    );
     const route = inventory.routes.find(
       (entry) => entry.route === "/one/setup/finance/import",
     );
 
     expect(route?.expectedMarker).toBe("native-route-one-setup-finance-import");
-    expect(setupImport).toContain("<NativeTestBeacon");
-    expect(setupImport).toMatch(
-      /marker=\{\s*showIntroduction\s*\?\s*"native-route-one-setup-finance"\s*:\s*"native-route-one-setup-finance-import"\s*\}/,
-    );
   });
 
   it("audits disabled Gmail setup through its intentional setup-hub redirect", () => {
