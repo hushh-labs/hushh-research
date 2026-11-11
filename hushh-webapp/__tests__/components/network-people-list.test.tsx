@@ -135,8 +135,10 @@ describe("network permission and journey return @feature_connected_profiles", ()
       expect((opened.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ personRef: "Second", networkList: "mutuals" });
       fireEvent.click(screen.getByRole("button", { name: "Open Direct's profile" }));
       expect((opened.mock.calls[1][0] as CustomEvent).detail).toMatchObject({ personRef: "Direct" });
-      fireEvent.click(screen.getByRole("button", { name: "Through connections", exact: true }));
-      expect(screen.getByText("People who share a connection with you.")).toBeVisible();
+      const throughConnections = screen.getByRole("button", { name: "Through connections", exact: true });
+      fireEvent.click(throughConnections);
+      expect(throughConnections).toHaveAttribute("aria-pressed", "true");
+      expect(screen.queryByText("People who share a connection with you.")).toBeNull();
       await waitFor(() => expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 2 })));
     } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
   });

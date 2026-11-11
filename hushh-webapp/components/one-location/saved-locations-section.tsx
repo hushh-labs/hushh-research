@@ -885,10 +885,10 @@ export function SavedLocationsSection() {
                           </p>
                         </div>
                         {visitDate ? (
-                          <time data-location-type-role="row-description"
+                          <time
                             dateTime={dateValue}
                             title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
-                            className="shrink-0 self-start pt-0.5 text-right text-[12px] leading-[18px] tabular-nums text-[color:var(--app-secondary-label)]"
+                            className="shrink-0 self-start pt-0.5 text-right text-[11px] font-normal leading-[14px] tabular-nums text-[color:var(--app-secondary-label)]"
                           >
                             {!location.checkedInAt ? <span className="block">Saved</span> : null}
                             {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
