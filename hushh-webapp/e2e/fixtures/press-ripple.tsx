@@ -82,6 +82,7 @@ function Fixture() {
         ))}
       </div>
       <output data-testid="location-action-count">{locationActionCount}</output>
+      <StockButton variant="text" size="compact">Refresh results</StockButton>
       <LegacyChip />
     </main>
   );
