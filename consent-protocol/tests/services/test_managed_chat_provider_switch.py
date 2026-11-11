@@ -42,24 +42,24 @@ async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
     failure = False
 
     async def vertex(req, stream=False):
-        sent.append(req.model)
+        sent.append((req.model, req.config.thinking_config.thinking_level))
         if failure:
             raise TimeoutError("synthetic Vertex outage")
         yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="ready")]))
 
-    native = SimpleNamespace(model="gemini-4-carbon", generate_content_async=vertex)
+    native = SimpleNamespace(model="gemini-3.8-flash", generate_content_async=vertex)
     monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
     current = AsyncMock()
     wrapped = managed.build_managed_text_model(
         scope="drive_document_requests", require_current=current
     )
-    assert wrapped.model == "gemini-4-carbon" and wrapped.primary_provider == "vertex"
+    assert wrapped.model == "gemini-3.8-flash" and wrapped.primary_provider == "vertex"
     assert wrapped.allow_fallback is False
     assert len([r async for r in wrapped.generate_content_async(request())]) == 1
     failure = True
     with pytest.raises(TimeoutError):
         _ = [r async for r in wrapped.generate_content_async(request())]
-    assert sent == ["gemini-4-carbon", "gemini-4-carbon"]
+    assert sent == [("gemini-3.8-flash", types.ThinkingLevel.LOW)] * 2
     current.side_effect = PermissionError("revoked")
     with pytest.raises(managed.ManagedTextAuthorityError):
         _ = [r async for r in wrapped.generate_content_async(request())]
@@ -68,7 +68,7 @@ async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
     # Exercise every authored Documents gene through the shared single-turn builder.
     from google.adk.models import Gemini
 
-    native_adk = Gemini(model="gemini-4-carbon")
+    native_adk = Gemini(model="gemini-3.8-flash")
     monkeypatch.setattr(
         ManagedGeminiRuntimeBinding, "build_regional_adk_model", lambda *a, **k: native_adk
     )
@@ -79,7 +79,7 @@ async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
         agent = single_turn.build_single_turn_agent(gene, output_schema={"type": "object"})
         assert agent.model is native_adk
         assert (
-            agent.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.HIGH
+            agent.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.LOW
         )
     forbidden.assert_not_called()
 
@@ -191,7 +191,7 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 
     vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
     assert vertex.primary_provider == "vertex"
-    assert vertex.model == native.model == "gemini-4-carbon" and vertex.allow_fallback is False
+    assert vertex.model == native.model == "gemini-3.8-flash" and vertex.allow_fallback is False
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="provider_switch", user_id="synthetic", session_id="conversation"

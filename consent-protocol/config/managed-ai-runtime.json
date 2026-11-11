@@ -4,18 +4,18 @@
     "uat": "azure_openai"
   },
   "one_chat_text_uat": {
-    "version": "one-chat-vertex-carbon-v1",
+    "version": "one-chat-vertex-flash-v2",
     "provider": "vertex",
-    "model": "gemini-4-carbon",
+    "model": "gemini-3.8-flash",
     "thinking_level": "low",
     "max_output_tokens": 16384,
     "allow_cross_provider_fallback": false
   },
   "drive_text_uat": {
-    "version": "drive-vertex-carbon-v1",
+    "version": "drive-vertex-flash-v2",
     "provider": "vertex",
-    "model": "gemini-4-carbon",
-    "thinking_level": "high",
+    "model": "gemini-3.8-flash",
+    "thinking_level": "low",
     "max_output_tokens": 16384,
     "allow_cross_provider_fallback": false
   },
