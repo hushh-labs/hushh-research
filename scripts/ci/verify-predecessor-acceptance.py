@@ -27,6 +27,9 @@ REPOSITORY = "hushh-labs/hushh-research"
 LANES = {"dev": "hushh-pda-dev", "uat": "hushh-pda-uat"}
 SERVICES = {"backend": "consent-protocol", "frontend": "hushh-webapp"}
 MAX_BYTES = 1024 * 1024
+RECORDED_RECOVERY_SHA = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+RECORDED_RECOVERY_UAT = {"run_id": 40736875956, "run_attempt": 1, "artifact_id": 12840002854}
+RECORDED_RECOVERY_UAT_DIGEST = "sha256:d45488c50a7fb5f844d69f794c57a74334db5a48bff5d63578a06350ab68f71d"
 
 
 # Receipts are also executed from a preserved main-owned tooling directory.
@@ -294,6 +297,18 @@ class GitHub:
                 for service in services
             },
         }
+
+    def recorded_recovery_uat(self, sha: str, scope: str) -> dict:
+        require(sha == RECORDED_RECOVERY_SHA, "Recorded recovery UAT requires the sealed source")
+        accepted = {}
+        # This reviewed receipt lies outside bounded discovery. Read and verify
+        # the exact attempt, archive, services and Dev predecessor as usual.
+        for service in sorted(selected(scope)):
+            receipt = self.accept(RECORDED_RECOVERY_UAT, "uat", sha, service)
+            require(receipt["artifact_digest"] == RECORDED_RECOVERY_UAT_DIGEST,
+                    "Recorded recovery UAT artifact digest changed")
+            accepted[service] = receipt
+        return {"status": "accepted", "environment": "uat", "sha": sha, "services": accepted}
 
     def find(self, environment: str, sha: str, scope: str) -> dict:
         needed, accepted = selected(scope), {}
@@ -577,10 +592,14 @@ def main() -> int:
     parser.add_argument("--serving-revision")
     parser.add_argument("--serving-image")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--recorded-recovery-uat", action="store_true")
     args = parser.parse_args()
     try:
         require(args.command == "main-source" or args.environment in LANES,
                 "Production uses Main qualification, not an environment acceptance receipt")
+        require(not args.recorded_recovery_uat or
+                (args.command == "require" and args.environment == "uat"),
+                "Recorded recovery acceptance is only available for UAT")
         if args.command == "create":
             require(args.status is not None, "Status receipt is required")
             create(args)
@@ -604,6 +623,8 @@ def main() -> int:
                 receipt = direct_uat(args)
             elif args.command == "backend-image":
                 receipt = pinned_backend_image(args)
+            elif args.recorded_recovery_uat:
+                receipt = GitHub().recorded_recovery_uat(args.sha, args.scope)
             else:
                 receipt = GitHub().find(args.environment, args.sha, args.scope)
             args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")

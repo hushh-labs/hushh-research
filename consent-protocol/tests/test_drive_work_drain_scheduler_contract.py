@@ -172,6 +172,68 @@ def test_scheduler_rejects_mismatched_fixed_job_stage_or_cadence_before_mutation
     assert "only configures the reviewed UAT Drive work-drain job" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("allow_resume", "body", "expected"),
+    [
+        ("true", "eyJzdGFnZSI6InNoYXJpbmcifQ==", 0),
+        ("false", "eyJzdGFnZSI6InNoYXJpbmcifQ==", 1),
+        ("true", "eyJzdGFnZSI6ImRvY3VtZW50cyJ9", 1),
+    ],
+)
+def test_production_paused_sharing_resumes_only_after_exact_admitted_retarget(
+    tmp_path, allow_resume, body, expected
+):
+    gcloud = tmp_path / "gcloud"
+    gcloud.write_text(
+        """#!/usr/bin/env bash
+set -eu
+case "$1 $2 $3" in
+  'run services describe') echo "$BACKEND_URL" ;;
+  'iam service-accounts describe'|'scheduler jobs update') ;;
+  'scheduler jobs describe')
+    case "$*" in
+      *--format=json*) printf '{"httpTarget":{"body":"%s"}}\n' "$JOB_BODY" ;;
+      *--format=value*)
+        state=PAUSED
+        if [[ -f "$RESUMED" ]]; then state=ENABLED; fi
+        printf '%s\t%s\t%s/api/internal/drive-work/drain\tPOST\t%s\t%s\n' \
+          "$state" "$CRON" "$BACKEND_URL" 'drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com' "$OIDC_AUDIENCE"
+        ;;
+    esac ;;
+  'scheduler jobs resume')
+    [[ "$4" == drive-work-sharing-prod ]]
+    touch "$RESUMED" ;;
+  *) exit 2 ;;
+esac
+"""
+    )
+    gcloud.chmod(0o755)
+    resumed = tmp_path / "resumed"
+    result = subprocess.run(  # noqa: S603 - fixed shell helper and synthetic gcloud
+        ["bash", str(ROOT / "deploy/drive/setup_work_drain_scheduler_prod.sh")],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "PROJECT_ID": "hushh-pda",
+            "SCHEDULER_LOCATION": "us-central1",
+            "BACKEND_URL": "https://worker-fixture.a.run.app",
+            "OIDC_AUDIENCE": "https://api.hushh.ai",
+            "JOB_NAME": "drive-work-sharing-prod",
+            "STAGE": "sharing",
+            "CRON": "* * * * *",
+            "RESUME_PAUSED_WORKER_JOB": allow_resume,
+            "JOB_BODY": body,
+            "RESUMED": str(resumed),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr
+    assert resumed.exists() == (expected == 0)
+
+
 def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation():
     cloudbuild = CLOUDBUILD.read_text(encoding="utf-8")
     uat = UAT_WORKFLOW.read_text(encoding="utf-8")
