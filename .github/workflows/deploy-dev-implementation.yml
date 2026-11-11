@@ -230,6 +230,7 @@ jobs:
           PY
 
       - name: Checkout deployment SHA
+        id: prepare-release-tools
         shell: bash
         run: |
           set -euo pipefail
@@ -2002,7 +2003,7 @@ jobs:
           PY
 
       - name: Produce exact-SHA dev acceptance
-        if: always() && env.DEV_TARGET == 'shared-dev'
+        if: always() && env.DEV_TARGET == 'shared-dev' && steps.prepare-release-tools.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
