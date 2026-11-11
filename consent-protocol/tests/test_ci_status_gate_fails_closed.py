@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass, field, replace
 from functools import cache
@@ -19,6 +20,85 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
+
+
+@pytest.mark.parametrize(
+    "job,package",
+    [
+        ("web-full-suite-check", "zsh"),
+        ("protocol-check", "postgresql-16-pgvector=0.6.0-1"),
+        ("protocol-database-check", "postgresql-16-pgvector=0.6.0-1"),
+    ],
+)
+@pytest.mark.parametrize("fail_at", ["", "update", "install"])
+def test_native_prerequisites_keep_signed_fallbacks_and_install_failures_blocking(
+    tmp_path, job, package, fail_at
+):
+    """Run the real installer against the failed runner's mirror arrangement."""
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    step = next(
+        step
+        for step in workflow["jobs"][job]["steps"]
+        if "sudo apt-get install" in step.get("run", "")
+    )
+    assert step.get("continue-on-error", False) is False
+    mirrors = tmp_path / "apt-mirrors.txt"
+    mirrors.write_text(
+        "http://azure.archive.ubuntu.com/ubuntu/ 10\n"
+        "http://archive.ubuntu.com/ubuntu/ 20\n"
+        "http://security.ubuntu.com/ubuntu/ 30\n",
+        encoding="utf-8",
+    )
+    calls = tmp_path / "calls"
+    script = step["run"].replace("/etc/apt/apt-mirrors.txt", shlex.quote(mirrors.as_posix()))
+    stubs = r"""
+sudo() {
+  if [ "$1 $2" = 'sed -i' ]; then
+    sed "$3" "$4" > "$4.filtered" && mv "$4.filtered" "$4"
+  elif [ "$1" = apt-get ]; then
+    printf '%s\n' "${*:2}" >> "$CALLS"
+    # Reproduce the reported DNS failure until the unhealthy preference is removed.
+    if grep -q azure.archive.ubuntu.com "$MIRRORS"; then return 100; fi
+    if [ "$2" = "$FAIL_AT" ]; then return 100; fi
+    if [ "$2" = install ]; then PG_INSTALLED=1; fi
+  else
+    return 64
+  fi
+}
+test() {
+  case "$2" in
+    /usr/lib/postgresql/16/bin/initdb|/usr/share/postgresql/16/extension/vector.control)
+      [ "${PG_INSTALLED:-0}" = 1 ] ;;
+    *) builtin test "$@" ;;
+  esac
+}
+"""
+    result = subprocess.run(  # noqa: S603 - actual workflow script, synthetic apt/sudo.
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", stubs + script],  # noqa: S607
+        env={
+            **os.environ,
+            "MIRRORS": mirrors.as_posix(),
+            "CALLS": calls.as_posix(),
+            "FAIL_AT": fail_at,
+            "GITHUB_ENV": (tmp_path / "github-env").as_posix(),
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == (100 if fail_at else 0), result.stdout + result.stderr
+    assert mirrors.read_text(encoding="utf-8").splitlines() == [
+        "http://archive.ubuntu.com/ubuntu/ 20",
+        "http://security.ubuntu.com/ubuntu/ 30",
+    ]
+    assert calls.read_text(encoding="utf-8").splitlines() == (
+        ["update"]
+        if fail_at == "update"
+        else ["update", f"install --no-install-recommends -y {package}"]
+    )
+
+
 HEAD_SHA = "c0ffee" * 6 + "c0ff"
 # The lanes each path-filter output selects, as the gate must require them.
 LANES = {

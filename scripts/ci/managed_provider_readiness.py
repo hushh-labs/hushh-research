@@ -177,6 +177,12 @@ def _valid_scoped_core(core, provider, expected, document, policies):
         }:
             return False
     planner = core.get("activity_planner")
+    if (
+        expected.get("qualification_mode") == "core"
+        and "activity_planner" in core
+        and planner is None
+    ):
+        return True
     if not isinstance(planner, dict):
         return False
     manifest = json.loads(
