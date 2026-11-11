@@ -78,8 +78,14 @@ export function useMarketingPreference(userId: string | null, surface: "setup" |
       if (isCurrent()) scope.saving = false;
     }
   };
+  const showFrequency = surface === "setup" || visible.enabledDraft;
+  const frequencyToSave = showFrequency ? visible.frequencyDraft : visible.value?.frequency ?? visible.frequencyDraft;
+  const hasChanges = !!visible.value && (
+    visible.enabledDraft !== visible.value.enabled || frequencyToSave !== visible.value.frequency
+  );
   return { value: visible.value, loading: visible.loading, enabledDraft: visible.enabledDraft,
     frequencyDraft: visible.frequencyDraft,
+    showFrequency, frequencyToSave, hasChanges,
     edit: (enabled: boolean, frequency: EmailFrequency) => {
       if (!canAct() || action !== scope.action || !visible.value || scope.saving) return;
       scope.action++;
