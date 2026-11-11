@@ -824,6 +824,11 @@ jobs.
    commands. It installs no browser, runs no layout matrix and emits no synthetic
    browser artifacts. `CI Status Gate` still requires successful selected Node
    contracts. Browser npm commands remain available as explicit diagnostics.
+   The first required unit leg owns the exact voice-gateway, capability-graph,
+   surface-map and native-plugin verifier commands. Targeted CI does not repeat
+   those four commands; functional packs, composite commands and invocations
+   with additional arguments retain their checks. Local targeted-only runs and
+   historical recovery retain their original ownership.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
    validation level retain historical full-suite behavior. UI Contracts uses that
