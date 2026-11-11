@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeLocationLayer } from "./redesign/native-location-workspace";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Briefcase,
@@ -81,7 +82,8 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   );
 }
 
-export function SavedLocationsSection() {
+export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { nativeActive?: boolean; onNativeBack?: () => void } = {}) {
+  const [nativePage, setNativePage] = useState(0);
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const pkmChangeRevision = usePkmDomainChangeRevision(
@@ -761,8 +763,35 @@ export function SavedLocationsSection() {
     (group) => group.key === "favorite" || (hasVaultAccess && !loading && !loadError),
   );
 
+  const page = Math.min(nativePage, Math.max(0, Math.ceil(locations.length / 24) - 1));
+  const visibleIds = new Set(locations.slice(page * 24, (page + 1) * 24).map(location => location.id));
+  const nativeSections = [
+    { key: "add", rows: [{ key: "add-place", label: capturing ? "Finding location…" : "Add place", prominent: true, enabled: hasVaultAccess && !locationControl.paused && !capturing, pending: capturing, run: handleAdd },
+      ...(!hasVaultAccess ? [{ key: "locked", label: "Unlock your vault to view saved places" }] : []),
+      ...(loadError ? [{ key: "error", label: "Saved places unavailable", detail: loadError }, { key: "retry", label: "Retry", enabled: !loading, run: reload }] : []),
+    ] },
+    ...(!locations.length ? [{ key: "empty", rows: [{ key: "empty", label: loading ? "Loading saved places…" : "No saved places yet", detail: "Save home, work or a favorite place." }] }] : []),
+    ...placeGroups.map(group => ({ key: group.key, title: group.title, rows: group.locations.filter(location => visibleIds.has(location.id)).flatMap(location => {
+      const checkedIn = location.savedFrom === "check_in", venue = checkedIn || location.placeName ? splitCheckInPlaceLabel(location.label) : null;
+      const name = location.category === "other" ? location.placeName || venue?.name || location.label : location.label;
+      const address = location.address || resolvedAddresses[location.id] || venue?.address;
+      const finding = !address && (checkedIn || location.placeName) && resolvedAddresses[location.id] === undefined;
+      return [{ key: location.id, label: name, detail: address || (finding ? "Finding address…" : "Address unavailable"), selected: expandedId === location.id, symbol: location.category === "home" ? "house" : location.category === "work" ? "briefcase" : "mappin", run: () => setExpandedId(current => current === location.id ? null : location.id) },
+        ...(expandedId === location.id ? [
+          { key: `${location.id}:date`, label: "Saved", detail: new Date(location.checkedInAt || location.savedAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) },
+          ...(!location.address && (resolvedAddresses[location.id] === null || (!address && !finding)) ? [{ key: `${location.id}:repair`, label: "Find address", enabled: repairingId === null, pending: repairingId === location.id, run: () => handleRepairAddress(location) }] : []),
+          checkedIn ? { key: `${location.id}:favorite`, label: "Add to favorites", enabled: favoritingId === null && removingId === null, pending: favoritingId === location.id, run: () => handleFavorite(location) } : { key: `${location.id}:edit`, label: "Edit", enabled: removingId === null && repairingId === null && !capturing && !locationControl.paused, run: () => handleEditSavedLocation(location) },
+          { key: `${location.id}:remove`, label: "Remove", destructive: true, enabled: removingId === null && favoritingId === null, pending: removingId === location.id, run: () => handleRemove(location.id) },
+        ] : []),
+      ];
+    }) })),
+    { key: "navigation", rows: [
+      ...(locations.length > 24 ? [{ key: "page", label: `${page * 24 + 1}–${Math.min((page + 1) * 24, locations.length)} of ${locations.length}` }, { key: "previous", label: "Previous places", enabled: page > 0, run: () => setNativePage(value => value - 1) }, { key: "next", label: "More places", enabled: (page + 1) * 24 < locations.length, run: () => setNativePage(value => value + 1) }] : []),
+      ...(onNativeBack ? [{ key: "back", label: "Back to settings", run: onNativeBack }] : []),
+    ] },
+  ];
   return (
-    <>
+    <NativeLocationLayer flow="settings" nested when={nativeActive} title="Saved places" viewKey="settings:saved-places" navigationDepth={4} sections={nativeSections}><>
       <section
         aria-label="Saved Locations"
         className="w-full min-w-0 space-y-6"
@@ -1045,6 +1074,6 @@ export function SavedLocationsSection() {
           setOfferPrefill(null);
         }}
       />
-    </>
+    </></NativeLocationLayer>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeLocationLayer } from "../native-location-workspace";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, UsersRound } from "@/components/icons";
 
@@ -206,7 +207,16 @@ export function CircleMemberPicker({
       return next;
     });
 
-  return (
+  return <NativeLocationLayer flow="sms-contacts" nested when={expanded} navigationDepth={4} title={circle.name} viewKey={`sms-circle:${circle.id}`} search={{ label: "Search members", query, change: setQuery }} sections={[
+    { key: "identity", rows: [{ key: "circle", label: circle.name, detail: `${circleMemberCountLabel(circle.memberCount)} · ${alreadyAddedCount} added` },
+      { key: "sort", label: "Sort", choices: (["default", "name-asc", "name-desc"] as const).map(value => ({ key: value, label: value === "default" ? "Default" : value === "name-asc" ? "A–Z" : "Z–A", selected: sortMode === value, run: () => setSortMode(value) })) },
+      ...(loadError ? [{ key: "error", label: loadError }, { key: "retry", label: "Try again", run: load }] : []),
+      { key: "all", label: allAddableTicked ? "Clear selection" : "Select all available", enabled: !busy && !adding && !loading, run: toggleAll },
+    ] },
+    { key: "members", rows: visibleRows.map(row => ({ key: row.userId, label: row.label, person: { name: row.label, photoUrl: row.photoUrl, verified: row.isRia }, detail: row.blockedReason ?? (selectedUserIds.has(row.userId) ? "Added" : undefined), selected: ticked.has(row.userId), enabled: !busy && !adding && !loading && !loadError && !row.blockedReason && !selectedUserIds.has(row.userId), run: () => toggleMember(row.userId) })) },
+    { key: "actions", rows: [{ key: "add", label: tickedAddable.length ? `Add ${tickedAddable.length} ${tickedAddable.length === 1 ? "person" : "people"}` : "Select people to add", prominent: true, enabled: !!tickedAddable.length && !busy && !adding && !loading && !loadError, pending: adding, run: commit }, { key: "done", label: "Done", enabled: !adding, run: onToggle }] },
+  ]}>
+
     <div data-testid={"circle-picker-" + circle.id}>
       <button data-location-type-role="compact-action"
         type="button"
@@ -378,5 +388,5 @@ export function CircleMemberPicker({
         </div>
       ) : null}
     </div>
-  );
+  </NativeLocationLayer>;
 }

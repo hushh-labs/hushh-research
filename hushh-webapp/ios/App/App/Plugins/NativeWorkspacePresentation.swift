@@ -38,6 +38,7 @@ struct NativeWorkspaceFrame: Codable, Equatable {
         (bottomContentInset == nil || (bottomContentInset!.isFinite && bottomContentInset! >= 0 && bottomContentInset! < height))
     }
 }
+struct NativeWorkspaceNavigation: Codable { let id: String; let depth: Int; var valid: Bool { NativeDrawerIdentity.identifier(id) && (0...8).contains(depth) } }
 struct NativeWorkspaceTabs: Codable { let label: String; let options: [NativeDrawerOption] }
 struct NativeWorkspaceSearch: Codable { let id: String; let query: String; let label: String; var live: Bool? = nil; var afterSection: Int? = nil }
 struct NativeWorkspaceMemoryDraft: Codable, NativeProfileEditorDraft {
@@ -76,6 +77,42 @@ struct NativeWorkspaceMemoryProjection: NativeProfileEditorProjection {
         identity = state.identity; destinationId = editor.destinationId; updateSequence = state.updateSequence; privacyGeneration = state.privacyGeneration
         acknowledgedEditRevision = editor.acknowledgedEditRevision; draftRevision = editor.draftRevision; draft = editor.draft
         busy = editor.busy; canSave = editor.canSave; canToggleIdentifier = editor.canToggleIdentifier; reviewing = editor.reviewing; error = editor.error; accentHex = state.accentHex
+    }
+}
+struct NativeWorkspaceTextDraft: Codable, NativeProfileEditorDraft {
+    var text: String
+    static let empty = Self(text: "")
+    var valid: Bool { text.utf16.count <= 4096 }
+    var event: [String: Any] { ["text": text] }
+    subscript(_ field: String) -> String { get { field == "text" ? text : "" } set { if field == "text" { text = newValue } } }
+}
+struct NativeWorkspaceTextEditor: Codable {
+    let destinationId: String; var draft: NativeWorkspaceTextDraft; let draftRevision: Int; let acknowledgedEditRevision: Int
+    let busy: Bool; let canSave: Bool; var error: String?
+    let label: String; let placeholder: String; let maximum: Int; let submitLabel: String; let cancelLabel: String; var format: String?
+    static func closed(_ value: [String: Any]) -> Bool {
+        Set(value.keys).subtracting(["format"]) == ["destinationId", "draft", "draftRevision", "acknowledgedEditRevision", "busy", "canSave", "error", "label", "placeholder", "maximum", "submitLabel", "cancelLabel"] &&
+            (value["format"] == nil || value["format"] as? String == "circle-code") &&
+            (value["draft"] as? [String: Any]).map { Set($0.keys) == ["text"] } == true
+    }
+    var valid: Bool {
+        NativeDrawerIdentity.identifier(destinationId) && draft.valid && (1...4096).contains(maximum) && (format == nil || format == "circle-code") &&
+            [draftRevision, acknowledgedEditRevision].allSatisfy { $0 >= 0 && $0 <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration } &&
+            NativeDrawerProjection.text(label, 256) && placeholder.utf16.count <= 256 && NativeDrawerProjection.text(submitLabel, 64) && NativeDrawerProjection.text(cancelLabel, 64) && (error?.utf16.count ?? 0) <= 1024
+    }
+}
+struct NativeWorkspaceTextProjection: NativeProfileEditorProjection {
+    let identity: NativeWorkspaceIdentity; let destinationId: String; let updateSequence: Int; let privacyGeneration: Int
+    let acknowledgedEditRevision: Int; let draftRevision: Int; var draft: NativeWorkspaceTextDraft
+    let busy: Bool; let canSave: Bool; var error: String?; let accentHex: String
+    let label: String; let placeholder: String; let maximum: Int; let submitLabel: String; let cancelLabel: String; var format: String?
+    var scene: String { "location-text" }; var checking: Bool { false }; var primary: String { "save" }
+    var valid: Bool { identity.valid && identity.workspace == "location" && draft.valid }
+    init(_ state: NativeWorkspaceProjection, _ editor: NativeWorkspaceTextEditor) {
+        identity = state.identity; destinationId = editor.destinationId; updateSequence = state.updateSequence; privacyGeneration = state.privacyGeneration
+        acknowledgedEditRevision = editor.acknowledgedEditRevision; draftRevision = editor.draftRevision; draft = editor.draft
+        busy = editor.busy; canSave = editor.canSave; error = editor.error; accentHex = state.accentHex
+        label = editor.label; placeholder = editor.placeholder; maximum = editor.maximum; submitLabel = editor.submitLabel; cancelLabel = editor.cancelLabel; format = editor.format
     }
 }
 struct NativeWorkspaceTaskDraft: Codable, NativeProfileEditorDraft {
@@ -173,6 +210,7 @@ struct NativeWorkspaceProjection: Decodable {
     let appearance: String; let accentHex: String; let foregroundHex: String
     var canvasHex: String?
     let page: String; var title: String; let enabled: Bool; let backEnabled: Bool
+    var navigation: NativeWorkspaceNavigation?
     var sections: [NativeDrawerSection]; var tabs: NativeWorkspaceTabs?; var secondaryTabs: NativeWorkspaceTabs?
     var feedback: NativePresentationFeedback?
     var walletProfileEditor: NativeWalletProfileEditor?
@@ -180,16 +218,18 @@ struct NativeWorkspaceProjection: Decodable {
     var launcher: NativeWorkspaceLauncher?
     var calendarDate: NativeWorkspaceCalendarDate?
     var taskEditor: NativeWorkspaceTaskEditor?
+    var textEditor: NativeWorkspaceTextEditor?
     var memoryEditor: NativeWorkspaceMemoryEditor?
     var search: NativeWorkspaceSearch?; var circleEditor: NativeWorkspaceCircleEditor?
     var identity: NativeWorkspaceIdentity { .init(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, workspace: workspace) }
-    static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "appearance", "accentHex", "foregroundHex", "canvasHex", "page", "title", "enabled", "backEnabled", "sections", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "taskEditor", "feedback", "launcher", "calendarDate"]
+    var isLocationRoot: Bool { workspace == "location" && tabs != nil && (navigation?.depth ?? 0) < 3 }
+    static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "appearance", "accentHex", "foregroundHex", "canvasHex", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate"]
     static func closed(_ value: [String: Any]) -> Bool {
         guard Set(value.keys).isSubset(of: keys), let frame = value["frame"] as? [String: Any], Set(frame.keys).isSubset(of: ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset", "bottomContentInset"]),
               let sections = value["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows", "layout"]), !(section["layout"] is NSNull), let rows = section["rows"] as? [[String: Any]] else { return false }
-            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) { return false }
+            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) { return false }
             for row in rows {
                 if let raw = row["formattedText"], !NativeMemoryText.closed(raw) { return false }
                 if let raw = row["locationShare"], !NativeWorkspaceLocationShare.closed(raw) { return false }
@@ -202,12 +242,13 @@ struct NativeWorkspaceProjection: Decodable {
                             !action.values.contains(where: { $0 is NSNull }) && (action["avatar"] == nil || NativeWorkspaceAvatar.closed(action["avatar"]!))
                     }) else { return false }
                 }
-                if row["milestone"] is NSNull || row["expanded"] is NSNull || row["prominent"] is NSNull { return false }
+                if row["milestone"] is NSNull || row["expanded"] is NSNull || row["prominent"] is NSNull || row["menuOnTap"] is NSNull || row["sosActivation"] is NSNull { return false }
                 if let raw = row["options"] {
                     guard let options = raw as? [[String: Any]], options.allSatisfy({ Set($0.keys) == ["id", "label", "selected"] }) else { return false }
                 }
             }
         }
+        if let raw = value["navigation"] { guard let navigation = raw as? [String: Any], Set(navigation.keys) == ["id", "depth"] else { return false } }
         if let raw = value["calendarDate"] {
             guard let date = raw as? [String: Any], Set(date.keys) == ["id", "label", "value", "timeZone", "enabled"] else { return false }
         }
@@ -230,6 +271,7 @@ struct NativeWorkspaceProjection: Decodable {
         }
         if let raw = value["feedback"] { guard let feedback = raw as? [String: Any], Set(feedback.keys) == NativePresentationFeedback.keys else { return false } }
         if let raw = value["walletProfileEditor"] { guard let editor = raw as? [String: Any], NativeWalletProfileEditor.closed(editor) else { return false } }
+        if let raw = value["textEditor"] { guard let editor = raw as? [String: Any], NativeWorkspaceTextEditor.closed(editor) else { return false } }
         if let raw = value["taskEditor"] { guard let editor = raw as? [String: Any], NativeWorkspaceTaskEditor.closed(editor) else { return false } }
         if let raw = value["memoryEditor"] { guard let editor = raw as? [String: Any], NativeWorkspaceMemoryEditor.closed(editor) else { return false } }
         if let raw = value["wallet"] { guard let wallet = raw as? [String: Any], NativeWalletCollection.closed(wallet) else { return false } }
@@ -241,6 +283,8 @@ struct NativeWorkspaceProjection: Decodable {
               frame.valid, ["overview", "rules", "circle-picker", "circle-create", "circle-people"].contains(page), NativeDrawerProjection.text(title, 256), sections.count <= 32,
               HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil else { return false }
         guard workspace == "wallet" ? wallet?.valid == true && page == "overview" && circleEditor == nil && HushhNativeControlAppearance.color(canvasHex) != nil : wallet == nil else { return false }
+        guard navigation == nil || (workspace == "location" && navigation?.valid == true) else { return false }
+        guard textEditor == nil || (workspace == "location" && page == "overview" && circleEditor == nil && walletProfileEditor == nil && memoryEditor == nil && taskEditor == nil && textEditor?.valid == true) else { return false }
         guard taskEditor == nil || (workspace == "tasks" && page == "overview" && circleEditor == nil && walletProfileEditor == nil && memoryEditor == nil && taskEditor?.valid == true) else { return false }
         guard circleEditor?.customTypes == nil || workspace == "connect" else { return false }
         guard memoryEditor == nil || (workspace == "memory" && page == "overview" && circleEditor == nil && walletProfileEditor == nil && memoryEditor?.valid == true) else { return false }
@@ -256,6 +300,8 @@ struct NativeWorkspaceProjection: Decodable {
                       row.detail == nil || NativeDrawerProjection.text(row.detail!, 4096), row.trailing == nil || NativeDrawerProjection.text(row.trailing!, 32),
                       row.symbol == nil || NativeDrawerIdentity.identifier(row.symbol!), row.artworkId == nil || NativeDrawerIdentity.identifier(row.artworkId!),
                       row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil else { return false }
+                if let activation = row.sosActivation { guard workspace == "location", ["hold", "countdown"].contains(activation), row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.menuOnTap == nil else { return false } }
+                if row.menuOnTap != nil { guard workspace == "location", row.inlineActions?.contains(where: { $0.placement == "menu" }) == true else { return false } }
                 if row.prominent != nil { guard workspace == "location", row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.avatar == nil, row.formattedText == nil else { return false } }
                 if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil {
                     guard ["feed", "connect", "location"].contains(workspace), row.formattedText == nil, row.options == nil, row.toggle != true else { return false }
@@ -274,7 +320,7 @@ struct NativeWorkspaceProjection: Decodable {
                     guard (1...6).contains(actions.count), actions.filter({ $0.avatar != nil }).count <= 1 else { return false }
                     for action in actions {
                         guard action.valid, ids.insert(action.id).inserted else { return false }
-                        if action.placement != nil { guard workspace == "connect" else { return false } }
+                        if action.placement != nil { guard ["connect", "location"].contains(workspace) else { return false } }
                         if let avatar = action.avatar {
                             avatars += 1; avatarBytes += avatar.jpeg?.utf16.count ?? 0
                             guard workspace == "connect", avatar.active == nil, avatars <= 48, avatarBytes <= 1_920_000 else { return false }
@@ -290,7 +336,7 @@ struct NativeWorkspaceProjection: Decodable {
                     for action in formatted.actionIds { guard ids.insert(action).inserted else { return false } }
                 }
                 if let options = row.options {
-                    guard row.readOnly != true, (2...32).contains(options.count), options.filter(\.selected).count == 1 else { return false }
+                    guard row.readOnly != true, (2...32).contains(options.count), (workspace == "location" && row.toggle != true ? options.filter(\.selected).count <= 1 : options.filter(\.selected).count == 1) else { return false }
                     if row.toggle == true && (options.count != 2 || options[0].label != "On" || options[1].label != "Off") { return false }
                     for option in options { guard NativeDrawerIdentity.identifier(option.id), ids.insert(option.id).inserted, NativeDrawerProjection.text(option.label, 256) else { return false } }
                 } else if row.toggle == true { return false }
@@ -341,6 +387,7 @@ struct NativeWorkspaceProjection: Decodable {
         guard actionToken == nil else { return false }
         if action == "wallet-save" || action == "wallet-cancel" { return walletProfileEditor != nil && walletProfileEditor?.busy == false && row == nil && text == nil && (action == "wallet-cancel" || walletProfileEditor?.canSave == true) }
         if action == "circle-save" || action == "circle-cancel" { return circleEditor != nil && circleEditor?.busy == false && row == nil && text == nil && (action == "circle-cancel" || circleEditor?.canSave == true) }
+        if action == "text-save" || action == "text-cancel" { return textEditor != nil && textEditor?.busy == false && row == nil && text == nil && (action == "text-cancel" || textEditor?.canSave == true) }
         if action == "task-save" || action == "task-cancel" { return taskEditor != nil && taskEditor?.busy == false && row == nil && text == nil && (action == "task-cancel" || taskEditor?.canSave == true) }
         if action == "memory-review" { return memoryEditor?.busy == false && memoryEditor?.canSave == true && row == nil && text == nil }
         if action == "back" { return backEnabled && row == nil }
@@ -499,7 +546,15 @@ private struct NativeWorkspaceRichRow: View {
         }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44).contentShape(Rectangle())
     }
     @ViewBuilder private var primary: some View {
-        if row.readOnly == true { header.accessibilityElement(children: .combine) }
+        if row.menuOnTap == true, let actions = row.inlineActions {
+            Menu {
+                ForEach(actions.filter { $0.placement == "menu" }) { action in
+                    Button(role: action.tone == "danger" ? .destructive : nil) { _ = choose(action.id) } label: { Text(action.label) }
+                        .disabled(!enabled || !row.enabled || row.pending == true || !action.enabled || action.pending == true)
+                }
+            } label: { header }.buttonStyle(.plain).disabled(!enabled || !row.enabled || row.pending == true)
+                .accessibilityLabel(row.label).accessibilityIdentifier("native-workspace-row-\(row.id)")
+        } else if row.readOnly == true { header.accessibilityElement(children: .combine) }
         else {
             Button { _ = choose(row.id) } label: { header }.buttonStyle(.plain)
                 .disabled(!enabled || !row.enabled || row.pending == true)
@@ -518,8 +573,8 @@ private struct NativeWorkspaceRichRow: View {
                 NativeLocationShareSummary(share: share, title: row.label)
             } else if row.avatar?.active != nil, let actions = row.inlineActions {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { primary; ForEach(actions) { decision($0) } }
-                    VStack(alignment: .leading, spacing: 12) { primary; HStack(spacing: 8) { ForEach(actions) { decision($0) } } }
+                    HStack(spacing: 8) { primary; ForEach(actions.filter { $0.placement != "menu" }) { decision($0) } }
+                    VStack(alignment: .leading, spacing: 12) { primary; HStack(spacing: 8) { ForEach(actions.filter { $0.placement != "menu" }) { decision($0) } } }
                 }
             } else { primary }
             if let stage = row.milestone {
@@ -548,7 +603,7 @@ private struct NativeWorkspaceRichRow: View {
     }
     @ViewBuilder private func options(_ actions: [NativeWorkspaceInlineAction]) -> some View {
         let overflow = actions.filter { $0.placement == "menu" }
-        if !overflow.isEmpty {
+        if !overflow.isEmpty && row.menuOnTap != true {
             Menu {
                 ForEach(overflow) { action in
                     Button(role: action.tone == "danger" ? .destructive : nil) { _ = choose(action.id) } label: { Text(action.label) }
@@ -744,6 +799,7 @@ struct NativeWorkspaceAction: Equatable {
     @Published private(set) var state: NativeWorkspaceProjection
     @Published private(set) var pending: NativeWorkspaceAction?
     @Published private(set) var active = true
+    private(set) var navigationForward = true
     var canvasColor: UIColor { HushhNativeControlAppearance.color(state.canvasHex) ?? .systemGroupedBackground }
     var emit: (([String: Any]) -> Void)?
     var emitEdit: ((String, [String: Any]) -> Void)?
@@ -783,9 +839,11 @@ struct NativeWorkspaceAction: Equatable {
         old.clear(); cleared = true
         if dismissed { finish() }
     }
+    private func retireTextEditor() { let old = textEditor; textEditor = nil; retireDraftEditor(old) }
     private func retireMemoryEditor() { let old = memoryEditor; memoryEditor = nil; retireDraftEditor(old) }
     private func retireTaskEditor() { let old = taskEditor; taskEditor = nil; retireDraftEditor(old) }
     private(set) var walletEditor: NativeWalletWorkspaceEditor?
+    @Published private(set) var textEditor: NativeWorkspaceDraftEditor<NativeWorkspaceTextProjection>?
     @Published private(set) var memoryEditor: NativeWorkspaceDraftEditor<NativeWorkspaceMemoryProjection>?
     @Published private(set) var taskEditor: NativeWorkspaceDraftEditor<NativeWorkspaceTaskProjection>?
     var scrolled: ((CGFloat, Bool) -> Void)?
@@ -795,11 +853,17 @@ struct NativeWorkspaceAction: Equatable {
     fileprivate var searchDidSettle: ((NativeWorkspaceAction) -> Void)?
     fileprivate var scrubSearch: (() -> Void)?
     private var sequence = 0; private var confirmed = 0
+    var interactionSequence: Int { sequence }
     @Published private(set) var editor: NativeProfileEditorModel<NativeWorkspaceCircleProjection>?
     private var editorAction: NativeProfileNameAction?
     init(_ state: NativeWorkspaceProjection) { self.state = state; _ = reconcileEditor() }
-    var presentationComplete: Bool { (state.circleEditor == nil || editor?.retired == false) && (state.walletProfileEditor == nil || walletEditor?.model.retired == false) && (state.memoryEditor == nil || memoryEditor?.model.retired == false) && (state.taskEditor == nil || taskEditor?.model.retired == false) && !hasRetiringEditorPresentations }
+    var presentationComplete: Bool { (state.circleEditor == nil || editor?.retired == false) && (state.walletProfileEditor == nil || walletEditor?.model.retired == false) && (state.memoryEditor == nil || memoryEditor?.model.retired == false) && (state.taskEditor == nil || taskEditor?.model.retired == false) && (state.textEditor == nil || textEditor?.model.retired == false) && !hasRetiringEditorPresentations }
     @discardableResult private func reconcileEditor() -> Bool {
+        if let next = state.textEditor {
+            if let textEditor, textEditor.model.projection.destinationId == next.destinationId {
+                if !textEditor.update(NativeWorkspaceTextProjection(state, next)) { return false }
+            } else { retireTextEditor(); textEditor = NativeWorkspaceDraftEditor(NativeWorkspaceTextProjection(state, next), workspace: self, destination: { $0.textEditor?.destinationId }, payload: { $0.event }, actionName: { "text-" + $0 }) }
+        } else { retireTextEditor() }
         if let next = state.memoryEditor {
             if let memoryEditor, memoryEditor.model.projection.destinationId == next.destinationId {
                 if !memoryEditor.update(NativeWorkspaceMemoryProjection(state, next)) { return false }
@@ -856,7 +920,9 @@ struct NativeWorkspaceAction: Equatable {
     }
     func update(_ next: NativeWorkspaceProjection) -> Bool {
         guard acceptsUpdate(next) else { return false }
-        state = next; return reconcileEditor()
+        navigationForward = (next.navigation?.depth ?? 0) >= (state.navigation?.depth ?? 0)
+        state = next
+        return reconcileEditor()
     }
     @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil, editRevision: Int? = nil,
                                    detailVisitId: String? = nil, dismissed: Bool = false, actionToken: String? = nil) -> Bool {
@@ -877,12 +943,13 @@ struct NativeWorkspaceAction: Equatable {
     func confirm(_ action: NativeWorkspaceAction) -> Bool {
         let admitted = action.detailVisitId.map { action.domain == "wallet-detail" && canInteractDetail?($0, action.dismissed == true) == true } ?? (action.domain == nil && canInteract?() == true && state.wallet?.selectedId == nil)
         guard active, admitted, pending == action, action.sequence > confirmed,
-              (action.dismissed == true ? action.updateSequence <= state.updateSequence : action.updateSequence == state.updateSequence),
+              (action.dismissed == true || action.action == "text-cancel" ? action.updateSequence <= state.updateSequence : action.updateSequence == state.updateSequence),
               state.permits(action.action, row: action.row, text: action.text, actionToken: action.actionToken) else { return false }
         if action.action.hasPrefix("circle-") {
             guard let editorAction, editorAction.editRevision == action.editRevision, editor?.confirm(editorAction) == true else { return false }
         }
         if action.action.hasPrefix("wallet-") { guard walletEditor?.confirm(action) == true else { return false } }
+        if action.action.hasPrefix("text-") { guard textEditor?.confirm(action) == true else { return false } }
         if action.action.hasPrefix("task-") { guard taskEditor?.confirm(action) == true else { return false } }
         if action.action == "memory-review" { guard memoryEditor?.confirm(action) == true else { return false } }
         confirmed = action.sequence; return true
@@ -891,6 +958,7 @@ struct NativeWorkspaceAction: Equatable {
     func settle(_ action: NativeWorkspaceAction) -> Bool {
         guard pending == action else { return false }; pending = nil
         if action.action.hasPrefix("wallet-") { walletEditor?.settle() }
+        if action.action.hasPrefix("text-") { textEditor?.settle() }
         if action.action.hasPrefix("task-") { taskEditor?.settle() }
         if action.action == "memory-review" { memoryEditor?.settle() }
         if let editorAction { _ = editor?.settle(editorAction); self.editorAction = nil }
@@ -899,14 +967,66 @@ struct NativeWorkspaceAction: Equatable {
     }
     func clear() {
         retireWalletEditor()
+        retireTextEditor()
         retireMemoryEditor()
         retireTaskEditor()
         active = false; pending = nil; emit = nil; canInteract = nil; canInteractDetail = nil; scrolled = nil; editor?.clear(); editor = nil; emitEdit = nil
         let scrub = scrubSearch; scrubSearch = nil; searchDidSettle = nil; searchOwner = nil; scrub?()
         searchField?.unmarkText(); searchField?.resignFirstResponder(); searchField?.text = ""; searchField?.undoManager?.removeAllActions()
-        state.sections = []; state.calendarDate = nil; state.launcher = nil; state.tabs = nil; state.secondaryTabs = nil; state.search = nil; state.circleEditor = nil; state.wallet = nil; state.walletProfileEditor = nil; state.memoryEditor = nil; state.taskEditor = nil; state.feedback = nil; state.title = ""
+        state.sections = []; state.navigation = nil; state.textEditor = nil; state.calendarDate = nil; state.launcher = nil; state.tabs = nil; state.secondaryTabs = nil; state.search = nil; state.circleEditor = nil; state.wallet = nil; state.walletProfileEditor = nil; state.memoryEditor = nil; state.taskEditor = nil; state.feedback = nil; state.title = ""
     }
 }
+/// Local safety gesture only; the feature's existing trigger remains the sole
+/// authority for recipient refresh, encryption and delivery.
+@available(iOS 26.0, *) private struct NativeLocationSafetyControl: View {
+    let label: String; let mode: String; let enabled: Bool; let revision: () -> Int; let trigger: () -> Bool
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var started: Date?
+    @State private var countdown: Task<Void, Never>?
+    @State private var fired = false
+    @State private var armedRevision: Int?
+    private func cancel() { countdown?.cancel(); countdown = nil; started = nil; armedRevision = nil }
+    private func complete() {
+        guard enabled, scenePhase == .active, !fired, armedRevision == revision() else { cancel(); return }
+        fired = trigger(); cancel()
+    }
+    private func beginCountdown() {
+        guard enabled, !fired else { return }
+        if started != nil { cancel(); return }
+        started = .now; armedRevision = revision()
+        countdown = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            guard !Task.isCancelled else { return }; complete()
+        }
+    }
+    var body: some View {
+        VStack(spacing: 12) {
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: started == nil)) { context in
+                let progress = started.map { min(1, max(0, context.date.timeIntervalSince($0) / 2)) } ?? 0
+                ZStack {
+                    Circle().fill(Color.red.opacity(enabled ? 0.14 : 0.05))
+                    Circle().stroke(Color.red.opacity(0.25), lineWidth: 5)
+                    Circle().trim(from: 0, to: progress).stroke(.red, style: StrokeStyle(lineWidth: 5, lineCap: .round)).rotationEffect(.degrees(-90))
+                    VStack(spacing: 6) { Image(systemName: "sos.circle.fill").font(.system(size: 36)); Text(label).font(.headline).multilineTextAlignment(.center) }.padding(20)
+                }.foregroundStyle(enabled ? .red : .secondary).frame(width: 168, height: 168).contentShape(Circle())
+            }
+            .onLongPressGesture(minimumDuration: 2, maximumDistance: 28, pressing: { pressing in
+                guard mode == "hold" else { return }
+                if pressing && enabled && !fired { started = .now; armedRevision = revision() } else { started = nil }
+            }) { if mode == "hold" { complete() } }
+            .onTapGesture { if mode == "countdown" { beginCountdown() } }
+            .accessibilityElement(children: .ignore).accessibilityLabel(label).accessibilityAddTraits(.isButton)
+            .accessibilityHint(mode == "hold" ? "Hold for two seconds. Release to cancel." : "Starts a two-second countdown. Tap again to cancel.")
+            .accessibilityAction { beginCountdown() }
+            Text(started == nil ? (mode == "hold" ? "Hold for 2 seconds" : "Tap to send · 2 seconds to cancel") : "Release or tap again to cancel")
+                .font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity).padding(20).allowsHitTesting(enabled)
+            .onChange(of: enabled) { _, next in cancel(); if next { fired = false } }
+            .onChange(of: scenePhase) { _, phase in if phase != .active { cancel() } }
+            .onDisappear { cancel() }
+    }
+}
+
 /// Keep the existing row rendering at a concrete SwiftUI boundary so the
 /// section/pager expression does not accumulate every control's generic type.
 @available(iOS 26.0, *)
@@ -914,7 +1034,10 @@ private struct NativeWorkspaceCollectionRow: View {
     let row: NativeDrawerRow
     @ObservedObject var model: NativeWorkspaceModel
     var body: some View {
-        if let formatted = row.formattedText {
+        if let activation = row.sosActivation {
+            NativeLocationSafetyControl(label: row.label, mode: activation, enabled: row.enabled && row.pending != true && model.pending == nil, revision: { model.interactionSequence }) { model.choice("row", row: row.id) }
+                .accessibilityIdentifier("native-workspace-row-\(row.id)")
+        } else if let formatted = row.formattedText {
             NativeMemoryTextBody(text: formatted, enabled: row.enabled && row.pending != true && model.pending == nil) { model.choice("row", row: $0) }
         } else if row.avatar != nil || row.inlineActions != nil || row.locationShare != nil || row.milestone != nil || row.expanded != nil || row.artworkId == "location-share-pulse" {
             NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
@@ -967,7 +1090,7 @@ private struct NativeWorkspaceCollectionRow: View {
                     Text(model.state.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader)
                 }.padding(.horizontal, model.state.frame.gutter).padding(.vertical, 8)
             }
-            if model.state.workspace == "location", model.state.tabs != nil, let header = model.state.sections.first {
+            if model.state.isLocationRoot, let header = model.state.sections.first {
                 NativeLocationHeader(rows: header.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
                     .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
             }
@@ -997,7 +1120,7 @@ private struct NativeWorkspaceCollectionRow: View {
                         NativeWorkspaceMemoryForm(model: memoryEditor.model)
                     }
                     if let launcher = model.state.launcher { NativeWorkspaceAgentRoster(model: model, launcher: launcher) }
-                    ForEach(Array(model.state.sections.enumerated()).filter { !(model.state.workspace == "location" && model.state.tabs != nil && $0.offset == 0) }, id: \.element.id) { sectionIndex, section in
+                    ForEach(Array(model.state.sections.enumerated()).filter { !(model.state.isLocationRoot && $0.offset == 0) }, id: \.element.id) { sectionIndex, section in
                         VStack(alignment: .leading, spacing: 6) {
                             if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
                             if section.layout == "tiles" {
@@ -1015,15 +1138,22 @@ private struct NativeWorkspaceCollectionRow: View {
                             NativeWorkspaceSearchField(model: model, search: search)
                         }
                     }
+                    if let textEditor = model.textEditor { NativeWorkspaceTextForm(model: textEditor.model) }
                 }.id("native-workspace-content-top").padding(.horizontal, model.state.frame.gutter).padding(.top, 8).padding(.bottom, 24 + model.state.frame.bottomClearance)
-            }.scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-workspace-scroll")
+            }.background(Color(uiColor: model.canvasColor))
+                .id(model.state.navigation?.id ?? "workspace-content")
+                .transition(.asymmetric(
+                    insertion: .move(edge: model.navigationForward ? .trailing : .leading),
+                    removal: .move(edge: model.navigationForward ? .leading : .trailing)))
+                .scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-workspace-scroll")
                 .contentMargins(.bottom, model.state.frame.bottomClearance, for: .scrollIndicators)
                 .onScrollPhaseChange { _, phase in scrollingFromPerson = phase == .interacting || phase == .decelerating }
                 .onScrollGeometryChange(for: CGFloat.self, of: { max(0, $0.contentOffset.y + $0.contentInsets.top) }) { _, value in model.scrolled?(value, scrollingFromPerson) }
                 .onChange(of: model.state.sections.first(where: { $0.layout == "cards" })?.rows.first?.id) { _, _ in
                     position.scrollTo("native-workspace-content-top", anchor: .top)
                 }
-            }
+            }.clipped()
+                .animation(UIAccessibility.isReduceMotionEnabled ? nil : .snappy(duration: 0.24), value: model.state.navigation?.id)
             }
         }
         }
@@ -1173,6 +1303,50 @@ struct NativeWorkspaceTabStrip: View {
             }
             if let error = model.projection.error { Text(error).foregroundStyle(.red).accessibilityAddTraits(.updatesFrequently) }
         }.disabled(!model.canEdit)
+    }
+}
+/// Formatting may insert separators before the caret; keep its code-character
+/// position instead of restoring the old UTF-16 offset into the formatted value.
+enum NativeCircleCodeSelection {
+    static func restore(_ old: String, _ next: String, _ range: NSRange) -> NSRange {
+        let previous = Array(old.utf16), formatted = Array(next.utf16)
+        func isCode(_ unit: UInt16) -> Bool { (48...57).contains(unit) || (65...90).contains(unit) || (97...122).contains(unit) }
+        func offset(_ count: Int) -> Int {
+            if count == 0 { return 0 }
+            var seen = 0
+            for (index, unit) in formatted.enumerated() where isCode(unit) {
+                seen += 1; if seen == count { return index + 1 }
+            }
+            return formatted.count
+        }
+        let start = min(range.location, previous.count), end = start + min(range.length, previous.count - start)
+        let mappedStart = offset(previous.prefix(start).filter(isCode).count)
+        let mappedEnd = offset(previous.prefix(end).filter(isCode).count)
+        return NSRange(location: mappedStart, length: max(0, mappedEnd - mappedStart))
+    }
+}
+@available(iOS 26.0, *) private struct NativeWorkspaceTextForm: View {
+    @ObservedObject var model: NativeProfileEditorModel<NativeWorkspaceTextProjection>
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(model.projection.label).font(.subheadline.weight(.medium))
+            NativeProfilePrivateText(model: model, name: "text", label: model.projection.label, maximum: 4096, identifier: "native-location-text",
+                restoreSelection: model.projection.format == "circle-code" ? NativeCircleCodeSelection.restore : nil,
+                autocorrection: model.projection.format == "circle-code" ? .no : .default)
+                .frame(minHeight: 92).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(alignment: .topLeading) {
+                    if model.draft.text.isEmpty { Text(model.projection.placeholder).foregroundStyle(.secondary).padding(16).allowsHitTesting(false).accessibilityHidden(true) }
+                }
+            Text("\(model.draft.text.utf16.count) / \(model.projection.maximum)").font(.caption).foregroundStyle(model.draft.text.utf16.count > model.projection.maximum ? .red : .secondary)
+            if let error = model.projection.error { Text(error).font(.subheadline).foregroundStyle(.red) }
+            Button { model.action("save") } label: {
+                HStack { if model.projection.busy { ProgressView() }; Text(model.projection.submitLabel) }.frame(maxWidth: .infinity).frame(minHeight: 44)
+            }.buttonStyle(.glassProminent).disabled(!model.canSave || model.draft.text.utf16.count > model.projection.maximum).accessibilityIdentifier("native-location-submit")
+            Button { model.action("cancel") } label: {
+                Text(model.projection.cancelLabel).frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain).foregroundStyle(Color(uiColor: model.accent))
+                .disabled(!model.canCancel).accessibilityIdentifier("native-location-cancel")
+        }
     }
 }
 @available(iOS 26.0, *) private struct NativeWorkspaceMemoryForm: View {
@@ -1434,6 +1608,7 @@ struct NativeWorkspaceTabStrip: View {
         host.view.backgroundColor = model.canvasColor
         host.view.frame = model.state.frame.rect; host.view.setNeedsLayout(); host.view.layoutIfNeeded()
         container?.setAdmission(Self.installationID, admitted: model.state.enabled && container?.isolationGeneration == model.state.isolationGeneration)
+        model.textEditor?.model.setPresentationEnabled(model.state.enabled && model.canInteract?() == true)
         model.taskEditor?.model.setPresentationEnabled(model.state.enabled && model.canInteract?() == true)
         model.memoryEditor?.model.setPresentationEnabled(model.state.enabled && model.canInteract?() == true)
     }
@@ -1443,6 +1618,7 @@ struct NativeWorkspaceTabStrip: View {
         let menus = DispatchGroup()
         if let walletPanel { menus.enter(); walletPanel.retire { menus.leave() } }
         if let editor = model.walletEditor { menus.enter(); editor.model.dismissEditorMenus { menus.leave() } }
+        if let editor = model.textEditor { menus.enter(); editor.model.dismissEditorMenus { menus.leave() } }
         if let editor = model.taskEditor { menus.enter(); editor.model.dismissEditorMenus { menus.leave() } }
         if let editor = model.memoryEditor { menus.enter(); editor.model.dismissEditorMenus { menus.leave() } }
         if let editor = model.editor { menus.enter(); editor.dismissEditorMenus { menus.leave() } }

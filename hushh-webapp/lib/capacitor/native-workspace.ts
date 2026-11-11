@@ -44,6 +44,7 @@ export type NativeWorkspaceProjection = NativeWorkspaceIdentity & NativeControlA
   canvasHex?: string;
   updateSequence: number; privacyGeneration: number; isolationGeneration: number; frame: NativeWorkspaceFrame;
   page: "overview" | "rules" | "circle-picker" | "circle-create" | "circle-people";
+  navigation?: { id: string; depth: number };
   title: string; enabled: boolean; backEnabled: boolean;
   sections: readonly NativeDrawerSection[];
   tabs?: { label: string; options: readonly NativeDrawerOption[] };
@@ -56,11 +57,13 @@ export type NativeWorkspaceProjection = NativeWorkspaceIdentity & NativeControlA
   wallet?: NativeWalletCollection;
   feedback?: NativePresentationFeedback;
   walletProfileEditor?: Omit<NativeWorkspaceCircleEditor, "draft"> & { draft: NativeWalletProfileDraft };
+  textEditor?: Omit<NativeWorkspaceCircleEditor, "draft" | "customTypes"> & { draft: NativeWorkspaceTextDraft; label: string; placeholder: string; maximum: number; submitLabel: string; cancelLabel: string; format?: "circle-code" };
   memoryEditor?: Omit<NativeWorkspaceCircleEditor, "draft"> & { draft: NativeWorkspaceMemoryDraft; canToggleIdentifier: boolean; reviewing: boolean };
 };
 export type NativeWorkspaceAgent = { id: string; label: string; description: string; metricValue: string; metricLabel: string; artworkId: string; iconHex: string };
 export type NativeWorkspaceTaskDraft = { title: string; date: string; time: string; notes: string };
 export type NativeWorkspaceCircleDraft = { name: string; kind: "family" | "friends" | "other"; customTypeLabel?: string };
+export type NativeWorkspaceTextDraft = { text: string };
 export type NativeWorkspaceMemoryDraft = { text: string; identifierApproved: boolean };
 export type NativeWorkspaceCircleEditor = {
   destinationId: string; draft: NativeWorkspaceCircleDraft; draftRevision: number; acknowledgedEditRevision: number;
@@ -69,7 +72,7 @@ export type NativeWorkspaceCircleEditor = {
 export type NativeWorkspaceEdit = NativeWorkspaceIdentity & {
   destinationId: string; updateSequence: number; privacyGeneration: number; editRevision: number; composing: boolean; draft: NativeWorkspaceDraft;
 };
-export type NativeWorkspaceDraft = NativeWorkspaceCircleDraft | NativeWalletProfileDraft | NativeWorkspaceMemoryDraft | NativeWorkspaceTaskDraft;
+export type NativeWorkspaceDraft = NativeWorkspaceTextDraft | NativeWorkspaceCircleDraft | NativeWalletProfileDraft | NativeWorkspaceMemoryDraft | NativeWorkspaceTaskDraft;
 export type NativeWorkspaceFinalEdit = NativeWorkspaceEdit & { baseDraftRevision: number };
 export type NativeWorkspaceReceipt = NativeWorkspaceIdentity & {
   updateSequence: number; privacyGeneration: number; layoutRevision: number;
@@ -78,7 +81,7 @@ export type NativeWorkspaceReceipt = NativeWorkspaceIdentity & {
 export type NativeWorkspaceChoice = NativeWorkspaceIdentity & {
   updateSequence: number; privacyGeneration: number; sequence: number;
   domain?: "wallet-detail"; detailVisitId?: string; dismissed?: boolean;
-  action: "row" | "back" | "task-save" | "task-cancel" | "circle-save" | "circle-cancel" | "wallet-save" | "wallet-cancel" | "memory-review" | "feedback-dismiss" | "feedback-action";
+  action: "row" | "back" | "text-save" | "text-cancel" | "task-save" | "task-cancel" | "circle-save" | "circle-cancel" | "wallet-save" | "wallet-cancel" | "memory-review" | "feedback-dismiss" | "feedback-action";
   rowId?: string; text?: string; editRevision?: number; actionToken?: NativeFeedbackActionToken;
 };
 export interface NativeWorkspacePort {
@@ -104,7 +107,7 @@ function validCalendarTimeZone(value: string): boolean {
 }
 export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean {
   if (!value || !closed(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "appearance", "accentHex", "foregroundHex", "canvasHex",
-    "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "taskEditor", "feedback", "launcher", "calendarDate"]) ||
+    "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate"]) ||
     !id(value.documentId) || !id(value.ownerEpoch) || !seq(value.ownerGeneration) || !seq(value.revision) || !["referrals", "wallet", "memory", "consent", "tasks", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup"].includes(value.workspace) ||
     !seq(value.updateSequence) || !Number.isSafeInteger(value.privacyGeneration) || value.privacyGeneration < 0 || !Number.isSafeInteger(value.isolationGeneration) || value.isolationGeneration < 0 ||
     !["light", "dark"].includes(value.appearance) || ![value.accentHex, value.foregroundHex].every(v => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(v)) ||
@@ -120,6 +123,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
       !((f.actionToken === null && f.actionLabel === null) ||
         (f.actionToken === "open-conversation" || f.actionToken === "open-information-request" || f.actionToken === "undo-feed-removal") && text(f.actionLabel, 48))) return false;
   }
+  if (value.navigation !== undefined && (value.workspace !== "location" || !value.navigation || !closed(value.navigation, ["id", "depth"]) || !id(value.navigation.id) || !Number.isInteger(value.navigation.depth) || value.navigation.depth < 0 || value.navigation.depth > 8)) return false;
   const frame = value.frame;
   if (!frame || !closed(frame, ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset", "bottomContentInset"]) ||
     !seq(frame.layoutRevision) || !Object.values(frame).every(Number.isFinite) || frame.x < 0 || frame.y < 0 || frame.width <= 0 || frame.height <= 0 ||
@@ -144,10 +148,12 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     if (!section || !closed(section, ["id", "title", "rows", "layout"]) || !insert(section.id) || section.title !== undefined && !text(section.title, 256) || !Array.isArray(section.rows)) return false;
     if (section.layout !== undefined && (value.workspace !== "location" || !["cards", "tiles"].includes(section.layout) || section.layout === "tiles" && section.rows.length > 3)) return false;
     for (const row of section.rows) {
-      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) ||
+      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) ||
         !insert(row.id) || !text(row.label, 4096) || row.detail !== undefined && !text(row.detail, 4096) || row.trailing !== undefined && !text(row.trailing, 32) ||
         row.symbol !== undefined && !id(row.symbol) || row.artworkId !== undefined && !id(row.artworkId) || row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex) ||
         typeof row.enabled !== "boolean" || [row.chevron, row.destructive, row.selected, row.pending, row.readOnly].some(v => v !== undefined && typeof v !== "boolean")) return false;
+      if (row.sosActivation !== undefined && (value.workspace !== "location" || !["hold", "countdown"].includes(row.sosActivation) || row.readOnly || row.options || row.toggle || row.inlineActions || row.menuOnTap)) return false;
+      if (row.menuOnTap !== undefined && (value.workspace !== "location" || typeof row.menuOnTap !== "boolean" || !row.inlineActions?.some((action: NativeWorkspaceInlineAction) => action.placement === "menu"))) return false;
       if (row.prominent !== undefined && (value.workspace !== "location" || typeof row.prominent !== "boolean" || row.readOnly || row.options || row.toggle || row.inlineActions || row.avatar || row.formattedText)) return false;
       if (row.toggle !== undefined && typeof row.toggle !== "boolean") return false;
       if (row.avatar !== undefined || row.inlineActions !== undefined || row.milestone !== undefined || row.expanded !== undefined) {
@@ -175,7 +181,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
               typeof action.enabled !== "boolean" || action.pending !== undefined && typeof action.pending !== "boolean" ||
               !["primary", "ghost", "danger", "success"].includes(action.tone) || action.symbol !== undefined && !id(action.symbol)) return false;
           if (action.avatar !== undefined && (value.workspace !== "connect" || !admitAvatar(action.avatar))) return false;
-          if (action.placement !== undefined && (value.workspace !== "connect" || action.placement !== "menu")) return false;
+          if (action.placement !== undefined && (!["connect", "location"].includes(value.workspace) || action.placement !== "menu")) return false;
         }
         if (row.inlineActions.filter((action: NativeWorkspaceInlineAction) => action.avatar !== undefined).length > 1) return false;
       }
@@ -201,7 +207,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
       if (row.options !== undefined || row.toggle === true) {
         if (row.readOnly || !Array.isArray(row.options) || row.options.length < 2 || row.options.length > 32) return false;
         for (const option of row.options) if (!option || !closed(option, ["id", "label", "selected"]) || !insert(option.id) || !text(option.label, 256) || typeof option.selected !== "boolean") return false;
-        if (row.options.filter((option: NativeDrawerOption) => option.selected).length !== 1) return false;
+        if ((value.workspace === "location" && !row.toggle ? row.options.filter((option: NativeDrawerOption) => option.selected).length > 1 : row.options.filter((option: NativeDrawerOption) => option.selected).length !== 1)) return false;
         if (row.toggle && (row.options.length !== 2 || row.options[0]?.label !== "On" || row.options[1]?.label !== "Off")) return false;
       }
     }
@@ -267,6 +273,15 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
       !Number.isSafeInteger(e.acknowledgedEditRevision) || e.acknowledgedEditRevision < 0 || typeof e.busy !== "boolean" || typeof e.canSave !== "boolean" ||
       e.error !== null && (typeof e.error !== "string" || e.error.length > 1024)) return false;
   }
+  if (value.textEditor !== undefined) {
+    const e = value.textEditor;
+    if (value.workspace !== "location" || value.page !== "overview" || value.circleEditor || value.walletProfileEditor || value.memoryEditor || value.taskEditor || !e ||
+      !closed(e, ["destinationId", "draft", "draftRevision", "acknowledgedEditRevision", "busy", "canSave", "error", "label", "placeholder", "maximum", "submitLabel", "cancelLabel", "format"]) ||
+      !id(e.destinationId) || !validWorkspaceTextDraft(e.draft) || !seq(e.draftRevision) && e.draftRevision !== 0 || !seq(e.acknowledgedEditRevision) && e.acknowledgedEditRevision !== 0 ||
+      typeof e.busy !== "boolean" || typeof e.canSave !== "boolean" || !(e.error === null || text(e.error, 1024)) ||
+      !text(e.label, 256) || typeof e.placeholder !== "string" || e.placeholder.length > 256 || !text(e.submitLabel, 64) || !text(e.cancelLabel, 64) ||
+      !Number.isInteger(e.maximum) || e.maximum < 1 || e.maximum > 4096 || e.format !== undefined && e.format !== "circle-code") return false;
+  }
   if (value.memoryEditor !== undefined) {
     const e = value.memoryEditor;
     if (value.workspace !== "memory" || value.page !== "overview" || value.circleEditor !== undefined || value.walletProfileEditor !== undefined ||
@@ -287,6 +302,10 @@ export function validWorkspaceTaskDraft(value: unknown): value is NativeWorkspac
   return closed(draft, ["title", "date", "time", "notes"]) && typeof draft.title === "string" && draft.title.length <= 240 &&
     typeof draft.notes === "string" && draft.notes.length <= 1200 && typeof draft.date === "string" && /^(?:|\d{4}-\d{2}-\d{2})$/.test(draft.date) &&
     typeof draft.time === "string" && /^(?:|(?:[01]\d|2[0-3]):[0-5]\d)$/.test(draft.time);
+}
+export function validWorkspaceTextDraft(value: unknown): value is NativeWorkspaceTextDraft {
+  const draft = value as NativeWorkspaceTextDraft;
+  return !!draft && closed(draft, ["text"]) && typeof draft.text === "string" && draft.text.length <= 4096;
 }
 export function validWorkspaceMemoryDraft(value: unknown): value is NativeWorkspaceMemoryDraft {
   const draft = value as NativeWorkspaceMemoryDraft;
@@ -314,6 +333,9 @@ export function workspaceChoiceDomainAllowed(choice: NativeWorkspaceChoice, stat
     if (isolated || choice.detailVisitId !== undefined || choice.dismissed !== undefined) return false;
     if (choice.action === "row" && state.calendarDate && state.calendarDate.id === choice.rowId) return state.workspace === "calendar" &&
       state.calendarDate.enabled && choice.actionToken === undefined && validCalendarDate(choice.text);
+    if (choice.action === "text-save" || choice.action === "text-cancel") return state.workspace === "location" && !!state.textEditor &&
+      !state.textEditor.busy && (choice.action === "text-cancel" || state.textEditor.canSave) && choice.rowId === undefined && choice.text === undefined &&
+      choice.actionToken === undefined && Number.isSafeInteger(choice.editRevision) && (choice.editRevision ?? -1) >= 0;
     if (choice.action === "task-save" || choice.action === "task-cancel") return state.workspace === "tasks" && !!state.taskEditor &&
       !state.taskEditor.busy && (choice.action === "task-cancel" || state.taskEditor.canSave) && choice.rowId === undefined && choice.text === undefined &&
       choice.actionToken === undefined && Number.isSafeInteger(choice.editRevision) && (choice.editRevision ?? -1) >= 0;

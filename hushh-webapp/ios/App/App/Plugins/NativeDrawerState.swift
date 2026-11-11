@@ -96,6 +96,8 @@ struct NativeDrawerRow: Codable, Identifiable {
     var avatar: NativeWorkspaceAvatar? = nil
     var inlineActions: [NativeWorkspaceInlineAction]? = nil
     var locationShare: NativeWorkspaceLocationShare? = nil
+    var menuOnTap: Bool? = nil
+    var sosActivation: String? = nil
     var milestone: Int? = nil
     var expanded: Bool? = nil
 }

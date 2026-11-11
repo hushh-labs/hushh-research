@@ -206,6 +206,100 @@ describe("private route-body presentation boundary", () => {
     } finally { view.unmount(); }
   });
 
+  it("reconciles a retiring Location text visit without overwriting its reopened successor", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    publishValidatedAuthSessionOwner("synthetic-location-owner");
+    bridge.documentId = crypto.randomUUID(); profile.pathname = "/";
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    document.documentElement.style.setProperty("--background", "#ffffff");
+    const seat = document.createElement("div"); seat.dataset.nativeWorkspaceSeat = "true"; seat.style.paddingBottom = "0px"; document.body.append(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true, routeWorkspaces: ["location"], ...nativeDrawerIsolation() });
+    drawerBridge.applyWorkspace.mockImplementation(async state => ({ ...state, layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.retireWorkspace.mockImplementation(async state => ({ ...state, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0, phase: "retired", settled: true }));
+    function Form({ open }: { open: boolean }) {
+      const presentation = useNativeWorkspacePresentation(), frame = useRef<HTMLDivElement>(null);
+      const [text, setText] = useState("");
+      return <><output data-testid="retained-text">{text}</output><NativeWorkspaceSurface owner="synthetic-location-owner" workspace="location" active current={() => true}
+        backPath="/" presentation={presentation} frame={frame} title="Synthetic field" sections={[]} fallback={null}
+        textEditor={open ? { key: "code", label: "Invite code", placeholder: "Code", maximum: 14, submitLabel: "Review", value: text, normalize: value => value.toUpperCase(), change: setText, submit: () => {}, cancel: () => {} } : undefined} /></>;
+    }
+    const view = render(<Form open />);
+    const latest = () => drawerBridge.applyWorkspace.mock.calls.at(-1)![0];
+    const emit = (state: NativeWorkspaceProjection, text: string, editRevision: number, final = false) => {
+      const { documentId, ownerEpoch, ownerGeneration, revision, workspace, updateSequence, privacyGeneration } = state;
+      const e = state.textEditor!;
+      act(() => drawerBridge.listeners.get(final ? "workspaceFinalEdit" : "workspaceEdit")?.forEach(callback => callback({ documentId, ownerEpoch, ownerGeneration, revision, workspace, updateSequence, privacyGeneration,
+        destinationId: e.destinationId, editRevision, composing: false, draft: { text }, ...(final ? { baseDraftRevision: e.draftRevision } : {}) })));
+    };
+    try {
+      await waitFor(() => expect(latest().textEditor).toBeDefined());
+      emit(latest(), "ab", 1);
+      await waitFor(() => expect(latest().textEditor?.draft.text).toBe("AB"));
+      expect(latest().textEditor?.canSave).toBe(true);
+      const retiring = latest();
+      view.rerender(<Form open={false} />);
+      await waitFor(() => expect(latest().textEditor).toBeUndefined());
+      emit(retiring, "abc", 2, true);
+      expect(view.getByTestId("retained-text")).toHaveTextContent("ABC");
+      view.rerender(<Form open />);
+      await waitFor(() => expect(latest().textEditor).toBeDefined());
+      const successor = latest();
+      expect(successor.textEditor?.destinationId).not.toBe(retiring.textEditor?.destinationId);
+      emit(retiring, "stale", 3, true);
+      expect(view.getByTestId("retained-text")).toHaveTextContent("ABC");
+      emit(successor, "next", 1);
+      await waitFor(() => expect(latest().textEditor?.draft.text).toBe("NEXT"));
+      expect(drawerBridge.retireWorkspace).not.toHaveBeenCalled();
+    } finally { view.unmount(); seat.remove(); vi.stubGlobal("ResizeObserver", originalObserver); await nativeWorkspaceRetirementBarrier(); }
+  });
+
+  it.each([false, true])("keeps text Cancel through an acknowledgement-time update, but rejects a successor: %s", async successor => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    publishValidatedAuthSessionOwner("synthetic-cancel-owner");
+    bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    document.documentElement.style.setProperty("--background", "#ffffff");
+    const seat = document.createElement("div"); seat.dataset.nativeWorkspaceSeat = "true"; seat.style.paddingBottom = "0px"; document.body.append(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true, routeWorkspaces: ["location"], ...nativeDrawerIsolation() });
+    drawerBridge.applyWorkspace.mockImplementation(async state => ({ ...state, layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.retireWorkspace.mockImplementation(async state => ({ ...state, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0, phase: "retired", settled: true }));
+    const admission = deferred<{ valid: boolean }>(), cancel = vi.fn();
+    drawerBridge.confirmWorkspaceChoice.mockImplementation(() => admission.promise);
+    drawerBridge.settleWorkspaceChoice.mockResolvedValue({ valid: true });
+    function Form({ updated = false }: { updated?: boolean }) {
+      const phase = useNativeWorkspace({ owner: "synthetic-cancel-owner", current: () => true, back: () => {},
+        content: { workspace: "location", page: "overview", title: updated ? "Updated clearance" : "Message", enabled: true, backEnabled: false, sections: [] },
+        actions: new Map(), editorKind: "text", editor: { destinationId: updated && successor ? "successor" : "visit", current: () => true,
+          draft: { text: "Unsaved draft" }, busy: false, error: null, canSave: false, inputRevision: () => 0, mutationPending: () => false,
+          changeDraft: () => true, save: async () => false, onCancel: cancel,
+          textLabels: { label: "Message", placeholder: "Optional", maximum: 80, submitLabel: "Done", cancelLabel: "Cancel" } } });
+      return <output>{phase}</output>;
+    }
+    const view = render(<Form />);
+    try {
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      const state = drawerBridge.applyWorkspace.mock.calls.at(-1)![0];
+      const choice = { documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration, revision: state.revision,
+        workspace: state.workspace, updateSequence: state.updateSequence, privacyGeneration: state.privacyGeneration, sequence: 1, action: "text-cancel", editRevision: 0 };
+      act(() => drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback(choice)));
+      await waitFor(() => expect(drawerBridge.confirmWorkspaceChoice).toHaveBeenCalledOnce());
+      view.rerender(<Form updated />);
+      await waitFor(() => expect(drawerBridge.applyWorkspace.mock.calls.at(-1)![0].updateSequence).toBeGreaterThan(state.updateSequence));
+      await act(async () => { admission.resolve({ valid: true }); });
+      await waitFor(() => expect(drawerBridge.settleWorkspaceChoice).toHaveBeenCalledOnce());
+      expect(cancel).toHaveBeenCalledTimes(successor ? 0 : 1);
+      expect(drawerBridge.retireWorkspace).not.toHaveBeenCalled();
+    } finally { admission.resolve({ valid: false }); view.unmount(); seat.remove(); vi.stubGlobal("ResizeObserver", originalObserver); await nativeWorkspaceRetirementBarrier(); }
+  });
+
   it("keeps an uncertain route retirement fenced until exact native absence is read back", async () => {
     const identity = { documentId: "public-retirement-document", ownerEpoch: "public-retirement-owner",
       ownerGeneration: 1, revision: 1, workspace: "referrals" as const };
@@ -669,6 +763,16 @@ describe("private route-body presentation boundary", () => {
     const location: NativeWorkspaceProjection = { ...rich, workspace: "location", sections: [{ id: "people", layout: "cards",
       rows: [{ ...row, milestone: undefined, avatar: { initials: "PA", verified: true, active: true } }] }] };
     expect(validNativeWorkspace(location)).toBe(true);
+    const textEditor = { destinationId: "text-visit", draft: { text: "Draft" }, draftRevision: 0, acknowledgedEditRevision: 0, busy: false, canSave: true, error: null,
+      label: "Message", placeholder: "Optional", maximum: 120, submitLabel: "Done", cancelLabel: "Back" };
+    const editing = { ...location, textEditor, navigation: { id: "location-note", depth: 4 } };
+    expect(validNativeWorkspace(editing)).toBe(true);
+    expect(validNativeWorkspace({ ...editing, textEditor: { ...textEditor, format: "circle-code" } })).toBe(true);
+    expect(validNativeWorkspace({ ...editing, textEditor: { ...textEditor, format: "unknown" } } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...editing, workspace: "feed" })).toBe(false);
+    expect(validNativeWorkspace({ ...editing, textEditor: { ...textEditor, draft: { text: "x", credential: "forbidden" } } } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...editing, navigation: { id: "location-note", depth: 9 } })).toBe(false);
+    expect(validNativeWorkspace({ ...editing, textEditor: { ...textEditor, maximum: 4097 } })).toBe(false);
     const sharing = { ...location, sections: [{ id: "sharing", rows: [{ id: "active", label: "Sharing with 2 people", enabled: true, readOnly: true,
       locationShare: { count: 2, singleGrant: false, people: [{ initials: "PA" }, { initials: "PB" }], audience: { locationCount: 2, smsCount: 1, bothCount: 1 } },
       inlineActions: [{ id: "manage", label: "Manage", enabled: true, tone: "ghost" as const }] }] }] };

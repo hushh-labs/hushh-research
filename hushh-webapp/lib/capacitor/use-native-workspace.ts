@@ -15,13 +15,13 @@ import { nativeDrawers, nativeDrawerAcknowledged, subscribeNativeDrawerIsolation
 import { nativePrivacyCanInteract, nativePrivacyObservation, subscribeNativePrivacyObservation } from "./session-privacy";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "../vault/session-epoch";
 import { nativeColorTokenHex, useNativeControlAppearance } from "./native-control-appearance";
-import { workspaceChoiceDomainAllowed, nativeWorkspaceFrameFromAnchors, sameNativeWorkspace, validNativeWorkspace, validWorkspaceCircleDraft, validWorkspaceMemoryDraft, validWorkspaceTaskDraft, type NativeWorkspaceTaskDraft, workspaceAcknowledged, type NativeWorkspaceIdentity, type NativeWorkspaceFrame, type NativeWorkspaceProjection, type NativeWorkspaceReceipt, type NativeWorkspaceChoice, type NativeWorkspacePort, type NativeWorkspaceCircleDraft, type NativeWorkspaceMemoryDraft, type NativeWorkspaceEdit, type NativeWorkspaceFinalEdit } from "./native-workspace";
+import { workspaceChoiceDomainAllowed, nativeWorkspaceFrameFromAnchors, sameNativeWorkspace, validNativeWorkspace, validWorkspaceCircleDraft, validWorkspaceMemoryDraft, validWorkspaceTaskDraft, validWorkspaceTextDraft, type NativeWorkspaceTextDraft, type NativeWorkspaceTaskDraft, workspaceAcknowledged, type NativeWorkspaceIdentity, type NativeWorkspaceFrame, type NativeWorkspaceProjection, type NativeWorkspaceReceipt, type NativeWorkspaceChoice, type NativeWorkspacePort, type NativeWorkspaceCircleDraft, type NativeWorkspaceMemoryDraft, type NativeWorkspaceEdit, type NativeWorkspaceFinalEdit } from "./native-workspace";
 import type { PrivateProfileEditorModel } from "./native-profile-private-editor";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "./native-navigation";
 
-export type NativeWorkspaceContent = Pick<NativeWorkspaceProjection, "workspace" | "page" | "title" | "enabled" | "backEnabled" | "sections" | "tabs" | "secondaryTabs" | "search" | "wallet" | "launcher" | "calendarDate">;
-type WorkspaceDraft = NativeWorkspaceCircleDraft | NativeWalletProfileDraft | NativeWorkspaceMemoryDraft | NativeWorkspaceTaskDraft;
-export type WorkspaceEditor<D extends WorkspaceDraft> = PrivateProfileEditorModel<D> & { destinationId: string; onSaved: () => void; onCancel: () => void; customTypes?: readonly string[]; canToggleIdentifier?: boolean; reviewing?: boolean; onReview?: () => Promise<void> };
+export type NativeWorkspaceContent = Pick<NativeWorkspaceProjection, "workspace" | "navigation" | "page" | "title" | "enabled" | "backEnabled" | "sections" | "tabs" | "secondaryTabs" | "search" | "wallet" | "launcher" | "calendarDate">;
+type WorkspaceDraft = NativeWorkspaceTextDraft | NativeWorkspaceCircleDraft | NativeWalletProfileDraft | NativeWorkspaceMemoryDraft | NativeWorkspaceTaskDraft;
+export type WorkspaceEditor<D extends WorkspaceDraft> = PrivateProfileEditorModel<D> & { destinationId: string; onSaved?: () => void; readDraft?: () => D; finalCurrent?: () => boolean; reconcileFinal?: (draft: D, expectedRevision: number) => boolean; onCancel: () => void; customTypes?: readonly string[]; canToggleIdentifier?: boolean; reviewing?: boolean; onReview?: () => Promise<void>; textLabels?: Pick<NonNullable<NativeWorkspaceProjection["textEditor"]>, "label" | "placeholder" | "maximum" | "submitLabel" | "cancelLabel" | "format"> };
 let nextRevision = 0, nextLayout = 0;
 
 export function useNativeWorkspacePresentation() {
@@ -36,7 +36,7 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
   owner: string; content: NativeWorkspaceContent; actions: ReadonlyMap<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>;
   back: () => void; current: () => boolean;
   editor?: WorkspaceEditor<D>;
-  editorKind?: "circle" | "wallet-profile" | "memory" | "task";
+  editorKind?: "circle" | "wallet-profile" | "memory" | "task" | "text";
   onRetirementOwner?: (revoke: () => Promise<boolean>) => void;
   contentFrame?: RefObject<HTMLElement | null>;
   presentationOwner?: NativeWorkspacePresentationOwner;
@@ -226,9 +226,9 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
         // native, including its identifier-processing approval.
         const acceptedMemoryDraft = accepted.draft as NativeWorkspaceMemoryDraft | undefined;
         const renderedMemoryDraft = editor.draft as NativeWorkspaceMemoryDraft;
-        const reviewDraftCommitted = editorKind !== "memory" || !accepted.draft ||
+        const reviewDraftCommitted = !["memory", "text"].includes(editorKind) || !accepted.draft ||
           acceptedMemoryDraft?.text === renderedMemoryDraft.text &&
-          acceptedMemoryDraft.identifierApproved === renderedMemoryDraft.identifierApproved;
+          (editorKind === "text" || acceptedMemoryDraft.identifierApproved === renderedMemoryDraft.identifierApproved);
         memoryDraftCommitted = reviewDraftCommitted;
         circleEditor = { destinationId: editor.destinationId, draft: { ...draft }, draftRevision, acknowledgedEditRevision: accepted.revision,
           canSave: editor.canSave && !accepted.composing && reviewDraftCommitted, busy: editor.busy, error: editor.error,
@@ -236,7 +236,7 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
       }
       const canvasHex = nativeColorTokenHex("--background");
       const next = boundNativeWalletArtwork({ ...identity, ...value.appearance, ...value.content, ...(canvasHex ? { canvasHex } : {}), ...(feedback && feedbackVisible(feedback.key) ? { feedback: feedback.message } : {}), frame, privacyGeneration: generation, isolationGeneration: nativeDrawerIsolation().generation,
-        ...(circleEditor ? editorKind === "circle" ? { circleEditor: circleEditor as NativeWorkspaceProjection["circleEditor"] } : editorKind === "wallet-profile" ? { walletProfileEditor: circleEditor as NativeWorkspaceProjection["walletProfileEditor"] } : editorKind === "task" ? { taskEditor: circleEditor as NativeWorkspaceProjection["taskEditor"] } : { memoryEditor: { ...circleEditor, canToggleIdentifier: value.editor?.canToggleIdentifier === true && memoryDraftCommitted, reviewing: value.editor?.reviewing === true } as NativeWorkspaceProjection["memoryEditor"] } : {}) });
+        ...(circleEditor ? editorKind === "circle" ? { circleEditor: circleEditor as NativeWorkspaceProjection["circleEditor"] } : editorKind === "wallet-profile" ? { walletProfileEditor: circleEditor as NativeWorkspaceProjection["walletProfileEditor"] } : editorKind === "task" ? { taskEditor: circleEditor as NativeWorkspaceProjection["taskEditor"] } : editorKind === "text" ? { textEditor: { ...circleEditor, ...value.editor?.textLabels } as NativeWorkspaceProjection["textEditor"] } : { memoryEditor: { ...circleEditor, canToggleIdentifier: value.editor?.canToggleIdentifier === true && memoryDraftCommitted, reviewing: value.editor?.reviewing === true } as NativeWorkspaceProjection["memoryEditor"] } : {}) });
       const key = JSON.stringify(next); // Private replica, never diagnostics.
       if (key === fingerprint) return;
       fingerprint = key; desired = { ...next, updateSequence: ++sequence };
@@ -251,9 +251,9 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
       if (!sameNativeWorkspace(event, identity) || event.privacyGeneration !== generation || !Number.isSafeInteger(event.editRevision) || event.editRevision < 0 ||
         Object.keys(event).some(key => !keys.includes(key)) ||
         !Number.isSafeInteger(event.updateSequence) || event.updateSequence <= 0 || event.updateSequence > sequence || typeof event.composing !== "boolean" ||
-        !(editorKind === "circle" ? validWorkspaceCircleDraft(event.draft) : editorKind === "wallet-profile" ? validNativeWalletProfileDraft(event.draft) : editorKind === "task" ? validWorkspaceTaskDraft(event.draft) : validWorkspaceMemoryDraft(event.draft)) || !nativeDrawerOwnerIsCurrent(base) || snapshotVaultSessionEpoch() !== vaultEpoch) return;
+        !(editorKind === "circle" ? validWorkspaceCircleDraft(event.draft) : editorKind === "wallet-profile" ? validNativeWalletProfileDraft(event.draft) : editorKind === "task" ? validWorkspaceTaskDraft(event.draft) : editorKind === "text" ? validWorkspaceTextDraft(event.draft) : validWorkspaceMemoryDraft(event.draft)) || !nativeDrawerOwnerIsCurrent(base) || snapshotVaultSessionEpoch() !== vaultEpoch) return;
       const accepted = edits.get(event.destinationId);
-      if (!accepted || accepted.discarded || !accepted.model.current() || event.editRevision <= accepted.revision) return;
+      if (!accepted || accepted.discarded || !(final ? (accepted.model.finalCurrent ?? accepted.model.current)() : accepted.model.current()) || event.editRevision <= accepted.revision) return;
       if (!final && (!isCurrent() || live.current.editor?.destinationId !== event.destinationId)) return;
       const revision = accepted.model.inputRevision();
       if (!final) {
@@ -262,9 +262,9 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
       }
       if (final && (!("baseDraftRevision" in event) || event.composing || !Number.isSafeInteger(event.baseDraftRevision) ||
         revision !== event.baseDraftRevision && revision !== accepted.modelRevision)) return;
-      if (!accepted.model.changeDraft(event.draft as D, revision)) return;
+      if (!(final && accepted.model.reconcileFinal ? accepted.model.reconcileFinal(event.draft as D, revision) : accepted.model.changeDraft(event.draft as D, revision))) return;
       accepted.revision = event.editRevision; accepted.modelRevision = accepted.model.inputRevision(); accepted.composing = event.composing;
-      accepted.draft = { ...event.draft } as D;
+      accepted.draft = { ...(accepted.model.readDraft?.() ?? event.draft) } as D;
       // Composition-only changes need an explicit acknowledgement too. Keep
       // the model's current draft in the replica until React's next commit.
       if (active) setAcknowledgement(value => value + 1);
@@ -283,7 +283,14 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
         const admission = await nativeDrawerAcknowledged(port.confirmWorkspaceChoice(choice));
         const terminalDismissal = choice.dismissed === true && choice.domain === "wallet-detail" && choice.rowId === state.wallet?.closeId &&
           choice.detailVisitId === state.wallet?.detailVisitId && desired?.wallet?.detailVisitId === choice.detailVisitId && live.current.content.wallet?.detailVisitId === choice.detailVisitId;
-        if (admission.valid && isCurrent() && (terminalDismissal || applied === state && desired === state && state.updateSequence === choice.updateSequence) &&
+        // Keyboard clearance may publish while acknowledgement is in flight.
+        // Discard belongs to the same editor lifetime, not that layout snapshot.
+        const currentTextCancellation = () => choice.action === "text-cancel" && !!state.textEditor &&
+          choice.updateSequence <= (applied?.updateSequence ?? 0) &&
+          live.current.editor?.destinationId === state.textEditor.destinationId &&
+          applied?.textEditor?.destinationId === state.textEditor.destinationId &&
+          desired?.textEditor?.destinationId === state.textEditor.destinationId;
+        if (admission.valid && isCurrent() && (terminalDismissal || currentTextCancellation() || applied === state && desired === state && state.updateSequence === choice.updateSequence) &&
           nativeDrawerIsolation().generation === isolationGeneration && workspaceChoiceDomainAllowed(choice, state, nativeDrawerIsolation().isolated) && !nativeShellOverlayBlocked()) {
           if (choice.action === "feedback-dismiss" && typeof choice.rowId === "string" && choice.rowId === state.feedback?.id) {
             dismissNativeSinkFeedback(choice.rowId, "user");
@@ -298,12 +305,13 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
             // The existing Memory owner fences late review results when the
             // draft changes. Settle this native tap without locking editing.
             void editor.onReview().catch(() => { if (isCurrent()) console.warn("NATIVE_MEMORY_REVIEW_FAILED"); });
-          } else if (choice.action === "circle-save" || choice.action === "circle-cancel" || choice.action === "wallet-save" || choice.action === "wallet-cancel" || choice.action === "task-save" || choice.action === "task-cancel") {
+          } else if (choice.action === "text-save" || choice.action === "text-cancel" || choice.action === "circle-save" || choice.action === "circle-cancel" || choice.action === "wallet-save" || choice.action === "wallet-cancel" || choice.action === "task-save" || choice.action === "task-cancel") {
             const editor = live.current.editor, accepted = editor && edits.get(editor.destinationId);
-            if (!editor?.current() || !accepted || accepted.composing || accepted.revision !== choice.editRevision || editor.mutationPending()) return;
-            if (choice.action === "circle-cancel" || choice.action === "wallet-cancel" || choice.action === "task-cancel") { accepted.discarded = true; editor.onCancel(); }
+            if (!editor?.current() || !accepted || editor.mutationPending() ||
+                choice.action !== "text-cancel" && (accepted.composing || accepted.revision !== choice.editRevision)) return;
+            if (choice.action === "text-cancel" || choice.action === "circle-cancel" || choice.action === "wallet-cancel" || choice.action === "task-cancel") { accepted.discarded = true; editor.onCancel(); }
             else if (editor.canSave && await editor.save() && isCurrent() && live.current.editor?.destinationId === editor.destinationId) {
-              accepted.discarded = true; live.current.editor.onSaved();
+              accepted.discarded = true; live.current.editor.onSaved?.();
             }
           } else {
             const callback = choice.action === "back" && state.backEnabled ? () => live.current.back() : choice.action === "row" && choice.rowId ? live.current.actions.get(choice.rowId) : undefined;

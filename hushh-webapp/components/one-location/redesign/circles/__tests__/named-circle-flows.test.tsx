@@ -33,6 +33,18 @@ import type {
   OneLocationCircleMemberPage,
 } from "@/lib/one-location/types";
 
+const nativeLocation = vi.hoisted(() => ({ enabled: false, layer: null as null | {
+  sections: import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceSection[];
+  confirmation?: import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceConfirmation;
+  textEditor?: import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceTextEditor;
+} }));
+vi.mock("@/components/one-location/redesign/native-location-workspace", () => ({
+  useNativeLocationEnabled: () => nativeLocation.enabled,
+  useNativeLocationClose: () => undefined,
+  NativeLocationLayer: (props: { children: import("react").ReactNode; sections: NonNullable<typeof nativeLocation.layer>["sections"]; confirmation?: NonNullable<typeof nativeLocation.layer>["confirmation"]; textEditor?: NonNullable<typeof nativeLocation.layer>["textEditor"] }) => { if (nativeLocation.enabled) nativeLocation.layer = props; return props.children; },
+}));
+afterEach(() => { nativeLocation.enabled = false; nativeLocation.layer = null; });
+
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
@@ -3678,3 +3690,29 @@ async function openCirclePeoplePicker() {
   fireEvent.click(await screen.findByTestId("one-location-circle-add-people-row"));
   await screen.findByRole("dialog", { name: "Add people" });
 }
+
+describe("native Circle capability and scope", () => {
+  it("excludes Trusted rename and drops an old Circle confirmation on reentry", async () => {
+    nativeLocation.enabled = true;
+    const props = detailProps(async id => ({ ...circle(id, id === "trusted" ? "Trusted" : "Family"), systemKind: id === "trusted" ? "trusted" : undefined }));
+    const view = render(<CircleDetailFlow circleId="trusted" {...props} />);
+    const rows = () => nativeLocation.layer?.sections.flatMap(section => section.rows) ?? [];
+    await waitFor(() => expect(rows().some(row => row.label === "Trusted")).toBe(true));
+    expect(rows().some(row => row.key === "rename")).toBe(false);
+    view.rerender(<CircleDetailFlow circleId="family" {...props} />);
+    await waitFor(() => expect(rows().some(row => row.key === "rename")).toBe(true));
+    act(() => { void rows().find(row => row.key === "rename")!.run!(); });
+    act(() => { nativeLocation.layer!.textEditor!.change("Unsaved draft"); });
+    act(() => { nativeLocation.layer!.textEditor!.cancel(); });
+    act(() => { void rows().find(row => row.key === "rename")!.run!(); });
+    expect(nativeLocation.layer!.textEditor!.value).toBe("Family");
+    act(() => { nativeLocation.layer!.textEditor!.cancel(); });
+    expect(props.onRename).not.toHaveBeenCalled();
+    act(() => { void rows().find(row => row.key === "leave-delete")!.run!(); });
+    await waitFor(() => expect(nativeLocation.layer?.confirmation?.title).toContain("Family"));
+    view.rerender(<CircleDetailFlow circleId="next" {...props} />);
+    await waitFor(() => expect(nativeLocation.layer?.confirmation).toBeUndefined());
+    expect(props.onDelete).not.toHaveBeenCalled();
+    expect(props.onLeave).not.toHaveBeenCalled();
+  });
+});

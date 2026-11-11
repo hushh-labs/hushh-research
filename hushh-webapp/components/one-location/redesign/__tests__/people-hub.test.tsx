@@ -16,7 +16,9 @@ import type {
 const native = vi.hoisted(() => ({ active: false, sections: [] as import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceSection[] }));
 vi.mock("@/components/one-location/redesign/native-location-workspace", () => ({
   useNativeLocationPaneActive: () => native.active,
-  NativeLocationLayer: ({ sections, children }: { sections: typeof native.sections; children: import("react").ReactNode }) => { native.sections = sections; return children; },
+  useNativeLocationEnabled: () => native.active,
+  useNativeLocationClose: () => undefined,
+  NativeLocationLayer: ({ sections, children, when }: { sections: typeof native.sections; children: import("react").ReactNode; when?: boolean }) => { if (when !== false) native.sections = sections; return children; },
 }));
 beforeEach(() => { native.active = false; native.sections = []; });
 

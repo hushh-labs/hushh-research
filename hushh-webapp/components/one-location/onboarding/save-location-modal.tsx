@@ -1,5 +1,8 @@
 "use client";
 
+import { NativeLocationLayer, useNativeLocationEnabled } from "../redesign/native-location-workspace";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   useCallback,
   useEffect,
@@ -549,6 +552,9 @@ export function SaveLocationModal({
   onSave,
   onSkip,
 }: SaveLocationModalProps) {
+  const native = useNativeLocationEnabled();
+  const [nativeField, setNativeField] = useState<"address" | "house" | "landmark" | "label" | null>(null);
+  useEffect(() => { if (!open) setNativeField(null); }, [open]);
   // Native Maps draws below the WebView, so the picker surface is transparent.
   // Isolate the entire saving task from persistent chrome, including native
   // controls, and release only this modal's suppression when it closes.
@@ -1036,6 +1042,34 @@ export function SaveLocationModal({
     }
   };
 
+  const nativeStage = open && native && flowStep !== "map" && (!startWithMapPicker || flowStep === "details");
+  const closeNativeField = () => { if (nativeField === "address") setAddressTouched(true); setNativeField(null); };
+  useBackLayer(ROUTES.ONE_LOCATION, nativeStage ? nativeField ? 5 : 4 : 0, () => {
+    if (!interactionBusy) { if (nativeField) closeNativeField(); else handleSurfaceOpenChange(false); }
+    return true;
+  });
+  const fields = {
+    address: { label: "Address", placeholder: "Enter the address", maximum: 300, value: effectiveAddressLine, change: setAddressLineValue },
+    house: { label: "House or flat", placeholder: "Optional", maximum: 80, value: addressDetails.houseOrFlat, change: (value: string) => updateAddressDetail("houseOrFlat", value) },
+    landmark: { label: "Landmark", placeholder: "Optional", maximum: 100, value: addressDetails.landmark, change: (value: string) => updateAddressDetail("landmark", value) },
+    label: { label: "Place name", placeholder: "Name this place", maximum: 40, value: customLabel, change: setCustomLabel },
+  };
+  const field = nativeField ? fields[nativeField] : null;
+  const nativeSections = field ? [] : [
+    { key: "place", rows: [{ key: "category", label: "Save as", enabled: !interactionBusy, choices: (["home", "work", "other"] as const).map(value => ({ key: value, label: value === "home" ? "Home" : value === "work" ? "Work" : "Other", selected: category === value, run: () => setCategory(value) })) },
+      ...(category === "other" ? [{ key: "label", label: "Place name", detail: customLabel || "Other", enabled: !interactionBusy, run: () => setNativeField("label") }] : []),
+      { key: "address", label: "Address · Required", detail: effectiveAddressLine || (loadingAddress ? "Finding address…" : "Enter the address"), enabled: !interactionBusy, run: () => setNativeField("address") },
+      ...(collectAddressDetails ? [{ key: "house", label: "House or flat", detail: addressDetails.houseOrFlat || "Optional", enabled: !interactionBusy, run: () => setNativeField("house") }, { key: "landmark", label: "Landmark", detail: addressDetails.landmark || "Optional", enabled: !interactionBusy, run: () => setNativeField("landmark") }] : []),
+      ...(canPickOnMap ? [{ key: "pin", label: "Edit pin on map", enabled: !interactionBusy, web: true, run: () => goToSlide(0) }] : []),
+    ] },
+    { key: "save", rows: [
+      ...(saveBlockedReason ? [{ key: "save-blocked", label: saveBlockedReason }] : []),
+      { key: "save", label: saveLabel, prominent: true, enabled: canSave, pending: interactionBusy, run: handleSave },
+      { key: "cancel", label: "Cancel", enabled: !interactionBusy, run: () => handleSurfaceOpenChange(false) },
+    ] },
+  ];
+  const renderNative = (children: ReactNode) => <NativeLocationLayer overlay nested when={nativeStage} title={field?.label ?? "Address details"} navigationDepth={field ? 6 : 5} viewKey={`saved-location:${nativeField ?? "details"}`} sections={nativeSections}
+    textEditor={field ? { key: `place-${nativeField}`, ...field, busy: interactionBusy, submitLabel: "Done", cancelLabel: "Back", submit: closeNativeField, cancel: closeNativeField } : undefined}>{children}</NativeLocationLayer>;
   // Settings uses the shared sheet/dialog layer and backdrop. Onboarding's
   // portalled surface must additionally clear the full-screen takeover.
   const surfaceOverlayClassName = cn(
@@ -2017,7 +2051,7 @@ export function SaveLocationModal({
    */
   if (sheetPresentation) {
     return (
-      <Sheet open={open} modal onOpenChange={handleSurfaceOpenChange}>
+      renderNative(<Sheet open={open && !nativeStage} modal onOpenChange={handleSurfaceOpenChange}>
         <SheetContent
           data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
           side="bottom"
@@ -2049,12 +2083,12 @@ export function SaveLocationModal({
         >
           {surfaceChildren}
         </SheetContent>
-      </Sheet>
+      </Sheet>)
     );
   }
 
   return (
-    <Dialog open={open} modal onOpenChange={handleSurfaceOpenChange}>
+    renderNative(<Dialog open={open && !nativeStage} modal onOpenChange={handleSurfaceOpenChange}>
       <DialogContent
         data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
         showCloseButton={false}
@@ -2085,6 +2119,6 @@ export function SaveLocationModal({
       >
         {surfaceChildren}
       </DialogContent>
-    </Dialog>
+    </Dialog>)
   );
 }

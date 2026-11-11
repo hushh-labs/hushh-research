@@ -1078,6 +1078,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(NativeWorkspaceProjection.closed(object))
     }
 
+    @MainActor
     func testRichWorkspaceDecisionsRejectDisabledDuplicateAndNullInputs() throws {
         var row: [String: Any] = ["id": "record", "label": "Public activity", "enabled": true, "readOnly": true,
             "avatar": ["initials": "PA"], "milestone": 2,
@@ -1141,6 +1142,38 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(NativeWorkspaceProjection.closed(object))
         share.removeValue(forKey: "startedAt")
         share["audience"] = ["locationCount": 1, "smsCount": 0, "bothCount": 1]; row["locationShare"] = share
+        XCTAssertFalse(try projection().valid)
+        row = ["id": "note", "label": "Message", "enabled": true, "readOnly": true]
+        object["navigation"] = ["id": "location-note", "depth": 4]
+        var textEditor: [String: Any] = ["destinationId": "text-visit", "draft": ["text": "Synthetic note"], "draftRevision": 0,
+            "acknowledgedEditRevision": 0, "canSave": true, "busy": false, "error": NSNull(), "label": "Message", "placeholder": "Optional",
+            "maximum": 120, "submitLabel": "Done", "cancelLabel": "Back"]
+        object["textEditor"] = textEditor
+        XCTAssertTrue(NativeWorkspaceProjection.closed(object))
+        XCTAssertTrue(try projection().valid)
+        XCTAssertTrue(try projection().permits("text-save", row: nil))
+        XCTAssertEqual(NativeCircleCodeSelection.restore("abcde", "ABCD-E", NSRange(location: 5, length: 0)), NSRange(location: 6, length: 0))
+        XCTAssertEqual(NativeCircleCodeSelection.restore("ABCD-eF", "ABCD-EF", NSRange(location: 6, length: 0)), NSRange(location: 6, length: 0))
+        XCTAssertEqual(NativeCircleCodeSelection.restore("ABCD-", "ABCD", NSRange(location: 5, length: 0)), NSRange(location: 4, length: 0))
+        let initialText = try projection()
+        let model = NativeWorkspaceModel(initialText)
+        model.canInteract = { true }
+        model.textEditor?.model.action("cancel")
+        let cancel = try XCTUnwrap(model.pending)
+        object["updateSequence"] = 2
+        XCTAssertTrue(model.update(try projection()))
+        XCTAssertTrue(model.confirm(cancel))
+        let replaced = NativeWorkspaceModel(initialText)
+        replaced.canInteract = { true }
+        replaced.textEditor?.model.action("cancel")
+        let staleCancel = try XCTUnwrap(replaced.pending)
+        textEditor["destinationId"] = "successor-visit"; object["textEditor"] = textEditor
+        XCTAssertTrue(replaced.update(try projection()))
+        XCTAssertFalse(replaced.confirm(staleCancel))
+        object["workspace"] = "feed"
+        XCTAssertFalse(try projection().valid)
+        object["workspace"] = "location"
+        textEditor["maximum"] = 4097; object["textEditor"] = textEditor
         XCTAssertFalse(try projection().valid)
     }
 

@@ -8,10 +8,10 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { nativeFeedbackToast } from "./native-feedback";
-import { useNativeWorkspace, useNativeWorkspacePresentation } from "./use-native-workspace";
+import { useNativeWorkspace, useNativeWorkspacePresentation, type WorkspaceEditor } from "./use-native-workspace";
 import { useNativeWorkspaceHandoff } from "./use-native-workspace-handoff";
 import { nativePersonInitials, useNativeWorkspacePortraits } from "@/components/app-ui/use-native-workspace-portraits";
-import type { NativeWorkspaceChoice, NativeWorkspaceIdentity } from "./native-workspace";
+import type { NativeWorkspaceChoice, NativeWorkspaceIdentity, NativeWorkspaceTextDraft } from "./native-workspace";
 import type { NativeWorkspaceLocationShare } from "./native-drawers";
 import { useNativeShellOverlayBlocked } from "./native-navigation";
 
@@ -19,16 +19,22 @@ export type NativeWorkspaceSurfaceRow = { key: string; label: string; detail?: s
   enabled?: boolean; pending?: boolean; selected?: boolean; destructive?: boolean; prominent?: boolean; symbol?: string;
   artworkId?: string; iconHex?: string; trailing?: string;
   person?: { name: string; photoUrl?: string | null; verified?: boolean; active?: boolean };
+  menuOnTap?: boolean;
+  sosActivation?: "hold" | "countdown";
   locationShare?: Omit<NativeWorkspaceLocationShare, "people"> & { people: { name: string; photoUrl?: string | null }[] };
-  inlineActions?: (Pick<NativeWorkspaceSurfaceRow, "key" | "label" | "run" | "web" | "enabled" | "pending" | "symbol"> & { tone: "primary" | "ghost" | "danger" | "success" })[];
+  inlineActions?: (Pick<NativeWorkspaceSurfaceRow, "key" | "label" | "run" | "web" | "enabled" | "pending" | "symbol"> & { tone: "primary" | "ghost" | "danger" | "success"; placement?: "menu" })[];
   toggle?: { value: boolean; change: (value: boolean) => unknown };
   choices?: { key: string; label: string; selected: boolean; run: () => unknown }[] };
 export type NativeWorkspaceSurfaceSection = { key: string; title?: string; layout?: "cards" | "tiles"; rows: NativeWorkspaceSurfaceRow[] };
 export type NativeWorkspaceSurfaceConfirmation = { title: string; description: string; confirm: NativeWorkspaceSurfaceRow; cancel: () => unknown; cancelLabel: string };
+export type NativeWorkspaceSurfaceTextEditor = { key: string; label: string; placeholder: string; maximum: number; value: string;
+  submitLabel: string; cancelLabel?: string; format?: "circle-code"; busy?: boolean; enabled?: boolean; error?: string | null;
+  normalize?: (value: string) => string; change: (value: string) => void; submit: () => unknown; cancel: () => void };
 type SurfaceProps = {
   owner: string; workspace: NativeWorkspaceIdentity["workspace"]; active: boolean; current: () => boolean; backPath: string;
   presentation: ReturnType<typeof useNativeWorkspacePresentation>; frame: RefObject<HTMLDivElement | null>;
-  title: string; sections: NativeWorkspaceSurfaceSection[];
+  contentKey?: string; depth?: number;
+  title: string; sections: NativeWorkspaceSurfaceSection[]; textEditor?: NativeWorkspaceSurfaceTextEditor;
   /** Keep the complete authored presentation until native can express its visuals. */
   contentPresentation?: "native" | "rich";
   tabs?: { label: string; options: { key: string; label: string; selected: boolean; run: () => unknown }[] };
@@ -121,9 +127,9 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
   ])));
   const sections = projected.filter(section => section.rows.length).map(section => ({ id: handles(`section:${section.key}`), title: section.title, ...(section.layout ? { layout: section.layout } : {}),
     rows: section.rows.map(row => {
-      const id = handles(`row:${row.key}`);
+      const id = handles(`row:${props.contentKey ?? "root"}:${row.key}`);
       const options = row.toggle ? ([true, false] as const).map(value => {
-        const optionId = handles(`row:${row.key}:${value}`);
+        const optionId = handles(`row:${props.contentKey ?? "root"}:${row.key}:${value}`);
         actions.set(optionId, () => {
           if (current() && row.enabled !== false && !row.pending && row.toggle && row.toggle.value !== value)
             return row.web ? props.runWeb(section.key, row.key, value) : row.toggle.change(value) as void | Promise<unknown>;
@@ -131,21 +137,21 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
         });
         return { id: optionId, label: value ? "On" : "Off", selected: row.toggle!.value === value };
       }) : row.choices?.map(choice => {
-        const optionId = handles(`row:${row.key}:choice:${choice.key}`);
+        const optionId = handles(`row:${props.contentKey ?? "root"}:${row.key}:choice:${choice.key}`);
         actions.set(optionId, () => current() && row.enabled !== false && !row.pending && !choice.selected ? choice.run() as void | Promise<unknown> : undefined);
         return { id: optionId, label: choice.label, selected: choice.selected };
       });
       if (row.run) actions.set(id, () => { if (current() && row.enabled !== false && !row.pending) return row.web ? props.runWeb(section.key, row.key) : row.run!() as void | Promise<unknown>; });
       return { id, label: row.label, detail: row.detail ?? row.choices?.find(choice => choice.selected)?.label, enabled: row.enabled !== false, pending: row.pending, selected: row.selected,
-        destructive: row.destructive, ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
+        destructive: row.destructive, ...(row.sosActivation ? { sosActivation: row.sosActivation } : {}), ...(row.menuOnTap !== undefined ? { menuOnTap: row.menuOnTap } : {}), ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
         ...(row.person ? { avatar: { initials: nativePersonInitials(row.person.name), verified: row.person.verified === true, ...(row.person.active !== undefined ? { active: row.person.active } : {}), ...(portraits.get(row.key) ? { jpeg: portraits.get(row.key) } : {}) } } : {}),
         ...(row.locationShare ? { locationShare: { ...row.locationShare, people: row.locationShare.people.map((person, index) => ({ initials: nativePersonInitials(person.name),
           ...(portraits.get(`${row.key}:share:${index}`) ? { jpeg: portraits.get(`${row.key}:share:${index}`) } : {}) })) } } : {}),
         ...(row.inlineActions?.length ? { inlineActions: row.inlineActions.map(action => {
-          const actionId = handles(`row:${row.key}:action:${action.key}`);
+          const actionId = handles(`row:${props.contentKey ?? "root"}:${row.key}:action:${action.key}`);
           actions.set(actionId, () => { if (current() && row.enabled !== false && !row.pending && action.enabled !== false && !action.pending)
             return action.web ? props.runWeb(section.key, action.key) : action.run?.() as void | Promise<unknown>; });
-          return { id: actionId, label: action.label, enabled: action.enabled !== false, pending: action.pending, tone: action.tone, symbol: action.symbol };
+          return { id: actionId, label: action.label, enabled: action.enabled !== false, pending: action.pending, tone: action.tone, symbol: action.symbol, ...(action.placement ? { placement: action.placement } : {}) };
         }) } : {}), ...(options ? { ...(row.toggle ? { toggle: true } : {}), options } : {}), ...(!row.run && !options ? { readOnly: true } : {}) };
     }),
   }));
@@ -158,12 +164,46 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
   if (props.search) actions.set(searchId, choice => { if (current() && typeof choice.text === "string") live.current.search?.change(choice.text); });
   const dateId = handles(`date:${props.calendarDate?.key}`);
   if (props.calendarDate) actions.set(dateId, choice => { if (current() && live.current.calendarDate?.enabled && typeof choice.text === "string") live.current.calendarDate.change(choice.text); });
+  // Retain accepted edits until the feature's matching React render arrives.
+  // All ordering, final-edit reconciliation and retirement stay in useNativeWorkspace.
+  const input = useRef({ key: "", rendered: "", value: "", revision: 0, visit: 0 });
+  const text = props.confirmation ? undefined : props.textEditor;
+  if (input.current.key !== (text?.key ?? "")) input.current = { key: text?.key ?? "", rendered: text?.value ?? "", value: text?.value ?? "", revision: 0, visit: input.current.visit + 1 };
+  else if (input.current.rendered !== (text?.value ?? "")) {
+    input.current.rendered = text?.value ?? "";
+    if (input.current.value !== input.current.rendered) { input.current.value = input.current.rendered; input.current.revision++; }
+  }
+  const textKey = text?.key, replica = input.current, visit = replica.visit;
+  const editor: WorkspaceEditor<NativeWorkspaceTextDraft> | undefined = text && !confirmation ? {
+    destinationId: handles(`editor:${text.key}:${visit}`), current: () => current() && input.current.visit === visit && live.current.textEditor?.key === textKey,
+    draft: { text: text.value }, busy: text.busy === true, error: text.error ?? null, canSave: text.enabled !== false && text.value.length <= text.maximum,
+    inputRevision: () => replica.revision, readDraft: () => ({ text: replica.value }), mutationPending: () => live.current.textEditor?.busy === true,
+    changeDraft: (draft, expected) => {
+      const currentEditor = live.current.textEditor;
+      if (!current() || !currentEditor || input.current.visit !== visit || currentEditor.key !== textKey || expected !== undefined && expected !== input.current.revision) return false;
+      const next = currentEditor.normalize?.(draft.text) ?? draft.text;
+      if (input.current.value !== next) { input.current.value = next; input.current.revision++; currentEditor.change(next); }
+      return true;
+    },
+    // A retiring editor may commit its final IME edit after the feature has
+    // returned to its parent. It must never overwrite a successor visit.
+    finalCurrent: () => current() && (input.current === replica || input.current.key !== textKey),
+    reconcileFinal: (draft, expected) => {
+      if (!current() || input.current !== replica && input.current.key === textKey || replica.revision !== expected) return false;
+      const next = text.normalize?.(draft.text) ?? draft.text;
+      if (replica.value !== next) { replica.value = next; replica.revision++; text.change(next); }
+      return true;
+    },
+    save: async () => { await live.current.textEditor?.submit(); return false; },
+    onCancel: () => live.current.textEditor?.cancel(),
+    textLabels: { label: text.label, placeholder: text.placeholder, maximum: text.maximum, submitLabel: text.submitLabel, cancelLabel: text.cancelLabel ?? "Cancel", ...(text.format ? { format: text.format } : {}) },
+  } : undefined;
   const phase = useNativeWorkspace({ owner: props.owner, content: {
-    workspace: props.workspace, page: "overview", title: props.title, enabled: true, backEnabled: false, sections,
+    workspace: props.workspace, ...(props.contentKey ? { navigation: { id: handles(`page:${props.contentKey}`), depth: props.depth ?? 0 } } : {}), page: "overview", title: props.title, enabled: true, backEnabled: false, sections,
     ...(props.tabs && options && !confirmation ? { tabs: { label: props.tabs.label, options } } : {}),
     ...(props.search && !confirmation ? { search: { id: searchId, query: props.search.query, label: props.search.label, live: true } } : {}),
     ...(props.calendarDate && !confirmation ? { calendarDate: { id: dateId, label: props.calendarDate.label, value: props.calendarDate.value, timeZone: props.calendarDate.timeZone, enabled: props.calendarDate.enabled } } : {}),
-  }, actions, current, back: () => {}, contentFrame: props.frame, presentationOwner: props.presentation.owner,
+  }, editor, editorKind: "text", actions, current, back: () => {}, contentFrame: props.frame, presentationOwner: props.presentation.owner,
     active: pathname === props.backPath, activationRevision: props.activationRevision });
   return <div aria-busy={phase !== "native"} data-native-feature-workspace={phase} />;
 }

@@ -35,6 +35,8 @@ export type NativeDrawerRow = {
   avatar?: NativeWorkspaceAvatar;
   inlineActions?: readonly NativeWorkspaceInlineAction[];
   locationShare?: NativeWorkspaceLocationShare;
+  menuOnTap?: boolean;
+  sosActivation?: "hold" | "countdown";
   milestone?: number;
   expanded?: boolean;
   symbol?: string;
