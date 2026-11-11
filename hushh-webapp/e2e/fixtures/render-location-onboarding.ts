@@ -23,6 +23,7 @@ export async function buildOnboardingFixture() {
     "@/components/app-ui/native-test-beacon": "export const NativeTestBeacon = () => null;",
     "@/lib/observability/client": "export const trackEvent = () => {}; export const toDurationBucket = () => 'fast'; export const trackApiRequestCompleted = () => {}; export const trackCacheResourceResolved = () => {}; export const trackWarmupCompleted = () => {}; export const trackRouteReadinessCompleted = () => {}; export const trackRouteRefreshCompleted = () => {};",
     "@/lib/observability/growth": "export const trackLocationFunnelStepCompleted = () => {}; export const trackLocationActivationCompleted = () => {};",
+    "../redesign/native-location-workspace": "export const useNativeLocationEnabled = () => false; export const NativeLocationLayer = ({ children }) => children;",
   };
   try {
   await build({
