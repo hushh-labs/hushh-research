@@ -850,9 +850,9 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
   return (
     <AppPageShell width="agent" fitContent>
       <div className={styles.page} data-calendar-profile={calendarPresentation || undefined} data-native-route="native-route-person-profile">
-        <PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />
         <PersonProfileHero
           profile={profile}
+          network={<PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />}
           shareOnly={!viewerProfile}
           status={relationship?.status === "connected" && viewerProfile?.relationship.status === "connected" ? (
             <DropdownMenu>
