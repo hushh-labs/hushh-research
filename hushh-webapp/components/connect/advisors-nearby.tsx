@@ -294,8 +294,7 @@ export function AdvisorsNearby({
         >
           <Button
             type="button"
-            variant="none"
-            effect="fill"
+            variant="plain"
             size="sm"
             onClick={() => setQuery("")}
           >
@@ -369,8 +368,7 @@ export function AdvisorsNearby({
           ) : null}
           <Button
             type="button"
-            variant="none"
-            effect="fill"
+            variant="plain"
             size="sm"
             disabled={loadingMore}
             onClick={() => {

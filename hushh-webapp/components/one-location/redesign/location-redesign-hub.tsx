@@ -2280,13 +2280,13 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
+      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
         <RowLabel
           as="span"
-          className="min-w-0"
+          className="min-w-0 underline-offset-4 group-hover:underline"
         >
           {title}
         </RowLabel>
@@ -3368,7 +3368,7 @@ function LocationSettingsFlow({
               secondary={
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="link"
                   size="standard"
                   className={QUIET_FLOW_ACTION_CLASSNAME}
                   disableHoverRipple
@@ -3634,8 +3634,7 @@ export function PersonRow({
           {onShare ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={shareReady ? onShare : onShareUnavailable}
               disableHoverRipple
@@ -3655,8 +3654,7 @@ export function PersonRow({
           {onAsk ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onAsk}
               className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
@@ -4632,8 +4630,7 @@ export function PublicLinkActionRows({
       <div className="flex flex-wrap items-center gap-2" data-testid="public-link-actions">
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onShare}
           size="compact"
           className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
@@ -4645,8 +4642,7 @@ export function PublicLinkActionRows({
         </MorphyButton>
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={handleCopy}
           disabled={copyBusy}
           aria-busy={copyBusy || undefined}
@@ -4694,8 +4690,7 @@ function ActiveLinkRow({
       trailing={
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onCopy}
           size="compact"
           className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "shrink-0")}
@@ -5433,7 +5428,7 @@ function ShareFlow({
             }
             secondary={
               <Button
-                variant="ghost"
+                variant="link"
                 size="standard"
                 onClick={() => onClose()}
                 className={QUIET_FLOW_ACTION_CLASSNAME}
@@ -5725,7 +5720,7 @@ function LiveShareDurationEditor({
         }
         secondary={
           <Button
-            variant="ghost"
+            variant="link"
             size="standard"
             className={QUIET_FLOW_ACTION_CLASSNAME}
             disableHoverRipple
@@ -6322,7 +6317,7 @@ function AskFlow({
               }
               secondary={
                 <Button
-                  variant="ghost"
+                  variant="link"
                   size="standard"
                   onClick={() => onClose()}
                   className={QUIET_FLOW_ACTION_CLASSNAME}
@@ -6655,8 +6650,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
         <div className="grid grid-cols-2 gap-2.5" data-testid="circle-invite-actions">
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onShareCircleInvite}
@@ -6668,8 +6662,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
           </MorphyButton>
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onCopyCircleInvite}
