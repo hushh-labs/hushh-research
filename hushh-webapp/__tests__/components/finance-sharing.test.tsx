@@ -11,7 +11,7 @@ vi.mock("@/lib/services/finance-sharing-service", () => ({ FinanceSharingService
 vi.mock("@/lib/finance-sharing/saved-source", () => ({ readSavedFinance: mocks.saved }));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: ({ open, title, children, footer }: { open: boolean; title: string; children: ReactNode; footer?: ReactNode }) => open ? <section role="dialog" aria-label={title}><h1>{title}</h1>{children}{footer}</section> : null }));
 vi.mock("@/components/app-ui/shell-action-surface", () => ({ ShellActionSurface: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button disabled={disabled} onClick={onClick}>{children}</button> }));
-vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection }: { projection: unknown }) => <pre>{JSON.stringify(projection)}</pre> }));
+vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection, section }: { projection: unknown; section?: string }) => !section || section === "portfolio" ? <pre>{JSON.stringify(projection)}</pre> : null }));
 import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharedDetail } from "@/components/kai/sharing/finance-shared-detail";
