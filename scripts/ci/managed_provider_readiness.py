@@ -141,6 +141,66 @@ def payload(entry):
     return value if isinstance(value, dict) else {}
 
 
+def _valid_scoped_core(core, provider, expected, document, policies):
+    """Verify the completed model and policy for each scope in the fleet job."""
+    if (
+        not isinstance(core, dict)
+        or core.get("schema") != "managed_text_probe.v2"
+        or core.get("provider") != provider
+        or core.get("ready") is not True
+        or core.get("config_fingerprint") != expected["config_fingerprint"]
+        or not isinstance(core.get("scopes"), dict)
+        or set(core["scopes"]) != SCOPES
+        or not all(policies.values())
+    ):
+        return False
+    contract = _runtime_contract()
+    profile = document["environments"]["uat"]
+    for scope, policy in policies.items():
+        row = core["scopes"][scope]
+        binding_hash = fingerprint(
+            {
+                "policy": policy,
+                "project": profile["project"],
+                "locations": profile["text_locations"],
+            }
+        )
+        if row != {
+            "ready": True,
+            "provider": policy["provider"],
+            "model": policy["model"],
+            "location": profile["text_locations"][0],
+            "policy_generation": contract.text_policy_generation(
+                document["private_drive_text_uat"], policy["provider"], policy
+            ),
+            "binding_fingerprint": binding_hash,
+        }:
+            return False
+    planner = core.get("activity_planner")
+    if not isinstance(planner, dict):
+        return False
+    manifest = json.loads(
+        (ROOT / "consent-protocol/config/readiness-exam-manifest.v1.json").read_text()
+    )
+    cases = [
+        case["input"]["probe_case"]
+        for case in manifest["cases"]
+        if case["stage"] == "managed_text.activity_planner"
+    ]
+    rows = planner.get("cases")
+    return (
+        planner.get("schema") == "drive.activity_planner.probe.v1"
+        and planner.get("passed") is True
+        and planner.get("provider") == policies["drive_document_requests"]["provider"]
+        and planner.get("drive_calls") == 0
+        and planner.get("per_item_model_calls") == 0
+        and bool(cases)
+        and isinstance(rows, list)
+        and all(isinstance(row, dict) and row.get("passed") is True for row in rows)
+        and [row.get("case") for row in rows] == cases
+    )
+
+
 def valid_core(core, provider, expected, document):
     environment = expected["environment"]
     if environment != "uat":
@@ -165,6 +225,15 @@ def valid_core(core, provider, expected, document):
             and core.get("models") == [profile["text_model"]]
             and core.get("locations") == profile["text_locations"]
         )
+    if any(key in document for key in ("drive_text_uat", "one_chat_text_uat")):
+        contract = _runtime_contract()
+        policies = {
+            scope: contract.load_scoped_text_policy(
+                scope, environment="uat", document=document
+            )
+            for scope in SCOPES
+        }
+        return _valid_scoped_core(core, provider, expected, document, policies)
     if isinstance(core, dict) and core.get("schema") == "azure_managed_text_legacy.v1":
         return (
             expected.get("legacy_exception") is True
