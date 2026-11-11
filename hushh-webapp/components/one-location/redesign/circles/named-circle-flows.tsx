@@ -2732,7 +2732,6 @@ export function CircleDetailFlow({
 
           {canViewInviteCode ? (
             <SettingsGroup
-              title="Invite"
               separatorInset
               shellClassName="!rounded-[18px]"
               testId="one-location-circle-invite-card"
