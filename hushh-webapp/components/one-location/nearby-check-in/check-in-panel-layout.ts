@@ -152,7 +152,7 @@ export const CHECK_IN_STAR_TARGET_CLASSNAME =
  * follows the reader's accent preference like every other affordance.
  */
 export const CHECK_IN_STAR_GLYPH_ON_CLASSNAME =
-  "h-7 w-7 fill-current text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]";
+  "h-7 w-7 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]";
 
 export const CHECK_IN_STAR_GLYPH_OFF_CLASSNAME = "h-7 w-7 text-muted-foreground/50";
 

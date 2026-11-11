@@ -841,46 +841,49 @@ function ReadyScreen({
                       className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                       data-testid="onboarding-join-circle-preview"
                     >
-                      <p data-location-type-role="row-title" className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
+                      <p data-location-type-role="row-title" className="break-words text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
                         {joinPreview.name}
                       </p>
-                      <p data-location-type-role="row-description" className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                      <p data-location-type-role="row-description" className="mt-1 break-words text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
                         {joinPreview.ownerDisplayName} &middot;{" "}
                         {joinPreview.memberCount}{" "}
                         {joinPreview.memberCount === 1 ? "person" : "people"}
                       </p>
-                      {!joinPreview.alreadyMember ? (
-                        <button data-location-type-role="primary-action"
-                          type="button"
-                          onClick={onAcceptJoinCode}
-                          disabled={joinBusy || leaving}
-                          className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
-                        >
-                          {joinBusy ? (
-                            <Loader2
-                              className="h-4 w-4 animate-spin"
-                              aria-hidden
-                            />
-                          ) : null}
-                          Join {joinPreview.name}
-                        </button>
-                      ) : (
+                      {joinPreview.alreadyMember ? (
                         <p data-location-type-role="row-description" className="mt-3 text-[13px] text-muted-foreground">
                           Already in this circle.
                         </p>
-                      )}
-                      <button data-location-type-role="primary-action"
-                        type="button"
-                        onClick={onClearJoinPreview}
-                        disabled={joinBusy || leaving}
-                        className="press-scale mt-2 min-h-11 w-full text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50"
-                        data-testid="onboarding-join-circle-reset"
-                      >
-                        Use a different code
-                      </button>
+                      ) : null}
+                      <div className="mx-auto mt-3 flex w-full max-w-[224px] flex-col gap-2">
+                        {!joinPreview.alreadyMember ? (
+                          <button data-location-type-role="primary-action"
+                            type="button"
+                            onClick={onAcceptJoinCode}
+                            disabled={joinBusy || leaving}
+                            className="press-scale inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] px-3 text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                          >
+                            {joinBusy ? (
+                              <Loader2
+                                className="h-4 w-4 shrink-0 animate-spin"
+                                aria-hidden
+                              />
+                            ) : null}
+                            Join circle
+                          </button>
+                        ) : null}
+                        <button data-location-type-role="primary-action"
+                          type="button"
+                          onClick={onClearJoinPreview}
+                          disabled={joinBusy || leaving}
+                          className="press-scale min-h-11 w-full px-3 text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50"
+                          data-testid="onboarding-join-circle-reset"
+                        >
+                          Use a different code
+                        </button>
+                      </div>
                     </div>
                   ) : (
-                    <div className="flex gap-2">
+                    <div className="grid gap-2 min-[420px]:grid-cols-[minmax(0,1fr)_auto]">
                       <input data-location-type-exception="invitation-code"
                         value={joinCode}
                         onChange={(event) =>
@@ -894,13 +897,13 @@ function ReadyScreen({
                         aria-describedby={
                           joinError ? "onboarding-join-code-error" : undefined
                         }
-                        className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                        className="h-11 w-full min-w-0 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                       />
                       <button data-location-type-role="utility-action"
                         type="button"
                         onClick={onPreviewJoinCode}
                         disabled={joinBusy || !joinCode.trim() || leaving}
-                        className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-4 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                        className="press-scale inline-flex min-h-11 max-w-full items-center justify-center gap-2 justify-self-center rounded-full border border-[#d5d9df] bg-white px-4 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                       >
                         {joinBusy ? (
                           <Loader2
@@ -908,7 +911,7 @@ function ReadyScreen({
                             aria-hidden
                           />
                         ) : null}
-                        Look up
+                        Preview circle
                       </button>
                     </div>
                   )}

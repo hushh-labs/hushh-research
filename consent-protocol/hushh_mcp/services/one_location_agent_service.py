@@ -69,10 +69,12 @@ from hushh_mcp.services.one_location_share_lifecycle import (
     _share_duration_change_direction,
 )
 from hushh_mcp.services.people_search_sql import (
+    TYPED_DIRECTORY_IGNORED_CHARS,
     directory_contact_match_params,
     directory_search_rank,
     mask_directory_phone,
     people_query_match_params,
+    typed_directory_name_query,
 )
 from hushh_mcp.services.push_tokens_service import (
     PUSH_SMS_DEVICES_FOR_USER_SQL,
@@ -4775,6 +4777,7 @@ class OneLocationAgentService:
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
         name_only: bool = False,
+        typed_search: bool = False,
         verified_email_lookup: list[str] | None = None,
         mutual_target_user_id: str | None = None,
         network_user_ids: list[str] | None = None,
@@ -4790,6 +4793,8 @@ class OneLocationAgentService:
 
         Contact fragments follow the existing name tiers. ``name_only`` keeps
         voice/chat person resolution independent of email and phone matches.
+        ``typed_search`` enables literal name fragments and spacing variants
+        in Find people. Email searches in that field include an @.
 
         A named, active profile with a current enabled auth account is eligible
         when EITHER its active ``vault_keys`` row has ``environment_enrolled_at``
@@ -4880,8 +4885,19 @@ class OneLocationAgentService:
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
         raw_query = (query or "").strip().lower()
-        contact_params = directory_contact_match_params(raw_query, name_only=name_only)
+        contact_params = directory_contact_match_params(
+            raw_query, name_only=name_only, typed_search=typed_search
+        )
         needle = " ".join(raw_query.translate(_DIRECTORY_SEPARATOR_FOLD).split())
+        typed_name_sql = None
+        typed_name_params: dict[str, str] = {}
+        typed_query = typed_directory_name_query(raw_query) if typed_search else None
+        if typed_query is not None:
+            needle, compact = typed_query
+            typed_name_sql = "LOWER(a.display_name)"
+            if compact:
+                typed_name_sql = "TRANSLATE(LOWER(a.display_name), :typed_name_separators, '')"
+                typed_name_params["typed_name_separators"] = TYPED_DIRECTORY_IGNORED_CHARS
 
         def match_rank(row: dict[str, Any]) -> int | None:
             return directory_search_rank(
@@ -4891,6 +4907,7 @@ class OneLocationAgentService:
                 phone_number=row.get("phone_number"),
                 phone_verified=bool(row.get("phone_verified")),
                 name_only=name_only,
+                typed_search=typed_search,
             )
 
         target = (candidate_user_id or "").strip() or None
@@ -4997,6 +5014,7 @@ class OneLocationAgentService:
             all_tokens_match_sql=all_tokens_match_sql,
             verified_email_clause=verified_email_clause,
             mutual_filter_clause=mutual_filter_clause,
+            typed_name_sql=typed_name_sql,
         )
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
@@ -5010,6 +5028,7 @@ class OneLocationAgentService:
             "missing_names_only": False,
             "query": needle,
             **contact_params,
+            **typed_name_params,
             "exact_name": needle,
             "name_prefix": name_prefix_pattern,
             "word_prefix": word_prefix_pattern,
