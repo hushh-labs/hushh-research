@@ -3428,7 +3428,8 @@
         "target": "connect.open_people"
       },
       "control_ids": [
-        "one-connect-discovery"
+        "one-connect-discovery",
+        "network-find-people"
       ],
       "state_exposure": [
         "active connect tab",

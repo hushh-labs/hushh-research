@@ -14,6 +14,8 @@ const PEOPLE = [
   { publicPersonRef: "44444444-4444-4444-8444-444444444444", displayName: "Second Degree Person", photoUrl: null, networkDegree: 2 },
   { publicPersonRef: "55555555-5555-4555-8555-555555555555", displayName: "Third Degree Person", photoUrl: null, networkDegree: 3 },
 ];
+const SUGGESTED = { publicPersonRef: "66666666-6666-4666-8666-666666666666", displayName: "Priya Anand", photoUrl: null, networkDegree: null };
+const findPerson = (personRef: string) => [...PEOPLE, SUGGESTED].find(person => person.publicPersonRef === personRef);
 export class ConnectionsServiceRequestError extends Error { status = 500; }
 const requests = new Set<string>();
 function rowMetadata(person: typeof PEOPLE[number]) {
@@ -30,8 +32,8 @@ export const ConnectionsService = {
     return { person: { ...person, userId, email: null, relationship: "connected" }, request: null };
   },
   getNetworkSummary: async ({ personRef }: { personRef: string }) => {
-    const person = PEOPLE.find(p => p.publicPersonRef === personRef) ?? PEOPLE[0];
-    const mutuals = PEOPLE.filter(p => p.networkDegree === 1 && p !== person);
+    const person = findPerson(personRef) ?? PEOPLE[0];
+    const mutuals = person.networkDegree ? PEOPLE.filter(p => p.networkDegree === 1 && p !== person) : [];
     return { person, networkDegree: person.networkDegree, mutualConnectionCount: person.networkDegree === 3 ? 0 : person.networkDegree === 2 ? 1 : mutuals.length,
       mutualConnectionPreview: person.networkDegree === 2 ? PEOPLE[1] : mutuals[0], canBrowseConnections: person.networkDegree === 1 };
   },
@@ -40,9 +42,12 @@ export const ConnectionsService = {
     items: PEOPLE.filter(p => p.networkDegree === 1 && p.publicPersonRef !== personRef).map(rowMetadata),
     totalCount: 2, page: 1, hasMore: false,
   }),
-  listNetwork: async ({ personRef, degree, query }: { personRef?: string; degree?: number; query?: string }) => ({
+  listNetwork: async ({ personRef, degree, query, includeSuggestions }: { personRef?: string; degree?: number; query?: string; includeSuggestions?: boolean }) => ({
     person: personRef ? PEOPLE.find(p => p.publicPersonRef === personRef) : null,
-    items: PEOPLE.filter(p => (!personRef || p.networkDegree === 2) && (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase()))).map(rowMetadata),
+    items: new URLSearchParams(window.location.search).has("newNetwork") ? [] : PEOPLE.filter(p => (!personRef || p.networkDegree === 2) && (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase()))).map(rowMetadata),
+    suggestions: includeSuggestions && (!query || SUGGESTED.displayName.toLowerCase().includes(query.trim().toLowerCase()))
+      ? [{ ...SUGGESTED, suggestionReason: query ? "name_match" : "verified_advisor", relationship: requests.has(SUGGESTED.publicPersonRef) ? "pending_outgoing" : "none" }]
+      : [],
     page: 1, hasMore: false,
   }),
 };
@@ -50,7 +55,7 @@ export const ConnectionsService = {
 /** Synthetic read boundary; the browser mounts the production preview, hero and row controls. */
 export function PersonProfilePage({ personRef = PEOPLE[0].publicPersonRef, onNetworkReady }: { personRef?: string; onNetworkReady?: () => void }) {
   const [review, setReview] = useState(false);
-  const person = PEOPLE.find(p => p.publicPersonRef === personRef) ?? PEOPLE[0];
+  const person = findPerson(personRef) ?? PEOPLE[0];
   return <AppPageShell width="agent" fitContent><PersonProfileHero
     profile={{ ...person, verifiedRole: person === PEOPLE[0] ? "Registered investment adviser" : null }}
     status={<span>Connected</span>} contacts={<span>Profile details</span>} primaryActions={<button type="button" onClick={() => setReview(true)}>Request information</button>} tasks={null} footer={null}
