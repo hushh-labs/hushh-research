@@ -19,7 +19,9 @@ from uuid import NAMESPACE_URL, uuid5
 if TYPE_CHECKING:
     from scripts.ops.scope_commerce_sandbox_provider import SandboxProvider
 
-    from hushh_mcp.services.scope_commerce.provider_config import ScopeCommerceProviderConfig
+    from hushh_mcp.services.scope_commerce.provider_config import (
+        ScopeCommerceProviderConfig,
+    )
 
 ROOT = Path(__file__).resolve().parents[2]
 PREVIEW_PROJECT = "hushh-pda-dev"
@@ -63,7 +65,10 @@ def setup_state(path: str, account_id: str):
             if raw
             else {"schema_version": 1, "platform_account_id": account_id}
         )
-        if state.get("schema_version") != 1 or state.get("platform_account_id") != account_id:
+        if (
+            state.get("schema_version") != 1
+            or state.get("platform_account_id") != account_id
+        ):
             raise CommerceProviderError("sandbox_state_account_mismatch")
 
         def persist(value: dict[str, Any]) -> None:
@@ -76,7 +81,9 @@ def setup_state(path: str, account_id: str):
         yield state, persist
 
 
-async def _ledger_proof(provider: SandboxProvider, connection: Any, balance: dict[str, Any]):
+async def _ledger_proof(
+    provider: SandboxProvider, connection: Any, balance: dict[str, Any]
+):
     from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
 
     store = ScopeCommerceService(provider_config=provider.config)
@@ -128,7 +135,9 @@ async def preflight(
         provider.config.sandbox_policy.operating_capital_cap_cents,
     )
     capital_verified = await provider.capital_backing(connection, topups)
-    backing, balanced, conservation = await _ledger_proof(provider, connection, identity["balance"])
+    backing, balanced, conservation = await _ledger_proof(
+        provider, connection, identity["balance"]
+    )
     refunds = await provider.refunds(connection, reviewers)
     withdrawals = await provider.withdrawals(connection, reviewers)
     return _preflight_result(
@@ -195,7 +204,9 @@ def _preflight_result(
         "settledBacking": evidence.backing,
         "sourceFeeReceiptsMatched": bool(matches),
         "fundingFeeAllocationConserved": bool(evidence.fee_allocation_conserved),
-        "feesConserved": bool(matches and evidence.fee_allocation_conserved and fee_receipts),
+        "feesConserved": bool(
+            matches and evidence.fee_allocation_conserved and fee_receipts
+        ),
         "feeConservationScope": "funding_allocations_and_verified_successful_transfer_payout_receipts",
         "liveCostModelVerified": False,
     }
@@ -220,14 +231,18 @@ def _runtime(args: argparse.Namespace):
     config = ScopeCommerceProviderConfig.from_env()
     if args.account_id != config.platform_account_id or config.sandbox_policy is None:
         raise CommerceProviderError("sandbox_policy_account_mismatch")
-    reviewers = reviewer_bindings(private_json(args.reviewer_binding_file), config.sandbox_policy)
+    reviewers = reviewer_bindings(
+        private_json(args.reviewer_binding_file), config.sandbox_policy
+    )
     evidence = private_json(args.isolation_evidence_file)
     source = isolation_evidence(evidence, args.account_id)
     secret = os.getenv("SCOPE_COMMERCE_STRIPE_SECRET_KEY") or ""
     if not secret.startswith("sk_test_") or len(secret) < 24:
         raise CommerceProviderError("sandbox_test_credentials_required")
     return (
-        SandboxProvider(StripeScopeCommerceAdapter(secret, "unused-for-provider-get"), config),
+        SandboxProvider(
+            StripeScopeCommerceAdapter(secret, "unused-for-provider-get"), config
+        ),
         reviewers,
         source,
         evidence,
@@ -255,9 +270,13 @@ def _secret_destination(
         "platform": "SCOPE_COMMERCE_SANDBOX_SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
         "connect": "SCOPE_COMMERCE_SANDBOX_SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
     }
-    account_name = f"scope-commerce-sandbox-{args.account_id}-{args.webhook_scope}-webhook"
+    account_name = (
+        f"scope-commerce-sandbox-{args.account_id}-{args.webhook_scope}-webhook"
+    )
     preview = args.secret_name == preview_names.get(args.webhook_scope)
-    shared = shared_dev_webhook_destination(args, evidence, config) or website_uat_webhook_destination(args, evidence, config)
+    shared = shared_dev_webhook_destination(
+        args, evidence, config
+    ) or website_uat_webhook_destination(args, evidence, config)
     if (
         config.sandbox_policy is None
         or config.livemode
@@ -321,7 +340,11 @@ async def _execute(args, provider, connection, evidence):
     pin = await connection.fetchrow(
         "SELECT platform_account_id,livemode FROM scope_commerce_environment WHERE singleton"
     )
-    if pin is None or pin["platform_account_id"] != args.account_id or pin["livemode"] is not False:
+    if (
+        pin is None
+        or pin["platform_account_id"] != args.account_id
+        or pin["livemode"] is not False
+    ):
         raise CommerceProviderError("sandbox_account_pin_unverified")
     with setup_state(args.operation_state_file, args.account_id) as (state, persist):
         operation_id = args.operation_id or str(
@@ -338,7 +361,9 @@ async def _execute(args, provider, connection, evidence):
                 operation_id=operation_id,
                 state=state,
                 persist=persist,
-                write_secret=_secret_sink(args, evidence, config=provider.config, pin=dict(pin)),
+                write_secret=_secret_sink(
+                    args, evidence, config=provider.config, pin=dict(pin)
+                ),
             )
         if args.command != "provision-capital":
             raise CommerceProviderError("sandbox_command_invalid")
@@ -389,7 +414,9 @@ def main() -> int:
     parser.add_argument("--operation-id", default="")
     parser.add_argument("--amount-cents", type=int, default=2500)
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--webhook-scope", choices=("platform", "connect"), default="platform")
+    parser.add_argument(
+        "--webhook-scope", choices=("platform", "connect"), default="platform"
+    )
     parser.add_argument("--webhook-url", default="")
     parser.add_argument("--api-version", default="")
     parser.add_argument("--secret-project", default="")
@@ -397,7 +424,9 @@ def main() -> int:
     args = parser.parse_args()
     if not args.operation_state_file and args.command != "bind-account":
         parser.error("an ignored private --operation-state-file is required")
-    if args.command == "provision-webhook" and not (args.secret_project and args.secret_name):
+    if args.command == "provision-webhook" and not (
+        args.secret_project and args.secret_name
+    ):
         parser.error("approved --secret-project and --secret-name are required")
     try:
         result = asyncio.run(run(args))
