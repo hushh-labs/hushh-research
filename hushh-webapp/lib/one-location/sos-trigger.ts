@@ -7,6 +7,9 @@
  */
 
 import { OneLocationService } from "@/lib/one-location/service";
+import { apiErrorCode, ApiError } from "@/lib/services/api-client";
+import { locationBlockReason } from "@/lib/one-location/location-readiness";
+import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
 import {
   saveSosIncident,
   type SosIncident,
@@ -194,6 +197,72 @@ export type SosDeliveryOutcome = {
 export type SosPanicResult = SosIncident & {
   delivery: SosDeliveryOutcome[];
 };
+
+export async function queueConfirmedSms({
+  vaultOwnerToken, ownerUserId, note, resolvePoint, isStale,
+}: Pick<RunSosPanicParams, "vaultOwnerToken" | "note" | "isStale"> & {
+  ownerUserId: string;
+  resolvePoint: () => Promise<PlainLocationPoint | null>;
+}) {
+  const permission = await OneLocationService.getPermissionState();
+  if (isStale?.()) throw new Error("The signed-in account changed.");
+  if (readOneLocationControlState(ownerUserId).paused || permission.state === "denied" ||
+      locationBlockReason(permission)) {
+    throw new Error("Enable location access before sending SMS – Save my Soul.");
+  }
+  // Only a granted reading can bypass the measurement. A promptable browser
+  // must finish its user-initiated capture before dispatch is admitted.
+  const point = resolvePoint();
+  void point.catch(() => undefined);
+  if (permission.state !== "granted" && !await point) {
+    throw new Error("Enable location access before sending SMS – Save my Soul.");
+  }
+  if (isStale?.() || readOneLocationControlState(ownerUserId).paused) {
+    throw new Error("Location access changed. Try sending the alert again.");
+  }
+  const incidentId = crypto.randomUUID();
+  const request = () => OneLocationService.queueSmsIncident(vaultOwnerToken, incidentId, note);
+  const queued = await request().catch(async (error: unknown) => {
+    const code = apiErrorCode(error);
+    if (code === "SMS_ALERT_FIRST_DISABLED" || (!code && error instanceof ApiError && error.status === 404)) return null;
+    if (isStale?.() || (error instanceof ApiError && error.status < 500)) throw error;
+    return request();
+  });
+  if (!queued) return null;
+  const incident: SosIncident = {
+    ownerUserId,
+    grantIds: queued.grants.map((grant) => grant.id),
+    startedAt: queued.startedAt,
+  };
+  if (isStale?.()) throw new Error("The signed-in account changed.");
+  saveSosIncident(incident);
+  return { ...queued, incident };
+}
+
+export async function attachQueuedSmsLocation(
+  grants: OneLocationGrant[],
+  recipients: SosShareReadyRecipient[],
+  point: PlainLocationPoint,
+  publish: RunSosPanicParams["publish"],
+  isStale: () => boolean,
+): Promise<SosDeliveryOutcome[]> {
+  const recipientsById = new Map(recipients.map((recipient) => [recipient.userId, recipient]));
+  return Promise.all(grants.map(async (grant) => {
+    const recipient = recipientsById.get(grant.recipientUserId);
+    const outcome = {
+      userId: grant.recipientUserId,
+      displayName: grant.recipientDisplayName || recipient?.displayName || "SMS Circle contact",
+      alerted: null,
+    };
+    if (!recipient || recipient.keyId !== grant.recipientKeyId || isStale()) return { ...outcome, failed: true };
+    try {
+      const result = await publish(grant, recipient, point);
+      return result === false ? { ...outcome, failed: true } : outcome;
+    } catch {
+      return { ...outcome, failed: true };
+    }
+  }));
+}
 
 /**
  * Creates one 8-hour SOS grant per recipient, publishes an encrypted location

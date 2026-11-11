@@ -12,6 +12,7 @@ export function EmergencySmsNotificationToast({
   address,
   addressLoading,
   coordinatesFallback,
+  locationPending,
 }: {
   title: string;
   description: string;
@@ -23,6 +24,7 @@ export function EmergencySmsNotificationToast({
   addressLoading?: boolean;
   /** "lat, lng" shown when no street address is available. */
   coordinatesFallback?: string;
+  locationPending?: boolean;
 }) {
   const hasLocationLine = Boolean(address || addressLoading || coordinatesFallback);
 
@@ -45,7 +47,7 @@ export function EmergencySmsNotificationToast({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white">
-            Emergency SMS
+            SMS – Save my Soul
           </p>
           <p className="mt-0.5 text-[15px] font-bold leading-5 text-white">
             {title}
@@ -88,7 +90,7 @@ export function EmergencySmsNotificationToast({
       >
         <span className="flex items-center gap-2">
           <Icon icon={MapPin} size="sm" aria-hidden="true" />
-          View live location
+          {locationPending ? "View alert" : "View live location"}
         </span>
         <Icon icon={ChevronRight} size="sm" aria-hidden="true" />
       </button>
@@ -98,7 +100,7 @@ export function EmergencySmsNotificationToast({
           onClick={onDismiss}
           className="press-scale min-h-11 rounded-[var(--app-radius-pill)] border border-white/50 px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
         >
-          Dismiss alarm
+          Acknowledge
         </button>
       ) : null}
     </div>

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7A4C89070000000000000002 /* one_location_sms_alarm.wav in Resources */ = {isa = PBXBuildFile; fileRef = 7A4C89070000000000000001; };
 		C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A7B90100000000000000A1; };
 		5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */; };
 		AC0011223344556677889901 /* CountryPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0011223344556677889902 /* CountryPickerTests.swift */; };
@@ -129,6 +130,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		7A4C89070000000000000001 /* one_location_sms_alarm.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = one_location_sms_alarm.wav; sourceTree = "<group>"; };
 		C4A7B90100000000000000A1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFeedbackPresentation.swift; path = Plugins/NativeFeedbackPresentation.swift; sourceTree = "<group>"; };
 		5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GoogleConnectorAuthPlugin.swift; path = Plugins/GoogleConnectorAuthPlugin.swift; sourceTree = "<group>"; };
 		AC0011223344556677889902 /* CountryPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryPickerTests.swift; sourceTree = "<group>"; };
@@ -329,6 +331,7 @@
 					F34B00000000000000000001 /* FirebaseIdentity */,
 					AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */,
 					F1A000000000000000000009 /* OneVoiceModelNotices.json */,
+					7A4C89070000000000000001 /* one_location_sms_alarm.wav */,
 					F1A000000000000000000010 /* OneVoicePrivacyContract.v1.json */,
 				23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */,
 				E01327B97C0E35A824E086A8 /* Plugins */,
@@ -562,6 +565,7 @@
 					F34B00000000000000000002 /* FirebaseIdentity in Resources */,
 					AC01D0C5FEED0000C0FFEE02 /* PrivacyInfo.xcprivacy in Resources */,
 					F1A000000000000000000007 /* OneVoiceModelNotices.json in Resources */,
+					7A4C89070000000000000002 /* one_location_sms_alarm.wav in Resources */,
 					F1A000000000000000000008 /* OneVoicePrivacyContract.v1.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

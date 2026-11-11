@@ -5,12 +5,15 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationManagerCompat
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.net.Uri
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
@@ -48,8 +51,20 @@ class HushhNotificationsPlugin : Plugin() {
     private val TAG = "HushhNotifications"
     @PluginMethod
     fun requestEmergencySmsAlarmPermission(call: PluginCall) {
-        // Android uses the admitted foreground service and notification permission.
-        call.resolve(JSObject().put("supported", false).put("authorized", false))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            call.resolve(JSObject().put("supported", false).put("authorized", false))
+            return
+        }
+        activity.runOnUiThread {
+            context.getSharedPreferences(EmergencySmsAlarmService.PRESENTATION_SETTINGS, Context.MODE_PRIVATE)
+                .edit().putBoolean(EmergencySmsAlarmService.FULL_SCREEN_REQUESTED, true).apply()
+            val authorized = EmergencySmsAlarmService.fullScreenAllowed(context)
+            if (!authorized) runCatching {
+                activity.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                    Uri.fromParts("package", context.packageName, null)))
+            }
+            call.resolve(JSObject().put("supported", true).put("authorized", authorized))
+        }
     }
     @PluginMethod
     fun getPendingEmergencySmsAlarms(call: PluginCall) {
@@ -59,13 +74,14 @@ class HushhNotificationsPlugin : Plugin() {
             return
         }
         val requested = call.getArray("grantIds") ?: JSArray()
-        val acknowledged = JSArray()
+        val acknowledged = mutableSetOf<String>()
         for (index in 0 until minOf(requested.length(), 512)) {
             val grant = requested.optString(index)
-            if (EmergencySmsAlarmService.acknowledged(context, user, grant)) acknowledged.put(grant)
+            if (EmergencySmsAlarmService.acknowledged(context, user, grant)) acknowledged.add(grant)
         }
         call.resolve(JSObject().put("grantIds", JSArray(EmergencySmsAlarmService.pending(context, user)))
-            .put("acknowledgedGrantIds", acknowledged))
+            .put("acknowledgedGrantIds", JSArray(acknowledged.toList()))
+            .put("explicitlyAcknowledgedGrantIds", JSArray(EmergencySmsAlarmService.recentDeviceAcknowledgements(context, user))))
     }
     @PluginMethod
     fun getNotificationSettings(call: PluginCall) {
@@ -85,7 +101,9 @@ class HushhNotificationsPlugin : Plugin() {
             .put("chatAlertsEnabled", allowed && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
                 (manager?.getNotificationChannel(ChatMessagingService.CHANNEL)?.importance ?: 0) > NotificationManager.IMPORTANCE_NONE))
             .put("chatSoundsEnabled", audible(ChatMessagingService.CHANNEL))
-            .put("emergencySoundEnabled", audible(EMERGENCY_SMS_CHANNEL_ID)))
+            .put("emergencySoundEnabled", audible(EMERGENCY_SMS_CHANNEL_ID))
+            .put("emergencyAlarmSupported", Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+            .put("emergencyAlarmAuthorized", EmergencySmsAlarmService.fullScreenAllowed(context)))
     }
     private val emergencyHandler = Handler(Looper.getMainLooper())
     override fun handleOnDestroy() {
@@ -206,7 +224,7 @@ class HushhNotificationsPlugin : Plugin() {
         fun emergencyAcknowledged(user: String, grant: String) {
             emergencyPlugin?.get()?.let { plugin ->
                 plugin.emergencyHandler.post {
-                    plugin.notifyListeners("emergencySmsAcknowledged", JSObject().put("userId", user).put("grantId", grant))
+                    plugin.notifyListeners("emergencySmsAcknowledged", JSObject().put("userId", user).put("grantId", grant).put("explicit", true))
                 }
             }
         }

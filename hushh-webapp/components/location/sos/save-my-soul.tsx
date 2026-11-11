@@ -63,8 +63,10 @@ import {
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
 import {
+  attachQueuedSmsLocation,
   SosPanicError,
   isSosShareReadyRecipient,
+  queueConfirmedSms,
   runSosPanic,
   selectSmsRecipients,
   type SosDeliveryOutcome,
@@ -72,6 +74,7 @@ import {
 import type {
   OneLocationRecipient,
   OneLocationState,
+  PlainLocationPoint,
 } from "@/lib/one-location/types";
 import {
   ONE_VOICE_REFRESH_EVENT,
@@ -224,6 +227,9 @@ export function SaveMySoul() {
   const [tapDelivery, setTapDelivery] = useState<TapDelivery | null>(null);
   const [voiceSos, setVoiceSos] = useState<VoiceSos | null>(null);
   const mountedRef = useRef(true);
+  const dispatchOwner = useRef(userId);
+  const dispatchGeneration = useRef(0);
+  dispatchOwner.current = userId;
   const armedGrantIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
@@ -454,24 +460,35 @@ export function SaveMySoul() {
       note.trim().slice(0, ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) || null;
     setBusy("send");
     setTapDelivery(null);
+    const generation = ++dispatchGeneration.current;
+    const isStale = () => !mountedRef.current || dispatchOwner.current !== userId ||
+      dispatchGeneration.current !== generation;
     try {
-      const point = await OneLocationService.captureCurrentPosition({
-        fresh: true,
-        fastNetworkFallback: true,
+      let capture: Promise<PlainLocationPoint | null> | undefined;
+      const resolvePoint = () => capture ??= OneLocationService.captureCurrentPosition({
+        fresh: true, requireMeasurement: true, fastNetworkFallback: true,
       }).catch(() => null);
+      const queued = await queueConfirmedSms({
+        vaultOwnerToken, ownerUserId: userId, note: message, resolvePoint, isStale,
+      });
+      if (isStale()) return;
+      if (queued) {
+        setIncident(queued.incident);
+        setBusy(null);
+        morphyToast.success("Alert queued. Live location pending.");
+        if (queued.skippedCount) morphyToast.warning("Some Circle contacts could not receive this alert.");
+      }
+      const recipientRoster = queued ? OneLocationService.getSmsRecipientRoster(vaultOwnerToken) : null;
+      void recipientRoster?.catch(() => undefined);
+      const point = await resolvePoint();
+      if (isStale()) return;
       if (!point) {
         morphyToast.error(
-          "Couldn't get your location — alert not sent. Check location permission.",
+          queued ? "Live location is still unavailable." : "Couldn't get your location. Alert not sent.",
         );
         return;
       }
-      const result = await runSosPanic({
-        vaultOwnerToken,
-        ownerUserId: userId,
-        recipients: readyContacts,
-        point,
-        note: message,
-        publish: async (grant, recipient, pt) => {
+      const publish: Parameters<typeof runSosPanic>[0]["publish"] = async (grant, recipient, pt) => {
           // SOS always publishes the precise fix; the preference is ignored here.
           const published = await publishPointToGrants({
             point: pt,
@@ -481,7 +498,10 @@ export function SaveMySoul() {
             sos: true,
             vaultOwnerToken,
             encrypt: encryptLocationForRecipient,
-            store: (params) => OneLocationService.storeEnvelope(params),
+            store: (params) => {
+              if (isStale()) throw new Error("SMS alert is no longer active.");
+              return OneLocationService.storeEnvelope(params);
+            },
           });
           const row = published.published[0];
           if (!row) {
@@ -493,9 +513,20 @@ export function SaveMySoul() {
             );
           }
           return row.recipientAlerted;
-        },
+      };
+      const result = queued ? {
+        ...queued.incident,
+        delivery: await attachQueuedSmsLocation(
+          queued.grants,
+          ((await recipientRoster)?.recipients ?? []).filter(isSosShareReadyRecipient),
+          point, publish, isStale,
+        ),
+      } : await runSosPanic({
+        vaultOwnerToken, ownerUserId: userId, recipients: readyContacts,
+        point, note: message, publish, isStale,
       });
-      setIncident({ grantIds: result.grantIds, startedAt: result.startedAt });
+      if (isStale()) return;
+      if (!queued) setIncident({ grantIds: result.grantIds, startedAt: result.startedAt });
       const mail = await OneLocationService.sendSosEmails({
         vaultOwnerToken,
         grantIds: result.grantIds,
@@ -505,7 +536,7 @@ export function SaveMySoul() {
         capturedAt: point.capturedAt,
         note: message,
       });
-      if (!mountedRef.current) return;
+      if (isStale()) return;
       setTapDelivery({
         outcomes: result.delivery,
         emailed: mail.emailed,
@@ -520,7 +551,9 @@ export function SaveMySoul() {
       const reached = result.delivery.filter(
         (outcome) => outcome.alerted !== false,
       ).length;
-      if (reached === 0 && mail.emailed === 0) {
+      if (queued) {
+        if (result.delivery.some((outcome) => outcome.failed)) morphyToast.warning("Location could not be attached for some contacts.");
+      } else if (reached === 0 && mail.emailed === 0) {
         morphyToast.error("Call emergency services now — nobody was alerted.");
       } else {
         morphyToast.success(
@@ -530,6 +563,7 @@ export function SaveMySoul() {
       setNote("");
       await load({ invalidate: true });
     } catch (caught) {
+      if (isStale()) return;
       if (caught instanceof SosPanicError && caught.partialIncident) {
         setIncident(caught.partialIncident);
       }
@@ -539,7 +573,7 @@ export function SaveMySoul() {
           : "Could not send the alert.",
       );
     } finally {
-      if (mountedRef.current) setBusy(null);
+      if (!isStale()) setBusy((current) => current === "send" ? null : current);
     }
   }, [
     busy,
@@ -563,6 +597,7 @@ export function SaveMySoul() {
       setIncident(null);
       return;
     }
+    ++dispatchGeneration.current;
     setBusy("stop");
     try {
       const outcome = await stopSosShares({
@@ -734,7 +769,7 @@ export function SaveMySoul() {
                 className="flex items-center gap-2"
                 data-alerted={String(outcome.alerted)}
               >
-                {outcome.alerted === false ? (
+                {outcome.failed || outcome.alerted === false ? (
                   <AlertTriangle
                     className="h-4 w-4 shrink-0 text-[color:var(--app-warning)]"
                     aria-hidden
@@ -747,11 +782,13 @@ export function SaveMySoul() {
                 )}
                 <span className="ui-text-row-description">
                   {outcome.displayName}:{" "}
-                  {outcome.alerted === true
+                  {outcome.failed
+                    ? "location attachment failed"
+                    : outcome.alerted === true
                     ? "alerted"
                     : outcome.alerted === false
                       ? "not alerted (notifications off)"
-                      : "position delivered"}
+                      : "location attached"}
                 </span>
               </li>
             ))}

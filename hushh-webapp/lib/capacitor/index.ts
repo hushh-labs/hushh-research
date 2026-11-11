@@ -839,8 +839,8 @@ export interface HushhNotificationsPlugin {
   /** OS presentation settings only; registered tokens do not prove audible alerts. */
   getNotificationSettings(): Promise<{ alertsEnabled: boolean; soundsEnabled: boolean; emergencySoundEnabled: boolean; chatAlertsEnabled?: boolean; chatSoundsEnabled?: boolean; emergencyAlarmSupported?: boolean; emergencyAlarmAuthorized?: boolean }>;
   requestEmergencySmsAlarmPermission(): Promise<{ supported: boolean; authorized: boolean }>;
-  getPendingEmergencySmsAlarms(options: { userId: string; grantIds?: string[] }): Promise<{ grantIds: string[]; acknowledgedGrantIds: string[] }>;
-  addListener(eventName: "emergencySmsAcknowledged", listener: (event: { userId: string; grantId: string }) => void): Promise<PluginListenerHandle>;
+  getPendingEmergencySmsAlarms(options: { userId: string; grantIds?: string[] }): Promise<{ grantIds: string[]; acknowledgedGrantIds: string[]; explicitlyAcknowledgedGrantIds?: string[] }>;
+  addListener(eventName: "emergencySmsAcknowledged", listener: (event: { userId: string; grantId: string; explicit?: boolean }) => void): Promise<PluginListenerHandle>;
   /** expiresAt admits a fresh bridge start. An admitted alarm ends on acknowledgement or owner disposal. Legacy alarmExpiresAt is ignored. */
   playEmergencySmsCue(options: { userId: string; grantId: string; expiresAt: number; alarmExpiresAt?: number }): Promise<{ played: boolean; acknowledged?: boolean }>;
   stopEmergencySmsCue(options: { userId?: string; grantId?: string }): Promise<void>;

@@ -109,9 +109,8 @@ def test_sms_transport_lifetime_and_legacy_android_sound(monkeypatch, deadline, 
         else:
             assert wire["apns"]["headers"]["apns-expiration"] == str(now + ttl if ttl else 0)
             assert wire["apns"]["payload"]["aps"]["sound"] == "one_location_sms_alarm.wav"
-            # iOS 26+ schedules the persistent system alarm in the existing
-            # notification extension; older apps retain their normal APNs alert.
             assert wire["apns"]["payload"]["aps"]["mutable-content"] == 1
+            assert wire["apns"]["payload"]["aps"]["interruption-level"] == "time-sensitive"
 
 
 @pytest.mark.parametrize("deadline", ["2000-01-01T00:00:00Z", "invalid"])

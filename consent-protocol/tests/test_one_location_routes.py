@@ -5,7 +5,7 @@ import inspect
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
@@ -84,6 +84,7 @@ def _client(
     app.state.command_purge = AsyncMock()
     monkeypatch.setattr(CommandCheckpointStore, "purge_expired", app.state.command_purge)
     app.include_router(one_location.router)
+    app.include_router(one_location.sms_alert_router)
     app.dependency_overrides[one_location.require_vault_owner_token] = lambda: {
         "user_id": current_user["user_id"]
     }
@@ -106,6 +107,31 @@ def _register_key(client: TestClient, user: dict[str, str], user_id: str) -> Non
         },
     )
     assert response.status_code == 200
+
+
+def test_sms_acknowledgement_uses_signed_in_recipient_and_only_pushes_once(monkeypatch) -> None:
+    from hushh_mcp.services import push_notifications
+
+    service = FourUserMemoryService()
+    acknowledge = Mock(side_effect=["recorded", "acknowledged"])
+    monkeypatch.setattr(service, "acknowledge_received_sms_alert", acknowledge)
+    push = Mock()
+    monkeypatch.setattr(push_notifications, "send_user_data_push", push)
+    client = _client(service, {"user_id": "vault-owner"}, monkeypatch)
+    grant = str(uuid.uuid4())
+    path = f"/api/one/location/sms-alerts/{grant}/acknowledgement"
+    assert client.put(path).status_code == 401
+    acknowledge.assert_not_called()
+    client.app.dependency_overrides[one_location.require_firebase_auth_read_only] = lambda: (
+        "recipient"
+    )
+    assert client.put(path).json() == {"acknowledged": True}
+    assert client.put(path).status_code == 200
+    acknowledge.assert_called_with(recipient_user_id="recipient", grant_id=grant)
+    push.assert_called_once()
+    assert push.call_args.args == ("recipient",)
+    assert push.call_args.kwargs["data"] == {"grant_id": grant}
+    assert push.call_args.kwargs["show_alert"] is False
 
 
 def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:

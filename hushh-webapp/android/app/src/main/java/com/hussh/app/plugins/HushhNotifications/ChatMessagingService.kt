@@ -36,6 +36,12 @@ class ChatMessagingService : FirebaseMessagingService() {
         if (data["recipient_key_id"] == null) data["user_id"]?.let { user -> ChatPreviewKeys.legacyKey(this, user)?.let { data["recipient_key_id"] = it } }
         if (data["recipient_key_id"] == null) data["chat_owner"]?.let { owner -> ChatPreviewKeys.legacyHashKey(this, owner)?.let { data["recipient_key_id"] = it } }
         val kind = data["type"]
+        if (kind == "location_sms_acknowledged") {
+            val user = data["user_id"] ?: return
+            val grant = data["grant_id"] ?: return
+            if (ChatPreviewKeys.legacyKey(this, user) != null) EmergencySmsAlarmService.stop(this, user, grant)
+            return
+        }
         if (kind == "location_share_revoked" || kind == "location_share_expired") {
             val user = data["user_id"] ?: return
             val grant = data["grant_id"] ?: return

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 456,
+  "expected_migration_version": 457,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -3317,6 +3317,7 @@
       "recipient_key_id",
       "recipient_user_id",
       "revoked_at",
+      "sms_acknowledged_at",
       "source_circle_id",
       "status",
       "updated_at"

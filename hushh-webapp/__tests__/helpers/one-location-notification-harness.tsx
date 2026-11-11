@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => {
     addNotificationListener: vi.fn(),
     getState: vi.fn(),
     getRecentSmsAlerts: vi.fn(),
+    acknowledgeSmsAlert: vi.fn(),
+    getSmsAcknowledgements: vi.fn(),
     startTask: vi.fn(),
     completeTask: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
@@ -115,6 +117,8 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     getState: mocks.getState,
     getRecentSmsAlerts: mocks.getRecentSmsAlerts,
+    acknowledgeSmsAlert: mocks.acknowledgeSmsAlert,
+    getSmsAcknowledgements: mocks.getSmsAcknowledgements,
   },
 }));
 
@@ -254,6 +258,8 @@ beforeEach(() => {
   mocks.addNotificationListener.mockResolvedValue({ remove: vi.fn().mockResolvedValue(undefined) });
   mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
   mocks.getRecentSmsAlerts.mockResolvedValue([]);
+  mocks.acknowledgeSmsAlert.mockReset().mockResolvedValue(undefined);
+  mocks.getSmsAcknowledgements.mockReset().mockResolvedValue([]);
   mocks.remotePkmListener = null;
 });
 

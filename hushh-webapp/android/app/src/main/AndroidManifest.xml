@@ -26,6 +26,9 @@
         </service>
         <service android:name=".plugins.HushhNotifications.EmergencySmsAlarmService"
             android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <activity android:name=".plugins.HushhNotifications.EmergencySmsAlarmActivity"
+            android:excludeFromRecents="true" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <!-- Credential Manager uses this Digital Asset Links declaration to
              authorize the canonical native passkey relying party. -->
         <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
@@ -146,6 +149,7 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

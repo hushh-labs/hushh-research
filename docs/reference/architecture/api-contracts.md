@@ -3202,25 +3202,25 @@ contract and add emergency presentation metadata when `share_kind=sos`:
 `notification_profile=one_location_sms_emergency` and
 `notification_category=ONE_LOCATION_SMS_EMERGENCY`. Clients must recognize the
 explicit profile and retain `share_kind=sos` as a compatibility fallback.
-Presentation is intentionally platform-specific: the visible web/native shell
-uses the shared red alarm card, Android routes through the dedicated
-`one_location_sms_emergency_v1` high-importance channel, and iOS background
-delivery uses the matching category plus `one_location_sms_alarm.wav`. The
-profile does not authorize Do Not Disturb bypass or Apple Critical Alerts.
+The visible web and native shells use the shared red alarm card. Android uses
+the `one_location_sms_emergency_v1` channel and offers optional full-screen
+lock-screen presentation on Android 14 and later with explicit user consent.
+iOS background delivery uses Time Sensitive notifications and the matching
+category with the 12-second `one_location_sms_alarm.wav` sound on updated builds.
+The recipient controls their OS notification, Focus and sound settings.
 
-While the recipient app is visible, the SOS cue repeats until the recipient
-dismisses the alarm or opens/unwatches the share, or the sender ends it. The
+While the recipient app is visible, the SMS – Save my Soul cue repeats until the
+recipient dismisses the alarm or opens the share. The
 emergency card has no automatic timeout. Web Audio owns browser cues; the
 existing native notification bridge owns foreground sound and vibration on
 iOS and Android. Cues also release on expiry, sign-out, interruption and
 foreground loss. The existing two-second sender countdown is unchanged.
-`location_share_revoked` is always silent transport, including SOS: its grant
-identity stops an active cue without triggering another sound or vibration.
-Background delivery retains the platform notification cue; indefinite closed-app
-or locked-screen alarms are outside this contract. Browser playback remains
-subject to audio/vibration support and device permissions; blocked audio is
-not queued to ring after a later unlock. A remote stop still requires delivery
-or authoritative reconciliation on the receiving device.
+`location_share_revoked` remains silent and stops late admission of its grant.
+The recipient acknowledges a previously admitted alert independently of ending
+location access. Browser playback depends on audio and notification permissions.
+Acknowledged alerts are excluded from pending push delivery and foreground recovery.
+Other signed-in app sessions reconcile against the acknowledgement API on stream
+hints and reconnect.
 
 The older KAI location route family is transitional prototype history and is
 not the product owner for live location.
@@ -3228,6 +3228,9 @@ not the product owner for live location.
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/api/one/location/state` | VAULT_OWNER Bearer | Read-only projection of eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, referrals, and the current server-owned automatic-approval preference (`enabled`, scope, server `enabledAt`, and monotonic `ruleVersion`) for the authenticated user. Due expiries are projected without mutating rows or sending push; the bounded retention maintenance route owns expiry settlement and notification fan-out. A preference read failure fails the state request instead of displaying a live rule as off |
+| POST | `/api/one/location/sms-alerts/incidents` | Vault-owner Bearer | Queues a confirmed SMS – Save my Soul alert for eligible Circle contacts. Accepts `incidentId` (a UUID reused for retries) and an optional note. Returns `incidentId`, `startedAt`, `grants`, and `skippedCount`. Grants and delivery jobs commit together. The encrypted location can arrive later. Enable in the local backend with `ONE_LOCATION_SMS_ALERT_FIRST_ENABLED=1`. |
+| PUT | `/api/one/location/sms-alerts/{grant_id}/acknowledgement` | Firebase Bearer | Records an explicit acknowledgement for the authenticated recipient. The receipt stops pending alarm delivery and leaves live location sharing active. |
+| GET | `/api/one/location/sms-alerts/acknowledgements` | Firebase Bearer | Returns the recipient's acknowledged grant IDs for up to 32 repeated `grant_id` parameters. The response contains no location information. |
 | PATCH | `/api/one/location/auto-approve-preference` | VAULT_OWNER Bearer | Enable a server-timestamped standing rule for `all_contacts` or one active, person-created Circle owned by the caller, or disable it and clear its scope. Every change increments `ruleVersion` and writes metadata-only audit evidence |
 | GET | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Return the complete owner-scoped `{smsContactUserIds, recipients}` roster, independent of the ranked recipient picker limit. Refresh incomplete identity shadows through the canonical verified-phone service before projecting readiness; bounded provider failures leave final phone/key/membership gates intact. Response is `private, no-store`; the recipient projection is additive for older clients |
 | POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; refresh an eligible recipient's incomplete identity shadow before validation. Circle eligibility and selection are committed under the same membership locks |
