@@ -704,7 +704,9 @@ async def test_managed_timeout_is_bounded_and_closed_before_single_fallback(monk
         token_supplier=lambda: "synthetic",
         require_current=AsyncMock(),
         fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope="drive_document_requests")[
+            "generation"
+        ],
         processing_scope="drive_document_requests",
         primary_seconds=0.01,
     )
@@ -790,7 +792,9 @@ async def test_vertex_primary_uses_real_sdk_status_and_reports_only_actual_compl
         **base.model_dump(exclude={"api_key", "client"}),
         token_supplier=lambda: "synthetic",
         require_current=AsyncMock(),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope="drive_document_requests")[
+            "generation"
+        ],
         processing_scope="drive_document_requests",
         primary_provider="vertex",
         fallback_model=SimpleNamespace(model="gemini-alternate", generate_content_async=vertex),
