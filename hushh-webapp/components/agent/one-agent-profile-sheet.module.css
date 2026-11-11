@@ -30,7 +30,7 @@
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
   container: one-profile-content / inline-size;
   padding: 12px var(--page-inline-gutter-standard)
     max(24px, var(--app-safe-area-bottom-effective, 0px));
@@ -78,6 +78,13 @@
   flex: none;
   padding: 0 var(--page-inline-gutter-standard) 12px;
 }
+.tabRail {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  /* Match the scrollport's reserved space without moving the tab controls. */
+  scrollbar-gutter: stable both-edges;
+}
 .tabList {
   flex: none;
   width: auto;
@@ -87,6 +94,7 @@
 }
 .tabList button {
   min-height: 44px;
+  padding-inline: 4px;
 }
 .feed,
 .todo,
