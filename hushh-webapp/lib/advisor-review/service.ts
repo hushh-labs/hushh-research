@@ -57,8 +57,6 @@ export class AdvisorReviewError extends Error {
             "That time has passed. Propose a new time.",
           ADVISOR_TIME_AGREEMENT_REQUIRED:
             "Both people must agree to the time before it can be booked.",
-          ADVISOR_INTRODUCTION_REQUIRED:
-            "Complete the introduction before offering a plan.",
           ADVISOR_CHECK_BILLING_STATUS:
             "Check payment status before opening another checkout.",
           ADVISOR_PAYMENT_ALREADY_PAID:

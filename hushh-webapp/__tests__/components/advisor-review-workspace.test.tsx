@@ -178,7 +178,7 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
   mocks.view.mockResolvedValue({
     ...value,
     status: "accepted",
-    meeting: { status: "completed" },
+    meeting: null,
     plan: {
       amountCents: 2000,
       currency: "usd",
