@@ -190,8 +190,7 @@ export function ExpandRadiusButton({
   return (
     <Button
       type="button"
-      variant="none"
-      effect="fade"
+      variant="plain"
       size="sm"
       onClick={() => onExpand(nextRadiusMi)}
     >
@@ -379,8 +378,7 @@ export function LocationPrompt({
       ) : (
         <Button
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           size="sm"
           className="mt-3"
           onClick={() => setShowPostal(true)}

@@ -135,7 +135,7 @@ export function LivingCirclePanel({
           tabSetId={peopleViewId} options={[{ value: "all", label: "All connections" }, { value: "selected", label: `Selected (${selectedUserIds.size})` }]} />
       </TaskSurfaceToolbar>
       <TaskSurfaceBody role="tabpanel" id={`top-shell-${peopleViewId}-panel-${peopleView}`} aria-labelledby={`top-shell-${peopleViewId}-tab-${peopleView}`}>
-        {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="ghost" size="compact" onClick={onRetry}>Retry</Button></div> : null}
+        {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="link" size="compact" onClick={onRetry}>Retry</Button></div> : null}
         {loading && !candidates.length && peopleView === "all" ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
           : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
           : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
@@ -145,7 +145,7 @@ export function LivingCirclePanel({
             disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
             label={`Add ${connectPersonName(person)} to ${circleName}`} />)
           : !error ? <p className="py-4 text-sm text-muted-foreground">{peopleView === "selected" ? "No people selected." : searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
-        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="ghost" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
+        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="link" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
       </TaskSurfaceBody>
       <TaskSurfaceFooter>
         <SheetCount>{selectedUserIds.size} selected</SheetCount>
@@ -300,7 +300,7 @@ export function LivingCirclePanel({
                 {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="link"
                     size="compact"
                     onClick={() => {
                       if (expanded) onSearchChange("");
