@@ -50,6 +50,14 @@ class Resource:
         return Resource((*self.path, "login_links")).call("create", resource_id, **arguments)
 
 
+class _Webhook:
+    """Signed events are SDK objects, which have no .get; callers read plain dicts."""
+
+    @staticmethod
+    def construct_event(payload, signature, secret, **options):
+        return stripe.Webhook.construct_event(payload, signature, secret, **options).to_dict()
+
+
 def provider():
     return SimpleNamespace(
         Account=Resource(("accounts",)),
@@ -57,5 +65,5 @@ def provider():
         Payout=Resource(("payouts",)),
         Subscription=Resource(("subscriptions",)),
         checkout=SimpleNamespace(Session=Resource(("checkout", "sessions"))),
-        Webhook=stripe.Webhook,
+        Webhook=_Webhook,
     )
