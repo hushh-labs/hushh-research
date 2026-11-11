@@ -117,7 +117,7 @@ class RetentionErrorDiagnosticTest(unittest.TestCase):
 
     def test_manual_production_apply_bounds_release_lookup_after_checkpoint_restore(self):
         for event, ref, force, environment, pass_deadline, expected in (
-            ("workflow_dispatch", "main", True, "production", 295, 220),
+            ("workflow_dispatch", "main", True, "production", 295, 280),
             ("workflow_dispatch", "main", True, "production", 180, 180),
             ("workflow_dispatch", "main", False, "production", 295, 90),
             ("workflow_dispatch", "uat", True, "production", 295, 90),
