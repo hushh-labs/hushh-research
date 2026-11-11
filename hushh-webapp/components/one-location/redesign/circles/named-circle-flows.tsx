@@ -2518,7 +2518,7 @@ export function CircleDetailFlow({
           {loadError}
           <Button
             type="button"
-            variant="ghost"
+            variant="link"
             size="compact"
             onClick={() => void reload()}
             className="ml-2"
@@ -2546,14 +2546,14 @@ export function CircleDetailFlow({
             {isOwner && circle.systemKind !== "trusted" ? (
               <Button
                 type="button"
-                variant="ghost"
+                variant="link"
                 size="compact"
                 onClick={() => {
                   setCircleName(circle.name);
                   setRenameSheetOpen(true);
                   window.setTimeout(() => nameInputRef.current?.focus(), 80);
                 }}
-                className="text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+                className="text-[color:var(--app-accent)] hover:text-[color:var(--app-accent-hover)]"
               >
                 Edit
               </Button>
@@ -2567,7 +2567,7 @@ export function CircleDetailFlow({
             </TabsList>
             <TabsContent value="chat" forceMount hidden={detailView !== "chat"} className="space-y-2">
               {renderChat?.(circle, { active: detailView === "chat", readingBlocked: photoSheetOpen || renameSheetOpen || inviteCodeSheetOpen || peopleSheetOpen || replaceCodeConfirmOpen })}
-              <PersonSelectionSurface type="button" data-circle-chat-members-summary onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:bg-muted/40 sm:px-5" aria-label="View circle members">
+              <PersonSelectionSurface type="button" data-circle-chat-members-summary onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:text-[color:var(--app-accent-hover)] sm:px-5" aria-label="View circle members">
                 <span className="flex shrink-0 -space-x-2">
                   {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar userId={member.userId} key={member.userId} photoUrl={member.photoUrl} label={connectPersonName(member)} size="comfortable" className="!size-8 ring-2 ring-card" />)}
                   {visibleMemberCount > 4 ? <span className="flex size-8 items-center justify-center rounded-full bg-muted text-xs ring-2 ring-card">+{visibleMemberCount - 4}</span> : null}
@@ -2692,7 +2692,7 @@ export function CircleDetailFlow({
                     secondary={
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="link"
                         size="compact"
                         disabled={savingName}
                         onClick={() => {
@@ -2832,7 +2832,7 @@ export function CircleDetailFlow({
                         canRotateInviteCode ? (
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="link"
                             size="compact"
                             className={QUIET_FLOW_ACTION_CLASSNAME}
                             disableHoverRipple
@@ -2864,7 +2864,7 @@ export function CircleDetailFlow({
                         <div>
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="link"
                             size="compact"
                             className={cn("w-full justify-center", QUIET_FLOW_ACTION_CLASSNAME)}
                             disableHoverRipple
@@ -3120,7 +3120,7 @@ export function CircleDetailFlow({
                               trailing={
                                 <Button
                                   type="button"
-                                  variant="ghost"
+                                  variant="link"
                                   size="compact"
                                   disabled={Boolean(cancellingInviteId)}
                                   isLoading={cancellingInviteId === invite.id}

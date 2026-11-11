@@ -177,7 +177,11 @@ class AdvisorReviewService:
             row = load(conn, viewer, request_id, locked=True)
             owner, advisor = row["owner_user_id"], row["advisor_user_id"]
             recipient_action = action in ("accept", "decline")
-            if viewer != (advisor if recipient_action else owner):
+            # Either participant can end an accepted review: it only removes access.
+            allowed = (
+                {advisor} if recipient_action else {owner, advisor} if action == "stop" else {owner}
+            )
+            if viewer not in allowed:
                 raise AdvisorReviewError("ADVISOR_WRONG_PARTICIPANT", 403)
             next_status = {
                 "accept": "accepted",
@@ -213,12 +217,13 @@ class AdvisorReviewService:
                 updated_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"""),
                 {"id": request_id, "status": next_status, "connection": connection_id},
             )
+            counterpart_is_owner = viewer == advisor
             notify_review(
                 conn,
-                owner if recipient_action else advisor,
+                owner if counterpart_is_owner else advisor,
                 request_id,
                 "advisor_review_accepted" if action == "accept" else "advisor_review_updated",
-                role="owner" if recipient_action else "advisor",
+                role="owner" if counterpart_is_owner else "advisor",
             )
             return project(load(conn, viewer, request_id), viewer)
 

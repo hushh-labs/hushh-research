@@ -825,7 +825,7 @@ export function SavedLocationsSection() {
                   <button
                     data-location-type-role="utility-action" type="button"
                     onClick={() => void reload()}
-                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
                   >
                     Retry
                   </button>
@@ -910,7 +910,7 @@ export function SavedLocationsSection() {
                               type="button"
                               data-location-type-role="utility-action" onClick={() => void handleRepairAddress(location)}
                               disabled={repairingId !== null}
-                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                             >
                               <RefreshCw
                                 className={cn(
@@ -942,7 +942,7 @@ export function SavedLocationsSection() {
                               capturing ||
                               locationControl.paused
                             }
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             <Pencil
                               className="h-[15px] w-[15px]"
@@ -955,7 +955,7 @@ export function SavedLocationsSection() {
                             type="button"
                             data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
                             disabled={removingId !== null || favoritingId !== null}
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             {removingId === location.id ? (
                               <Loader2

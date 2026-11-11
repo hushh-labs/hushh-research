@@ -292,7 +292,7 @@ export function CircleMemberActionsMenu({
         <Button
           type="button"
           size="icon"
-          variant="ghost"
+          variant="plain"
           disabled={busy}
           aria-label={menuLabel}
           aria-haspopup="dialog"
@@ -345,7 +345,7 @@ export function CircleMemberActionsMenu({
                   </Button>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="plain"
                     size="prominent"
                     className="w-full text-foreground"
                     onClick={() => setSheetConfirmingRemove(false)}
@@ -378,7 +378,7 @@ export function CircleMemberActionsMenu({
                     <Button
                       type="button"
                       size="icon-touch"
-                      variant="ghost"
+                      variant="plain"
                       disabled={busy}
                       aria-label={`Share location with ${displayName}`}
                       className="shrink-0 focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)]"
@@ -442,7 +442,7 @@ export function CircleMemberActionsMenu({
                   {canRemove ? (
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="plain"
                       size="prominent"
                       disabled={busy}
                       className="w-full justify-center text-[color:var(--app-destructive)] hover:bg-transparent hover:text-[color:var(--app-destructive)]"
@@ -483,7 +483,7 @@ export function CircleMemberActionsMenu({
           <Button
             type="button"
             size="icon"
-            variant="ghost"
+            variant="plain"
             disabled={busy}
             aria-label={menuLabel}
             className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}

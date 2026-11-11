@@ -370,12 +370,8 @@ async function mapWithConcurrency<T, R>(
 
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
-/** An icon-only action: a 44px target around a 22px glyph. */
-const CONNECT_ROW_ICON_ACTION_CLASSNAME = cn("!size-11 !min-w-11 !rounded-full !bg-transparent !p-0", styles.rowIconAction);
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
-const CONNECT_REMOVE_BUTTON_CLASSNAME =
-  "text-destructive hover:bg-destructive/10 hover:text-destructive";
 const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME = styles.utilityLabel;
 
 /** Maximum number of connection requests the People bulk action can send. */
@@ -3116,8 +3112,7 @@ function ConnectPageClientContent() {
     <div className="flex justify-start sm:justify-end">
       <Button
         type="button"
-        variant="none"
-        effect="fade"
+        variant="plain"
         size="compact"
         aria-haspopup="dialog"
         data-voice-control-id="connect-explore-network"
@@ -3282,8 +3277,7 @@ function ConnectPageClientContent() {
                                 !isAdvisorTab && contactSync.available ? (
                                   <Button
                                     type="button"
-                                    variant="none"
-                                    effect="fade"
+                                    variant="plain"
                                     size="compact"
                                     aria-label="Sync contacts"
                                     aria-busy={contactSync.syncing}
@@ -3440,8 +3434,7 @@ function ConnectPageClientContent() {
                                     errorRateLimited ? undefined : (
                                       <Button
                                         type="button"
-                                        variant="none"
-                                        effect="fade"
+                                        variant="plain"
                                         size="compact"
                                         className={
                                           CONNECT_INLINE_BUTTON_CLASSNAME
@@ -3662,8 +3655,7 @@ function ConnectPageClientContent() {
                                           "pending_outgoing" ? (
                                           <Button
                                             type="button"
-                                            variant="none"
-                                            effect="fade"
+                                            variant="plain"
                                             size="compact"
                                             // One word at the width of every other action in
                                             // this column. "Cancel request" plus a 100px
@@ -3702,8 +3694,7 @@ function ConnectPageClientContent() {
                                         ) : (
                                           <Button
                                             type="button"
-                                            variant="none"
-                                            effect="fade"
+                                            variant="plain"
                                             size="compact"
                                             data-profile-role="action"
                                             data-relationship={person.relationship}
@@ -3752,8 +3743,7 @@ function ConnectPageClientContent() {
                                   ) : (
                                     <Button
                                       type="button"
-                                      variant="none"
-                                      effect="fade"
+                                      variant="plain"
                                       size="compact"
                                       className={CONNECT_PAGER_BUTTON_CLASSNAME}
                                       onClick={loadNextDirectoryBatch}
@@ -3801,11 +3791,11 @@ function ConnectPageClientContent() {
                             className="bg-transparent"
                             titleControl={<span className={styles.listMeta}>{connectionsLoaded ? `${connectionsTotalCount} ${isAdvisorTab ? connectionsTotalCount === 1 ? "RIA" : "RIAs" : connectionsTotalCount === 1 ? "connection" : "connections"}` : "Connections"}</span>}
                             titleAction={
-                              <Button type="button" variant="none" effect="fade" size="compact"
+                              <Button type="button" variant="plain" size="compact"
                                 aria-label="Refresh contacts" aria-busy={connectionsRefreshingFirstPage}
                                 disabled={connectionsRefreshingFirstPage} onClick={handleRefreshConnections}
                                 className={styles.utilityAction}>
-                                <RefreshCw aria-hidden="true" className={cn("mr-1.5 size-4", connectionsRefreshingFirstPage && "animate-spin")} />
+                                <RefreshCw aria-hidden="true" className={cn("mr-1.5 size-4 shrink-0", connectionsRefreshingFirstPage && "animate-spin")} />
                                 {connectionsRefreshingFirstPage ? "Refreshing…" : "Refresh"}
                               </Button>
                             }
@@ -3816,7 +3806,7 @@ function ConnectPageClientContent() {
                                 onChange={event => setConnectionsQuery(event.target.value)} />
                             </div>}
                             separatorInset={false}
-                            headingClassName="!mt-0 !mb-1 !px-0"
+                            headingClassName="items-center !mt-0 !mb-1 !px-0"
                             contentId="connect-my-connections-panel"
                             shellClassName={cn(
                               // Visible, not clipped: the 44px action targets reach 11px past
@@ -3913,29 +3903,25 @@ function ConnectPageClientContent() {
                                         {connection.publicPersonRef ? (
                                           <Button
                                             type="button"
-                                            variant="none"
-                                            effect="fade"
-                                            size="compact"
+                                            variant="plain"
+                                            size="icon-touch"
                                             aria-label={`Message ${connectionName}`}
-                                            className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                             onClick={() => {
                                               void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
                                             }}
                                           >
-                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} />
+                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
                                           </Button>
                                         ) : <span className="size-11 shrink-0" aria-hidden="true" />}
                                         <Button
                                           type="button"
-                                          variant="none"
-                                          effect="fade"
-                                          size="compact"
+                                          variant="plain"
+                                          size="icon-touch"
                                           aria-label={`Options for ${connectionName}`}
                                           aria-haspopup="dialog"
-                                          className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                           onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
                                         >
-                                          <MoreHorizontal aria-hidden="true" className="size-5" />
+                                          <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
                                         </Button>
                                       </span>
                                     }
@@ -3949,8 +3935,7 @@ function ConnectPageClientContent() {
                             <div className="flex justify-center">
                               <Button
                                 type="button"
-                                variant="none"
-                                effect="fill"
+                                variant="plain"
                                 size="compact"
                                 className={CONNECT_PAGER_BUTTON_CLASSNAME}
                                 disabled={
@@ -4063,8 +4048,7 @@ function ConnectPageClientContent() {
                         trailing={
                           <Button
                             type="button"
-                            variant="none"
-                            effect="fade"
+                            variant="plain"
                             size="compact"
                             disabled={isConnectingMultiple}
                             onClick={() => {
@@ -4094,10 +4078,7 @@ function ConnectPageClientContent() {
                                 return next;
                               });
                             }}
-                            className={cn(
-                              CONNECT_INLINE_BUTTON_CLASSNAME,
-                              CONNECT_REMOVE_BUTTON_CLASSNAME,
-                            )}
+                            className={cn(CONNECT_INLINE_BUTTON_CLASSNAME, "text-destructive")}
                           >
                             Remove
                           </Button>
@@ -4242,11 +4223,9 @@ function ConnectPageClientContent() {
                 secondary={
                   <Button
                     type="button"
-                    variant="none"
-                    effect="fade"
+                    variant="plain"
                     size="standard"
                     className={cn("min-w-[96px]", QUIET_FLOW_ACTION_CLASSNAME)}
-                    disableHoverRipple
                     disabled={isConnectingMultiple}
                     onClick={closeBatchConnectDraft}
                   >
@@ -4312,11 +4291,9 @@ function ConnectPageClientContent() {
             <div className="flex items-center gap-1.5 shrink-0">
               <Button
                 type="button"
-                variant="none"
-                effect="fade"
+                variant="plain"
                 size="compact"
                 className={QUIET_FLOW_ACTION_CLASSNAME}
-                disableHoverRipple
                 onClick={() => setShowLimitBanner(false)}
               >
                 Cancel

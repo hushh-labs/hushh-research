@@ -3513,7 +3513,7 @@ export function NearbyCheckInSheet({
               <SheetTitle className={CHECK_IN_DRAWER_TITLE_CLASSNAME}>Add time</SheetTitle>
               <Button
                 type="button"
-                variant="ghost"
+                variant="link"
                 size="icon"
                 aria-label="Close"
                 className="min-h-11 min-w-11"

@@ -887,50 +887,55 @@ for (const width of [393, 1440]) {
       await page.screenshot({ path: test.info().outputPath(`create-circle-${presentation}-${width}.png`), animations: "disabled" });
     });
   }
-  test(`Connection hover highlights stay centered inside touch targets at ${width}px`, async ({ page }) => {
-    await open(page, width, false, undefined, () => { document.documentElement.dataset.directoryAdvisor = "1"; });
+  test(`Connect inline actions stay transparent on hover at ${width}px`, async ({ page }) => {
+    await open(page, width, false);
     await settle(page, width);
-    const advisorBadge = page.getByTestId("connect-directory-group").getByRole("button", { name: "Verified Advisor" });
-    await expect(advisorBadge).toBeVisible();
-    const badgeBox = (await advisorBadge.boundingBox())!;
-    const faceBox = (await advisorBadge.locator('xpath=ancestor::*[@data-avatar-size]').boundingBox())!;
-    expect(badgeBox.y + badgeBox.height / 2).toBeGreaterThan(faceBox.y + faceBox.height / 2);
+    const tabs = page.getByRole("tablist", { name: "Connection views" });
+    const mine = tabs.getByRole("tab", { name: /My connections/ });
+    await mine.click();
+    const discover = tabs.getByRole("tab", { name: "Find people" });
+    const refresh = page.getByRole("button", { name: "Refresh contacts" });
+    const message = page.getByRole("button", { name: "Message Jordan Lee", exact: true });
+    const options = page.getByRole("button", { name: "Options for Jordan Lee", exact: true });
+    const profile = page.getByRole("button", { name: "Open Jordan Lee's profile", exact: true });
+
+    await expect(discover).toHaveAttribute("aria-selected", "false");
+    for (const action of [discover, refresh, message, options]) {
+      await action.hover();
+      await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
+    }
+
+    await profile.hover();
+    await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const title = page.getByTestId("connect-person-row").filter({ has: profile }).locator('[data-slot="settings-row-title"]');
+    await expect(title).toHaveCSS("text-decoration-line", "underline");
+    await page.screenshot({ path: test.info().outputPath(`inline-hover-${width}.png`), animations: "disabled" });
+  });
+
+  test(`Connection icons halve their visible gap at ${width}px without shrinking targets`, async ({ page }) => {
+    await open(page, width, false);
+    await settle(page, width);
     await page.getByRole("tab", { name: /My connections/ }).click();
     const row = page.getByTestId("connect-person-row").filter({ has: page.getByRole("button", { name: "Message Jordan Lee", exact: true }) });
-    for (const label of ["Message Jordan Lee", "Options for Jordan Lee"]) {
-      const action = row.getByRole("button", { name: label, exact: true });
-      await action.hover();
-      const geometry = await action.evaluate(node => {
-        const target = node.getBoundingClientRect();
-        const icon = node.querySelector("svg")!.getBoundingClientRect();
-        const hover = node.querySelector(".morphy-ripple-host")!.getBoundingClientRect();
-        return { target: [target.width, target.height], hover: [hover.width, hover.height],
-          center: Math.abs(icon.left + icon.width / 2 - hover.left - hover.width / 2) };
-      });
-      expect(geometry.target).toEqual([44, 44]);
-      expect(geometry.hover).toEqual([32, 32]);
-      expect(geometry.center).toBeLessThanOrEqual(1);
-    }
-    const refresh = page.getByRole("button", { name: "Refresh contacts", exact: true });
-    await refresh.hover();
-    await expect(refresh).toHaveCSS("padding-left", "10px");
-    await expect(refresh).toHaveCSS("padding-right", "10px");
-    await expect(refresh.locator("svg").first()).toHaveCSS("margin-right", "6px");
-    const tab = page.getByRole("tab", { name: /Find people/ });
-    await tab.hover();
-    await expect(tab).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(tab.locator(".morphy-ripple-host")).toHaveCSS("border-radius", "999px");
-    await page.screenshot({ path: test.info().outputPath(`tab-hover-${width}.png`) });
-    const identity = row.locator('[data-person-row-action]').first();
-    await expect(identity).toHaveCount(1);
-    {
-      const identityBox = (await identity.boundingBox())!;
-      await identity.hover();
-      await expect(identity.locator("..")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-      await page.screenshot({ path: test.info().outputPath(`row-hover-${width}.png`), animations: "disabled" });
-      expect(identityBox.width).toBeCloseTo((await row.locator(":scope > div").first().boundingBox())!.width, 0);
-      expect(await identity.evaluate(node => parseFloat(getComputedStyle(node).borderRadius))).toBeGreaterThan(100);
-    }
+    const spacing = await row.evaluate(node => {
+      const message = node.querySelector('button[aria-label="Message Jordan Lee"]')!;
+      const options = node.querySelector('button[aria-label="Options for Jordan Lee"]')!;
+      const first = message.querySelector("svg")!;
+      const second = options.querySelector("svg")!;
+      const gap = () => second.getBoundingClientRect().left - first.getBoundingClientRect().right;
+      const tightened = gap();
+      first.classList.remove("translate-x-1.5");
+      second.classList.remove("-translate-x-1.5");
+      const previous = gap();
+      first.classList.add("translate-x-1.5");
+      second.classList.add("-translate-x-1.5");
+      const a = message.getBoundingClientRect(), b = options.getBoundingClientRect();
+      return { tightened, previous, targets: [a.width, a.height, b.width, b.height], overlap: a.right > b.left };
+    });
+    expect(spacing.tightened / spacing.previous).toBeCloseTo(0.5, 1);
+    expect(spacing.targets).toEqual([44, 44, 44, 44]);
+    expect(spacing.overlap).toBe(false);
   });
   for (const joined of [false, true]) {
     test(`Join with code stays transparent with joined=${joined} at ${width}px`, async ({ page }) => {

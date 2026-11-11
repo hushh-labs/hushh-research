@@ -338,8 +338,7 @@ export function ContactSyncResultsSheet({
                       <MorphyButton
                         type="button"
                         size="compact"
-                        variant="none"
-                        effect="fade"
+                        variant="plain"
                         className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
                         disabled={requestingUserId === match.userId}
                         aria-busy={requestingUserId === match.userId || undefined}

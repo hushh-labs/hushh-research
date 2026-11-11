@@ -133,10 +133,10 @@ export function ChatImage({ session, message, type, localImage, thumbnail, visib
       {error || decodingFailed ? <>
         <ImageIcon aria-hidden="true" className="size-6" />
         <p className="text-xs">Image couldn’t load</p>
-        <Button variant="ghost" size="sm" className={`min-h-11 ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry image</Button>
+        <Button variant="link" size="sm" className={`min-h-11 ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry image</Button>
       </> : <><Loader2 aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" /><span role="status" className="text-xs">Loading image…</span></>}
     </div>}
-    {displayUrl && (error || decodingFailed) ? <Button variant="ghost" size="sm" className={`min-h-11 w-full ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry full image</Button> : null}
+    {displayUrl && (error || decodingFailed) ? <Button variant="link" size="sm" className={`min-h-11 w-full ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry full image</Button> : null}
     {displayUrl ? <Dialog modal open={expanded} onOpenChange={setExpanded}>
       <DialogContent showCloseButton={false} className="sm:max-w-3xl" data-messages-type-scale={messagesLane || undefined} srDescription="Image shared in this circle">
         <div className="flex min-w-0 items-center justify-between gap-3">

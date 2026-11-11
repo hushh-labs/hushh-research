@@ -449,8 +449,7 @@ function ContactsScreen({
                     {requestRequired ? (
                       <MorphyButton
                         type="button"
-                        variant="none"
-                        effect="fade"
+                        variant="plain"
                         size="compact"
                         onClick={() => onAdd(match.userId)}
                         disabled={added || adding || leaving}

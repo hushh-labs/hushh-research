@@ -41,7 +41,7 @@ Verified RIA acceptance reuses the active canonical connection. If a connection
 is needed, acceptance activates it with its legacy mirrors. The reference-only
 message and snapshot release share the same transaction. It does not grant
 trading, model-processing, Circle membership or any other data scope. Decline or
-withdraw removes the ciphertext. Repeated requests reuse the exact immutable
+withdraw removes the ciphertext. Once accepted, either participant can cancel the review, which ends snapshot access for both. Repeated requests reuse the exact immutable
 request id; one pending or accepted workspace per owner/advisor pair prevents
 duplicates. A definite refusal requires a fresh approval; uncertain responses
 retry the same request.

@@ -74,8 +74,7 @@ export function CircleDiscoveryCard({
         {hidden.length ? (
           <Button
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={styles.quietAction}
             onClick={() => setHidden([])}
@@ -107,8 +106,7 @@ export function CircleDiscoveryCard({
               </button>
               <Button
                 type="button"
-                variant="none"
-                effect="fade"
+                variant="plain"
                 size="icon-touch"
                 aria-label={`Hide ${starter.label} suggestion`}
                 disabled={Boolean(creating)}
@@ -126,8 +124,7 @@ export function CircleDiscoveryCard({
           {unavailable ? (
             <Button
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onRetryCircles}
             >
@@ -137,8 +134,7 @@ export function CircleDiscoveryCard({
           {needsSetup ? (
             <Button
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onSetupCircles}
             >
