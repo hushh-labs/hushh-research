@@ -2525,7 +2525,7 @@ export function CircleDetailFlow({
           {loadError}
           <Button
             type="button"
-            variant="link"
+            variant="text"
             size="compact"
             onClick={() => void reload()}
             className="ml-2"
@@ -2553,7 +2553,7 @@ export function CircleDetailFlow({
             {isOwner && circle.systemKind !== "trusted" ? (
               <Button
                 type="button"
-                variant="link"
+                variant="text"
                 size="compact"
                 onClick={() => {
                   setCircleName(circle.name);
@@ -2699,7 +2699,7 @@ export function CircleDetailFlow({
                     secondary={
                       <Button
                         type="button"
-                        variant="link"
+                        variant="text"
                         size="compact"
                         disabled={savingName}
                         onClick={() => {
@@ -2838,7 +2838,7 @@ export function CircleDetailFlow({
                         canRotateInviteCode ? (
                           <Button
                             type="button"
-                            variant="link"
+                            variant="text"
                             size="standard"
                             disabled={busy}
                             onClick={() => setReplaceCodeConfirmOpen(true)}
@@ -2868,7 +2868,7 @@ export function CircleDetailFlow({
                         <div>
                           <Button
                             type="button"
-                            variant="link"
+                            variant="text"
                             size="compact"
                             className="w-full justify-center"
                             onClick={() => setInviteCodeSheetOpen(false)}
@@ -3123,7 +3123,7 @@ export function CircleDetailFlow({
                               trailing={
                                 <Button
                                   type="button"
-                                  variant="link"
+                                  variant="text"
                                   size="compact"
                                   disabled={Boolean(cancellingInviteId)}
                                   isLoading={cancellingInviteId === invite.id}

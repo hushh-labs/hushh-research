@@ -433,7 +433,7 @@ export function CircleInvitePeopleSheet({
                         trailing={
                           <Button
                             type="button"
-                            variant="link"
+                            variant="text"
                             disabled={Boolean(cancellingInviteId)}
                             isLoading={cancellingInviteId === invite.id}
                             onClick={(event) => {
