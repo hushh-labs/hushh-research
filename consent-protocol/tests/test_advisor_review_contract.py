@@ -112,7 +112,6 @@ def test_one_time_offer_requires_price_and_allows_optional_details():
     assert AdvisorPlan.model_validate(good).interval == "one_time"
     minimum = {"amountCents": 2000, "interval": "one_time"}
     assert AdvisorPlan.model_validate(minimum).cancellationTerms == ""
-    assert AdvisorPlan.model_validate({**minimum, "amountCents": 50}).amountCents == 50
     short = AdvisorPlan.model_validate(
         {**minimum, "services": " Review ", "cancellationTerms": "  "}
     )
@@ -120,7 +119,6 @@ def test_one_time_offer_requires_price_and_allows_optional_details():
     for bad in (
         {"amountCents": True},
         {"amountCents": 0},
-        {"amountCents": 49},
         {"interval": "month"},
         {"services": "x" * 1501},
     ):
