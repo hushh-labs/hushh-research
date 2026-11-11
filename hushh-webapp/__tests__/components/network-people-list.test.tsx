@@ -329,6 +329,33 @@ describe("network permission and journey return @feature_connected_profiles", ()
     expect(screen.getByText("1st connection")).toBeVisible();
   });
 
+  it.each([
+    [0, "0 connections"], [1, "1 connection"], [500, "500 connections"], [501, "500+ connections"],
+  ] as const)("opens the shared list from the count for %i visible connections", async (visibleConnectionCount, label) => {
+    state.summary.mockResolvedValue({ networkDegree: 1, mutualConnectionCount: 0, canBrowseConnections: true, visibleConnectionCount });
+    const opened = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened);
+    try {
+      render(<PersonNetworkSummary personRef="target" />);
+      const trigger = await screen.findByRole("button", { name: label, exact: true });
+      expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+      fireEvent.click(trigger);
+      expect((opened.mock.calls[0][0] as CustomEvent).detail).toMatchObject({
+        personRef: "target", networkList: "connections", returnFocus: trigger,
+      });
+    } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
+  });
+
+  it("clears the count when the server withdraws access to the shared list", async () => {
+    state.summary.mockResolvedValue({ networkDegree: 1, mutualConnectionCount: 0, canBrowseConnections: true, visibleConnectionCount: 21 });
+    render(<PersonNetworkSummary personRef="target" />);
+    await screen.findByRole("button", { name: "21 connections", exact: true });
+    state.summary.mockResolvedValue({ networkDegree: 1, mutualConnectionCount: 0, canBrowseConnections: false, visibleConnectionCount: null });
+    act(() => dispatchConnectionGraphChanged("acct_recreated_owner"));
+    await screen.findByText("1st connection");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("keeps sharing off until the server confirms and ignores a late save after auth changes", async () => {
     state.visibility.mockResolvedValue({ shareConnectionList: false });
     let finish!: (value: unknown) => void;

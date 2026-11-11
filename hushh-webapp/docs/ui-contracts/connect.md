@@ -916,9 +916,11 @@ that person's row in place. Search changes, foreground returns and other
 connection graph changes retire the affected reads before displaying new
 results.
 
-Signed-in profiles show network details beside the profile hero. **View connections**
-appears only after the server confirms that the target opted in and the viewer is
-an active direct connection. The privacy setting **Share my connection list** starts
+Signed-in profiles show network details under the hero's contact details. The
+connection count opens the paginated shared list after the server confirms that
+the profile owner opted in and the viewer is an active direct connection. It
+uses **500+ connections** above 500. Rows show **Connected**, **Connect**, or
+the applicable pending state for the viewer. **Share my connection list** starts
 off, discloses anonymous extended-network degree contribution, and confirms only
 server-acknowledged changes. It grants no access to private contacts or information.
 Anonymous public profile projections do not fetch network information.
