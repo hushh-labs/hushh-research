@@ -26,7 +26,11 @@ from hushh_mcp.services.calendar_email_followup_reader import (
     read_complete_message,
 )
 from hushh_mcp.services.calendar_email_followup_relevance import sanitize_source_body
-from hushh_mcp.services.calendar_email_followup_scan import scan_once
+from hushh_mcp.services.calendar_email_followup_scan import (
+    INTERACTIVE_BUDGET_SECONDS,
+    INTERACTIVE_SECTIONS,
+    scan_once,
+)
 from hushh_mcp.services.calendar_email_followup_status import monitor_status
 from hushh_mcp.services.calendar_email_followup_store import (
     CalendarEmailFollowupStore,
@@ -436,8 +440,15 @@ async def refresh_followups(
         # Without Retry this honors the monitor's own schedule, so opening
         # Insights repeatedly never repeats work: a recently verified or backing
         # off account answers "not_due" without contacting Gmail.
+        # Time-boxed so the answer always beats the web proxy's limit; the card
+        # asks again while the result says "pending", and the scheduler does
+        # the bulk of a first scan.
         return await scan_once(
-            user_id=firebase_uid, account_id=payload.account_id, force=payload.retry
+            user_id=firebase_uid,
+            account_id=payload.account_id,
+            force=payload.retry,
+            max_sections=INTERACTIVE_SECTIONS,
+            budget_seconds=INTERACTIVE_BUDGET_SECONDS,
         )
     except Exception as exc:
         raise _http(exc) from None

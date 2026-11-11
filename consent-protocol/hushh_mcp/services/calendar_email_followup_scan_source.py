@@ -7,6 +7,7 @@ decides what to read next.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -33,6 +34,8 @@ from hushh_mcp.services.calendar_email_followup_store import (
     FollowupStateError,
     Monitor,
 )
+
+logger = logging.getLogger(__name__)
 
 # State a gap recovery must not forget: what is still unverified stays unverified.
 _CARRIED = ("incomplete_sources", "unreadable", "message_failures", "reassess_seen")
@@ -151,6 +154,13 @@ async def _failure_result(
     known = isinstance(exc, CompleteMailReadError | SelectedMailAccessError | FollowupStateError)
     code = exc.code if known else "analysis_unavailable"  # type: ignore[attr-defined]
     report = {"reason": code, "sections": progress["sections"], "messages": progress["messages"]}
+    # Machine-readable and value-free: without it a stalled scan is invisible.
+    logger.warning(
+        "calendar_followup_scan_ended reason=%s sections=%d messages=%d",
+        code,
+        progress["sections"],
+        progress["messages"],
+    )
     if code == "monitor_changed":
         # Consent or schedule changed under this pass; the next one starts clean.
         return {"state": "partial", **report}

@@ -160,16 +160,17 @@ async def test_incremental_sync_reads_only_new_mail_and_reopening_repeats_nothin
 def _paged_provider(state: dict):
     """Five messages over three result pages: short, long, flaky, image-only, last."""
     day = 24 * 3600 * 1000
-    base = int(datetime(2026, 9, 1, tzinfo=UTC).timestamp() * 1000)
+    # All inside the 30 days a first scan reads, although the approved period is longer.
+    base = int(datetime(2026, 10, 5, tzinfo=UTC).timestamp() * 1000)
     long_body = ("Background paragraph with ordinary detail. " * 500) + (
         "\n\nPlease send the signed agreement before 30 October."
     )
     bodies = {
         "m1": ("Thanks for yesterday, nothing needed from you.", base + 1 * day, "t1"),
-        "m2": (long_body, base + 20 * day, "t2"),
-        "m3": ("Could we have a call on 28 October?", base + 30 * day, "t3"),
-        "m4": (None, base + 40 * day, "t4"),
-        "m5": ("Plain note with no request.", base + 50 * day, "t5"),
+        "m2": (long_body, base + 5 * day, "t2"),
+        "m3": ("Could we have a call on 28 October?", base + 10 * day, "t3"),
+        "m4": (None, base + 15 * day, "t4"),
+        "m5": ("Plain note with no request.", base + 20 * day, "t5"),
     }
     pages = {None: (["m1", "m2"], "p2"), "p2": (["m3", "m4"], "p3"), "p3": (["m5"], None)}
 

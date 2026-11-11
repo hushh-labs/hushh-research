@@ -12,7 +12,11 @@ from fastapi.concurrency import run_in_threadpool
 
 from api.routes.one.scheduled_mail_drain import _verify_scheduled_mail_drain_oidc_token
 from hushh_mcp.services.calendar_email_followup_reminders import drain_due_reminders
-from hushh_mcp.services.calendar_email_followup_scan import scan_once
+from hushh_mcp.services.calendar_email_followup_scan import (
+    BACKGROUND_BUDGET_SECONDS,
+    BACKGROUND_SECTIONS,
+    scan_once,
+)
 from hushh_mcp.services.calendar_email_followup_store import CalendarEmailFollowupStore
 from hushh_mcp.services.owner_placement_guard import hub_content_inline
 
@@ -20,6 +24,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/one/calendar/followups", tags=["One Calendar Follow-ups"])
 _NO_STORE = {"Cache-Control": "private, no-store"}
 _ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
+# Up to ten accounts per tick, each time-boxed: three at a time stays well inside
+# the scheduler's 300 s attempt deadline.
+_ACCOUNT_CONCURRENCY = 3
 
 
 def _config() -> tuple[str, str]:
@@ -86,13 +93,26 @@ async def drain_followups(
     store = CalendarEmailFollowupStore()
     accounts = await store.due_accounts(limit=limit)
     scans = {"attempted": 0, "partial": 0}
-    for user_id, account_id in accounts:
-        try:
-            result = await scan_once(user_id=user_id, account_id=account_id, store=store)
-            scans["attempted"] += 1
-            scans["partial"] += int(result["state"] == "partial")
-        except Exception as exc:
-            logger.warning("calendar_followups.scan_deferred error_type=%s", type(exc).__name__)
-            scans["partial"] += 1
+    gate = asyncio.Semaphore(_ACCOUNT_CONCURRENCY)
+
+    async def scan_account(user_id: str, account_id: str) -> None:
+        # Accounts are independent and each scan holds its own lease, so a few can
+        # run side by side; one slow mailbox no longer delays everyone else.
+        async with gate:
+            try:
+                result = await scan_once(
+                    user_id=user_id,
+                    account_id=account_id,
+                    store=store,
+                    max_sections=BACKGROUND_SECTIONS,
+                    budget_seconds=BACKGROUND_BUDGET_SECONDS,
+                )
+                scans["attempted"] += 1
+                scans["partial"] += int(result["state"] == "partial")
+            except Exception as exc:
+                logger.warning("calendar_followups.scan_deferred error_type=%s", type(exc).__name__)
+                scans["partial"] += 1
+
+    await asyncio.gather(*(scan_account(user_id, account_id) for user_id, account_id in accounts))
     reminders = await drain_due_reminders(store=store, limit=limit)
     return {"scans": scans, "reminders": reminders}

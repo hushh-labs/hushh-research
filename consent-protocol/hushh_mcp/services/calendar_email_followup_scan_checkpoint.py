@@ -22,6 +22,22 @@ def _now_ms(now: datetime | None = None) -> int:
     return int((now or datetime.now(UTC)).timestamp() * 1000)
 
 
+# A first scan reads the most recent month only. Dated follow-ups rarely look
+# further ahead than that, and every later pass is incremental from the saved
+# Gmail history position, so older mail is never walked again.
+FIRST_SCAN_DAYS = 30
+_FIRST_SCAN_MS = FIRST_SCAN_DAYS * 86_400_000
+
+
+def bootstrap_window_is_stale(checkpoint: dict[str, Any]) -> bool:
+    """A first scan sealed before the 30-day cap that is still reading older mail."""
+    return (
+        checkpoint.get("mode") == "bootstrap"
+        and int(checkpoint.get("cutoff_ms", 0))
+        < int(checkpoint.get("snapshot_ms", 0)) - _FIRST_SCAN_MS
+    )
+
+
 def _initial_checkpoint(
     monitor: Monitor,
     *,
@@ -29,13 +45,15 @@ def _initial_checkpoint(
     history_id: str,
     cutoff_ms: int | None = None,
 ) -> dict[str, Any]:
-    start_ms = int(monitor.historical_start_at.timestamp() * 1000)
+    start_ms = max(
+        int(monitor.historical_start_at.timestamp() * 1000), snapshot_ms - _FIRST_SCAN_MS
+    )
     return {
         "version": 1,
         "assessment_version": ASSESSMENT_VERSION,
         "mode": "bootstrap",
         # Gap recovery narrows this to the unsynchronized period; a first scan
-        # always covers the owner's whole approved period.
+        # covers the approved period, never more than the most recent month.
         "cutoff_ms": max(start_ms, cutoff_ms) if cutoff_ms is not None else start_ms,
         "snapshot_ms": snapshot_ms,
         "history_id": history_id,

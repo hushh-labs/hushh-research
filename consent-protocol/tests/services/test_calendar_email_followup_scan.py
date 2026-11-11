@@ -299,3 +299,72 @@ def test_old_exhausted_source_is_retried_without_delaying_mail_history():
     assert _next_retry_batch(checkpoint, now + timedelta(seconds=SLOW_SOURCE_RETRY_SECONDS)) == [
         "old-thread"
     ]
+
+
+def test_first_scan_reads_only_the_most_recent_month():
+    """Dated follow-ups rarely look past a month; later passes are incremental."""
+    from datetime import timedelta
+
+    from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
+        _initial_checkpoint,
+        bootstrap_window_is_stale,
+    )
+
+    snapshot = datetime(2026, 11, 11, tzinfo=UTC)
+    snapshot_ms = int(snapshot.timestamp() * 1000)
+    thirty_days_ms = 30 * 86_400_000
+
+    # A 90-day approval is capped at the most recent 30 days.
+    wide = replace(_Store().current, historical_start_at=snapshot - timedelta(days=90))
+    capped = _initial_checkpoint(wide, snapshot_ms=snapshot_ms, history_id="100")
+    assert capped["cutoff_ms"] == snapshot_ms - thirty_days_ms
+    assert not bootstrap_window_is_stale(capped)
+
+    # A shorter approval is never widened.
+    narrow = replace(_Store().current, historical_start_at=snapshot - timedelta(days=10))
+    assert _initial_checkpoint(narrow, snapshot_ms=snapshot_ms, history_id="100")["cutoff_ms"] == (
+        snapshot_ms - 10 * 86_400_000
+    )
+
+    # A first scan sealed before the cap restarts inside it; history mode does not.
+    legacy = dict(capped, cutoff_ms=snapshot_ms - 90 * 86_400_000)
+    assert bootstrap_window_is_stale(legacy)
+    assert not bootstrap_window_is_stale(dict(legacy, mode="history"))
+
+
+@pytest.mark.asyncio
+async def test_a_time_budgeted_pass_does_what_took_several_calls_and_stops_on_time(monkeypatch):
+    """The 2-section pass needed many 25-60 s requests; a budget does it in one."""
+    body = ("Earlier context. " * 1600) + "\n\nPlease send the document before 26 October."
+
+    async def current():
+        return None
+
+    grant = SimpleNamespace(epoch_digest="synthetic-epoch", require_current=current)
+    grant.token = _SYNTHETIC_TOKEN
+    monkeypatch.setattr(scan, "open_selected_mail_grant", lambda **_: _grant(grant))
+
+    async def assess_section(**_kwargs):
+        return [], []
+
+    monkeypatch.setattr(scan, "assess_section", assess_section)
+    common = {
+        "user_id": "synthetic-owner",
+        "account_id": "account-b",
+        "now": datetime(2026, 10, 11, tzinfo=UTC),
+        "transport": _transport(body, []),
+    }
+
+    store = _Store()
+    done = await scan.scan_once(**common, store=store, max_sections=40, budget_seconds=30)
+    assert done["state"] == "complete"
+    assert len(store.committed) == 1
+
+    # Negative control: the same pass with no time left stops after one step.
+    store = _Store()
+    stopped = await scan.scan_once(**common, store=store, max_sections=40, budget_seconds=1e-9)
+    assert stopped["state"] == "pending"
+    assert store.committed == []
+
+    with pytest.raises(ValueError, match="invalid_scan_budget"):
+        await scan.scan_once(**common, store=_Store(), budget_seconds=0)
