@@ -127,7 +127,7 @@ to the helper; its built-in substitutions are not assumed to be shell variables.
 
 - **Local:** `.env` (backend) and `.env.local` (frontend) must contain exactly the keys the application code reads. Use the repo `.env.example` files as the template; they are audited to match the code.
 - **Production:** GCP Secret Manager must hold **exactly** the secrets the code expects — no more, no less. The Cloud Build config (`deploy/*.cloudbuild.yaml`) injects only these; do not add secrets that are not read by the code, and do not remove any that are.
-- **Canonical runtime modes:** the supported frontend `local`, `uat`, `dev`, and `prod` files must share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`. The hosted `dev` environment is a UAT infrastructure replica that keeps the `uat` runtime identity; see [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md).
+- **Canonical runtime modes:** the supported frontend `local`, `uat`, `dev`, and `prod` files share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`. The deployed Dev backend uses the `dev` runtime identity. Local profile tooling deliberately labels the frontend `uat` to prevent development-only authentication shortcuts against a hosted backend; it does not relabel the deployed backend. See [the Dev setup guide](../../../consent-protocol/docs/reference/dev-environment-setup.md).
 
 ## Canonical 3-environment contract
 
