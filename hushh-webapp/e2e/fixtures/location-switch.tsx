@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { TopBarRouteAccessoryHost } from "../../components/app-ui/top-bar-route-accessory";
 import { Switch } from "../../components/ui/switch";
 import { Button } from "../../components/ui/button";
 import { RefreshCw } from "../../components/icons";
@@ -44,9 +45,10 @@ function Fixture() {
   </main>;
   if (document.body.dataset.compact) return <main className="app-page-shell" data-app-shell-width="agent" data-location-type-scale="connect">
     <PageHeader title="Location" accent="location" titleRole="agent" actionsInlineMobile
-      actions={<LocationHeaderActions vm={{ locationEnabled: checked, locationAcquiring: false, locationBlocked: false,
-        locationPaused: false, locationAccuracyLimited: false, onShowMyLocation: () => setChecked(true), onHideMyLocation: () => setChecked(false) }} />}
+      actions={<TopBarRouteAccessoryHost />}
       className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center" />
+    <LocationHeaderActions vm={{ locationEnabled: checked, locationAcquiring: false, locationBlocked: false,
+        locationPaused: false, locationAccuracyLimited: false, onShowMyLocation: () => setChecked(true), onHideMyLocation: () => setChecked(false) }} />
     <LocationPrimaryShareCard onClick={() => { document.body.dataset.shared = "true"; }} />
     <LiveShareStatusCard status={{ count: 1, grantCount: 1, names: ["Asha"], startedAt: new Date().toISOString(), endsAt: null, stoppableGrantId: "sms-grant", singleGrantIsSms: true }}
       onManage={() => {}} onStop={() => { document.body.dataset.stopped = "true"; }} />

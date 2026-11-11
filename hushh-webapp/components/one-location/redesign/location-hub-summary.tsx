@@ -1,5 +1,7 @@
 "use client";
 
+import { TopBarRouteAccessory } from "@/components/app-ui/top-bar-route-accessory";
+import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { SectionTitle } from "@/components/app-ui/typography";
@@ -15,7 +17,7 @@ type LocationHeaderViewModel = Pick<LocationHubViewModel,
 
 /**
  * The id the header switch points `aria-describedby` at. A constant, not
- * `useId`: the status text now renders below the switch in the actions column,
+ * `useId`: the status text renders beside the switch in the shell,
  * and `aria-describedby` resolves by id anywhere in the document. There is
  * exactly one Location header on screen.
  */
@@ -73,7 +75,7 @@ export function LocationHeaderActions({ vm }: { vm: LocationHeaderViewModel }) {
     vm.onHideMyLocation();
   };
 
-  return (
+  const control = (
     <div
       role="group"
       aria-label="Location"
@@ -81,6 +83,7 @@ export function LocationHeaderActions({ vm }: { vm: LocationHeaderViewModel }) {
       data-testid="one-location-header-actions"
     >
       <label htmlFor="one-location-header-toggle" className={LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME}>
+      <LocationHeaderStatus vm={vm} />
       <Switch
         id="one-location-header-toggle"
         size="default"
@@ -104,10 +107,10 @@ export function LocationHeaderActions({ vm }: { vm: LocationHeaderViewModel }) {
         // system green, so this toggle reads the same as every other one.
         className={cn(LOCATION_HEADER_SWITCH_CLASSNAME, acquiring && "animate-pulse")}
       />
-      <LocationHeaderStatus vm={vm} />
       </label>
     </div>
   );
+  return <TopBarRouteAccessory><ConnectTypeScale>{control}</ConnectTypeScale></TopBarRouteAccessory>;
 }
 
 const LOCATION_INTERACTIVE_SURFACE =

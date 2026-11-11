@@ -1840,9 +1840,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     <div
       data-location-hub
       data-location-type-scale="connect"
-      className="mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]"
+      className="mx-auto w-full max-w-[820px] space-y-4"
     >
-      <div className="flex min-w-0 items-center justify-end" data-testid="one-location-status-row">
+      <div className="contents" data-testid="one-location-status-row">
         <h1 className="sr-only">Location</h1>
         <LocationHeaderActions vm={vm} />
       </div>

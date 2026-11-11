@@ -379,7 +379,7 @@ describe("AdvisorsNearby", () => {
     render(<AdvisorsNearby getIdToken={getIdToken} />);
 
     expect(await screen.findByTestId("advisors-empty")).toBeTruthy();
-    expect(screen.getByText("Nothing nearby")).toBeTruthy();
+    expect(screen.getByText(/No advisors within/)).toBeTruthy();
 
     fireEvent.change(screen.getByTestId("advisors-postal-input"), {
       target: { value: "98033" },

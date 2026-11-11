@@ -2388,7 +2388,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockOpenLocationSettings).not.toHaveBeenCalled();
   });
 
-  it("keeps the heading and location toggle inline as the only header action", async () => {
+  it("keeps location status and toggle together for the shared header", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -2400,9 +2400,7 @@ describe("OneLocationAgentPage", () => {
     const headerActions = screen.getByRole("group", {
       name: "Location",
     });
-    expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("items-center");
-    expect(headerActions.className).toContain("justify-center");
+    expect(headerActions.querySelector("label")?.querySelector("[role=switch]")).toBeTruthy();
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
     expect(headerActions.contains(status)).toBe(true);
@@ -2411,7 +2409,7 @@ describe("OneLocationAgentPage", () => {
     expect(headerRowForStatus, "the status escaped the toggle group").toBe(
       headerActions.closest('[data-slot="page-header-row"]'),
     );
-    expect(status).toHaveClass("block", "whitespace-normal", "text-center");
+    expect(status).toHaveClass("block", "whitespace-normal", "text-right");
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
     expect(
@@ -2426,7 +2424,7 @@ describe("OneLocationAgentPage", () => {
     const heading = screen.getByRole("heading", { name: "Location" });
     const headerRow = heading.closest('[data-testid="one-location-status-row"]');
     expect(headerRow).toBeTruthy();
-    expect(headerRow).toHaveClass("flex", "items-center", "justify-end");
+    expect(headerRow).toHaveClass("contents");
     expect(screen.queryByTestId("page-header")).toBeNull();
     expect(heading).toHaveClass("sr-only");
     expect(screen.queryByTestId("one-location-header-icon")).toBeNull();
