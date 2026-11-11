@@ -825,6 +825,9 @@ test.describe("Circle roster row", () => {
       const trigger = page.getByRole("button", {
         name: `Actions for ${fixture.memberName}`,
       });
+      await trigger.hover();
+      await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(trigger.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
       await trigger.click();
 
       const menu = page.getByTestId("circle-member-actions-menu");
