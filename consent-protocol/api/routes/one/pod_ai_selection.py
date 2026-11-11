@@ -226,9 +226,17 @@ async def run_ai_selection_get(
         await store.load_active_ai_selection(log)
     if store.ai_selection_load_failed():
         raise HTTPException(status_code=503, detail={"code": "OWNER_AI_SELECTION_UNAVAILABLE"})
-    from hushh_mcp.services.pod_ai_effective_connection import effective_connection
+    from hushh_mcp.services.pod_ai_effective_connection import (
+        effective_connection,
+        paid_answer_runtime,
+    )
 
+    try:
+        answer_runtime = paid_answer_runtime()
+    except ValueError:
+        answer_runtime = None
     return {
+        "answerRuntime": answer_runtime,
         **store.public_selection(store.current_ai_selection()),
         "lastFailure": store.last_ai_selection_failure(),
         "effectiveConnection": effective_connection(),

@@ -54,6 +54,7 @@ from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E
 from api.routes.one.pod_actions import router as pod_actions_router
 from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
 from api.routes.one.pod_ai_selection import router as pod_ai_selection_router
+from api.routes.one.pod_answer_composition import router as pod_answer_composition_router
 from api.routes.one.pod_browser import router as pod_browser_router
 from api.routes.one.pod_capabilities import (
     ai_selection_capability,
@@ -160,6 +161,7 @@ _POD_ROUTERS = (
     pod_scheduled_tasks_router,
     pod_commands_router,
     pod_pkm_preparation_router,
+    pod_answer_composition_router,
     # The device door: Puppy One dials THIS pod with a device-role session and
     # answers inference over sealed frames. The hub broker stays for UAT and
     # production; an owner pod brokers its own device. See pod_puppy_relay.py.

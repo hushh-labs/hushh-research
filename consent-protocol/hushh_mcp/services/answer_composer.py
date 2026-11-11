@@ -27,6 +27,7 @@ Boundary declaration (backend-semantic-boundary.md, "new semantic surface"):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -73,6 +74,31 @@ ANSWER_COMPOSE_SCHEMA: dict[str, Any] = {
 
 class AnswerComposerError(RuntimeError):
     """A model failure. Preparation stays retryable; no completed answer is staged."""
+
+
+def shared_answer_model() -> tuple[dict[str, Any], Any]:
+    """Describe and build the SAME configured shared runtime; never choose by host cloud."""
+    from hushh_mcp.runtime_providers.factory import (
+        ManagedGeminiRuntimeBinding,
+        build_managed_regional_gemini_adk_model,
+    )
+    from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+    from hushh_mcp.services.answer_composition_contract import ProcessingRuntime
+    from hushh_mcp.services.answer_composition_receipt import composition_model
+
+    azure = ManagedAzureBinding.from_environment()
+    model = build_managed_regional_gemini_adk_model(composition_model())
+    provider = "azure_openai" if azure else "gemini"
+    binding = {"provider": provider, "model": model.model}
+    if azure:
+        binding.update(policy=azure.policy_fingerprint, generation=azure.generation)
+    else:
+        google = ManagedGeminiRuntimeBinding.from_environment()
+        binding.update(project=google.project, locations=google.locations, auth=google.auth_mode)
+    fingerprint = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
+    return ProcessingRuntime(
+        provider=provider, model=model.model, mode="shared", fingerprint=fingerprint
+    ).model_dump(), model
 
 
 def omitted_coverage_sentence(scopes: Sequence[str]) -> str | None:
@@ -152,8 +178,9 @@ def _prompt(
 
 
 class AnswerComposer:
-    def __init__(self, *, runner=None) -> None:
+    def __init__(self, *, runner=None, model=None) -> None:
         self._runner = runner
+        self._model = model
 
     async def compose(
         self,
@@ -234,7 +261,9 @@ class AnswerComposer:
                 or selected_model != composition_model()
             ):
                 raise AnswerComposerError("composer gene must use the configured Gemini model")
-            agent = build_single_turn_agent(gene, output_schema=ANSWER_COMPOSE_SCHEMA)
+            agent = build_single_turn_agent(
+                gene, output_schema=ANSWER_COMPOSE_SCHEMA, model=self._model
+            )
             return await run_single_turn(
                 agent,
                 prompt_parts=prompt,

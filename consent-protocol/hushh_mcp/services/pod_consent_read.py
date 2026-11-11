@@ -12,7 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
 ConsentReadReference = Annotated[
     str,
     StringConstraints(
-        pattern=r"^(?:[0-9a-f-]{36}|finance:[0-9a-f-]{36}:[1-9][0-9]{0,8})$", max_length=90
+        pattern=r"^(?:[0-9a-f-]{36}|answer:[0-9a-f-]{36}|finance:[0-9a-f-]{36}:[1-9][0-9]{0,8})$",
+        max_length=90,
     ),
 ]
 
@@ -54,6 +55,17 @@ class ConsentFeedProjection(BaseModel):
 
 def project_consent_feed(raw: Any) -> dict:
     """Reject undeclared fields at both signing and opening; never carry values."""
+    if isinstance(raw, dict) and "paidAnswer" in raw:
+        from hushh_mcp.services.answer_composition_contract import PaidAnswerAuthority
+
+        if set(raw) != {"readNonce", "paidAnswer"} or not __import__("re").fullmatch(
+            r"[0-9a-f]{32}", str(raw["readNonce"])
+        ):
+            raise ValueError("invalid_answer_authority")
+        return {
+            "readNonce": raw["readNonce"],
+            "paidAnswer": PaidAnswerAuthority.model_validate(raw["paidAnswer"]).model_dump(),
+        }
     if isinstance(raw, dict) and "finance" in raw:
         from hushh_mcp.one_adk.finance_share_context import FinanceReviewAuthority
 
@@ -88,6 +100,35 @@ def project_consent_feed(raw: Any) -> dict:
 
 
 async def read_consent_feed(owner: str, options: ConsentReadOptions) -> dict:
+    if options.bundle_id.startswith("answer:"):
+        from hushh_mcp.services.answer_composition_contract import private_answer_binding
+        from hushh_mcp.services.answer_composition_receipt import issue_private_authority
+        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+        from hushh_mcp.services.pkm_answer_config import answer_composer_enabled
+        from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+        if not answer_composer_enabled():
+            raise PermissionError("answer_composer_disabled")
+        if options.submission_key:
+            raise ValueError("answer_has_no_bundle_submission")
+        work = await PkmAnswerRequestService().assert_answerable(
+            owner_user_id=owner, request_id=str(UUID(options.bundle_id.removeprefix("answer:")))
+        )
+        if work.get("modelProcessingConsented") is not True:
+            raise PermissionError("model_processing_consent_required")
+        binding = private_answer_binding(await PersonalAgentRegistryRepo().get(owner))
+        return project_consent_feed(
+            {
+                "readNonce": options.read_nonce,
+                "paidAnswer": {
+                    **work,
+                    "runtimeBinding": binding,
+                    "authorityToken": issue_private_authority(
+                        work=work, binding=binding, nonce=options.read_nonce
+                    ),
+                },
+            }
+        )
     if options.bundle_id.startswith("finance:"):
         from hushh_mcp.services.finance_sharing_service import finance_review_authority
 
