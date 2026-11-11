@@ -5,6 +5,7 @@ const runAgent = vi.hoisted(() => vi.fn());
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
     constructor(public config: Record<string, unknown>) {}
+    use() { return this; }
     abortRun() {}
     async runAgent(parameters: unknown, subscriber: Record<string, (input: unknown) => void>) {
       runAgent(parameters, this.config);
