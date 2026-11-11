@@ -46,7 +46,7 @@ const OUTCOME_TEXT: Record<InvitationOutcome, string> = {
     "Messages opened. Check all recipients and tap Send there. One cannot confirm sending or delivery.",
   launch_requested:
     "Email draft requested. Check that all selected addresses are in BCC, then send in your email app. If nothing opened, copy the invitation.",
-  cancelled: "Cancelled. Your selection is saved here; you can try again.",
+  cancelled: "Cancelled. Your contacts are still selected. Try again when ready.",
   failed:
     "The message could not be handed off. Try again or copy the invitation.",
   unavailable:

@@ -124,7 +124,7 @@ const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
 
 export class ConnectionsServiceRequestError extends Error { status = 500; }
 export const ConnectionsService = {
-  listNetwork: async () => ({ person: null, items: [], page: 1, hasMore: false }),
+  listNetwork: async () => ({ person: null, items: dataset().networkActions === "1" ? people().map(person => ({ ...person, networkDegree: 2 })) : [], page: 1, hasMore: false }),
   listMutualConnections: async ({ personRef, page }: { personRef: string; page: number }) => {
     if (personRef === "person_directory_1" && dataset().delayedSingleMutual === "1") {
       document.documentElement.dataset.singleMutualPending = "1";

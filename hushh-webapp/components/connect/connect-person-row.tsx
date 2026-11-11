@@ -164,7 +164,7 @@ export function DirectoryMutualLine({
   const label = count === 1 ? "Mutual connection" : `${count} mutual connections`;
   const content = (
     <>
-      {previews.length ? <span className="isolate inline-flex min-w-9 shrink-0 items-center -space-x-1" data-testid="mutual-avatar-stack" aria-hidden="true">
+      {previews.length ? <span className="isolate inline-flex shrink-0 items-center -space-x-1" data-testid="mutual-avatar-stack" aria-hidden="true">
         {previews.map((peer, index) => <ConnectionPersonAvatar
           key={peer.publicPersonRef ?? index}
           size="compact"
@@ -179,7 +179,7 @@ export function DirectoryMutualLine({
       </span>
     </>
   );
-  const lineClassName = "flex min-w-0 items-center gap-2 text-left";
+  const lineClassName = "flex min-w-0 items-center gap-1.5 text-left";
   return onOpenMutual ? (
     <button
       type="button"

@@ -178,6 +178,7 @@ import {
 } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
 import styles from "@/components/connect/connect-workspace.module.css";
+import { CONNECT_ROW_ACTION_CLASSNAME, CONNECT_ROW_ACTION_PILL_CLASSNAME } from "@/components/connect/connect-row-action";
 import { useConnectionSearch } from "@/components/connect/use-connection-search";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -369,16 +370,6 @@ async function mapWithConcurrency<T, R>(
 
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
-/**
- * A directory row's call to action. Both the button target and its visible pill
- * are 44px high. The pill slot keeps local styling independent of Button wrappers.
- * The label takes Profile's action typography through `data-profile-role="action"`
- * on the button, which the pill inherits.
- */
-const CONNECT_ROW_ACTION_CLASSNAME =
-  "!h-11 !min-h-11 min-w-[72px] !border-0 !bg-transparent !p-0 !text-[color:var(--app-accent)] disabled:opacity-60";
-const CONNECT_ROW_ACTION_PILL_CLASSNAME =
-  "inline-flex h-11 min-w-[88px] items-center justify-center rounded-full border px-[15px]";
 /** An icon-only action: a 44px target around a 22px glyph. */
 const CONNECT_ROW_ICON_ACTION_CLASSNAME = cn("!size-11 !min-w-11 !rounded-full !bg-transparent !p-0", styles.rowIconAction);
 const CONNECT_INLINE_BUTTON_CLASSNAME =

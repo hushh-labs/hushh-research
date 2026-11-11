@@ -1112,8 +1112,8 @@ export function ConnectCirclesTab({
       <AlertDialog open={pendingType !== null} onOpenChange={open => { if (!open && !listMutationRef.current) setPendingTypeDraft(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {pendingType} type?</AlertDialogTitle>
-            <AlertDialogDescription>Your circles and their members will stay. They will appear without a type heading, and you can create a new type.</AlertDialogDescription>
+            <AlertDialogTitle>Delete circle type “{pendingType}”?</AlertDialogTitle>
+            <AlertDialogDescription>This removes the “{pendingType}” label from your circles. Your circles and members will stay.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>

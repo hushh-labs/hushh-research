@@ -677,7 +677,7 @@ for (const width of [320, 393, 1440]) {
     await group.getByRole("button", { name: "Open Investments", exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: test.info().outputPath(`circle-types-${width}.png`), animations: "disabled" });
     await group.getByRole("button", { name: "Delete Finance type" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("Your circles and their members will stay");
+    await expect(page.getByRole("alertdialog")).toContainText("This removes the “Finance” label from your circles. Your circles and members will stay.");
     await page.getByRole("button", { name: "Delete type", exact: true }).click();
     await expect(group).toBeHidden();
     await expect(page.getByTestId("connect-circle-group-owned").getByText("Investments", { exact: true })).toBeVisible();
@@ -959,4 +959,30 @@ for (const width of [393, 1440]) {
       expect(gap).toBeCloseTo(6, 1);
     });
   }
+}
+
+for (const width of [393, 1440]) {
+  test(`Network Connect action matches directory at ${width}px`, async ({ page }) => {
+    await open(page, width, false, undefined, () => { document.documentElement.dataset.networkActions = "1"; });
+    await settle(page, width);
+    const pillStyle = (node: Element) => {
+      const style = getComputedStyle(node);
+      return { color: style.color, background: style.backgroundColor, border: style.borderColor,
+        width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height,
+        font: style.fontSize, weight: style.fontWeight, radius: style.borderRadius };
+    };
+    const expected = await page.locator('[data-slot="connect-row-action-pill"]').first().evaluate(pillStyle);
+    const mutual = page.getByTestId("mutual-connection").first();
+    const gap = await mutual.evaluate(node => {
+      const avatar = node.querySelector('[data-testid="mutual-avatar-stack"]')!.getBoundingClientRect();
+      const label = node.querySelector('[data-slot="settings-row-description"]')!.getBoundingClientRect();
+      return label.left - avatar.right;
+    });
+    expect(gap).toBe(6);
+    await page.getByRole("button", { name: "Explore your network", exact: true }).click();
+    const button = page.getByRole("button", { name: "Connect with Avery Stone", exact: true });
+    await expect(button).toBeVisible();
+    expect(await button.locator('[data-slot="connect-row-action-pill"]').evaluate(pillStyle)).toEqual(expected);
+    await page.screenshot({ path: test.info().outputPath(`network-actions-${width}.png`), animations: "disabled" });
+  });
 }
