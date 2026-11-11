@@ -167,7 +167,7 @@ it("opens an advisor snapshot in the recipient account without offering AI proce
   mocks.view.mockResolvedValue(advisorGrant);
   mocks.decrypt.mockResolvedValue({ schema: "finance-share-v2", source: "statement", sourcePeriod: null, allocation: [], performance: { balanceChangePct: null, unit: "USD", history: [] }, holdings: [], cashBalance: { value: 100, currency: "USD" } });
   render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
-  expect(await screen.findByText(/reply to the owner in your connection conversation/)).toBeTruthy();
+  expect(await screen.findByRole("tab", { name: "Portfolio" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Review with Agent One" })).toBeNull();
 });
 

@@ -88,7 +88,7 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
     finally { if (context.isCurrent() && !controller.signal.aborted) setReviewBusy(false); }
   };
   return <KaiControlSurface open={Boolean(grantId)} onOpenChange={value => { if (!value) onClose(); }} title={visible ? `${visible.grant.direction === "received" ? visible.grant.senderName : visible.grant.recipientName} · Finance` : "Shared Finance"}
-    description={visible ? `${visible.grant.policy.mode === "snapshot" ? "Snapshot" : "Real time"} · Last shared ${new Date(visible.grant.updatedAt).toLocaleString()}${visible.grant.expiresAt ? ` · Ends ${new Date(visible.grant.expiresAt).toLocaleString()}` : " · Until stopped"}` : "Recipient-encrypted information"}
+    description={visible ? `${visible.grant.policy.mode === "snapshot" ? "Snapshot" : "Real time"}${visible.grant.expiresAt ? ` · Ends ${new Date(visible.grant.expiresAt).toLocaleDateString()}` : ""}` : "Recipient-encrypted information"}
     presentation="sheet"
     surfaceClassName={`${finance.detail} ${styles.sharedSheet}`}
     bodyClassName={visible ? styles.sharedBody : undefined}>
@@ -100,12 +100,11 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
         preserveControlActivationAfterSwipe>
       <div className={styles.section}>
       <FinanceSharingPreview projection={visible.projection} section="portfolio" />
-      {visible.grant.direction === "received" && visible.grant.policy.version === 2 ? <p className={styles.privacy}>Review the snapshot and reply to the owner in your connection conversation.</p> : null}
-      {visible.grant.direction === "received" && visible.grant.policy.model_processing.allowed ? <section className={styles.group}><h2 className={styles.heading}>Review with Agent One</h2><p className={`${styles.caption} my-3`}>Only this approved view is provided for this review. Agent One cannot save it or take actions from this turn.</p><ShellActionSurface variant="pill" disabled={reviewBusy} onClick={() => void ask()}>{reviewBusy ? "Reviewing…" : "Review with Agent One"}</ShellActionSurface>{reviewError ? <p role="alert" className="mt-3 text-sm text-destructive">{reviewError}</p> : null}{review ? <div className="mt-4 text-sm leading-[21px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_p]:mt-2 [&_strong]:font-semibold"><SafeMarkdown markdown={review} linkPolicy="internal" /></div> : null}</section> : null}
+      {visible.grant.direction === "received" && visible.grant.policy.model_processing.allowed ? <section className={styles.group}><ShellActionSurface variant="pill" disabled={reviewBusy} onClick={() => void ask()}>{reviewBusy ? "Reviewing…" : "Review with Agent One"}</ShellActionSurface>{reviewError ? <p role="alert" className="mt-3 text-sm text-destructive">{reviewError}</p> : null}{review ? <div className="mt-4 text-sm leading-[21px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_p]:mt-2 [&_strong]:font-semibold"><SafeMarkdown markdown={review} linkPolicy="internal" /></div> : null}</section> : null}
       </div>
       <FinanceSharingPreview projection={visible.projection} section="allocation" />
       <FinanceSharingPreview projection={visible.projection} section="stocks" />
       </SwipeViews>
-    </div> : <div className="py-6"><p role={error ? "alert" : "status"} className="text-sm text-muted-foreground">{!ready ? "Unlock your vault to open shared Finance." : error || "Checking access and opening the encrypted view…"}</p>{error ? <ShellActionSurface variant="pill" className="mt-4" onClick={() => setRetry(n => n + 1)}>Check access again</ShellActionSurface> : null}</div>}
+    </div> : <div className="py-6"><p role={error ? "alert" : "status"} className="text-sm text-muted-foreground">{!ready ? "Unlock your vault to open shared Finance." : error || "Opening…"}</p>{error ? <ShellActionSurface variant="pill" className="mt-4" onClick={() => setRetry(n => n + 1)}>Try again</ShellActionSurface> : null}</div>}
   </KaiControlSurface>;
 }
