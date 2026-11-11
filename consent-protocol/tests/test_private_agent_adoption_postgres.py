@@ -102,7 +102,7 @@ def test_isolated_firebase_erasure_survives_complete_foundation_adoption(replay_
 
 
 def test_cloud_retirement_survives_full_replay_and_refuses_contract_drift(replay_pg, monkeypatch):
-    from db.account_cloud_retirement_adoption import PINS, qualification_sql
+    from db.private_agent_adoption_successors import PINS, qualification_sql
 
     connection, _database = canonical_database(replay_pg, monkeypatch)
     with closing(connection), connection.cursor() as cursor:

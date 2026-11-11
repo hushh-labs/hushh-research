@@ -62,8 +62,11 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 opener=urllib.request.build_opener(NoRedirect())
 def request(method,url,body=None):
+    headers={"Authorization":"Bearer "+token,"Content-Type":"application/json"}
+    if url!="https://openidconnect.googleapis.com/v1/userinfo":
+        headers["X-Goog-User-Project"]=project
     req=urllib.request.Request(url,data=None if body is None else json.dumps(body).encode(),method=method,
-        headers={"Authorization":"Bearer "+token,"X-Goog-User-Project":project,"Content-Type":"application/json"})
+        headers=headers)
     # An uncertain POST is never retried. Re-run report-only to observe it.
     with opener.open(req,timeout=30) as response: return json.load(response)
 who=request("GET","https://openidconnect.googleapis.com/v1/userinfo")

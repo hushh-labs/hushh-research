@@ -765,6 +765,11 @@ def test_owner_authority_template_uses_own_login_exact_native_identity_and_etag(
 
     def urlopen(req, **kwargs):
         url = req.full_url
+        headers = {key.lower(): value for key, value in req.header_items()}
+        if "userinfo" in url:
+            assert "x-goog-user-project" not in headers
+        else:
+            assert headers.get("x-goog-user-project") == project["projectId"]
         if "userinfo" in url:
             body = {"email": "fixture@example.test", "email_verified": True}
         elif "cloudresourcemanager" in url:
