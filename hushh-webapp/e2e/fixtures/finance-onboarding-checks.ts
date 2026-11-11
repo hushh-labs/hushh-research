@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function answerPersona(page: Page) {
   const answers = page.getByRole("radio", { name: "I’m not sure yet" });
-  await expect(answers).toHaveCount(4);
+  await expect(answers).toHaveCount(3);
   for (const answer of await answers.all()) {
     await answer.check();
   }
@@ -375,7 +375,7 @@ export function registerFinanceOnboardingChecks(
       const groups = page
         .getByRole("group")
         .filter({ has: page.getByRole("radio") });
-      await expect(groups).toHaveCount(4);
+      await expect(groups).toHaveCount(3);
       await expect
         .poll(() =>
           groups

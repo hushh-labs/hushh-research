@@ -48,7 +48,7 @@ interface PortfolioImportViewProps {
   /** Setup routes provide their own single terminal deferral action. */
   showSkip?: boolean;
   presentation?: "list" | "onboarding";
-  onIntroductionBack?: () => void;
+  onSetupBack?: () => void;
 }
 
 /**
@@ -69,7 +69,7 @@ export function PortfolioImportView({
   plaidLocalDualEnvironmentEnabled = false,
   showSkip = true,
   presentation = "list",
-  onIntroductionBack,
+  onSetupBack,
 }: PortfolioImportViewProps) {
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -148,7 +148,7 @@ export function PortfolioImportView({
       <input ref={fileInputRef} type="file" accept=".csv,.pdf" onChange={handleFileChange}
         className="sr-only" disabled={isBusy} aria-label="Choose a PDF or CSV brokerage statement" />
       <FinanceSourcePicker onConnect={handleConnectPlaid} onStatement={() => fileInputRef.current?.click()}
-        onSample={handlePreloadSchema} onSkip={onSkip} onBack={onIntroductionBack} busy={isBusy}
+        onSample={handlePreloadSchema} onSkip={onSkip} onBack={onSetupBack} busy={isBusy}
         plaidAvailable={Boolean(onConnectPlaid && plaidConfigured)} sampleAvailable={Boolean(onPreloadSchema)}
         status={isSkippingSource ? "Continuing…" : isConnectingPlaid ? "Opening Plaid…" : isPreloadingSchema ? "Loading sample…" : "Importing statement…"}
         error={selectionError ?? plaidConnectionError} />
