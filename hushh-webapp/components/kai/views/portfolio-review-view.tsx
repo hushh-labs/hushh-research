@@ -1917,7 +1917,7 @@ export function PortfolioReviewView({
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="grid gap-3 pt-2">
+            <div className="grid gap-x-4 gap-y-3 pt-2 sm:grid-cols-2">
               <div>
                 <Label htmlFor="account-holder" className="ui-text-form-label">Account Holder</Label>
                 <Input
