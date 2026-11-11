@@ -72,7 +72,9 @@ def isolation_evidence(value: dict[str, Any], account_id: str) -> str:
     return value["source"]
 
 
-def shared_dev_webhook_destination(args: Any, evidence: dict[str, Any], config: Any) -> bool:
+def shared_dev_webhook_destination(
+    args: Any, evidence: dict[str, Any], config: Any
+) -> bool:
     """Admit only the shared Dev commerce mounts at its attested service callback."""
     import re
 
@@ -87,12 +89,41 @@ def shared_dev_webhook_destination(args: Any, evidence: dict[str, Any], config: 
         and args.secret_project == evidence.get("secret_project") == project
         and evidence.get("source") == "dashboard_general_sandbox"
         and config.sandbox_policy_required
-        and config.frontend_origin == evidence.get("app_origin") == "https://dev.one.hussh.ai"
+        and config.frontend_origin
+        == evidence.get("app_origin")
+        == "https://dev.one.hussh.ai"
         and evidence.get("backend_service")
         == "projects/hushh-pda-dev/locations/us-central1/services/consent-protocol"
         and isinstance(backend, str)
         and re.fullmatch(r"https://consent-protocol-[a-z0-9]+-uc\.a\.run\.app", backend)
-        and getattr(args, "webhook_url", None) == backend + "/api/payments/scope-commerce/webhook"
+        and getattr(args, "webhook_url", None)
+        == backend + "/api/payments/scope-commerce/webhook"
+    )
+
+
+def website_uat_webhook_destination(
+    args: Any, evidence: dict[str, Any], config: Any
+) -> bool:
+    """Admit only the website UAT commerce mounts at its attested UAT callback."""
+    names = {
+        "platform": "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
+        "connect": "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
+    }
+    backend = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
+    return bool(
+        args.secret_name == names.get(args.webhook_scope)
+        and args.secret_project == evidence.get("secret_project") == "hushh-pda-uat"
+        and evidence.get("source") == "dashboard_general_sandbox"
+        and config.sandbox_policy_required
+        and config.frontend_origin == "https://uat.one.hussh.ai"
+        and config.website_origin
+        == evidence.get("app_origin")
+        == "https://uat.hussh.si"
+        and evidence.get("backend_service")
+        == "projects/hushh-pda-uat/locations/us-central1/services/consent-protocol"
+        and evidence.get("backend_origin") == backend
+        and getattr(args, "webhook_url", None)
+        == backend + "/api/payments/scope-commerce/webhook"
     )
 
 

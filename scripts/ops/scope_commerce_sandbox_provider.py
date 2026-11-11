@@ -18,7 +18,10 @@ from hushh_mcp.services.scope_commerce.provider_contracts import _opaque, _opera
 from hushh_mcp.services.scope_commerce.stripe_adapter import (
     CommerceProviderError,
     StripeScopeCommerceAdapter,
+    provider_dict,
 )
+
+EVENT_DESTINATION_API_VERSION = "2026-10-28.endive"
 
 PLATFORM_EVENTS = (
     "checkout.session.completed",
@@ -73,7 +76,9 @@ class SandboxProvider(SandboxReceiptProof):
                 **({"starting_after": cursor} if cursor else {}),
             )
             data = page.get("data")
-            if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+            if not isinstance(data, list) or any(
+                not isinstance(item, dict) for item in data
+            ):
                 raise CommerceProviderError("sandbox_provider_list_invalid")
             values.extend(data)
             if page.get("has_more") is False:
@@ -82,6 +87,47 @@ class SandboxProvider(SandboxReceiptProof):
                 raise CommerceProviderError("sandbox_provider_list_incomplete")
             cursor = data[-1].get("id")
         raise CommerceProviderError("sandbox_provider_list_incomplete")
+
+    async def _event_destination_call(
+        self,
+        request: dict[str, Any] | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        def invoke() -> Any:
+            api = self.adapter.stripe_api
+            transport = api.RequestsClient(timeout=30)
+            try:
+                client = api.StripeClient(
+                    self.adapter.secret_key,
+                    stripe_version=EVENT_DESTINATION_API_VERSION,
+                    http_client=transport,
+                )
+                resource = client.v2.core.event_destinations
+                if request is not None:
+                    return provider_dict(
+                        resource.create(request, {"idempotency_key": idempotency_key})
+                    )
+                values = []
+                page = resource.list(
+                    {"limit": 100, "include": ["webhook_endpoint.url"]}
+                )
+                for index, item in enumerate(page.auto_paging_iter()):
+                    if index >= 1000:
+                        raise CommerceProviderError("sandbox_provider_list_incomplete")
+                    values.append(provider_dict(item))
+                return values
+            finally:
+                transport.close()
+
+        try:
+            return await asyncio.to_thread(invoke)
+        except CommerceProviderError:
+            raise
+        except Exception:
+            raise CommerceProviderError(
+                "sandbox_provider_destination_unavailable"
+            ) from None
 
     async def capital_receipts(self) -> list[dict[str, Any]]:
         listed = await self.listed(self.adapter.stripe_api.Topup)
@@ -138,7 +184,9 @@ class SandboxProvider(SandboxReceiptProof):
         started = datetime.fromisoformat(attempts[operation_id]["created_at"])
         if datetime.now(UTC) - started >= timedelta(hours=23):
             raise CommerceProviderError("sandbox_capital_reconciliation_required")
-        persist(state)  # Commit opaque intent before even a potentially ambiguous network call.
+        persist(
+            state
+        )  # Commit opaque intent before even a potentially ambiguous network call.
         topup = await self.adapter._call(
             self.adapter.stripe_api.Topup.create,
             amount=amount_cents,
@@ -191,7 +239,7 @@ class WebhookProvisioner:
         prior = attempts.get(operation_id)
         if prior and prior["request_hash"] != digest:
             raise CommerceProviderError("sandbox_webhook_attempt_conflict")
-        endpoints = await self.provider.listed(self.provider.adapter.stripe_api.WebhookEndpoint)
+        endpoints = await self.provider._event_destination_call()
         matching = [
             item
             for item in endpoints
@@ -215,13 +263,12 @@ class WebhookProvisioner:
         if datetime.now(UTC) - started >= timedelta(hours=23):
             raise CommerceProviderError("sandbox_webhook_secret_recovery_required")
         persist(state)
-        endpoint = await self.provider.adapter._call(
-            self.provider.adapter.stripe_api.WebhookEndpoint.create,
-            **request,
+        endpoint = await self.provider._event_destination_call(
+            request,
             idempotency_key=f"scope-commerce-sandbox-webhook-{operation_id}",
         )
         self._validate_endpoint(endpoint, request)
-        secret = endpoint.get("secret")
+        secret = (endpoint.get("webhook_endpoint") or {}).get("signing_secret")
         if not isinstance(secret, str) or not secret.startswith("whsec_"):
             raise CommerceProviderError("sandbox_webhook_secret_recovery_required")
         write_secret(secret)
@@ -237,7 +284,9 @@ class WebhookProvisioner:
         }
 
     @staticmethod
-    def _request(scope: str, url: str, api_version: str, operation_id: str) -> dict[str, Any]:
+    def _request(
+        scope: str, url: str, api_version: str, operation_id: str
+    ) -> dict[str, Any]:
         parsed = urlsplit(url)
         if (
             scope not in {"platform", "connect"}
@@ -254,10 +303,14 @@ class WebhookProvisioner:
             raise CommerceProviderError("sandbox_webhook_configuration_invalid")
         events = CONNECT_EVENTS if scope == "connect" else PLATFORM_EVENTS
         return {
-            "url": url,
-            "connect": scope == "connect",
+            "name": f"Scope commerce Sandbox {scope}",
+            "type": "webhook_endpoint",
+            "webhook_endpoint": {"url": url},
+            "event_payload": "snapshot",
+            "events_from": ["@accounts" if scope == "connect" else "@self"],
             "enabled_events": list(events),
-            "api_version": api_version,
+            "snapshot_api_version": api_version,
+            "include": ["webhook_endpoint.url", "webhook_endpoint.signing_secret"],
             "metadata": {
                 "payment_kind": "scope_commerce_sandbox_webhook",
                 "scope_operation_id": operation_id,
@@ -267,14 +320,20 @@ class WebhookProvisioner:
 
     @staticmethod
     def _validate_endpoint(endpoint: dict[str, Any], request: dict[str, Any]) -> None:
+        # Labels and the legacy create(connect=...) intent do not prove routing.
+        # Require the provider's actual source scope before storing its secret.
         if (
-            endpoint.get("object") != "webhook_endpoint"
+            endpoint.get("object") != "v2.core.event_destination"
+            or endpoint.get("type") != "webhook_endpoint"
             or endpoint.get("livemode") is not False
-            or endpoint.get("url") != request["url"]
+            or (endpoint.get("webhook_endpoint") or {}).get("url")
+            != request["webhook_endpoint"]["url"]
+            or endpoint.get("events_from") != request["events_from"]
+            or endpoint.get("event_payload") != "snapshot"
             or endpoint.get("metadata") != request["metadata"]
-            or set(endpoint.get("enabled_events") or []) != set(request["enabled_events"])
-            or endpoint.get("api_version") != request["api_version"]
+            or set(endpoint.get("enabled_events") or [])
+            != set(request["enabled_events"])
+            or endpoint.get("snapshot_api_version") != request["snapshot_api_version"]
             or endpoint.get("status") != "enabled"
-            or bool(endpoint.get("application")) != request["connect"]
         ):
             raise CommerceProviderError("sandbox_webhook_receipt_mismatch")
