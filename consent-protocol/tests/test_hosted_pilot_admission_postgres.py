@@ -871,8 +871,8 @@ def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_dri
 
     # Install the deferred-erasure successor on the actual Files owner topology,
     # then replay the foundation without losing its five immutable preimages.
-    from db.account_cloud_retirement_adoption import qualification_sql as retirement_qualification
     from db.legacy_cloud_removal_adoption import qualification_sql as legacy_qualification
+    from db.private_agent_adoption_successors import qualification_sql as retirement_qualification
 
     # Native Dev's bounded administrator owns both lifecycle families. This
     # canonical fixture originally transferred only the hosted family.

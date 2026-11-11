@@ -495,8 +495,8 @@ def execution_sql(
     replay: Callable[[MigrationManifestEntryV2], str] | None = None,
 ) -> str:
     """Adapt pending420 in either executing mode; caller keeps observe/skip gates."""
-    from db import account_cloud_retirement_adoption as retirement
     from db import firebase_erasure_adoption as firebase_erasure
+    from db import private_agent_adoption_successors as retirement
     from db.legacy_cloud_removal_adoption import installation_sql, preserve_successor
 
     if entry.migration_id == "988":

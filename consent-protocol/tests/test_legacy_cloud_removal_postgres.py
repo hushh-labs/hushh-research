@@ -682,7 +682,7 @@ def deferred_cleanup_pg(legacy_recovery_pg):
      CREATE TRIGGER account_retired_generation_update BEFORE UPDATE ON personal_agent_cloud_removals
       FOR EACH ROW EXECUTE FUNCTION reject_retired_account_update('user_id');""")
     pg.apply_file(MIGRATIONS / "parked/988_account_cloud_retirement.sql")
-    from db.account_cloud_retirement_adoption import qualification_sql
+    from db.private_agent_adoption_successors import qualification_sql
 
     pg.execute(qualification_sql(required=True))
     yield pg, owner, reservation, plan
@@ -787,7 +787,7 @@ def test_retired_handoff_preserves_pending_cleanup_and_refuses_direct_rewrites(d
 
 
 def test_retirement_qualification_refuses_a_persistently_disabled_guard(deferred_cleanup_pg):
-    from db.account_cloud_retirement_adoption import qualification_sql
+    from db.private_agent_adoption_successors import qualification_sql
 
     pg, *_ = deferred_cleanup_pg
     # This bounded fixture intentionally omits419's self-healing event trigger.

@@ -502,7 +502,7 @@ def complete_family_qualification_sql(
     sql = _FAMILY_SQL
     for token, value in replacements.items():
         sql = sql.replace(token, value)
-    from db import account_cloud_retirement_adoption as retirement
+    from db import private_agent_adoption_successors as retirement
 
     # Preserve the installed Files guard's full behavior. Its one qualified
     # retirement prefix is admissible only after the entire new contract passes;
