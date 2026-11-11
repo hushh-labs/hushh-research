@@ -1085,6 +1085,10 @@ jobs:
       # Ubuntu does not guarantee that interpreter is preinstalled.
       - name: Install Zsh for native runner contracts
         run: |
+          # Keep the signed official fallbacks when the preferred mirror has no DNS.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+          fi
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y zsh
 
@@ -1489,6 +1493,9 @@ jobs:
         timeout-minutes: 4
         run: |
           set -euo pipefail
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+          fi
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y postgresql-16-pgvector=0.6.0-1
           test -x /usr/lib/postgresql/16/bin/initdb
@@ -1553,6 +1560,9 @@ jobs:
         timeout-minutes: 4
         run: |
           set -euo pipefail
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+          fi
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y postgresql-16-pgvector=0.6.0-1
           test -x /usr/lib/postgresql/16/bin/initdb
