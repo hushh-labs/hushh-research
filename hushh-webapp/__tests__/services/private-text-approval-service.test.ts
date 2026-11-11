@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const fetcher = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: fetcher } }));
 import { PrivateTextApprovalService } from "@/lib/services/private-text-approval-service";
-import { PRIVATE_TEXT_DISCLOSURE_VERSION } from "@/lib/legal/private-text-disclosure";
+import { PRIVATE_TEXT_DISCLOSURE_VERSION, managedTextDisclosure } from "@/lib/legal/private-text-disclosure";
 const approved = { provider: "azure_openai", disclosure_version: PRIVATE_TEXT_DISCLOSURE_VERSION, enabled: true, generation: "11111111-1111-4111-8111-111111111111", accepted_at: "2026-10-19T08:00:00Z", revoked_at: null };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 describe("private Azure text approval boundary", () => {
@@ -10,7 +10,7 @@ describe("private Azure text approval boundary", () => {
   it("sends current disclosure and Firebase auth without a client owner; revoke needs no new acceptance", async () => {
     fetcher.mockResolvedValueOnce(reply(approved));
     expect(await PrivateTextApprovalService.set("owner-token", true, null)).toEqual(approved);
-    expect(fetcher).toHaveBeenLastCalledWith("/api/one/models/private-text-approval?include_policy=true&include_processing_provider=true", {
+    expect(fetcher).toHaveBeenLastCalledWith("/api/one/models/private-text-approval?include_policy=true&include_processing_provider=true&include_scope_providers=true", {
       method: "PUT", cache: "no-store", headers: { Authorization: "Bearer owner-token", "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: true, disclosure_version: PRIVATE_TEXT_DISCLOSURE_VERSION, expected_generation: null }),
     });
@@ -39,6 +39,21 @@ describe("private Azure text approval boundary", () => {
     } }));
     await expect(PrivateTextApprovalService.get("owner-token")).rejects.toThrow();
   });
+  it("shows independent Drive and chat processors without creating owner acknowledgment", async () => {
+    const scopes = { one_text_chat: "azure_openai", drive_document_requests: "gemini" } as const;
+    const policy = { enabled: true, provider: null, scope_providers: scopes, basis: "uat_policy",
+      version: "uat-managed-text-v2", generation: approved.generation, scope: "one_text_chat_and_drive_requests" };
+    fetcher.mockResolvedValueOnce(reply({ ...approved, enabled: false, generation: null, accepted_at: null, processing_policy: policy }));
+    const status = await PrivateTextApprovalService.get("token");
+    expect(status?.enabled).toBe(false);
+    expect(status?.processing_policy?.scope_providers).toEqual(scopes);
+    const disclosure = managedTextDisclosure(null, status?.processing_policy?.scope_providers).join(" ");
+    expect(disclosure).toContain("Google Gemini processes Google Drive");
+    expect(disclosure).toContain("Microsoft Azure AI processes One text chat");
+    expect(disclosure).toContain("do not fall back to Azure");
+    fetcher.mockResolvedValueOnce(reply({ ...approved, processing_policy: { ...policy, scope_providers: { ...scopes, drive_document_requests: "untrusted_proxy" } } }));
+    await expect(PrivateTextApprovalService.get("token")).rejects.toThrow();
+  });
   it("fails closed on stale, unpersisted or mismatched acknowledgments", async () => {
     for (const payload of [{ ...approved, disclosure_version: "old" }, { ...approved, generation: null }, { ...approved, accepted_at: null }, { ...approved, revoked_at: "2026-10-19T08:01:00Z" }, { ...approved, enabled: false }]) {
       fetcher.mockResolvedValueOnce(reply(payload));
@@ -46,6 +61,14 @@ describe("private Azure text approval boundary", () => {
     }
     fetcher.mockResolvedValueOnce(reply(approved));
     await expect(PrivateTextApprovalService.set("owner-token", false, approved.generation)).rejects.toThrow("not acknowledged");
+  });
+  it("describes Vertex when both scopes select Gemini", () => {
+    const scopes = { one_text_chat: "gemini", drive_document_requests: "gemini" } as const;
+    const disclosure = managedTextDisclosure("gemini", scopes).join(" ");
+    expect(disclosure).toContain("Google Gemini on Vertex AI");
+    expect(disclosure).toContain("One text chat");
+    expect(disclosure).toContain("Google Drive document-request planning");
+    expect(disclosure).not.toContain("Microsoft Azure AI is a fallback");
   });
   it("hides only unavailable pilots and keeps auth/store failures retryable", async () => {
     fetcher.mockResolvedValueOnce(reply({ detail: { code: "PRIVATE_AZURE_TEXT_UAT_ONLY" } }, 403));

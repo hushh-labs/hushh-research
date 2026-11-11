@@ -595,12 +595,22 @@ def build_managed_regional_gemini_adk_model(
     *,
     vertex_project: str | None = None,
     timeout_seconds: float | None = None,
+    processing_scope: str | None = None,
 ) -> Any:
     """Build a tool-less single-turn ADK model with bounded regional failover.
 
     ``timeout_seconds`` widens the managed Azure client's per-call read timeout
     (default 60 s, capped at 120 s) for callers whose non-streamed output is large.
     """
+
+    if processing_scope is not None:
+        from hushh_mcp.managed_ai_config import load_scoped_text_policy
+
+        policy = load_scoped_text_policy(processing_scope)
+        if policy is not None:
+            return ManagedGeminiRuntimeBinding.from_environment(
+                vertex_project=vertex_project
+            ).build_regional_adk_model(policy["model"])
 
     from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
 

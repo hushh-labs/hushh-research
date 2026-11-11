@@ -67,6 +67,7 @@ async def read_private_text_approval(
     response: Response,
     include_policy: bool = False,
     include_processing_provider: bool = False,
+    include_scope_providers: bool = False,
     user_id: str = Depends(require_firebase_auth_read_only),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
@@ -75,6 +76,7 @@ async def read_private_text_approval(
             user_id=user_id,
             **({"include_policy": True} if include_policy else {}),
             **({"include_processing_provider": True} if include_processing_provider else {}),
+            **({"include_scope_providers": True} if include_scope_providers else {}),
         )
         return approval
     except private_approval.PrivateTextApprovalError as exc:
@@ -89,6 +91,7 @@ async def write_private_text_approval(
     response: Response,
     include_policy: bool = False,
     include_processing_provider: bool = False,
+    include_scope_providers: bool = False,
     user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
@@ -104,6 +107,7 @@ async def write_private_text_approval(
             disclosure_version=payload.disclosure_version,
             **({"include_policy": True} if include_policy else {}),
             **({"include_processing_provider": True} if include_processing_provider else {}),
+            **({"include_scope_providers": True} if include_scope_providers else {}),
         )
         return approval
     except private_approval.PrivateTextApprovalError as exc:

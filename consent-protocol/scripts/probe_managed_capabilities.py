@@ -32,7 +32,10 @@ def _synthetic_public_search_agent(root, *, compact: bool = False):
     """
     from google.adk.agents import LlmAgent
 
-    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
+    from hushh_mcp.runtime_providers.managed_text import (
+        ManagedPrimaryTextModel,
+        managed_text_binding,
+    )
 
     child = next(
         tool.agent for tool in root.tools if getattr(tool, "name", None) == "google_search"
@@ -47,18 +50,18 @@ def _synthetic_public_search_agent(root, *, compact: bool = False):
             raise ValueError("Compact Search qualification requires the managed model")
         descriptor = policy["azure"]["compact_public_search"]
         model = compact_public_search_model(model)
-        from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+        binding = managed_text_binding(scope="one_text_chat")
+        vertex = binding["provider"] == "gemini"
 
         if (
-            model.primary_provider != policy["provider"]
+            model.primary_provider != ("vertex" if vertex else "azure_openai")
             or model.web_search_context_size != "low"
             or (
-                model.model != resolve_fleet_model_name("gemini-default")
-                if policy["provider"] == "vertex"
+                model.model != binding["deployment"]
+                if vertex
                 else (
                     model.model != descriptor["deployment"]
                     or model.default_reasoning_effort != descriptor["reasoning_effort"]
-                    or model.web_search_context_size != "low"
                     or model.text_verbosity != descriptor["text_verbosity"]
                 )
             )

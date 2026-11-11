@@ -452,6 +452,7 @@ def test_managed_chat_reuses_credential_cache_and_aligns_stream_budget(monkeypat
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setattr(managed, "load_scoped_text_policy", lambda _: None)
     first = managed.build_managed_text_model(scope="one_text_chat")
     second = managed.build_managed_text_model(scope="one_text_chat")
     assert first.token_supplier is second.token_supplier
