@@ -143,6 +143,19 @@ def test_cold_fallback_preserves_primary_bindings_without_enabling_phone_or_sso(
         assert setting in settings.split("|")
 
 
+def test_phone_fallback_does_not_inherit_shared_files_rollout(cold_deployment):
+    module, command, identity = cold_deployment
+    index = next(i for i, arg in enumerate(command) if arg.startswith("--set-secrets="))
+    original = command[index]
+    command[index] += ",HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED:3"
+    command[index] += ",HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET:7"
+
+    result = module.cold_command(command, **identity)
+
+    assert next(arg for arg in result if arg.startswith("--set-secrets=")) == original
+    assert "HUSSH_SHARED_FILES_ENABLED" in command[index]
+
+
 @pytest.mark.parametrize(
     "before,after",
     [

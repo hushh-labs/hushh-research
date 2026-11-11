@@ -53,11 +53,12 @@ def cold_command(
         raise ValueError("phone_fallback_environment_encoding_invalid")
     settings = _pairs(env[3:], "|")
     labels = _pairs(_value(command, "--labels"), ",")
-    if any(
-        item.split("=", 1)[0] == "ACCOUNT_GENERATION_ADMISSION_ENABLED"
-        for item in _value(command, "--set-secrets").split(",")
-    ):
+    secret_bindings = _pairs(_value(command, "--set-secrets"), ",")
+    if "ACCOUNT_GENERATION_ADMISSION_ENABLED" in secret_bindings:
         raise ValueError("phone_fallback_generation_secret_unqualified")
+    # A fallback can run an older Files writer; only the primary gets the opt-in.
+    secret_bindings.pop("HUSSH_SHARED_FILES_ENABLED", None)
+    secret_bindings.pop("HUSSH_SHARED_FILES_BUCKET", None)
     if (
         settings.get("HUSHH_DEPLOY_ENV") != "production"
         or settings.get("ENVIRONMENT") != "production"
@@ -83,6 +84,9 @@ def cold_command(
         "--set-env-vars": "^|^"
         + "|".join(f"{key}={value}" for key, value in settings.items()),
         "--labels": ",".join(f"{key}={value}" for key, value in labels.items()),
+        "--set-secrets": ",".join(
+            f"{key}={value}" for key, value in secret_bindings.items()
+        ),
     }
     for key in replacements:
         _value(command, key)

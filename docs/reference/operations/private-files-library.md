@@ -65,7 +65,9 @@ bounded ciphertext under opaque names; it receives neither the library key nor a
 standing decryption grant. Authorization is checked independently of encryption.
 
 The pilot requires `HUSSH_SHARED_FILES_ENABLED`, an explicitly configured private
-`HUSSH_SHARED_FILES_BUCKET`, and dev-only migration 959. Flags default off. Verify
+`HUSSH_SHARED_FILES_BUCKET`, and the Shared Files lifecycle schema. Migration 959
+is the dev pilot migration; release migration 420 carries the lifecycle schema.
+Flags default off. Verify
 uniform bucket access, public-access prevention and actual retention before use.
 Do not modify recovery/PKM prefixes or broad lifecycle rules. SQL stores only the
 owner resource inventory, library generation, mutation lease and opaque write
@@ -150,14 +152,34 @@ byte integrity are proven before cutover; source cleanup is a separate receipt.
 
 Local SQL/crypto fixtures do not prove cloud IAM, retention or owner acceptance.
 The dev and UAT deploys bind optional `HUSSH_SHARED_FILES_ENABLED` and
-`HUSSH_SHARED_FILES_BUCKET` runtime secrets only to their new revision; existing
-revisions and production do not inherit these bindings. UAT has its own private
+`HUSSH_SHARED_FILES_BUCKET` runtime secrets only to their new revision. UAT has its own private
 bucket (uniform access, public-access prevention, soft delete disabled at
 creation, bucket-scoped object and bucket-viewer grants for the runtime service
 account); the table already exists there through release migration 420. Explicit secret environment
 values take precedence over structured runtime defaults. Do not enable canonical
 `:latest` on an older one-shot writer. Structured configuration retains an explicit
 dev pilot; other environments remain off.
+
+For a production rollout, the production maintainer must:
+
+1. Verify release migration 420 and the Shared Files lifecycle tables in production.
+   Qualify a dedicated private bucket in the production project, verify the retention
+   and soft-delete settings, and verify exact-bucket access as the production backend
+   runtime identity. Use uniform bucket access and public-access prevention.
+2. In the production project, prepare Secret Manager versions for
+   `HUSSH_SHARED_FILES_ENABLED=true` and `HUSSH_SHARED_FILES_BUCKET=<qualified bucket>`.
+   Grant the backend runtime identity access to those two secrets. In GitHub's
+   production deploy configuration set `HUSSH_SHARED_FILES_ENABLED_PROD_VERSION`
+   and `HUSSH_SHARED_FILES_BUCKET_PROD_VERSION` to the corresponding numeric
+   version IDs. Leave both unset to deploy with Shared Files off.
+3. After CI passes for the exact release SHA, run the standard approved production
+   workflow with backend scope. The workflow binds those versions to the new
+   no-traffic candidate before promotion; cold phone and restoration validation
+   runs omit them. Do not edit the canonical runtime bundle to enable Files.
+4. After promotion, sign in on hussh.si, unlock Vault → Documents, and use a
+   disposable file to verify upload, rename, move, trash, and restore. To disable
+   on a new revision, clear both GitHub variables and deploy through the same
+   approved workflow. Do not delete the bucket or existing files.
 
 Bucket IAM edits change metadata generation. The qualified dev pilot uses exact-bucket
 conditional project grants (`storage.objectUser` and `storage.bucketViewer`) so its

@@ -308,7 +308,8 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
         in (root / ".github/workflows/deploy-production.yml").read_text()
     )
     assert any(
-        entry.startswith("_IMAGE_SETTINGS=") and entry.endswith("|${_PHONE_DEPLOY_PHASE}")
+        entry.startswith("_IMAGE_SETTINGS=")
+        and entry.endswith("|${_PHONE_DEPLOY_PHASE}|${_PROD_SHARED_FILES_VERSIONS}")
         for entry in step["env"]
     )
     assert step.get("args") == ["scripts/deploy/backend-deploy.sh"]
@@ -515,35 +516,59 @@ def test_dev_bank_defaults_preserve_other_lanes_and_explicit_bindings(deploy_env
     assert result.stdout.splitlines() == list(expected)
 
 
-@pytest.mark.parametrize("deploy_env", ["dev", "uat", "production"])
-def test_shared_files_pilot_bindings_do_not_enable_existing_or_other_lane_revisions(deploy_env):
+@pytest.mark.parametrize(
+    "deploy_env,project,phase,no_traffic,versions,allowed",
+    [
+        ("dev", "hushh-pda-dev", "standard", "false", "", True),
+        ("uat", "hushh-pda-uat", "standard", "false", "", True),
+        ("production", "hushh-pda", "standard", "true", "", True),
+        ("production", "hushh-pda", "standard", "true", "3:7", True),
+        ("production", "hushh-pda", "standard", "true", "3:", False),
+        ("production", "hushh-pda", "standard", "true", "latest:7", False),
+        ("production", "hushh-pda", "cold", "true", "3:7", False),
+        ("production", "hushh-pda", "standard", "false", "3:7", False),
+        ("production", "hushh-pda-dev", "standard", "true", "3:7", False),
+        ("uat", "hushh-pda-uat", "standard", "true", "3:7", False),
+    ],
+)
+def test_shared_files_revision_bindings(deploy_env, project, phase, no_traffic, versions, allowed):
     script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
-    start = script.index("# Bind the qualified ciphertext pilot")
-    end = script.index('append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}"', start)
+    start = script.index("# Keep the Dev/UAT pilot bindings.")
+    end = script.index('if [[ "${_DEPLOY_ENV}" == "dev" &&', start)
     result = subprocess.run(  # noqa: S603 - reviewed repository shell block, synthetic environment only
         [
             "bash",
             "-eu",
             "-c",
-            'append_optional_secret() { [[ -n "$1" ]] || return 0; printf "%s=%s\\n" "$2" "$1"; }\n'
+            'secrets="BASE=BASE:latest"\n'
+            'append_optional_secret() { secrets+=",$2=$1:latest"; }\n'
             + script[start:end]
-            + '\nappend_optional_secret "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" "EXTERNAL_CONNECTOR_CREDENTIAL_KEY"',
+            + '\nprintf "%s\\n" "$secrets"',
         ],
-        env={"_DEPLOY_ENV": deploy_env, "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET": ""},
+        env={
+            "_DEPLOY_ENV": deploy_env,
+            "PROJECT_ID": project,
+            "_PHONE_DEPLOY_PHASE": phase,
+            "_CLOUD_RUN_NO_TRAFFIC": no_traffic,
+            "_PROD_SHARED_FILES_VERSIONS": versions,
+        },
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
-    shared_files = [
-        "HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED",
-        "HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET",
-    ]
-    expected = {
-        "dev": [
-            *shared_files,
-            "EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY",
-        ],
-        "uat": shared_files,
-        "production": [],
-    }
-    assert result.stdout.splitlines() == expected[deploy_env]
+    if not allowed:
+        assert result.returncode == 1
+        assert "Shared Files requires two pinned secret versions" in result.stderr
+        return
+
+    assert result.returncode == 0, result.stderr
+    expected = ["BASE=BASE:latest"]
+    if deploy_env in {"dev", "uat"} or versions:
+        enabled_version, bucket_version = versions.split(":") if versions else ("latest", "latest")
+        expected.extend(
+            [
+                f"HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED:{enabled_version}",
+                f"HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET:{bucket_version}",
+            ]
+        )
+    assert result.stdout.strip().split(",") == expected
