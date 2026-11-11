@@ -14,8 +14,8 @@ from typing import Sequence
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MAX_CHANGED_BYTES = 128 * 1024
-MAX_CHANGED_PATHS = 2048
+MAX_CHANGED_BYTES = 1024 * 1024
+MAX_CHANGED_PATHS = 8192
 MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
@@ -288,14 +288,14 @@ DIAGNOSTIC_IDS = frozenset(check.check_id for check in CHECKS if check.diagnosti
 
 KNOWN_ROOTS = frozenset(
     {
-        ".agents", ".github", "archive", "artifacts", "bin", "clawhub", "config",
+        ".agents", ".github", ".githooks", "archive", "artifacts", "bin", "clawhub", "config",
         "consent-protocol", "contracts", "data", "deploy", "docs", "hushh-webapp",
         "ios", "android", "packages", "scripts", "skillsagentic", "tests",
     }
 )
 KNOWN_ROOT_FILES = frozenset(
     {
-        "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        ".gitignore", "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
         "REUSE.toml", "SECURITY.md", "TESTING.md", "THIRD_PARTY_NOTICES.md",
         "code_of_conduct.md", "contributing.md", "docker-compose.yml",
         "docker-compose.offline.yml", "getting_started.md", "skills-lock.json",
@@ -354,6 +354,11 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
     if root not in KNOWN_ROOTS and path not in KNOWN_ROOT_FILES:
         return frozenset(), f"unrecognized changed path: {path}"
     if path in {
+        ".gitignore",
+        "scripts/ci/docs-parity-check.sh",
+        "scripts/shareable-source-classification.cjs",
+        "scripts/verify-doc-runtime-parity.cjs",
+        "scripts/verify-shareable-links.cjs",
         "consent-protocol/tests/helpers/drive_worker_gcloud.py",
         "consent-protocol/config/email-auth/disposable-domains.txt",
         "consent-protocol/config/email-auth/risk-manifest.json",
@@ -383,7 +388,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         return frozenset({"agent"}), None
     if root == ".agents":
         return frozenset({"agent"}), None
-    if root in {".github", "config", "deploy", "bin"}:
+    if root in {".github", ".githooks", "config", "deploy", "bin"}:
         return frozenset({"controller"}), None
     if root == "scripts":
         if len(parts) < 2:

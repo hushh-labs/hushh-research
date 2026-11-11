@@ -16,6 +16,7 @@ from pathlib import Path
 from repo_governance_plan import (
     CHECKS,
     MAX_CHANGED_BYTES,
+    MAX_CHANGED_PATHS,
     Check,
     REGRESSION_GROUPS,
     RELEASE_CONTROLLER_TESTS,
@@ -101,6 +102,12 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
+        ".gitignore",
+        ".githooks/commit-msg",
+        "scripts/ci/docs-parity-check.sh",
+        "scripts/shareable-source-classification.cjs",
+        "scripts/verify-doc-runtime-parity.cjs",
+        "scripts/verify-shareable-links.cjs",
         "consent-protocol/scripts/verify_azure_pwm_runtime.py",
         "consent-protocol/scripts/verify_managed_vertex_runtime.py",
         "consent-protocol/tests/helpers/production_runtime_profile.py",
@@ -349,6 +356,30 @@ def test_changed_file_input_is_bounded_and_rejects_traversal() -> None:
         )
     assert oversized.error and "exceeds" in oversized.error
     assert all(group in oversized.groups for group in REGRESSION_GROUPS)
+
+
+def test_bulk_review_snapshot_cleanup_keeps_every_changed_path() -> None:
+    files = [f"hushh-webapp/contracts/ui-review/back/{index:064x}.json" for index in range(5000)]
+    files += ["hushh-webapp/lib/firebase/auth-context.tsx", "consent-protocol/scripts/generate_capability_graph.py"]
+    raw = "\n".join(files)
+    assert len(raw.encode("utf-8")) > 128 * 1024
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed-files.txt"
+        changed.write_text(raw, encoding="utf-8")
+        selection = build_selection(
+            {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES_FILE": str(changed)}
+        )
+    assert selection.error is None
+    assert selection.files == tuple(files)
+    assert selection.check_ids
+
+
+def test_changed_file_path_count_still_refuses_an_oversized_selection() -> None:
+    raw = "\n".join(f"docs/item-{index}.md" for index in range(MAX_CHANGED_PATHS + 1))
+    assert len(raw.encode("utf-8")) < MAX_CHANGED_BYTES
+    selection = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": raw})
+    assert selection.error and "paths" in selection.error
+    assert all(group in selection.groups for group in REGRESSION_GROUPS)
 
 
 def test_cli_commands_group_is_machine_readable_and_static() -> None:
