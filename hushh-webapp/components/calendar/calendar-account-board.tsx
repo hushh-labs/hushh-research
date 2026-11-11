@@ -309,7 +309,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
         actions={<div className={styles.headerActions}>
           <CalendarCompactAction disabled={busy || actionBusy || (status.accounts?.length || 0) >= 3} onClick={onAddAccount}><Plus aria-hidden className="size-4" />Add account</CalendarCompactAction>
-          <Button variant="ghost" size="icon" aria-label="Refresh Calendar" disabled={busy || actionBusy} onClick={refreshCurrentView}><RefreshCw aria-hidden className="size-5" /></Button>
+          <Button variant="plain" size="icon" className="text-[color:var(--app-accent)]" aria-label="Refresh Calendar" disabled={busy || actionBusy} onClick={refreshCurrentView}><RefreshCw aria-hidden className="size-5" /></Button>
         </div>} />
       {connectionNotice}
       <div className={styles.topTabs}><SegmentedTabs ariaLabel="Calendar sections" value={tab} onValueChange={value => setTab(value as typeof tab)} options={[{ value: "board", label: "Board" }, { value: "invitations", label: "Invitations" }, { value: "insights", label: "Insights" }]} /></div>
@@ -361,7 +361,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                 <div className={styles.accountHeader}>
                   <CalendarPersonAvatar name={accountName} photoUrl={husshPhoto} className={styles.accountAvatar} fallbackText={connectionAvatarInitials(accountName)} source="hussh" />
                   <div className={styles.accountIdentity} title={account.google_email}><span className={styles.accountName}>{accountName}</span></div>
-                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className={presentationStyles.scope} data-connect-type-scale="page">
+                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon" className="text-[color:var(--app-accent)]" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className={presentationStyles.scope} data-connect-type-scale="page">
                     <DropdownMenuItem variant="destructive" onSelect={() => onDisconnectAccount(account.account_id)}>Disconnect</DropdownMenuItem>
                   </DropdownMenuContent></DropdownMenu>
                 </div>
