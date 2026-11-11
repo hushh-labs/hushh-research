@@ -25,7 +25,6 @@ import {
   Plus,
   Loader2,
   Building2,
-  ChevronDown,
   PieChart,
   Wallet,
 } from "@/components/icons";
@@ -34,10 +33,10 @@ import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
 import { DataTable } from "@/components/app-ui/data-table";
 import { PortfolioReviewHoldingsFilter, type ReviewHoldingsFilter } from "@/components/kai/holdings/portfolio-review-holdings-filter";
 import { HoldingGainLoss } from "@/components/kai/holdings/holding-gain-loss";
+import { ReviewEntriesSheet } from "@/components/kai/holdings/review-entries-sheet";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 
 
@@ -768,7 +767,7 @@ export function PortfolioReviewView({
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [holdingValidationIssue, setHoldingValidationIssue] = useState<HoldingValidationIssue | null>(null);
   const [editingHoldingIndex, setEditingHoldingIndex] = useState<number>(-1);
-  const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
+  const [managedPositionId, setManagedPositionId] = useState<string | null>(null);
   const [holdingsTab, setHoldingsTab] = useState<ReviewHoldingsFilter>("all");
 
   // Computed values
@@ -1079,21 +1078,58 @@ export function PortfolioReviewView({
     [tableHoldingRows]
   );
 
-  function entryActions(entry: ReviewHoldingRow, label = entry.symbol) {
-    return <HoldingRowActions
-      symbol={label}
-      isDeleted={entry.pending_delete}
-      disableEdit={entry.pending_delete}
-      layout="row"
-      className="w-auto"
-      onEdit={() => handleEditHolding(entry.source_index)}
-      onToggleDelete={() => handleDeleteHolding(entry.source_index)}
-    />;
+  const managedPosition = useMemo(
+    () => tableHoldingRows.find((position) => position.client_id === managedPositionId) ?? null,
+    [tableHoldingRows, managedPositionId]
+  );
+  const managedEntries = useMemo(
+    () => (managedPosition?.entries ?? []).map((entry) => toHoldingViewModel(entry, totalValue)),
+    [managedPosition, totalValue]
+  );
+
+  const handleAddEntry = useCallback(() => {
+    if (!managedPosition) return;
+    const first = managedPosition.entries[0];
+    // Identity (account, source, security) is inherited from the position on save.
+    setEditingHolding({
+      ...(first ?? {}),
+      symbol: managedPosition.symbol,
+      name: managedPosition.name,
+      identifier_type: managedPosition.identifier_type ?? "ticker",
+      quantity: 0,
+      price: 0,
+      market_value: 0,
+      cost_basis: undefined,
+      acquisition_date: undefined,
+      unrealized_gain_loss: undefined,
+      unrealized_gain_loss_pct: undefined,
+      pending_delete: false,
+    } as Holding);
+    setEditingHoldingIndex(-1);
+  }, [managedPosition]);
+
+  function entryByClientId(id: string) {
+    return managedPosition?.entries.find((entry) => entry.client_id === id);
+  }
+
+  function manageEntriesButton(position: HoldingPosition<ReviewHoldingRow>) {
+    return (
+      <ShellActionSurface
+        variant="pill"
+        className="h-11 text-sm sm:text-sm"
+        aria-label={"Manage entries for " + (position.symbol || "holding")}
+        onClick={(event) => {
+          event.stopPropagation();
+          setManagedPositionId(position.client_id);
+        }}
+      >
+        Manage entries
+      </ShellActionSurface>
+    );
   }
 
   function positionLabel(position: HoldingPosition<ReviewHoldingRow>) {
     const side = getPositionSide(position);
-    const expanded = expandedPositionId === position.client_id;
     return (
       <div className="min-w-0">
         <p title={position.symbol} className={cn("ui-text-row-label-emphasized truncate", position.pending_delete && "line-through")}>{position.symbol}</p>
@@ -1101,34 +1137,9 @@ export function PortfolioReviewView({
           {position.name || "Unnamed security"}{side === "long" ? "" : " · " + side}
         </p>
         {position.entries.length > 1 ? (
-          <div>
-            <button
-              type="button"
-              aria-expanded={expanded}
-              className="ui-text-row-description inline-flex min-h-11 cursor-pointer items-center gap-1.5 text-primary"
-              onClick={() => setExpandedPositionId(expanded ? null : position.client_id)}
-            >
-              {position.entries.length} entries
-              <ChevronDown
-                className={cn("size-3 shrink-0 motion-safe:transition-transform", expanded && "rotate-180")}
-                aria-hidden="true"
-              />
-            </button>
-            {expanded ? <ul className="divide-y divide-border">
-              {position.entries.map((entry, index) => (
-                <li key={entry.client_id} className="flex min-h-11 items-center justify-between gap-2">
-                  <div className="ui-text-row-description tabular-nums">
-                    <p className={cn(entry.pending_delete && "line-through text-muted-foreground")}>
-                      {entry.quantity.toLocaleString()} · {positionValue(entry)}
-                    </p>
-                    {entry.acquisition_date ? <p className="text-muted-foreground">{entry.acquisition_date}</p> : null}
-                  </div>
-                  {entryActions(entry, entry.symbol + " entry " + (index + 1))}
-                </li>
-              ))}
-            </ul> : null}
-          </div>
+          <p className="ui-text-row-description text-muted-foreground">{position.entries.length} entries</p>
         ) : null}
+        {position.pending_delete ? <p className="ui-text-row-description text-rose-600 dark:text-rose-400">Pending removal</p> : null}
       </div>
     );
   }
@@ -1143,6 +1154,11 @@ export function PortfolioReviewView({
   }
 
   const holdingsTableColumns: ColumnDef<HoldingPosition<ReviewHoldingRow>>[] = [
+    {
+      id: "entries",
+      header: "Entries",
+      cell: ({ row }) => manageEntriesButton(row.original),
+    },
     {
       accessorKey: "symbol",
       header: "Holding",
@@ -1163,11 +1179,6 @@ export function PortfolioReviewView({
       header: "Gain / Loss",
       cell: ({ row }) => <HoldingGainLoss holding={toHoldingViewModel(row.original, totalValue)}
         className="ui-text-row-description tabular-nums" />,
-    },
-    {
-      id: "row_actions",
-      header: () => <span className="sr-only">Actions</span>,
-      cell: ({ row }) => row.original.entries.length === 1 ? entryActions(row.original.entries[0]!) : null,
     },
   ];
 
@@ -2151,7 +2162,7 @@ export function PortfolioReviewView({
                         holding={toHoldingViewModel(position, totalValue)}
                         className="ui-text-row-description tabular-nums"
                       />}
-                      {position.entries.length === 1 ? entryActions(position.entries[0]!) : null}
+                      {manageEntriesButton(position)}
                     </div>
                   </article>
                 )}
@@ -2187,6 +2198,24 @@ export function PortfolioReviewView({
             : "Save to Vault"}
         </Button>
       </footer>
+
+      <ReviewEntriesSheet
+        open={Boolean(managedPosition) && !editingHolding}
+        position={managedPosition ? toHoldingViewModel(managedPosition, totalValue) : null}
+        entries={managedEntries}
+        onOpenChange={(open) => {
+          if (!open) setManagedPositionId(null);
+        }}
+        onEditEntry={(id) => {
+          const entry = entryByClientId(id);
+          if (entry) handleEditHolding(entry.source_index);
+        }}
+        onToggleDeleteEntry={(id) => {
+          const entry = entryByClientId(id);
+          if (entry) handleDeleteHolding(entry.source_index);
+        }}
+        onAddEntry={handleAddEntry}
+      />
 
       <EditHoldingModal
         isOpen={Boolean(editingHolding)}
