@@ -300,7 +300,7 @@ export function FinanceSharingManager({
         title="Finance sharing"
         description="Review access person by person."
         presentation="sheet"
-        surfaceClassName={finance.detail}
+        surfaceClassName={`${finance.detail} ${styles.managerSheet}`}
       >
         <SegmentedTabs
           value={direction}
