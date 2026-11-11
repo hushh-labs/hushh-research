@@ -285,17 +285,22 @@ vi.mock("lucide-react", () => ({
   Trash2: () => <span />,
 }));
 
-vi.mock("@/lib/navigation/routes", () => ({
-  isAnalyticsExemptRoute: () => false,
-  ROUTES: {
-    PROFILE: "/one/profile",
-    PROFILE_GMAIL: "/one/profile/gmail",
-    GMAIL: "/one/gmail",
-    ONE_SETUP: "/one/setup",
-    PROFILE_RECEIPTS: "/one/profile/receipts",
-    PROFILE_GMAIL_OAUTH_RETURN: "/one/profile/gmail/oauth/return",
-  },
-}));
+vi.mock("@/lib/navigation/routes", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/navigation/routes")>();
+  return {
+    ...actual,
+    isAnalyticsExemptRoute: () => false,
+    ROUTES: {
+      ...actual.ROUTES,
+      PROFILE: "/one/profile",
+      PROFILE_GMAIL: "/one/profile/gmail",
+      GMAIL: "/one/gmail",
+      ONE_SETUP: "/one/setup",
+      PROFILE_RECEIPTS: "/one/profile/receipts",
+      PROFILE_GMAIL_OAUTH_RETURN: "/one/profile/gmail/oauth/return",
+    },
+  };
+});
 
 vi.mock("@/lib/utils/browser-navigation", () => ({
   assignWindowLocation: mocks.assignWindowLocation,

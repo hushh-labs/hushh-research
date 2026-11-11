@@ -17,6 +17,7 @@ export type OwnedChoiceProjection = OwnedChoiceIdentity & NativeControlAppearanc
   updateSequence: number;
   title: string;
   showTitle?: boolean;
+  anchor?: { x: number; y: number; width: number; height: number; viewportWidth: number; viewportHeight: number };
   options: readonly OwnedChoiceOption[];
 };
 export type OwnedChoiceReceipt = OwnedChoiceIdentity & {
@@ -56,9 +57,13 @@ export function validOwnedChoiceIdentity(value: OwnedChoiceIdentity): boolean {
 }
 export function validOwnedChoiceProjection(value: OwnedChoiceProjection): boolean {
   return validOwnedChoiceIdentity(value) && closed(value, [...identityKeys, ...appearanceKeys,
-    "privacyGeneration", "updateSequence", "title", "options", "showTitle"]) && sequence(value.privacyGeneration) &&
+    "privacyGeneration", "updateSequence", "title", "options", "showTitle", "anchor"]) && sequence(value.privacyGeneration) &&
     sequence(value.updateSequence, 1) && (value.showTitle === undefined || typeof value.showTitle === "boolean") && text(value.title, 256) && ["light", "dark"].includes(value.appearance) &&
     /^#[\da-f]{6}$/i.test(value.accentHex) && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value.foregroundHex) &&
+    (value.anchor === undefined || !!value.anchor && typeof value.anchor === "object" && !Array.isArray(value.anchor) && closed(value.anchor, ["x", "y", "width", "height", "viewportWidth", "viewportHeight"]) &&
+      Object.values(value.anchor).every(Number.isFinite) && value.anchor.x >= 0 && value.anchor.y >= 0 &&
+      value.anchor.width > 0 && value.anchor.height > 0 && value.anchor.viewportWidth > 0 && value.anchor.viewportHeight > 0 &&
+      value.anchor.x + value.anchor.width <= value.anchor.viewportWidth && value.anchor.y + value.anchor.height <= value.anchor.viewportHeight) &&
     Array.isArray(value.options) && value.options.length <= 256 && value.options.every(option => !!option &&
       closed(option, ["handle", "label", "disabled", "selected", "artworkId"]) && text(option.handle, 128) && text(option.label, 256) &&
       typeof option.disabled === "boolean" && typeof option.selected === "boolean" && (option.artworkId === undefined || text(option.artworkId, 128))) &&
@@ -116,6 +121,13 @@ export class NativeOwnedChoiceLease {
       }))) return;
       this.removeVault = subscribeVaultSessionEpoch(() => this.invalidate());
       if (!this.owns()) return;
+      // Listener and privacy admission may span a preference change. Apply the
+      // latest observed appearance before the first native presentation.
+      if (this.requestedAppearance) {
+        this.projection = { ...this.projection, ...this.requestedAppearance };
+        this.requestedAppearance = undefined;
+        if (!validOwnedChoiceProjection(this.projection)) throw new Error("OWNED_CHOICE_INVALID");
+      }
       this.attempted = true;
       const receipt = await nativeDrawerAcknowledged(this.port.prepareOwnedChoice(this.projection));
       if (this.disposed) return;

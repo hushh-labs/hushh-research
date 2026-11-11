@@ -52,7 +52,7 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
   ...(await original<object>()),
-  morphyToast: { promise: mocks.promiseToast, dismiss: mocks.dismissToast },
+  morphyToast: { promise: mocks.promiseToast, promiseText: mocks.promiseToast, dismiss: mocks.dismissToast },
 }));
 vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: vi.fn(),
@@ -187,6 +187,23 @@ describe("owner hosting and software settings", () => {
     expect(mocks.promiseToast.mock.calls[0][1].success()).toBeNull();
     expect(mocks.promiseToast.mock.calls[0][1].error()).toBeNull();
     expect(mocks.dismissToast).toHaveBeenCalledWith(42);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it("does not evaluate or retain promise outcome notices after owner admission changes", async () => {
+    status("byoc");
+    let resolve!: (value: { hostingMode: string }) => void;
+    mocks.getStatus.mockReturnValue(new Promise(done => { resolve = done; }));
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    await waitFor(() => expect(mocks.promiseToast).toHaveBeenCalledOnce());
+    const [, copy] = mocks.promiseToast.mock.calls[0];
+    publishValidatedAuthSessionOwner("other-owner");
+    expect(copy.success({ hostingMode: "byoc" })).toBeNull();
+    expect(copy.error(new Error("stale owner"))).toBeNull();
+    resolve({ hostingMode: "byoc" });
+    await act(async () => {});
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 

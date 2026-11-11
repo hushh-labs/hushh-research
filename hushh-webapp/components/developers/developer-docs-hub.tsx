@@ -14,7 +14,7 @@ import {
   ShieldCheck,
   Workflow,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/use-auth";

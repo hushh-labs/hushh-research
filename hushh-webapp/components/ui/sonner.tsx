@@ -1,6 +1,6 @@
 "use client"
 
-import type { CSSProperties } from "react"
+import { useSyncExternalStore, type CSSProperties } from "react"
 import {
   CircleAlertIcon,
   CircleCheckIcon,
@@ -10,9 +10,14 @@ import {
 } from "@/components/icons"
 import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy"
+import { nativeWorkspacePresentationActive, nativeShellFeedbackAvailable, subscribeNativeWorkspacePresentation } from "@/lib/capacitor/native-workspace-presence"
 
-const Toaster = ({ ...props }: ToasterProps) => {
+const Toaster = ({ style: suppliedStyle, ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme()
+  const nativeWorkspaceActive = useSyncExternalStore(subscribeNativeWorkspacePresentation, nativeWorkspacePresentationActive, () => false)
+  const nativeShellAvailable = useSyncExternalStore(subscribeNativeWorkspacePresentation, nativeShellFeedbackAvailable, () => false)
+  const holdWebNotices = customNativePresentationEnabled() && (nativeWorkspaceActive || nativeShellAvailable)
 
   return (
     <Sonner
@@ -66,6 +71,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--mobile-offset-right": "1rem",
           "--mobile-offset-top": "calc(var(--top-inset, 0px) + 12px)",
           "--width": "22rem",
+          ...suppliedStyle,
+          ...(holdWebNotices ? { visibility: "hidden" } : {}),
         } as CSSProperties
       }
       {...props}

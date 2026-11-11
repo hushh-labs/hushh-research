@@ -10,6 +10,8 @@ import {
   type Ref,
 } from "react";
 import Link from "next/link";
+import { NativeTodoWorkspace } from "./native-todo-workspace";
+import { validWorkspaceTaskDraft, type NativeWorkspaceTaskDraft } from "@/lib/capacitor/native-workspace";
 
 import {
   ChevronDown,
@@ -94,31 +96,26 @@ type EditableTodoFields = {
   notes: string | null;
 };
 
+const emptyTaskDraft = (): NativeWorkspaceTaskDraft => ({ title: "", date: "", time: "", notes: "" });
+
 function TodoAddItemSheet({
+  draft, onDraftChange,
   open,
   saving,
   onOpenChange,
   onSave,
 }: {
+  draft: NativeWorkspaceTaskDraft;
+  onDraftChange: (draft: NativeWorkspaceTaskDraft) => unknown;
   open: boolean;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (input: EditableTodoFields) => Promise<void>;
+  onSave: (input: EditableTodoFields) => Promise<unknown>;
 }) {
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
-  const [notes, setNotes] = useState("");
-  const [notesOpen, setNotesOpen] = useState(false);
+  const { title, date, time, notes } = draft;
+  const [notesOpen, setNotesOpen] = useState(() => !!draft.notes);
 
-  useEffect(() => {
-    if (!open) return;
-    setTitle("");
-    setDate("");
-    setTime("");
-    setNotes("");
-    setNotesOpen(false);
-  }, [open]);
+  useEffect(() => { if (!open) setNotesOpen(false); }, [open]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -162,7 +159,7 @@ function TodoAddItemSheet({
                 id="todo-title"
                 autoFocus
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => onDraftChange({ ...draft, title: event.target.value })}
                 disabled={saving}
                 placeholder="What do you want to do?"
                 maxLength={240}
@@ -175,7 +172,7 @@ function TodoAddItemSheet({
                   id="todo-date"
                   type="date"
                   value={date}
-                  onChange={(event) => setDate(event.target.value)}
+                  onChange={(event) => onDraftChange({ ...draft, date: event.target.value })}
                   disabled={saving}
                 />
               </div>
@@ -185,7 +182,7 @@ function TodoAddItemSheet({
                   id="todo-time"
                   type="time"
                   value={time}
-                  onChange={(event) => setTime(event.target.value)}
+                  onChange={(event) => onDraftChange({ ...draft, time: event.target.value })}
                   disabled={saving}
                 />
               </div>
@@ -197,7 +194,7 @@ function TodoAddItemSheet({
                   id="todo-notes"
                   autoFocus
                   value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
+                  onChange={(event) => onDraftChange({ ...draft, notes: event.target.value })}
                   disabled={saving}
                   placeholder="Add a detail"
                   maxLength={1200}
@@ -279,7 +276,15 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const isCurrent = () => active.current && isVaultSessionEpochCurrent(epoch);
   const { user, userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorId, setEditorId] = useState<string | null>(null);
+  const editorIdRef = useRef<string | null>(null);
+  const editorOpen = editorId !== null;
+  const setEditorOpen = (open: boolean) => {
+    const id = open ? crypto.randomUUID() : null;
+    editorIdRef.current = id; setEditorId(id);
+  };
+  const [taskDraft, setTaskDraft] = useState(emptyTaskDraft);
+  const taskDraftRef = useRef(taskDraft), taskDraftRevision = useRef(0);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsLoaded, setItemsLoaded] = useState(false);
@@ -290,6 +295,13 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const [deleteRequest, setDeleteRequest] = useState<TodoItem | null>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const addItemRef = useRef<HTMLButtonElement | null>(null);
+
+  const changeTaskDraft = (draft: NativeWorkspaceTaskDraft, expected = taskDraftRevision.current) => {
+    if (!isCurrent() || !editorIdRef.current || savingTaskId !== null || expected !== taskDraftRevision.current || !validWorkspaceTaskDraft(draft)) return false;
+    taskDraftRef.current = draft; taskDraftRevision.current++; setTaskDraft(draft); return true;
+  };
+  const resetTaskDraft = () => { taskDraftRef.current = emptyTaskDraft(); taskDraftRevision.current++; setTaskDraft(taskDraftRef.current); };
+  const closeTaskEditor = () => { setEditorOpen(false); resetTaskDraft(); };
 
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
@@ -374,7 +386,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   };
 
   const saveTask = async (input: EditableTodoFields) => {
-    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return false;
     setSavingTaskId("new-item");
 
     const operation = createTodo(
@@ -388,11 +400,13 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     });
     try {
       const { task } = await operation;
-      if (!isCurrent()) return;
+      if (!isCurrent()) return false;
       setTasks((currentTasks) => [task, ...currentTasks]);
-      setEditorOpen(false);
+      closeTaskEditor();
+      return true;
     } catch {
       // The shared promise toast owns the failure state.
+      return false;
     } finally {
       if (isCurrent()) setSavingTaskId(null);
     }
@@ -483,6 +497,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   };
 
   const openCreate = () => {
+    resetTaskDraft();
     setEditorOpen(true);
   };
 
@@ -495,7 +510,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     setDeleteRequest(task);
   };
 
-  return (
+  const fallback = (
     <AppPageShell
       as="main"
       data-profile-type-scale="page"
@@ -707,9 +722,11 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
 
       {writeReady ? (
         <TodoAddItemSheet
+          draft={taskDraft}
+          onDraftChange={changeTaskDraft}
           open={editorOpen}
           saving={savingTaskId !== null}
-          onOpenChange={setEditorOpen}
+          onOpenChange={(open) => { if (open) openCreate(); else closeTaskEditor(); }}
           onSave={saveTask}
         />
       ) : null}
@@ -754,4 +771,21 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       ) : null}
     </AppPageShell>
   );
+
+  return <NativeTodoWorkspace model={{
+    owner: userId, current: isCurrent, ready: writeReady,
+    editorId, editorCurrent: id => isCurrent() && editorIdRef.current === id,
+    draft: taskDraft, readDraft: () => taskDraftRef.current, inputRevision: () => taskDraftRevision.current, changeDraft: changeTaskDraft,
+    openEditor: openCreate, closeEditor: () => { if (savingTaskId === null) closeTaskEditor(); },
+    loading: !itemsLoaded || itemsLoading || ((agentLoading || calendarReadLoading || liveTasks.sourceLoading) && pending.length === 0),
+    pending, completed, receipts: dueReceipts, saving: savingTaskId, doneToday, totalToday,
+    errors: [
+      ...(itemsLoadError ? [{ label: "Your saved items couldn’t load.", retry: () => { void loadItems(); } }] : []),
+      ...(agentLoadError ? [{ label: "Some agent tasks couldn’t refresh. Your other items are still here.", retry: () => { void Promise.all([agentFeed.retry(), retryKyc()]).catch(() => morphyToast.error("Agent tasks couldn’t refresh. Try again.")); } }] : []),
+      ...(calendarReadError ? [{ label: "Some Calendar tasks couldn’t load.", retry: () => { calendar.refresh(); upcoming.refresh(); } }] : []),
+      ...(liveTasks.sourceError ? [{ label: "Some task sources are unavailable.", retry: () => { liveTasks.refreshSources(); } }] : []),
+    ],
+    overflowHref: agentFeed.actionables.some(item => item.id === "consent:overflow") ? agentFeed.actionables.find(item => item.id === "consent:overflow")?.href || "/one/feed" : null,
+    save: saveTask, toggle: toggleTask, remove: deleteTask,
+  }} fallback={fallback} />;
 }

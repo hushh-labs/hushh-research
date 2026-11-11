@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, LogOut, MoreHorizontal } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 

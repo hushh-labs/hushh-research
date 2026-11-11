@@ -96,6 +96,19 @@ continue-dev-tools-usage.md
 # Local temp artifacts
 temp/
 tmp/
+# Generated review/evaluation reports belong in ignored local or CI artifacts.
+/hushh-webapp/contracts/ui-review/
+/hushh-webapp/native-*-parity-report.json
+/hushh-webapp/native-*-ui-interaction-report.json
+/artifacts/
+/consent-protocol/artifacts/
+/docs/reference/mobile/perf/baseline-*.json
+/docs/reference/architecture/paid-answer-provider-review-*.json
+/plans/kai-finance-reset-*.json
+token.txt
+/tmp_voice_*.json
+/consent-protocol/tmp_voice_probe.wav
+/hushh-webapp/native-ios-ui-interaction-failure.png
 consent-protocol/config/crm-registry/*.json
 .playwright-artifacts/
 .playwright-mcp/
@@ -120,7 +133,11 @@ hushh-webapp/native-ios-screenshots/
 **/.pkm-debug/
 
 # Generated native/build artifacts
-/.build/
+.build/
+*.xcresult/
+*.xcarchive/
+*.xcactivitylog
+# Assets.xcassets images are required bundled app assets, not test captures.
 hushh-webapp/.next/
 hushh-webapp/.next-prod/
 hushh-webapp/ios/build/
@@ -141,6 +158,13 @@ Personal_Tasks/
 # Hushh Security Policy - Secrets and Credentials
 *.pem
 *.key
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+/.npmrc
+.netrc
+.pypirc
 *credentials*.json
 *secret*.json
 # Exact-path exception: the shared secret-span PATTERN contract holds regexes and

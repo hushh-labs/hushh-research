@@ -1,7 +1,7 @@
 import type { PluginListenerHandle } from "@capacitor/core";
 import { nativeLegalActionIds } from "./native-profile-legal";
 import { acknowledgeNativeProfilePreparation } from "./native-profile-preparation";
-import { receiveNativeFeedbackEnd, retainNativeFeedbackOwner, refreshNativeFeedback } from "./native-feedback";
+import { receiveNativeFeedbackAction, receiveNativeFeedbackEnd, retainNativeFeedbackOwner, refreshNativeFeedback } from "./native-feedback";
 import {
   NativeDrawerChoiceFence, sameNativeDrawer, validNativeDrawerProjection,
   subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
@@ -62,6 +62,7 @@ export class NativeDrawerPresentation {
   private phase: NativeDrawerPresentationPhase = "preparing";
   private releaseFeedback: (() => void) | null = null;
   private feedbackHandle: PluginListenerHandle | null = null;
+  private feedbackActionHandle: PluginListenerHandle | null = null;
 
   constructor(
     readonly identity: NativeDrawerIdentity,
@@ -121,8 +122,16 @@ export class NativeDrawerPresentation {
         const feedback = await this.plugin.addListener("feedbackEnded", receiveNativeFeedbackEnd);
         if (this.disposed) { await feedback.remove(); return false; }
         this.feedbackHandle = feedback;
+        const feedbackAction = await this.plugin.addListener("feedbackAction", receiveNativeFeedbackAction);
+        if (this.disposed) {
+          await feedbackAction.remove(); await feedback.remove();
+          this.feedbackHandle = null;
+          return false;
+        }
+        this.feedbackActionHandle = feedbackAction;
         this.releaseFeedback = retainNativeFeedbackOwner({ plugin: this.plugin,
           current: () => !this.disposed && this.ownerIsCurrent(),
+          parentRetired: () => this.phase === "retired",
           ready: () => this.phase === "active" && !!this.current && this.applied === this.current.state.updateSequence &&
             (!this.completionRequired || this.settledUpdate === this.current.state.updateSequence),
           state: () => this.current?.state ?? null });
@@ -380,9 +389,10 @@ export class NativeDrawerPresentation {
   }
   private async withdraw(): Promise<boolean> {
     this.disposed = true;
-    this.releaseFeedback?.(); this.releaseFeedback = null;
     if (this.feedbackHandle) void this.feedbackHandle.remove().catch(() => undefined);
     this.feedbackHandle = null;
+    if (this.feedbackActionHandle) void this.feedbackActionHandle.remove().catch(() => undefined);
+    this.feedbackActionHandle = null;
     this.fence.retire();
     this.destinations.clear();
     this.pending = null;
@@ -410,14 +420,21 @@ export class NativeDrawerPresentation {
       // A newer queued projection may have been withdrawn before dispatch.
       // Absence is proven by identity/retired phase, not its unapplied update.
       if (highestUpdate > 0 && !await this.confirmedRetirement(highestUpdate)) {
-        this.setPhase("quarantined"); return false;
+        this.setPhase("quarantined");
+        this.releaseFeedback?.(); this.releaseFeedback = null;
+        return false;
       }
       if (isolationHandle) await acknowledged(reconcileNativeDrawerIsolation(this.plugin));
       reconciled = true;
       this.latestReceipt = null;
       this.setPhase("retired");
+      this.releaseFeedback?.(); this.releaseFeedback = null;
       return true;
-    } catch { this.setPhase("quarantined"); return false; }
+    } catch {
+      this.setPhase("quarantined");
+      this.releaseFeedback?.(); this.releaseFeedback = null;
+      return false;
+    }
     finally {
       if (isolationHandle) {
         if (reconciled) void acknowledged(isolationHandle.remove()).catch(() => undefined);

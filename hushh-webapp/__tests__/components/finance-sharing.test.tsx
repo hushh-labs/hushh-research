@@ -253,6 +253,9 @@ it("keeps selections through all three sharing steps and preview Back without pu
   expect(screen.getByRole("checkbox", { name: /^Synthetic connection/ })).toBeChecked();
   expect(close).not.toHaveBeenCalled();
   expect(mocks.publish).not.toHaveBeenCalled();
+  act(() => { unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio")); });
+  expect(close).toHaveBeenCalledWith(false);
+  expect(mocks.publish).not.toHaveBeenCalled();
 });
 
 it("uses the other person's identity in either sharing direction @feature_connected_profiles", async () => {

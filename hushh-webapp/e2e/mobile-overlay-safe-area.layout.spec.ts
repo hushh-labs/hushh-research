@@ -5,6 +5,8 @@ import { stripAppFontFaces } from "./fixtures/product-font";
 
 let css: string;
 let profileClass: string;
+let dialogClass: string;
+let calendarCss: string;
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -15,6 +17,9 @@ test.beforeAll(async () => {
     sheet.match(/"(data-\[state=open\]:animate-in data-\[state=closed\]:animate-out fixed[^"]+)"/)![1],
     sheet.match(/side === "right" &&\s*"([^"]+)"/)![1],
   ].join(" ");
+  const dialog = fs.readFileSync(path.join(root, "components/ui/dialog.tsx"), "utf8");
+  dialogClass = dialog.match(/"(data-\[state=open\]:animate-in[^"\n]*fixed top-\[50%\][^"\n]*)"/)![1];
+  calendarCss = fs.readFileSync(path.join(root, "components/calendar/calendar-booking-dialog.module.css"), "utf8");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""), {
     base: path.join(root, "app"),
@@ -24,7 +29,9 @@ test.beforeAll(async () => {
       return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
     },
   });
-  css = stripAppFontFaces(compiler.build(profileClass.split(/\s+/)));
+  css = stripAppFontFaces(compiler.build([...profileClass.split(/\s+/), ...dialogClass.split(/\s+/), "whitespace-nowrap"]));
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "mobile-overlay-safe-area.css", code: Buffer.from(css), minify: true }).code.toString();
 });
 
 test("native rotation overrides a stale portrait safe-area probe", async ({ page }) => {
@@ -73,4 +80,37 @@ test("opening mobile Profile preserves the canvas and exits beyond its bounded i
   expect((await pane.boundingBox())!.x).toBeGreaterThanOrEqual(389);
   await pane.evaluate(node => node.remove());
   expect(await snapshot()).toEqual(before);
+});
+
+
+test("reserved centered dialog counts keyboard clearance once and bounds the booking form", async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await page.setContent(`<html class="native-ios kb-open" style="--native-overlay-top:154px;--native-overlay-bottom:335px;--kb-height:335px;--app-native-safe-area-top:62px"><head><style>${css} ${calendarCss}</style></head><body><div data-native-workspace-seat="true"></div><section data-slot="dialog-content" class="${dialogClass} dialog"><h2>Schedule meeting</h2><div class="fields"><label>Title<input style="width:100%;min-width:0" /></label><label>Calendar account and destination<select><option>long-calendar-owner@example.com · Primary calendar</option></select></label><button class="whitespace-nowrap">Allow scheduling on long-calendar-owner@example.com</button></div></section></body></html>`);
+  const dialog = page.locator('[data-slot="dialog-content"]');
+  const metrics = await dialog.evaluate(node => [node, ...node.querySelectorAll(".fields,label,input,select,button,h2")].map(n => ({ tag: n.tagName, width: n.getBoundingClientRect().width, scroll: n.scrollWidth, min: getComputedStyle(n).minWidth, grid: getComputedStyle(n).gridTemplateColumns, whiteSpace: getComputedStyle(n).whiteSpace })));
+  const metricsPath = test.info().outputPath("booking-layout-metrics.json");
+  fs.writeFileSync(metricsPath, JSON.stringify(metrics));
+  await test.info().attach("booking-layout-metrics", { path: metricsPath, contentType: "application/json" });
+  const bounds = (await dialog.boundingBox())!;
+  expect(bounds.y).toBeGreaterThanOrEqual(154);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(874 - 335);
+  expect(await dialog.evaluate(node => node.scrollWidth)).toBeLessThanOrEqual(await dialog.evaluate(node => node.clientWidth));
+  await expect(dialog).toHaveCSS("margin-top", "0px");
+  // Renderer-off continues to use the existing ordinary keyboard lift.
+  await page.locator('[data-native-workspace-seat]').evaluate(node => node.remove());
+  await expect(dialog).toHaveCSS("margin-top", "-167.5px");
+});
+
+test("full-screen Profile owns nested sheet clearance instead of the covered workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await page.setContent(`<html class="native-ios" style="--native-workspace-top:154px;--native-workspace-bottom:179px;--kb-height:0px"><head><style>${css}</style></head><body><div data-native-workspace-seat="true"></div><section class="native-feature-page" data-native-feature-pane="profile" data-state="open"></section><section data-slot="sheet-content" data-sheet-side="bottom" style="position:fixed;height:313px;width:100%"></section></body></html>`);
+  const sheet = page.locator('[data-slot="sheet-content"]');
+  await expect(sheet).toHaveCSS("bottom", "0px");
+  await page.evaluate(() => document.documentElement.style.setProperty("--kb-height", "335px"));
+  await expect(sheet).toHaveCSS("bottom", "335px");
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--kb-height", "0px");
+    document.querySelector(".native-feature-page")!.setAttribute("data-state", "closed");
+  });
+  await expect(sheet).toHaveCSS("bottom", "179px");
 });

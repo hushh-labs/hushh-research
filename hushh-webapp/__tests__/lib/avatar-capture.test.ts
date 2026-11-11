@@ -60,6 +60,19 @@ describe("isCameraCancellation", () => {
 
 describe("private portrait media budget", () => {
   afterEach(() => { Reflect.deleteProperty(window, "CapacitorWebFetch"); vi.unstubAllGlobals(); });
+  it("admits public People photos only in the people family and refuses credentials and foreign hosts", async () => {
+    mocks.native = true;
+    const fetchMedia = vi.fn().mockRejectedValue(new Error("public fixture unavailable"));
+    Object.defineProperty(window, "CapacitorWebFetch", { configurable: true, value: fetchMedia });
+    const signal = new AbortController().signal;
+    const photo = "https://lh3.googleusercontent.com/contacts/public-photo?sz=128";
+    await expect(prepareProfilePortrait(photo, signal)).rejects.toThrow();
+    for (const source of ["https://untrusted.test/photo.jpg", `${photo}&access_token=forbidden`, "https://owner:secret@lh3.googleusercontent.com/photo"])
+      await expect(prepareProfilePortrait(source, signal, "people")).rejects.toThrow();
+    expect(fetchMedia).not.toHaveBeenCalled();
+    await expect(prepareProfilePortrait(photo, signal, "people")).rejects.toThrow("public fixture unavailable");
+    expect(fetchMedia).toHaveBeenCalledExactlyOnceWith(photo, expect.objectContaining({ credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store", redirect: "error" }));
+  });
   it("refuses oversized bytes and compressed oversized dimensions before browser image decoding", async () => {
     vi.stubGlobal("Blob", NodeBlob);
     const decode = vi.fn();

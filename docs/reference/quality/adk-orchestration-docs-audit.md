@@ -17,6 +17,26 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
+## Dev PKM scope sharing — 11 November 2026
+
+**Question delivery and owner approval passed; paid-answer acceptance remains open.**
+The receiving-key fix [#9306](https://github.com/hushh-labs/hushh-research/pull/9306)
+and exact-leaf eligibility fix [#9311](https://github.com/hushh-labs/hushh-research/pull/9311)
+passed exact-source CI and governed Dev releases. The actual two-account interface
+verified isolated Dev identity, normal unlock, one synthetic question, its exact
+available PKM scope and a $1 owner approval. No payment was attempted.
+
+The hub correctly refused private composition. The follow-up candidate reuses the
+writer through the existing owner-pod session and sealed consent feed, with
+provider/model-bound terms: Azure/OpenAI, GCP/Gemini and configured Shared runtime.
+It adds forward migration 989; this candidate is local and has not been released.
+The earlier Google-only approval requires fresh owner approval for Azure/OpenAI.
+Checkout, signed settlement, requester decryption and cold recovery remain pending.
+Canonical tasks: [paid scope sharing #7587](https://github.com/hushh-labs/hushh-research/issues/7587)
+and [owner pods #5507](https://github.com/hushh-labs/hushh-research/issues/5507).
+This is PKM scope sharing, not Drive/document sharing. Managed-pilot acceptance
+remains paused at 0/2; this work does not establish production readiness.
+
 ## Current decision — 9 November 2026
 
 **UAT application acceptance passed; installed-owner pod acceptance remains a
@@ -439,6 +459,36 @@ items; reuse prior evidence only when its owner, image and lifecycle match.
 <a id="current-decision--27-october-2026"></a>
 
 ## Historical decision — 27 October 2026
+
+## Durable owner recovery — 31 October 2026 source correction
+
+The existing GCP and Azure storage/custody architecture is retained. Configured
+durable pods now refuse startup if identity or session-authority recovery fails,
+before Browser, heartbeat or background consumers start. They cannot silently
+rotate to an ephemeral identity or serve relayed turns without recovered fencing.
+Legacy non-durable startup retains its existing behavior. Checkpoint-budget
+overflow shares one complete verified log replay across startup reducers; it
+never truncates history. A gateway response after a chat POST is now unconfirmed,
+not permission to resend; pre-send wake probes remain retryable.
+
+Focused local checks cover cross-store CAS, custody, identity, fencing, recovery,
+memory durability and the actual client wake wrapper. These establish source
+behavior, not installed-owner acceptance. On 1 November, explicit owner CLI
+sessions successfully read the registered GCP service and both Azure apps. The
+earlier admin-ADC GCP denial and Azure broker-assertion HTTP 403 are specific to
+that credential path, not a general cloud-access blocker. GCP reports Ready with
+durable identity and commit-log storage enabled; both Azure apps report successful
+provisioning. CLI defaults were not changed, and every target was explicit to
+avoid the default UAT project. Task-owned database proxies stopped. No cloud
+mutation, UAT action, deployment or current-image restart qualification was performed.
+Finish installed acceptance through the existing owner-approved update path:
+exact image, stable identity/history after replacement,
+stale-writer refusal and an authenticated completed turn. Do not use process
+health, historical receipts or an offline lifecycle simulation as that proof.
+
+## Previous release decision — 27 October 2026
+## Previous release decision — 27 October 2026
+
 
 **Production recovery is verified. Release-system activation and installed-owner
 Browser acceptance remain open.** The compatible pre-pod Shared application

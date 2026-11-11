@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type MutableRefObject } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { useAuth } from "@/hooks/use-auth";
 import { saveReceiptCanonicalIndexToMemory } from "@/lib/profile/gmail-receipt-memory-save";

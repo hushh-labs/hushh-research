@@ -16,9 +16,28 @@ another reviewer store or a privileged app-unlock route.
    harness change. Keep executable digests and install receipts with the run,
    and require the requested case's observed markers before interpreting its
    result. A stale installed runner is not evidence against the new feature.
+   Select the matching `DEVELOPER_DIR` for both build and every attach-only
+   `xcodebuild` invocation; selecting it for the build alone leaves tests on
+   the Mac's default Xcode and can drop secure-field input.
    Serialize dependency installation, web export, native resource sync and
    packaging. Compare exported application files with the signed bundle before
    installation; a successful native build can still contain stale web assets.
+   Compare the Swift package manifest and `Package.resolved` with the candidate
+   source after Capacitor sync and again after building. A symlinked
+   `node_modules` can rewrite package paths and cause Xcode to resolve newer
+   versions. Restore the committed manifest and lockfile before building, use
+   Xcode's `-onlyUsePackageVersionsFromResolvedFile`, and fail if either changes.
+   If package versions changed during an earlier build, use clean derived data;
+   restoring the lockfile after that build does not prove its dependency identity.
+   For the public Vault geometry check, prepare the app with
+   `--hushh-vault-layout-diagnostics` and confirm its probe is present before
+   interpreting geometry. An absent probe is a test-admission failure, not
+   evidence that the Vault layout is broken.
+   When adding a qualification compilation condition, preserve `$(inherited)`:
+   replacing package conditions can remove `SWIFT_PACKAGE` and break resource
+   accessors. A Release build-for-testing that includes `@testable import App`
+   needs `ENABLE_TESTABILITY=YES`; record that setting and do not treat its
+   performance as proof for a differently compiled distribution binary.
 2. Inspect `xcrun devicectl list devices` and
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once
@@ -69,13 +88,14 @@ another reviewer store or a privileged app-unlock route.
    substitute another environment. Record an explicitly selected dev replica
    as dev evidence, not UAT or release acceptance.
    If whole-value input is not acknowledged, do not submit or retry the private
-   value. Use the existing synthetic secure-entry probe first, with the matching
-   Xcode toolchain selected explicitly through `DEVELOPER_DIR`. On the same
-   iOS 27.2 candidate, Xcode 27.1 delivered six of eight public characters;
-   Xcode 27.2 passed both public samples and the subsequent normal reviewer
-   unlock. This comparison identifies a working toolchain, not every possible
-   input-loss cause. Keep synthetic counts separate from private input, which
-   must remain process-only and produce only acknowledgement booleans.
+   value. Diagnose with an isolated public secure-input fixture and the matching
+   Xcode toolchain. Do not reveal a real Vault field or clear input whose owner
+   is unknown to inspect a sample. A masked length, a visible keyboard, or an
+   asynchronously sampled focus flag cannot prove exact delivery. A public
+   fixture pass alone does not qualify private input: establish an appropriate
+   non-disclosing delivery and cleanup contract, including interruption,
+   rejection and test-runner restart, before another private attempt. Preserve
+   privacy coverage and stop if cleanup or an unlock outcome is uncertain.
 7. Check that the native privacy cover has actually retired before private
    input. XCTest can report an underlying WebKit control as hittable while
    UIKit still covers it. Use only the authored recovery action or cancel a
@@ -98,6 +118,43 @@ another reviewer store or a privileged app-unlock route.
 - Once admitted, continue warm journeys without sign-out, reset or direct cold
   route jumps. Preserve passcode and privacy protection; do not promise the OS
   will keep its authorization forever.
+
+## Simulator runner-only attachment to an existing app
+
+Use this only when preserving an installed Simulator app/data;
+`UseDestinationArtifacts` is physical-device only. Derive a throwaway project
+from the candidate's `App.xcodeproj`; never edit the canonical project. In the
+copy set `TargetApplication=None`, remove `App` from AppUITests dependencies and
+remove `TestTargetID`/`TEST_TARGET_NAME`. Preserve `Package.resolved` byte-for-byte
+and disable package resolution.
+
+The disposable scheme builds/tests `AppUITests` only, with no implicit App
+dependency or TestAction macro expansion. UI tests attach with
+`XCUIApplication(bundleIdentifier:)`; do not call `launch()` or reset app
+state. Pass `-UITestResetAppState false` explicitly. Build-for-testing in
+isolated DerivedData; inspect the xctestrun and product roots. Require
+`UseUITargetAppProvidedByTests=true`, no `UITargetAppPath`/bundle ID or AUT
+product, and runner/test-only dependent paths. Stop if an AUT product or
+mandatory app path remains. Install only the runner; compare app PID, executable
+and data-container identity before/after. A container UUID/path change alone
+does not prove data loss.
+
+Copy the generated xctestrun beside itself to preserve relative paths. Change
+only `SystemAttachmentLifetime` and `UserAttachmentLifetime` to `keepNever`, run
+with `-collect-test-diagnostics never`, and validate that exact copy diff. Never
+delete required fields. Remove the disposable project only after Xcode/test processes
+exit and derivation evidence is preserved.
+
+For a DEBUG native Back pilot, diagnostics alone are insufficient: launch with
+the coherent `--hushh-native-shell-qualification` flag and keep
+`-UITestResetAppState false`. Never pass real credentials in argv, files,
+xctestrun data or logs, and never read secure-field `.value`; qualify the exact
+field with a synthetic canary before private input. Treat keyboard visibility
+as window/frame intersection, not accessibility-element existence. A retained
+drawer accessibility root can remain present when closed; use its authored
+close control and authoritative native interaction state to classify obstruction.
+Keep successful touch and accessibility proof separate; a pointer hit does not
+clear a failed accessibility assertion.
 
 ## Account for screens, then batch the candidate
 

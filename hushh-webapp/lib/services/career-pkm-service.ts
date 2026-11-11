@@ -81,7 +81,7 @@ export const CareerPkmService = {
       domain: CAREER_PKM_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+    });
     return readCareerState(data);
   },
 

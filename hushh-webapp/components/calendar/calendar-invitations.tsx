@@ -1,6 +1,8 @@
 "use client";
 
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { NativeCalendarLayer, useNativeCalendarEnabled, type CalendarNativeSection } from "./native-calendar-workspace";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -45,6 +47,8 @@ export function CalendarInvitations(props: Props) {
 }
 
 function Invitations({ workspaceLayout = false, calendarPeople, userId, accountId = "default", accountEmail, zone, getIdToken, initialFilter, initialEventId, initialCalendarId, initialDecision, initialTerms, startAt, endAt, connectionRevision, busy, onConnect, onMailConnect, onOfferTimes, onSend, onResult, onBusyChange, token }: Props & { token: string | null }) {
+  const nativeEnabled = useNativeCalendarEnabled();
+  const [nativePage, setNativePage] = useState({ key: "", page: 0 });
   const [date, setDate] = useState(() => calendarDate(Date.now(), zone));
   // UTC padding covers the selected local day even across DST and extreme offsets.
   const queryStart = workspaceLayout ? `${shiftCalendarDate(date, -1)}T00:00:00Z` : startAt;
@@ -87,7 +91,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
   const selected = data?.events.find(event => `${event.calendar_id}:${event.id}` === selectedId);
   const close = useCallback(() => { if (actionBusyRef.current) return true; setSelectedId(null); requestAnimationFrame(() => trigger.current?.focus()); return true; }, []);
   const pathname = usePathname();
-  useBackLayer(pathname, selected ? 1 : 0, close);
+  useBackLayer(normalizeStaticExportPathname(pathname ?? "/"), selected ? 1 : 0, close);
   const invitationDay = (event: CalendarInvitation) => {
     if (event.start?.date) return event.start.date;
     const instant = Date.parse(event.start?.dateTime || "");
@@ -106,7 +110,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
   const navigateDate = (value: string) => { setSelectedId(null); setDate(value); };
   const label = filter === "pending" ? "Needs your response" : filter === "responded" ? "Your responses" : "All invitations";
   const statusLabel = (event: CalendarInvitation) => event.response_status === "needsAction" ? null : event.response_status === "accepted" ? "Accepted" : event.response_status === "declined" ? "Declined" : "Tentative";
-  return <section className={styles.invitations} data-workspace={workspaceLayout} data-detail={Boolean(selected)} aria-label="Invitations" aria-busy={loading}>
+  const content = <section className={styles.invitations} data-workspace={workspaceLayout} data-detail={Boolean(selected)} aria-label="Invitations" aria-busy={loading}>
     <div className={styles.filters}><SegmentedTabs disabled={actionBusy} ariaLabel="Invitation filters" variant="filter" value={filter} onValueChange={value => { setFilter(value); close(); }} options={[{ value: "pending", label: `Pending (${data ? pendingCount : "…"})` }, { value: "responded", label: "Responded" }, { value: "all", label: "All" }]} /></div>
     {workspaceLayout ? <div className={styles.dateNavigation}><CalendarDateNavigation date={date} today={calendarDate(Date.now(), zone)} disabled={actionBusy} onChange={navigateDate} label="Invitation date" /></div> : null}
     {error ? <div role="alert" className="space-y-3"><p>Invitations could not be loaded.</p><p className={styles.muted}>{error.message}</p>{error instanceof GoogleCalendarError && error.recovery !== "retry" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("read", error.reasonCode === "calendar_list_permission_required")}>Allow Calendar access</CalendarCompactAction> : <CalendarCompactAction onClick={() => void load(true)}>Retry</CalendarCompactAction>}</div> : !data ? <CalendarLoading label="Invitations loading" /> : <>
@@ -145,4 +149,33 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
       </div>
     </>}
   </section>;
+  if (!nativeEnabled || !workspaceLayout) return content;
+  const sections: CalendarNativeSection[] = [{ key: "invitation-filters", rows: (["pending", "responded", "all"] as const).map(value => ({
+    key: `filter:${value}`, label: value === "pending" ? `Pending (${data ? pendingCount : "…"})` : value === "responded" ? "Responded" : "All", selected: filter === value,
+    enabled: !actionBusy, run: () => { setFilter(value); close(); },
+  })) }, { key: "invitation-days", rows: [
+    { key: "previous-day", label: "Previous day", enabled: !actionBusy, run: () => navigateDate(shiftCalendarDate(date, -1)) },
+    { key: "today", label: "Today", enabled: !actionBusy, run: () => navigateDate(calendarDate(Date.now(), zone)) },
+    { key: "next-day", label: "Next day", enabled: !actionBusy, run: () => navigateDate(shiftCalendarDate(date, 1)) },
+  ] }];
+  if (error) sections.push({ key: "invitation-error", rows: [
+    { key: "error", label: "Invitations could not be loaded.", detail: error.message },
+    error instanceof GoogleCalendarError && error.recovery !== "retry" ? { key: "access", label: "Allow Calendar access", enabled: !busy, web: true, run: () => onConnect("read", error.reasonCode === "calendar_list_permission_required") } : { key: "retry", label: "Retry", run: () => load(true) },
+  ] });
+  else if (!data) sections.push({ key: "invitation-loading", rows: [{ key: "loading", label: "Invitations loading", pending: true }] });
+  else {
+    if (data.unreadable_calendars.length) sections.push({ key: "invitation-coverage", rows: [{ key: "coverage", label: "Some calendars allow only free/busy access. Their invitation details and conflicts could not be checked." }] });
+    const pageKey = `${date}:${filter}`, page = nativePage.key === pageKey ? Math.min(nativePage.page, Math.max(0, Math.ceil(filtered.length / 20) - 1)) : 0;
+    const rows = filtered.slice(page * 20, (page + 1) * 20).map(event => ({ key: `invitation:${event.calendar_id}:${event.id}`, label: event.title,
+      detail: [eventTime(event, zone), event.organizer?.displayName || event.organizer?.email || "Organizer", statusLabel(event), event.conflicts.length ? `${event.conflicts.length} overlaps` : ""].filter(Boolean).join(" · "),
+      enabled: !actionBusy, web: true, run: () => { trigger.current = null; setSelectedId(`${event.calendar_id}:${event.id}`); },
+    }));
+    sections.push({ key: "invitation-list", title: label, rows: rows.length ? rows : [{ key: "empty", label: `No ${filter === "all" ? "" : `${filter} `}invitations on this date.` }] });
+    const paging = [];
+    if (page > 0) paging.push({ key: "previous-invitations", label: "Previous invitations", run: () => setNativePage({ key: pageKey, page: page - 1 }) });
+    if ((page + 1) * 20 < filtered.length) paging.push({ key: "more-invitations", label: "More invitations", run: () => setNativePage({ key: pageKey, page: page + 1 }) });
+    if (paging.length) sections.push({ key: "invitation-paging", rows: paging });
+    if (initialEventId && !data.events.some(event => event.id === initialEventId && event.calendar_id === initialCalendarId)) sections.push({ key: "invitation-missing", rows: [{ key: "missing", label: "This invitation is no longer in the current window. Ask One to check it again." }] });
+  }
+  return <NativeCalendarLayer active title="Invitations" sections={sections} calendarDate={{ key: "invitations", label: "Invitation date", value: date, timeZone: zone, enabled: !actionBusy, change: navigateDate }} webChild={Boolean(selected)} fallback={content} />;
 }

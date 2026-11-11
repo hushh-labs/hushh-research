@@ -361,6 +361,7 @@ def test_the_wall_sits_inside_observability_and_outside_the_routes():
 # Exact external reachability, independently pinned against ingress policy.
 OWNER_REACHABLE_PATHS = frozenset(
     {
+        "/api/one/pod/answers/compose",
         "/api/one/pod/actions/gmail/proposals",
         "/api/one/pod/actions/{proposal_id}/confirm",
         "/api/one/pod/actions/{proposal_id}/status",

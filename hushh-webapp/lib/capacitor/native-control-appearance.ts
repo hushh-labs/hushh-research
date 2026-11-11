@@ -16,7 +16,7 @@ export type NativeControlAppearance = {
 
 export type NativeControlForeground = "accent" | "secondary" | "on-accent";
 
-function cssForegroundHex(token: "--muted-foreground" | "--app-accent-fg"): string | null {
+export function nativeColorTokenHex(token: "--muted-foreground" | "--app-accent-fg" | "--background" | "--agent-location-blue"): string | null {
   const literal = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
   if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(literal)) return literal;
   const [, format, body] = literal.match(/^(rgba?|oklch|oklab|lab)\(([^)]+)\)$/i) ?? [];
@@ -39,8 +39,8 @@ function committedAppearance(foreground: NativeControlForeground): NativeControl
   const foregroundHex = foreground === "accent"
     ? resolvedAccentHex("--app-accent-deep")
     : foreground === "on-accent"
-    ? cssForegroundHex("--app-accent-fg")
-    : cssForegroundHex("--muted-foreground");
+    ? nativeColorTokenHex("--app-accent-fg")
+    : nativeColorTokenHex("--muted-foreground");
   // Do not substitute the brand accent for a neutral utility glyph. If a
   // wrapper cannot resolve the authored token, retain its DOM presentation.
   if (foregroundHex === null) return null;

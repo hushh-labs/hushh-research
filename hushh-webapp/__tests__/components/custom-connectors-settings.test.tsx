@@ -34,7 +34,7 @@ vi.mock("@/lib/connections/custom-connector-configuration", async (importOrigina
     removeInvalidCustomConnectorConfiguration: vi.fn(),
   };
 });
-vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
+vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn(), promiseText: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size, variant: _v, effect: _e, ...props }: any) => <button data-size={size} {...props}>{children}</button> }));
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" };
 beforeEach(() => {
@@ -209,8 +209,8 @@ it("rejects a vault-owner token locally with a specific safe error", async () =>
   fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp" } });
   fireEvent.change(screen.getByLabelText("Access token (optional)"), { target: { value: "HCT:synthetic.signature" } });
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
-  await waitFor(() => expect(morphyToast.promise).toHaveBeenCalledOnce());
-  const [operation, options] = vi.mocked(morphyToast.promise).mock.calls[0];
+  await waitFor(() => expect(morphyToast.promiseText).toHaveBeenCalledOnce());
+  const [operation, options] = vi.mocked(morphyToast.promiseText).mock.calls[0];
   let failure: unknown;
   try { await operation; } catch (error) { failure = error; }
   expect(failure).toBeInstanceOf(Error);
@@ -226,8 +226,8 @@ it("points an auth-page URL failure to the server endpoint", async () => {
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Synthetic" } });
   fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.com/mcp/auth" } });
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
-  await waitFor(() => expect(morphyToast.promise).toHaveBeenCalledOnce());
-  const [operation, options] = vi.mocked(morphyToast.promise).mock.calls[0];
+  await waitFor(() => expect(morphyToast.promiseText).toHaveBeenCalledOnce());
+  const [operation, options] = vi.mocked(morphyToast.promiseText).mock.calls[0];
   await expect(operation).rejects.toThrow("synthetic failure");
   expect((options.error as (error: unknown) => string)(new Error("synthetic"))).toContain("sign-in URL");
   expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
@@ -256,7 +256,7 @@ it.each(["https://example.com/mcp", "https://example.com/mcp/auth"])(
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
     expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
-    const options = vi.mocked(morphyToast.promise).mock.calls.at(-1)?.[1] as { error: (error: unknown) => string };
+    const options = vi.mocked(morphyToast.promiseText).mock.calls.at(-1)?.[1] as { error: (error: unknown) => string };
     const message = options.error(new McpCatalogAuthenticationError());
     expect(message).toBe("This server rejected the access token. Check it and try again.");
     expect(message).not.toContain("invalid-secret-value");

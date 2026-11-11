@@ -2,7 +2,8 @@
 
 import { claimPhoneForOwner, transferPhoneForOwner } from "./account-phone-claim";
 import type { User } from "firebase/auth";
-import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { identitySessionIsCurrent, ownerForFirebaseUser } from "./account-identity-session";
 
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import { readAccountIdentityResponse } from "@/lib/services/account-identity-response";
@@ -30,10 +31,6 @@ function beginIdentityWork(userId: string): IdentityWork {
   return { userId, generation: getAuthSessionGeneration(), sequence: ++identityWorkSequence };
 }
 
-function ownerForFirebaseUser(user: User | null | undefined): string | null {
-  const principal = snapshotValidatedAuthSessionPrincipal();
-  return user && principal?.firebaseUid === user.uid ? principal.ownerId : null;
-}
 
 function beginUserIdentityWork(user: User | null | undefined): IdentityWork | null {
   const owner = ownerForFirebaseUser(user);
@@ -46,11 +43,6 @@ function identityWorkIsCurrent(work: IdentityWork): boolean {
     (!published || published.generation !== work.generation || published.sequence <= work.sequence);
 }
 
-function identitySessionIsCurrent(userId: string, generation: number | null): boolean {
-  const owner = snapshotValidatedAuthSessionOwner();
-  return generation !== null && generation === getAuthSessionGeneration() &&
-    (!owner || owner.userId === userId);
-}
 
 export class AccountIdentityService {
   static hasVerifiedPhone(identity: AccountIdentity | null | undefined): boolean {
@@ -233,7 +225,8 @@ export class AccountIdentityService {
 
   static async claimCurrentUserPhone(
     user: User | null | undefined,
-    phoneIdToken: string
+    phoneIdToken: string,
+    isCurrent?: () => boolean,
   ): Promise<AccountIdentity | null> {
     if (!user) {
       return null;
@@ -241,11 +234,12 @@ export class AccountIdentityService {
     const work = beginUserIdentityWork(user);
     if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
+    const current = () => identitySessionIsCurrent(work.userId, work.generation) && isCurrent?.() !== false;
+    if (!idToken || !current()) {
       return null;
     }
 
-    const identity = await claimPhoneForOwner(idToken, phoneIdToken, work.userId, () => identitySessionIsCurrent(work.userId, work.generation));
+    const identity = await claimPhoneForOwner(idToken, phoneIdToken, work.userId, current, isCurrent ? "never" : undefined);
     if (!identity) return null;
     // Write through so guards immediately see the newly verified phone.
     // A committed phone save outranks every read started before it completed,
@@ -404,18 +398,19 @@ export class AccountIdentityService {
 
   static async startUatTestPhoneVerification(
     user: User | null | undefined,
-    phoneNumber: string
+    phoneNumber: string,
+    isCurrent?: () => boolean,
   ): Promise<AccountPhoneTestStartResponse | null> {
     if (!user) {
       return null;
     }
 
     const idToken = await user.getIdToken().catch(() => undefined);
-    if (!idToken) {
+    if (!idToken || isCurrent?.() === false) {
       return null;
     }
 
-    return ApiService.startUatPhoneTestVerification(phoneNumber, idToken);
+    return ApiService.startUatPhoneTestVerification(phoneNumber, idToken, isCurrent);
   }
 
   static async confirmUatTestPhoneVerification(
@@ -424,7 +419,8 @@ export class AccountIdentityService {
       phoneNumber: string;
       verificationCode: string;
       verificationId: string;
-    }
+    },
+    isCurrent?: () => boolean,
   ): Promise<AccountIdentity | null> {
     if (!user) {
       return null;
@@ -432,7 +428,8 @@ export class AccountIdentityService {
     const work = beginUserIdentityWork(user);
     if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
+    const current = () => identitySessionIsCurrent(work.userId, work.generation) && isCurrent?.() !== false;
+    if (!idToken || !current()) {
       return null;
     }
 
@@ -441,9 +438,11 @@ export class AccountIdentityService {
       params.verificationCode,
       params.verificationId,
       idToken,
-      work.userId
+      work.userId,
+      current,
+      isCurrent ? "never" : undefined,
     );
-    if (!identitySessionIsCurrent(work.userId, work.generation)) return null;
+    if (!current()) return null;
     const identity = response.identity ?? null;
     if (identity?.user_id !== work.userId) {
       throw new Error("Phone verification could not be completed for this account.");

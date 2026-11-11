@@ -3020,6 +3020,14 @@
             "mode": "push",
             "transitionMode": "full"
           }
+      },
+      {
+        "href": "/one/kai?tab=portfolio&from=%2Fone%2Fsetup",
+        "expected": {
+          "href": "/one/setup",
+          "mode": "push",
+          "transitionMode": "full"
+        }
         }
       ],
       "kind": "parent",

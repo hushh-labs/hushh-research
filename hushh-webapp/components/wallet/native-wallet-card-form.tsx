@@ -16,7 +16,8 @@ import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appea
 import { nativePrivacyObservation, subscribeNativePrivacyObservation, getNativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { awaitNativeContentPaneRetirement, useNativeContentPane } from "@/lib/capacitor/use-native-content-pane";
+import { afterNativeContentPaneRetirement, awaitNativeContentPaneRetirement, nativeContentPaneRetirementClear,
+  subscribeNativeContentPaneRetirement, useNativeContentPane } from "@/lib/capacitor/use-native-content-pane";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import { cardNetworkLabel } from "./card-network-mark";
 import type { CardBrand } from "@/lib/wallet/card-validation";
@@ -31,14 +32,30 @@ type Presentation = NativeOwnedScenePresentation<OwnedChoiceIdentity, NativeWall
 
 /** One authoritative feature owner survives the chosen renderer and explicit
  * scan handoffs. Protected fields never enter public chrome or diagnostics. */
-export function AdaptiveWalletCardForm({ open, ownerId, onReturnFocus, ...props }: SecureCardAddFormProps & {
+export function AdaptiveWalletCardForm({ open, ownerId, onReturnFocus, onNativeFallback, ...props }: SecureCardAddFormProps & {
   open: boolean; ownerId: string; onReturnFocus: () => void;
+  onNativeFallback?: () => boolean | void | Promise<boolean | void>;
 }) {
   const form = useSecureCardFormOwner({ ...props, active: open });
   const [fallback, setFallback] = useState(false), [media, setMedia] = useState<Media | null>(null);
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
+  const fallbackRequest = useRef<Promise<boolean> | null>(null);
   const native = nativeWalletCardFormsEnabled() && !fallback;
   const wasOpen = useRef(open);
+  const requestFallback = useCallback(() => {
+    if (fallbackRequest.current) return fallbackRequest.current;
+    const request = Promise.resolve().then(() => onNativeFallback?.()).then(allowed => {
+      if (allowed !== false) setFallback(true);
+      return allowed !== false;
+    }, () => false);
+    fallbackRequest.current = request;
+    // Failed retirement stays fail-closed, but a later Add visit gets a fresh
+    // identity-scoped readback instead of reusing the stale false result.
+    void request.then(allowed => {
+      if (!allowed && fallbackRequest.current === request) fallbackRequest.current = null;
+    });
+    return request;
+  }, [onNativeFallback]);
   useEffect(() => {
     if (wasOpen.current && !open) { form.resetDraft(); setMedia(null); }
     wasOpen.current = open;
@@ -49,7 +66,7 @@ export function AdaptiveWalletCardForm({ open, ownerId, onReturnFocus, ...props 
     backRoute={props.backRoute} onReturn={() => { form.setScanning(false); setMedia(null); }} /> :
     <NativeWalletCardForm ownerId={ownerId} form={form} collectSecurityCode={props.collectSecurityCode === true}
       scanEnabled={props.scanEnabled !== false} onCancel={() => { props.onCancel?.(); onReturnFocus(); }}
-      onMedia={setMedia} onFallback={() => setFallback(true)} /> : null;
+      onMedia={setMedia} onFallback={() => { void requestFallback(); }} /> : null;
   return <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) props.onCancel?.(); }}
     title="Add card" headerTextOverflow="wrap" desktopMaxWidth="560px" desktopMaxWidthClassName="sm:!max-w-[560px]"
     surfaceClassName={`${workspaceStyles.addPanel} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={workspaceStyles.addBody}
@@ -66,6 +83,14 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
   const appearance = useNativeControlAppearance("secondary"), pathname = usePathname();
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const [phase, setPhase] = useState("preparing"), [edit, setEdit] = useState({ revision: 0, composing: false });
+  const [retirementRevision, setRetirementRevision] = useState(0);
+  const blockedOnRetirement = useRef(false);
+  useEffect(() => subscribeNativeContentPaneRetirement(() => {
+    if (blockedOnRetirement.current && nativeContentPaneRetirementClear()) {
+      blockedOnRetirement.current = false;
+      setRetirementRevision(value => value + 1);
+    }
+  }), []);
   const live = useRef({ form, ownerId, appearance, privacy, edit, onCancel, onMedia, onFallback });
   useLayoutEffect(() => { live.current = { form, ownerId, appearance, privacy, edit, onCancel, onMedia, onFallback }; });
   const installation = useRef<{ identity: OwnedChoiceIdentity; presentation: Presentation; sequence: number; fingerprint: string | null; draftRevision: number; discardFinal: boolean } | null>(null);
@@ -101,7 +126,7 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
       securityCode: collectSecurityCode ? f.securityCode : "", network: f.network || "auto", issuingRegion: f.issuingRegion || "none" };
     const value = { ...entry.identity, ...v.appearance, privacyGeneration: v.privacy.generation,
       acknowledgedEditRevision: v.edit.revision, draftRevision: entry.draftRevision, draft,
-      busy: f.submitting, canSave: !v.edit.composing && !f.submitting && !f.scanning,
+      busy: f.submitting, canSave: !v.edit.composing && !f.submitting && !f.scanning, draftValid: f.draftValid,
       collectSecurityCode, scanEnabled, networkLoading: f.networkLoading, networkHint: f.networkHint ?? undefined,
       error: f.saveError ?? (f.errors.length ? f.errors.map(code => CARD_FORM_ERROR_COPY[code] ?? "Check your card details.").join("\n") : undefined),
       networks: [{ id: "auto", label: f.brand === "other" ? "Auto-detect" : `Auto-detect · ${cardNetworkLabel(f.brand)}`, selected: !f.network },
@@ -144,17 +169,36 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
         const capabilities = await nativeDrawerAcknowledged(plugin.getCapabilities());
         if (!isCurrent()) return;
         if (!capabilities.walletCardForms || !plugin.applyWalletCardScene || !plugin.confirmWalletCardAction ||
-            !plugin.settleWalletCardAction || !plugin.retireWalletCardScene) { live.current.onFallback(); return; }
+            !plugin.settleWalletCardAction || !plugin.retireWalletCardScene || !plugin.getWalletCardState) {
+          await afterNativeContentPaneRetirement(async () => { if (isCurrent()) live.current.onFallback(); });
+          return;
+        }
         presentation = new NativeOwnedScenePresentation(identity, {
-          source: plugin, apply: state => plugin.applyWalletCardScene!(state), confirm: async event => {
+          source: plugin, apply: state => afterNativeContentPaneRetirement(() => {
+            if (!isCurrent() || !presentation || presentation.retired) throw new Error("NATIVE_WALLET_ADMISSION_STALE");
+            return plugin.applyWalletCardScene!(state);
+          }), confirm: async event => {
             const result = await plugin.confirmWalletCardAction!(event);
             if (result.valid && event.action === "cancel" && installation.current?.identity === identity) installation.current.discardFinal = true;
             return result;
           },
-          settle: event => plugin.settleWalletCardAction!(event), retire: async id => { const receipt = await plugin.retireWalletCardScene!(id); await finalReconciliation; return receipt; },
+          settle: event => plugin.settleWalletCardAction!(event),
+          retire: async id => {
+            try { return await plugin.retireWalletCardScene!(id); }
+            finally { await finalReconciliation; }
+          },
+          read: async id => {
+            try { return await plugin.getWalletCardState!(id); }
+            finally { await finalReconciliation; }
+          },
           edits: callback => plugin.addListener("walletCardEdit", callback), choices: callback => plugin.addListener("walletCardAction", callback),
         }, new NativeWalletCardFence(identity), validNativeWalletCardProjection, isCurrent,
-        next => { if (current) { setPhase(next); if (next === "fallback") live.current.onFallback(); } },
+        next => { if (current) {
+          if (next === "fallback" && !nativeContentPaneRetirementClear()) {
+            blockedOnRetirement.current = true; setPhase("blocked"); return;
+          }
+          setPhase(next); if (next === "fallback") live.current.onFallback();
+        } },
         true, state => ({ ...state, draft: { ...state.draft } }), isCurrent, sameOwnedChoice);
         const entry = { identity, presentation, sequence: 0, fingerprint: null, draftRevision: 0, discardFinal: false };
         installation.current = entry;
@@ -180,8 +224,15 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
         setEdit(live.current.edit);
         if (await presentation.listen() && isCurrent()) publish();
       } catch {
-        if (presentation) { if (await presentation.retire() && isCurrent()) live.current.onFallback(); }
-        else if (isCurrent()) live.current.onFallback();
+        if (presentation) {
+          if (await presentation.retire() && isCurrent()) {
+            if (!nativeContentPaneRetirementClear()) { blockedOnRetirement.current = true; setPhase("blocked"); }
+            else live.current.onFallback();
+          }
+        }
+        else if (isCurrent() && !nativeContentPaneRetirementClear()) {
+          blockedOnRetirement.current = true; setPhase("blocked");
+        } else if (isCurrent()) live.current.onFallback();
       }
     })();
     return () => {
@@ -189,7 +240,7 @@ function NativeWalletCardForm({ ownerId, form, collectSecurityCode, scanEnabled,
       if (presentation) void presentation.retire().then(async retired => { await finalReconciliation; if (retired || !retainedOwner()) releaseFinal(); });
       else releaseFinal();
     };
-  }, [active, generation, ownerId, ownerKey, epoch, publish]);
+  }, [active, generation, ownerId, ownerKey, epoch, publish, retirementRevision]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const entry = installation.current;

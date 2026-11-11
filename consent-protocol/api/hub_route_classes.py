@@ -212,6 +212,8 @@ POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 POST /api/pkm/memory/rewrite
 [AUTHORITY]
+GET /api/one/answer-requests/runtime
+POST /api/one/answer-requests/{request_id}/pod-composition-receipt
 GET,PUT /api/one/plg/preferences
 GET,PUT /api/one/plg/attempt-email/preferences
 GET,POST /api/one/plg/attempt-email/unsubscribe

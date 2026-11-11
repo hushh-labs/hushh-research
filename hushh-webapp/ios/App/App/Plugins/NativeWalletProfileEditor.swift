@@ -74,6 +74,22 @@ struct NativeWalletProfileProjection: NativeProfileEditorProjection {
     func clear() { model.clear(); action = nil }
 }
 
+@available(iOS 26.0, *) struct NativeWalletProfileActions: ToolbarContent {
+    @ObservedObject var model: NativeProfileEditorModel<NativeWalletProfileProjection>
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { model.action("cancel") }
+                .disabled(!model.canCancel)
+                .accessibilityIdentifier("native-wallet-profile-cancel")
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            Button(model.projection.busy ? "Saving…" : "Save") { model.action("save") }
+                .disabled(!model.canSave)
+                .accessibilityIdentifier("native-wallet-profile-save")
+        }
+    }
+}
+
 @available(iOS 26.0, *) struct NativeWalletProfileForm: View {
     @ObservedObject var model: NativeProfileEditorModel<NativeWalletProfileProjection>
     var body: some View {
@@ -91,10 +107,6 @@ struct NativeWalletProfileProjection: NativeProfileEditorProjection {
                 Text("Email").tag("email"); Text("Phone").tag("phone"); Text("LinkedIn").tag("linkedin"); Text("Website").tag("website")
             }.pickerStyle(.navigationLink).disabled(!model.canEdit || model.composing)
             if let error = model.projection.error { Text(error).foregroundStyle(.red) }
-            Section {
-                Button(model.projection.busy ? "Saving…" : "Save") { model.action("save") }.disabled(!model.canSave)
-                Button("Cancel") { model.action("cancel") }.disabled(!model.canCancel)
-            }
         }.accessibilityIdentifier("native-wallet-profile-editor")
     }
 }

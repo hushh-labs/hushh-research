@@ -13,6 +13,7 @@ import { consentEntryToPendingConsent, isInlineDecidableConsentEntry } from "@/l
 import { useVault } from "@/lib/vault/vault-context";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { withNativeFeedbackScope } from "@/lib/capacitor/native-feedback-sink";
 import styles from "./wallet-sharing.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
@@ -32,8 +33,8 @@ export function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export type WalletSharingProps = { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null; receivedHistory?: boolean };
-export function useWalletSharingOwner({ cardDetails = false, active = true, getHistoryContext }: WalletSharingProps = {}) {
+export type WalletSharingProps = { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null; receivedHistory?: boolean; nativePresentation?: boolean };
+export function useWalletSharingOwner({ cardDetails = false, active = true, getHistoryContext, nativePresentation = false }: WalletSharingProps = {}) {
   const { user, userId } = useAuth();
   const { vaultKey } = useVault();
   const actions = useConsentActions({ userId });
@@ -110,11 +111,12 @@ export function useWalletSharingOwner({ cardDetails = false, active = true, getH
       ? actions.handleApprove(consentEntryToPendingConsent(entry, duration), { quiet: true })
       : kind === "decline" ? actions.handleDeny(id, { quiet: true })
       : actions.handleRevoke(entry.scope!, entry.request_id!, { quiet: true });
-    void morphyToast.promise(promise, {
+    const notify = () => morphyToast.promise(promise, {
       loading: kind === "approve" ? "Sharing securely…" : "Updating access…",
       success: kind === "approve" ? "Wallet access approved." : kind === "decline" ? "Request declined. Nothing shared." : "Sharing stopped.",
       error: "Could not update access. Please try again.",
     });
+    void (nativePresentation ? withNativeFeedbackScope("workspace", notify) : notify());
     try {
       await promise;
       setSelection(null);

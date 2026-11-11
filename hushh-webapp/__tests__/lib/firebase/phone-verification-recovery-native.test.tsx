@@ -18,7 +18,7 @@ function FinishRecovery({ action }: { action: "transfer" | "delete" }) {
   const [outcome, setOutcome] = useState("");
   const finish = async (recheck = false) => {
     try {
-      await (action === "transfer" ? confirmPhoneTransfer() : confirmPhoneLinkedDeletion({ operationId: "approved-op", phoneNumber: "+12025550101", recheck }));
+      await (action === "transfer" ? confirmPhoneTransfer() : confirmPhoneLinkedDeletion({ operationId: "approved-op", phoneNumber: "+12025550101", readbackOnly: recheck }, () => true));
       setOutcome("verified");
     } catch (error) { setOutcome(apiErrorCode(error) ?? "unconfirmed"); }
   };
@@ -81,7 +81,7 @@ describe("@feature_auth_reliability @trace_loop native phone verification recove
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start native phone" })); });
     const currentSignal = mocks.phoneStart.mock.calls[1][1].signal as AbortSignal;
     await act(async () => { response.resolve({ operation_id: "approved-op", state: "admitted" }); });
-    expect(screen.getByLabelText("Recovery outcome")).toHaveTextContent("PHONE_LINKED_CLAIM_REQUIRED");
+    expect(screen.getByLabelText("Recovery outcome")).toHaveTextContent("unconfirmed");
     expect(currentSignal.aborted).toBe(false);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm native phone" })); });
     expect(screen.getByTestId("native-phone-status")).toHaveTextContent("verified");

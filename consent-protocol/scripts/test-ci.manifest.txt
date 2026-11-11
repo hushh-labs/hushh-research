@@ -827,6 +827,11 @@ tests/test_pod_turn_memory_authority.py
 tests/test_pod_files_library.py
 tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py
+# Managed Files updates must stay owner-fenced and never infer cleanup from a cancelled task.
+tests/test_hosted_files_analysis.py
+tests/test_hosted_files_provisioning.py
+tests/test_hosted_files_routes.py
+tests/test_pod_files_checkpoint_join.py
 tests/test_pod_scheduled_tasks.py
 tests/test_pod_scheduled_authority.py
 tests/test_pod_scheduled_continuation.py
@@ -1041,6 +1046,8 @@ tests/test_health_ready_pod_fleet.py
 tests/test_hosted_cloud_choice.py
 tests/test_hosted_tier_guard.py
 tests/test_hosted_gcp_backend.py
+tests/test_hosted_retained_authority.py
+tests/test_pod_qualification_inspector.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
@@ -1649,6 +1656,8 @@ tests/test_hosted_pod_bootstrap_postgres.py
 tests/test_hosted_bootstrap_reconciliation_postgres.py
 tests/test_hosted_pod_direct_postgres.py
 tests/test_hosted_pod_preparation_postgres.py
+tests/test_hosted_files_admission_postgres.py
+tests/test_hosted_files_erasure_postgres.py
 
 tests/test_hosted_private_runtime.py
 tests/test_pod_runtime_writer.py

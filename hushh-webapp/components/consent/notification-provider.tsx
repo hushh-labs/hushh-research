@@ -35,7 +35,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Capacitor } from "@capacitor/core";
 import { useVault } from "@/lib/vault/vault-context";
 import { type PendingConsent } from "@/lib/consent";

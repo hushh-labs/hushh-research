@@ -1,5 +1,7 @@
 "use client";
 
+import { useNativeWorkspaceEvent } from "@/lib/capacitor/use-native-workspace-handoff";
+
 import {
   type FormEvent,
   useState,
@@ -7,6 +9,7 @@ import {
   useCallback,
   useRef,
   useLayoutEffect,
+  useMemo,
   lazy,
   Suspense,
 } from "react";
@@ -32,6 +35,7 @@ import {
   VaultService,
 } from "@/lib/services/vault-service";
 import { isRetryableVaultReadError, VAULT_READ_RETRY_DELAYS_MS } from "@/lib/vault/vault-read-recovery";
+import { isWebAuthnCancellationError } from "@/components/vault/vault-webauthn-cancellation";
 import { downloadTextFile } from "@/lib/utils/native-download";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,6 +64,8 @@ import {
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { checkPrfSupport } from "@/lib/vault/prf-auth";
 import { copyToClipboard } from "@/lib/utils/clipboard";
+import { NativeVaultGate, type NativeVaultGateFields } from "@/components/vault/native-vault-gate";
+import type { NativeVaultGateAction, NativeVaultGateEdit } from "@/lib/capacitor/native-vault-gate";
 import { trackEvent } from "@/lib/observability/client";
 import {
   toInvestorLoading,
@@ -132,69 +138,6 @@ const VAULT_INPUT_CONTROL_CLASS =
 const VAULT_INPUT_VISIBILITY_CLASS =
   "inline-flex size-11 shrink-0 items-center justify-center text-foreground/50 transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)]";
 const VAULT_FIELD_STACK_CLASS = "space-y-[var(--app-form-field-gap)]";
-
-// A passkey cancellation is a normal user decision, not an application
-// failure. Keep it in the credential surface so the user can choose a
-// fallback without a disappearing toast or an automatic second ceremony.
-//
-// A bare "cancel" or "cancelled" substring is too broad — it matches
-// aborted fetches, cancelled analytics, and other non-WebAuthn noise.
-// Require at least one WebAuthn-specific context word alongside the
-// cancellation signal so we only silence real passkey dismissals.
-const WEBAUTHN_CANCEL_CONTEXT = [
-  "passkey",
-  "authentication",
-  "credential",
-  "webauthn",
-  "webauth",
-  "user",
-  "operation",
-  "request",
-  "prompt",
-  "securitykey",
-  "security key",
-];
-function isWebAuthnCancellationError(value: unknown): boolean {
-  const error = value as { name?: unknown; message?: unknown; code?: unknown } | null;
-  const name = typeof error?.name === "string" ? error.name.toLowerCase() : "";
-  const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
-  const message =
-    typeof value === "string"
-      ? value.toLowerCase()
-      : typeof error?.message === "string"
-        ? error.message.toLowerCase()
-        : "";
-
-  // AbortError / NotAllowedError from navigator.credentials.get are the
-  // two most reliable signals — they are DOMException names, not strings.
-  if (name === "aborterror" || name === "notallowederror") return true;
-
-  // Structured AbortSignal cancellation codes used by some frameworks.
-  if (code.includes("cancel") || code.includes("abort")) return true;
-
-  // For substring matches, require a WebAuthn context word near the cancel
-  // term so we don't misclassify unrelated cancellations. Match both
-  // British "cancelled" and American "canceled" spellings.
-  const hasCancel = (text: string): boolean =>
-    /cancell?ed?/i.test(text) || /timed out or was not allowed/i.test(text);
-
-  if (hasCancel(message)) {
-    return WEBAUTHN_CANCEL_CONTEXT.some((ctx) => message.includes(ctx));
-  }
-
-  // A few platform-specific cancellation strings that carry their own context.
-  const explicitCancelPhrases = [
-    "passkey request cancelled",
-    "passkey request canceled",
-    "passkey authentication cancelled",
-    "passkey authentication canceled",
-    "user cancelled",
-    "user canceled",
-    "cancelled by user",
-    "canceled by user",
-  ];
-  return explicitCancelPhrases.some((phrase) => message.includes(phrase));
-}
 
 function isDuplicateWebAuthnError(value: unknown): boolean {
   const error = value as { name?: unknown; message?: unknown } | null;
@@ -376,11 +319,21 @@ function OwnerVaultFlow({
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [checkAttempt, setCheckAttempt] = useState(0);
   const [passphrase, setPassphrase] = useState("");
+  const [passphraseComposing, setPassphraseComposing] = useState(false);
+  const passphraseComposingRef = useRef(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
+  const [confirmPassphraseComposing, setConfirmPassphraseComposing] = useState(false);
+  const confirmPassphraseComposingRef = useRef(false);
+  const suppressComposingSubmitRef = useRef(false);
+  const composingSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
+  useEffect(() => () => {
+    if (composingSubmitTimerRef.current !== null) clearTimeout(composingSubmitTimerRef.current);
+  }, []);
   const [recoveryKey, setRecoveryKey] = useState<string>("");
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
+  const [nativeGateEditRevision, setNativeGateEditRevision] = useState(0);
   const [copied, setCopied] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [vaultMode, setVaultMode] = useState<VaultMode>("passphrase");
@@ -476,6 +429,8 @@ function OwnerVaultFlow({
 
   const switchUnlockMethod = useCallback(() => {
     cancelAttempt();
+    passphraseComposingRef.current = false;
+    setPassphraseComposing(false);
     autoGeneratedPromptedRef.current = true;
     generatedUnlockCancelledRef.current = true;
     setIsUnlocking(false);
@@ -617,6 +572,8 @@ function OwnerVaultFlow({
       : null;
   const canCreatePassphrase =
     !isUnlocking &&
+    !passphraseComposing &&
+    !confirmPassphraseComposing &&
     passphrase.length >= 8 &&
     passphrase === confirmPassphrase;
 
@@ -668,6 +625,16 @@ function OwnerVaultFlow({
       }
       VaultService.setVaultCheckCache(ownerId, true);
       if (unlockVault(decryptedKey, token, expiresAt) === false) return false;
+      passphraseComposingRef.current = false;
+      confirmPassphraseComposingRef.current = false;
+      setPassphrase("");
+      setConfirmPassphrase("");
+      setRecoveryKeyInput("");
+      setRecoveryKey("");
+      setPassphraseComposing(false);
+      setConfirmPassphraseComposing(false);
+      setPendingUnlockKey(null);
+      pendingUnlockOwnerRef.current = null;
       onSuccess({ mode: vaultMode });
       return true;
     } catch (tokenError) {
@@ -702,6 +669,12 @@ function OwnerVaultFlow({
 
   const handleShowRecoveryKey = useCallback(() => {
     switchUnlockMethod();
+    passphraseComposingRef.current = false;
+    confirmPassphraseComposingRef.current = false;
+    setPassphrase("");
+    setConfirmPassphrase("");
+    setRecoveryKeyInput("");
+    setConfirmPassphraseComposing(false);
     setStep("recovery");
   }, [switchUnlockMethod]);
 
@@ -893,7 +866,8 @@ function OwnerVaultFlow({
   }, [step, nativeTestConfig.vaultPassphrase]);
 
   const handleCreatePassphrase = async () => {
-    if (isUnlocking || createPassphraseAttemptRef.current) {
+    if (isUnlocking || createPassphraseAttemptRef.current ||
+        passphraseComposingRef.current || confirmPassphraseComposingRef.current) {
       return;
     }
     if (passphrase.length < 8) {
@@ -962,7 +936,11 @@ function OwnerVaultFlow({
 
   const handleCreatePassphraseSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canCreatePassphrase) {
+    if (suppressComposingSubmitRef.current) {
+      suppressComposingSubmitRef.current = false;
+      return;
+    }
+    if (!canCreatePassphrase || passphraseComposingRef.current || confirmPassphraseComposingRef.current) {
       return;
     }
     void handleCreatePassphrase();
@@ -1007,6 +985,12 @@ function OwnerVaultFlow({
               pendingUnlockOwnerRef.current = ownerId;
               setPendingUnlockKey(decryptedKey);
               setRecommendedQuickMethod(capability.recommendedMethod);
+              passphraseComposingRef.current = false;
+              confirmPassphraseComposingRef.current = false;
+              setPassphrase("");
+              setConfirmPassphrase("");
+              setPassphraseComposing(false);
+              setConfirmPassphraseComposing(false);
               setStep("method");
               return;
             }
@@ -1050,8 +1034,8 @@ function OwnerVaultFlow({
   }, [beginAttempt, currentRpId, enableGeneratedDefault, finalizeUnlock, finishAttempt, isCurrentAttempt, ownerId]);
 
   const handleUnlockPassphrase = useCallback(async () => {
-    const passphraseToUse = passphrase;
-    return handleUnlockPassphraseWith(passphraseToUse);
+    if (!passphrase || passphraseComposingRef.current) return;
+    return handleUnlockPassphraseWith(passphrase);
   }, [handleUnlockPassphraseWith, passphrase]);
 
   useEffect(() => {
@@ -1757,6 +1741,238 @@ function OwnerVaultFlow({
     </div>
   );
 
+  const handleEnableQuickUnlock = async () => {
+    if (!pendingUnlockKey || !recommendedQuickMethod || pendingUnlockOwnerRef.current !== ownerId) return;
+    const attempt = beginAttempt();
+    if (!attempt) return;
+    setIsUnlocking(true);
+    try {
+      const result = await VaultMethodService.switchMethod({
+        userId: ownerId,
+        currentVaultKey: pendingUnlockKey,
+        displayName: user.displayName || user.email || "Hussh User",
+        targetMethod: recommendedQuickMethod,
+        signal: attempt.controller.signal,
+        requestId: attempt.requestId,
+      });
+      if (!isCurrentAttempt(attempt)) return;
+      setVaultMode(result.method);
+      const finalized = await finalizeUnlock(pendingUnlockKey, attempt);
+      if (!finalized) return;
+      toast.success(
+        result.method === "generated_default_web_prf" ||
+        result.method === "generated_default_native_passkey_prf"
+          ? "Passkey unlock enabled."
+          : "Biometric unlock enabled.",
+      );
+    } catch (err: any) {
+      if (!isCurrentAttempt(attempt)) return;
+      if (isWebAuthnCancellationError(err)) {
+        setError("Quick unlock setup was cancelled. Your password still works.");
+      } else {
+        console.error("Quick unlock enable failed:", err);
+        toast.error(err?.message || "Couldn't enable quick unlock right now.");
+      }
+    } finally {
+      finishAttempt(attempt);
+    }
+  };
+
+  const handleSkipQuickUnlock = async () => {
+    if (!pendingUnlockKey || pendingUnlockOwnerRef.current !== ownerId) return;
+    switchUnlockMethod();
+    const attempt = beginAttempt();
+    if (!attempt) return;
+    setIsUnlocking(true);
+    try {
+      if (recommendedQuickMethod) {
+        try {
+          await VaultMethodPromptLocalService.dismiss(ownerId, recommendedQuickMethod, currentRpId);
+        } catch (dismissError) {
+          console.warn("[VaultFlow] Failed to persist quick-unlock dismissal:", dismissError);
+        }
+      }
+      await finalizeUnlock(pendingUnlockKey, attempt);
+    } finally {
+      finishAttempt(attempt);
+    }
+  };
+
+  const handleDownloadRecoveryKey = async () => {
+    const content = `Hussh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
+    await downloadTextFile(content, "hushh-recovery-key.txt");
+  };
+
+  const handleNativeVaultGateEdit = useCallback((event: NativeVaultGateEdit) => {
+    if (!isValidatedAuthSessionOwnerCurrent({ userId: ownerId, generation: ownerBrowserGeneration }) ||
+        currentUserIdRef.current !== ownerId || signOutRequestedRef.current) return;
+    setPassphrase(event.password);
+    setConfirmPassphrase(event.confirmation);
+    setRecoveryKeyInput(event.recoveryKeyInput.toUpperCase());
+    const passphraseIsComposing = event.composing && (event.step === "create" || event.step === "unlock");
+    passphraseComposingRef.current = passphraseIsComposing;
+    confirmPassphraseComposingRef.current = passphraseIsComposing && event.step === "create";
+    setPassphraseComposing(passphraseIsComposing);
+    setConfirmPassphraseComposing(passphraseIsComposing && event.step === "create");
+    setNativeGateEditRevision(event.editRevision);
+  }, [ownerBrowserGeneration, ownerId]);
+
+  const handleNativeVaultGateInterrupted = useCallback(() => {
+    cancelAttempt();
+    passphraseComposingRef.current = false;
+    confirmPassphraseComposingRef.current = false;
+    setPassphrase("");
+    setConfirmPassphrase("");
+    setRecoveryKeyInput("");
+    setPassphraseComposing(false);
+    setConfirmPassphraseComposing(false);
+    setNativeGateEditRevision(0);
+    setPendingUnlockKey(null);
+    pendingUnlockOwnerRef.current = null;
+    setIsUnlocking(false);
+  }, [cancelAttempt]);
+  const handleNativeVaultGatePhase = useCallback((phase: "preparing" | "active" | "fallback") => {
+    if (phase === "preparing") setNativeGateEditRevision(0);
+  }, []);
+
+  const handleNativeVaultGateAction = useNativeWorkspaceEvent(async (event: NativeVaultGateAction) => {
+    if (!isValidatedAuthSessionOwnerCurrent({ userId: ownerId, generation: ownerBrowserGeneration }) ||
+        currentUserIdRef.current !== ownerId || signOutRequestedRef.current ||
+        event.editRevision !== nativeGateEditRevision) return;
+    switch (event.action) {
+      case "primary":
+        if (step === "create") await handleCreatePassphrase();
+        else if (step === "unlock") await handleUnlockPassphrase();
+        else if (step === "recovery" && recoveryKey) await handleRecoveryKeyContinue();
+        else if (step === "recovery") await handleRecoveryKeySubmit();
+        break;
+      case "generated_unlock":
+        if (step === "recovery") {
+          switchUnlockMethod();
+          setPassphrase("");
+          setStep("unlock");
+          if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
+        } else if (step === "unlock") {
+          handleRetryGeneratedUnlock();
+        }
+        break;
+      case "recovery":
+        if (step === "unlock") handleShowRecoveryKey();
+        break;
+      case "password":
+        if (step === "recovery" && !recoveryKey) {
+          switchUnlockMethod();
+          setUnlockWithPassphraseFallback(true);
+          setRecoveryKeyInput("");
+          setStep("unlock");
+        }
+        break;
+      case "sign_out":
+        handleNativeVaultGateInterrupted();
+        setRecoveryKey("");
+        await handleConfirmSignOut();
+        break;
+      case "delete_lost_vault":
+        handleNativeVaultGateInterrupted();
+        setShowLostVaultDeletion(true);
+        break;
+      case "copy_recovery":
+        await handleCopyRecoveryKey();
+        break;
+      case "download_recovery":
+        await handleDownloadRecoveryKey();
+        break;
+      case "recovery_saved":
+        if (step === "recovery" && recoveryKey) await handleRecoveryKeyContinue();
+        break;
+      case "enable_quick_unlock":
+        if (step === "method") await handleEnableQuickUnlock();
+        break;
+      case "skip_quick_unlock":
+        if (step === "method") await handleSkipQuickUnlock();
+        break;
+      case "toggle_quick_unlock":
+        if (step === "create" && createQuickUnlockMethod && !isUnlocking) {
+          setCreateWantsQuickUnlock(value => !value);
+        }
+        break;
+    }
+  });
+
+  const nativeGateFields = useMemo<NativeVaultGateFields | null>(() => {
+    if (!isHardGate || !["create", "unlock", "recovery"].includes(step)) return null;
+    const generatedActionAvailable = step === "unlock"
+      ? (hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && !webPasskeyUnsupported) ||
+        showPasskeyFallbackAlternative || hasActiveGeneratedWrapper && !!error
+      : step === "recovery" && !recoveryKey && recoveryStepHasPasskeyAlternative;
+    const recoveryContinueNeedsQuickUnlock = step === "recovery" && !!recoveryKey &&
+      !!createQuickUnlockMethod && createWantsQuickUnlock;
+    // Native-authenticator prompts and credential-creation gestures stay on
+    // the existing React surface until their platform handoff has a native
+    // operation owner of its own.
+    if (generatedActionAvailable || recoveryContinueNeedsQuickUnlock) return null;
+    const nativeStep = step === "recovery" && recoveryKey ? "recovery-disclosure" : step;
+    const primaryLabel = step === "create" ? "Create password" :
+      step === "recovery" && recoveryKey ? "I’ve saved my recovery key" : "Unlock";
+    const primaryEnabled = step === "create" ? canCreatePassphrase :
+      step === "unlock" ? shouldShowPassphraseUnlock && !isUnlocking && !!passphrase && !passphraseComposing :
+      step === "recovery" && recoveryKey ? !isUnlocking && !!passphrase && !passphraseComposing :
+      step === "recovery" ? !isUnlocking && !!recoveryKeyInput : false;
+    const showGeneratedUnlock = step === "unlock"
+      ? (hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && !webPasskeyUnsupported) || showPasskeyFallbackAlternative
+      : step === "recovery" && !recoveryKey && recoveryStepHasPasskeyAlternative;
+    const generatedLabel = step === "recovery" ? compactGeneratedUnlockLabel : generatedUnlockLabel;
+    const generatedEnabled = step === "recovery"
+      ? !isSigningOut && !!availableGeneratedMethod
+      : !isUnlocking && !webPrfAutoPromptBlocked;
+    const showDisclosure = step === "recovery" && !!recoveryKey;
+    const fields: NativeVaultGateFields = {
+      step: nativeStep as NativeVaultGateFields["step"],
+      title: step === "create" ? "Set a lock" : step === "unlock" ? "Unlock One" :
+        step === "recovery" && recoveryKey ? "Save your recovery key" : step === "recovery" ? "Enter recovery key" : "Enable quicker unlock?",
+      description: step === "create" ? "Only you can open what you save." : step === "unlock"
+        ? shouldShowPassphraseUnlock ? "Enter your password." : "Confirm with your device."
+        : step === "recovery" && recoveryKey ? "Keep it somewhere only you can reach."
+        : step === "recovery" ? "Use this if your password is unavailable." : "Your password and recovery key still work.",
+      password: step === "create" || step === "unlock" ? passphrase : "",
+      confirmation: step === "create" ? confirmPassphrase : "",
+      recoveryKeyInput: step === "recovery" && !recoveryKey ? recoveryKeyInput : "",
+      recoveryKey,
+      error: error ?? "",
+      primaryLabel,
+      primaryEnabled,
+      busy: isUnlocking,
+      busyLabel: step === "create" ? "Creating…" : step === "method" ? "Enabling…" : "Unlocking…",
+      showPasswordUnlock: step === "recovery" && !recoveryKey,
+      showGeneratedUnlock,
+      generatedUnlockLabel: generatedLabel,
+      generatedUnlockEnabled: generatedEnabled,
+      showRecoveryAction: step === "unlock",
+      showSignOut: !!onSignOut && (step === "unlock" || step === "recovery" && !recoveryKey),
+      signOutBusy: isSigningOut,
+      showLostVaultDelete: !!onSignOut && (step === "unlock" || step === "recovery" && !recoveryKey),
+      showCreateQuickUnlock: step === "create" && !!createQuickUnlockMethod,
+      createWantsQuickUnlock,
+      createQuickUnlockLabel,
+      showCopy: showDisclosure,
+      copied,
+      showDownload: showDisclosure,
+      showRecoverySaved: showDisclosure,
+      savedLabel: step === "create" ? "I’ve saved my recovery key" : "I’ve saved my recovery key",
+      quickMethodLabel: recommendedQuickMethod === "generated_default_web_prf" ||
+        recommendedQuickMethod === "generated_default_native_passkey_prf" ? "Passkey" : biometricLabel,
+      quickMethodBody: "Your password and recovery key still work.",
+      quickMethodEnabled: step === "method" && !isUnlocking && !!pendingUnlockKey && !!recommendedQuickMethod,
+      skipMethodLabel: "Not now, continue with password",
+    };
+    return fields;
+  }, [availableGeneratedMethod, biometricLabel, canCreatePassphrase, compactGeneratedUnlockLabel, confirmPassphrase,
+    copied, createQuickUnlockLabel, createQuickUnlockMethod, createWantsQuickUnlock, error, generatedUnlockLabel,
+    hasActiveGeneratedWrapper, isHardGate, isSigningOut, isUnlocking, onSignOut, passphrase, passphraseComposing,
+    pendingUnlockKey, recoveryKey, recoveryKeyInput, recoveryStepHasPasskeyAlternative, recommendedQuickMethod,
+    shouldShowPassphraseUnlock, showPasskeyFallbackAlternative, step, unlockWithPassphraseFallback,
+    webPrfAutoPromptBlocked, webPasskeyUnsupported]);
+
   if (step === "checking") {
     if (error) {
       return (
@@ -1809,6 +2025,16 @@ function OwnerVaultFlow({
 
   return (
     <>
+      {nativeGateFields ? <NativeVaultGate
+        key={`${ownerId}:${ownerBrowserGeneration}`}
+        fields={nativeGateFields}
+        ownerIsCurrent={() => isValidatedAuthSessionOwnerCurrent({ userId: ownerId, generation: ownerBrowserGeneration }) &&
+          currentUserIdRef.current === ownerId && !signOutRequestedRef.current}
+        onEdit={handleNativeVaultGateEdit}
+        onAction={handleNativeVaultGateAction}
+        onInterrupted={handleNativeVaultGateInterrupted}
+        onPhase={handleNativeVaultGatePhase}
+      /> : null}
       <div
         data-vault-flow-content
         data-vault-flow-step={step}
@@ -1838,6 +2064,18 @@ function OwnerVaultFlow({
               data-vault-create-form
               className={cn("space-y-3", setupPresentation ? "w-full max-w-none" : "mx-auto max-w-[21rem]")}
               onSubmit={handleCreatePassphraseSubmit}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || !(passphraseComposingRef.current || confirmPassphraseComposingRef.current ||
+                    event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) return;
+                // Let the IME handle Enter, but ignore an implicit form submit
+                // from that same key event after compositionEnd has fired.
+                suppressComposingSubmitRef.current = true;
+                if (composingSubmitTimerRef.current !== null) clearTimeout(composingSubmitTimerRef.current);
+                composingSubmitTimerRef.current = setTimeout(() => {
+                  suppressComposingSubmitRef.current = false;
+                  composingSubmitTimerRef.current = null;
+                }, 0);
+              }}
             >
               <VaultFlowHeader
                 user={user}
@@ -1876,6 +2114,15 @@ function OwnerVaultFlow({
                       placeholder="Create password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
+                      onCompositionStart={() => {
+                        passphraseComposingRef.current = true;
+                        setPassphraseComposing(true);
+                      }}
+                      onCompositionEnd={(event) => {
+                        passphraseComposingRef.current = false;
+                        setPassphrase(event.currentTarget.value);
+                        setPassphraseComposing(false);
+                      }}
                       autoFocus={!setupPresentation}
                       autoComplete="new-password"
                       autoCorrect="off"
@@ -1915,6 +2162,15 @@ function OwnerVaultFlow({
                       placeholder="Confirm password"
                       value={confirmPassphrase}
                       onChange={(e) => setConfirmPassphrase(e.target.value)}
+                      onCompositionStart={() => {
+                        confirmPassphraseComposingRef.current = true;
+                        setConfirmPassphraseComposing(true);
+                      }}
+                      onCompositionEnd={(event) => {
+                        confirmPassphraseComposingRef.current = false;
+                        setConfirmPassphrase(event.currentTarget.value);
+                        setConfirmPassphraseComposing(false);
+                      }}
                       autoComplete="new-password"
                       autoCorrect="off"
                       autoCapitalize="off"
@@ -2000,12 +2256,12 @@ function OwnerVaultFlow({
             <div className="space-y-2.5">
               <VaultFlowHeader
                 user={user}
-                icon={isGeneratedVaultMode ? Fingerprint : Lock}
+                icon={shouldShowPassphraseUnlock ? Lock : vaultMode === "generated_default_native_biometric" ? Fingerprint : Key}
                 title="Unlock One"
                 description={
-                  isGeneratedVaultMode
-                    ? "Confirm with your device."
-                    : "Enter your password."
+                  shouldShowPassphraseUnlock
+                    ? "Enter your password."
+                    : "Confirm with your device."
                 }
               />
               {error ? (
@@ -2045,9 +2301,20 @@ function OwnerVaultFlow({
                       aria-label="Vault password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && handleUnlockPassphrase()
-                      }
+                      onCompositionStart={() => {
+                        passphraseComposingRef.current = true;
+                        setPassphraseComposing(true);
+                      }}
+                      onCompositionEnd={(event) => {
+                        passphraseComposingRef.current = false;
+                        setPassphrase(event.currentTarget.value);
+                        setPassphraseComposing(false);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+                        event.preventDefault();
+                        void handleUnlockPassphrase();
+                      }}
                       autoFocus
                       autoComplete="current-password"
                       autoCorrect="off"
@@ -2077,7 +2344,7 @@ function OwnerVaultFlow({
                     fullWidth
                     className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] motion-reduce:transition-none disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                     onClick={() => void handleUnlockPassphrase()}
-                    disabled={isUnlocking || !passphrase}
+                    disabled={isUnlocking || !passphrase || passphraseComposing}
                   >
                     {isUnlocking ? (
                       <>
@@ -2154,7 +2421,7 @@ function OwnerVaultFlow({
                 <Label htmlFor="recovery-key" className="text-xs font-medium sm:text-sm">Recovery Key</Label>
                 <Input
                   id="recovery-key"
-                  placeholder="HRK-XXXX-XXXX-XXXX-XXXX"
+                  placeholder="HRK-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
                   value={recoveryKeyInput}
                   onChange={(e) =>
                     setRecoveryKeyInput(e.target.value.toUpperCase())
@@ -2231,46 +2498,7 @@ function OwnerVaultFlow({
                   fullWidth
                   className="h-12 rounded-full text-[15px] font-semibold"
                   disabled={isUnlocking || !pendingUnlockKey || !recommendedQuickMethod}
-                  onClick={async () => {
-                    if (!pendingUnlockKey || !recommendedQuickMethod || pendingUnlockOwnerRef.current !== ownerId) return;
-                    const attempt = beginAttempt();
-                    if (!attempt) return;
-                    setIsUnlocking(true);
-                    try {
-                      const result = await VaultMethodService.switchMethod({
-                        userId: ownerId,
-                        currentVaultKey: pendingUnlockKey,
-                        displayName: user.displayName || user.email || "Hussh User",
-                        targetMethod: recommendedQuickMethod,
-                        signal: attempt.controller.signal,
-                        requestId: attempt.requestId,
-                      });
-                      if (!isCurrentAttempt(attempt)) return;
-                      setVaultMode(result.method);
-                      const finalized = await finalizeUnlock(pendingUnlockKey, attempt);
-                      if (!finalized) return;
-                      toast.success(
-                        result.method === "generated_default_web_prf" ||
-                        result.method === "generated_default_native_passkey_prf"
-                          ? "Passkey unlock enabled."
-                          : "Biometric unlock enabled."
-                      );
-                    } catch (err: any) {
-                      if (!isCurrentAttempt(attempt)) return;
-                      if (isWebAuthnCancellationError(err)) {
-                        setError(
-                          "Quick unlock setup was cancelled. Your password still works."
-                        );
-                      } else {
-                        console.error("Quick unlock enable failed:", err);
-                        toast.error(
-                          err?.message || "Couldn't enable quick unlock right now."
-                        );
-                      }
-                    } finally {
-                      finishAttempt(attempt);
-                    }
-                  }}
+                  onClick={() => { void handleEnableQuickUnlock(); }}
                 >
                   {isUnlocking ? (
                     <>
@@ -2294,30 +2522,7 @@ function OwnerVaultFlow({
                   fullWidth
                   className="h-12 rounded-full border border-[color:var(--app-accent-border)] !bg-[color:var(--app-accent-tint)] px-4 text-center text-[15px] font-medium !text-[color:var(--app-accent-deep)] transition-colors hover:!bg-[color:var(--app-accent-surface-strong)]"
                   disabled={isSigningOut || !pendingUnlockKey}
-                  onClick={async () => {
-                    if (!pendingUnlockKey || pendingUnlockOwnerRef.current !== ownerId) return;
-                    switchUnlockMethod();
-                    const attempt = beginAttempt();
-                    if (!attempt) return;
-                    setIsUnlocking(true);
-                    try {
-                    if (recommendedQuickMethod) {
-                      try {
-                        await VaultMethodPromptLocalService.dismiss(
-                          ownerId,
-                          recommendedQuickMethod,
-                          currentRpId
-                        );
-                      } catch (dismissError) {
-                        console.warn(
-                          "[VaultFlow] Failed to persist quick-unlock dismissal:",
-                          dismissError
-                        );
-                      }
-                    }
-                    await finalizeUnlock(pendingUnlockKey, attempt);
-                    } finally { finishAttempt(attempt); }
-                  }}
+                  onClick={() => { void handleSkipQuickUnlock(); }}
                 >
                   Not now, continue with password
                 </Button>
@@ -2348,6 +2553,38 @@ function OwnerVaultFlow({
                     : "Save this now. It cannot be shown again."}
                 </AlertDescription>
               </Alert>
+
+              {!passphrase ? (
+                <div className={VAULT_FIELD_STACK_CLASS}>
+                  <Label htmlFor="recovery-disclosure-passphrase" className="type-footnote font-medium text-muted-foreground">
+                    Password to finish opening
+                  </Label>
+                  <Input
+                    id="recovery-disclosure-passphrase"
+                    type="password"
+                    value={passphrase}
+                    onChange={(event) => setPassphrase(event.target.value)}
+                    onCompositionStart={() => {
+                      passphraseComposingRef.current = true;
+                      setPassphraseComposing(true);
+                    }}
+                    onCompositionEnd={(event) => {
+                      passphraseComposingRef.current = false;
+                      setPassphrase(event.currentTarget.value);
+                      setPassphraseComposing(false);
+                    }}
+                    autoComplete="current-password"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    disabled={isUnlocking}
+                    className={VAULT_INPUT_CONTROL_CLASS}
+                  />
+                  <p className="type-footnote leading-snug text-muted-foreground">
+                    Your password draft was cleared when the app was interrupted.
+                  </p>
+                </div>
+              ) : null}
 
               <div data-vault-recovery-code className="rounded-[18px] border border-dashed border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-4">
                 <code className="break-all font-mono text-[15px] font-medium leading-[1.5] tracking-normal">
@@ -2386,10 +2623,7 @@ function OwnerVaultFlow({
                   size="default"
                   fullWidth
                   className={VAULT_ALTERNATIVE_BUTTON_CLASS}
-                  onClick={async () => {
-                    const content = `Hussh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
-                    await downloadTextFile(content, "hushh-recovery-key.txt");
-                  }}
+                  onClick={() => { void handleDownloadRecoveryKey(); }}
                 >
                   <Icon icon={Download} size="sm" className="mr-2" />
                   Download
@@ -2410,7 +2644,7 @@ function OwnerVaultFlow({
                 fullWidth
                 className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] motion-reduce:transition-none disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                 onClick={handleRecoveryKeyContinue}
-                disabled={isUnlocking}
+                disabled={isUnlocking || !passphrase || passphraseComposing}
               >
                 {isUnlocking ? "Opening..." : "I’ve saved my recovery key"}
                 {setupPresentation && !isUnlocking ? <Icon icon={ArrowRight} size="sm" className="ml-2" aria-hidden="true" /> : null}

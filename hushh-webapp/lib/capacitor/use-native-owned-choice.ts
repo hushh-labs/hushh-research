@@ -70,7 +70,7 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
     observer.current?.disconnect(); observer.current = null;
     setBlocked(!confirmed);
     if (!confirmed) return; // Keep the old lease for explicit, readback-only recovery.
-    lease.current = null; setPresented(false);
+    lease.current = null; setPresented(failed);
     if (failed) setFallback(true);
   }, []);
   const close = useCallback(async () => {
@@ -117,6 +117,12 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
     if (!next) { void close(); return; }
     if (blocked) { void close(); return; } // Recovery never replays a selection.
     if (pending.current || live.current.disabled || !live.current.options) return;
+    const panels: HTMLElement[] = [];
+    for (let node = trigger.current?.parentElement; node; node = node.parentElement) {
+      if (node.getAttribute("role") === "tabpanel") panels.push(node);
+    }
+    const paneCurrent = () => panels.every(panel => panel.isConnected && !panel.inert && panel.getAttribute("aria-hidden") !== "true");
+    if (!paneCurrent()) return;
     const generation = ++epoch.current;
     const snapshot = live.current;
     const restoreWeb = () => {
@@ -125,18 +131,27 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
     };
     if (isSessionChromeSuppressed()) { restoreWeb(); return; }
     const identity = createNativePresentationIdentity();
-    const appearance = readNativeControlAppearance("accent");
-    if (!identity || !appearance) { restoreWeb(); return; }
+    if (!identity || !readNativeControlAppearance("accent")) { restoreWeb(); return; }
     pending.current = true; bound.current = { signature: snapshot.signature, visit: snapshot.visit };
     setPresented(true);
     const isCurrent = () => mounted.current && epoch.current === generation &&
-      live.current.signature === snapshot.signature && live.current.visit === snapshot.visit && !live.current.disabled;
+      live.current.signature === snapshot.signature && live.current.visit === snapshot.visit && !live.current.disabled && paneCurrent();
     void (async () => {
       try {
         const source = nativeDrawers(), port = ownedPort(source);
         const capabilities = await nativeDrawerAcknowledged(source.getCapabilities());
         if (!isCurrent() || !pending.current) return;
         if (!port || capabilities.ownedChoices !== true) { restoreWeb(); return; }
+        // Capability lookup may outlive a theme change; project committed CSS
+        // again before creating the retained native presentation.
+        const appearance = readNativeControlAppearance("accent");
+        if (!appearance) { restoreWeb(); return; }
+        const bounds = trigger.current?.getBoundingClientRect();
+        const anchor = bounds && bounds.width > 0 && bounds.height > 0 && bounds.x >= 0 && bounds.y >= 0 &&
+          bounds.right <= window.innerWidth && bounds.bottom <= window.innerHeight
+          ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+              viewportWidth: window.innerWidth, viewportHeight: window.innerHeight } : undefined;
+        if (!anchor) { restoreWeb(); return; }
         const values = new Map<string, string>();
         const options = snapshot.options!.map(option => {
           const handle = crypto.randomUUID(); values.set(handle, option.value);
@@ -155,19 +170,25 @@ export function useNativeOwnedChoice(binding: Binding, authoredTrigger?: { curre
               trigger.current.focus({ preventScroll: true });
             }
           });
-        }, (confirmed, reason) => { values.clear(); settle(generation, confirmed, reason === "failed"); });
+        }, (confirmed, reason) => { values.clear(); settle(generation, confirmed, reason === "failed" && isCurrent()); });
         if (!isCurrent()) return;
         lease.current = current;
         observer.current = new MutationObserver(() => {
+          if (!paneCurrent()) { void close(); return; }
           const theme = readNativeControlAppearance("accent");
           if (theme && isCurrent()) current.updateAppearance(theme);
         });
         observer.current.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-accent"] });
-        await current.present({ ...identity, visitId: current.identity.visitId, ...appearance,
+        panels.forEach(panel => observer.current?.observe(panel, { attributes: true, attributeFilter: ["inert", "aria-hidden", "hidden"] }));
+        await current.present({ ...identity, visitId: current.identity.visitId, ...appearance, ...(anchor ? { anchor } : {}),
           title: snapshot.label || accessibleChoiceLabel(trigger.current), ...(snapshot.showTitle === undefined ? {} : { showTitle: snapshot.showTitle }), options });
       } catch {
         if (!isCurrent() || !pending.current) return;
         settle(generation, lease.current ? await lease.current.retire() : true, true);
+      } finally {
+        // An inactive retained pane may cancel admission before a native
+        // lifetime exists. Release that attempt so reentry can open again.
+        if (pending.current && !lease.current) settle(generation, true);
       }
     })();
   }, [blocked, close, settle, trigger]);

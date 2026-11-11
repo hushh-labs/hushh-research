@@ -1,5 +1,11 @@
 "use client";
 
+import { createNativeWorkspaceHandles } from "@/lib/capacitor/use-native-workspace-handoff";
+
+
+import { NativeConnectWorkspace, type NativeConnectPerson } from "../native-connect-workspace";
+import { CircleDiscoveryCardBody, type CircleDiscoveryCardModel } from "../circle-discovery-card";
+import type { ReactNode, RefObject } from "react";
 import {
   useCallback,
   useContext,
@@ -9,7 +15,7 @@ import {
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { TaskDialogContent, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
 import {
   Dialog,
@@ -37,7 +43,8 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   CircleDetailFlow,
-  CreateCircleFlow,
+  CreateCircleFlowBody,
+  useCreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
@@ -219,7 +226,9 @@ export function ConnectCirclesTab({
   refreshToken = 0,
   createDialogOpen = false,
   onCreateDialogOpenChange,
+  nativePresentation,
 }: {
+  nativePresentation?: { fallbackTabs?: ReactNode; includeIdeas?: boolean; ideas: CircleDiscoveryCardModel; frameRef: RefObject<HTMLDivElement | null>; selectSurface: (surface: "all" | "circles") => void };
   onSearchActiveChange?: (active: boolean) => void;
   /** Lets the page keep its native beacon and voice metadata truthful without
    *  hoisting circle state into a 2,400-line component. */
@@ -656,57 +665,228 @@ export function ConnectCirclesTab({
     [],
   );
 
+  const createActive = Boolean(vaultOwnerToken && actions && (createDialogOpen || action === "create-circle"));
+  const creation = useCreateCircleFlow({
+    active: createActive, resetKey: listSession, busy, customTypes: allCustomGroups.map(group => group.label), customTypesSupported,
+    pathname: ROUTES.CONNECT, backLayerQuery: createDialogOpen ? {} : { action: "create-circle" },
+    onLoadPeople: async (circleId, options) => {
+      if (!actions) throw new Error("Unlock One to load your connections.");
+      return actions.loadEligibleConnectionsPage(circleId, options);
+    },
+    onAddPeople: async (circleId, userIds) => {
+      if (!actions) throw new Error("Unlock One to add people.");
+      await withBusy(() => actions.inviteConnections(circleId, userIds));
+      announceCircleMutation("location_circle_member_added", circleId);
+    },
+    onSubmit: async (name, kind, existingCircleId, customTypeLabel) => {
+      if (!actions) throw new Error("Unlock One to create a Circle.");
+      const circle = await withBusy(() => actions.createCircle(name, kind, existingCircleId, customTypeLabel));
+      if (!existingCircleId) trackEvent("one_location_circle_created", { route_id: "connect", result: "success", circle_kind: kind });
+      announceCircleMutation(existingCircleId ? "location_circle_renamed" : "location_circle_created", circle.id);
+      return circle;
+    },
+    onComplete: circleId => {
+      go({ action: "circle-detail", circleId }, createDialogOpen ? "push" : "replace");
+      onCreateDialogOpenChange?.(false);
+    },
+  });
+  const createDestination = useMemo(() => createActive && creation.step === "details" ? createNativeWorkspaceHandles(String(listSession))("create") : null, [createActive, creation.step, listSession]);
+  const cancelledCreateDestination = useRef<string | null>(null);
+  const currentCreateDestination = useRef(createDestination);
+  currentCreateDestination.current = createDestination;
+  const cancelCreate = () => {
+    if (creation.mutationPending() || busy) return;
+    cancelledCreateDestination.current = currentCreateDestination.current;
+    currentCreateDestination.current = null;
+    if (createDialogOpen) onCreateDialogOpenChange?.(false);
+    else go({}, "replace");
+  };
+
+  const confirmPendingType = () => {
+    if (!pendingType || !vaultOwnerToken || !customTypesSupported || listMutationRef.current) return;
+    listMutationRef.current = true;
+    const session = listSession;
+    setBusy(true);
+    const operation = OneLocationService.deleteCircleType({ vaultOwnerToken, customTypeLabel: pendingType }).then(() => {
+      if (listSessionRef.current !== session) return;
+      setPendingTypeDraft(null);
+      setReloadToken(value => value + 1);
+      announceCircleMutation("location_circle_type_deleted");
+    });
+    morphyToast.promise(operation, { loading: "Deleting type…", success: "Type deleted. Your circles are kept.", error: "Could not delete this type. Try again." });
+    void operation.catch(() => undefined).finally(() => {
+      if (listSessionRef.current === session) { listMutationRef.current = false; setBusy(false); }
+    });
+
+  };
+  const confirmPendingCircle = () => {
+    if (
+      !pendingCircle ||
+      !actions ||
+      !currentUserId ||
+      listMutationRef.current
+    )
+      return;
+    listMutationRef.current = true;
+    const selected = pendingCircle;
+    const session = listSessionRef.current;
+    const isCurrent = () => listSessionRef.current === session;
+    setBusy(true);
+    const operation = (async () => {
+      const latest = await actions.loadCircleOverview(
+        selected.circle.id,
+      );
+      if (!isCurrent())
+        throw new Error(
+          "Circle action cancelled. Return to your current account to try again.",
+        );
+      const allowed =
+        selected.action === "delete"
+          ? latest.viewerCapabilities?.canDeleteCircle === true &&
+            !latest.isSystem &&
+            !latest.systemKind
+          : latest.viewerCapabilities?.canLeaveCircle === true;
+      if (!allowed)
+        throw new Error(
+          "Your permission to change this circle has changed.",
+        );
+      await (selected.action === "delete"
+        ? actions.deleteCircle(latest.id, false)
+        : actions.leaveCircle(latest.id, false));
+      if (!isCurrent()) return;
+      trackOneLocationJourneyAction({
+        action:
+          selected.action === "delete"
+            ? "circle_deleted"
+            : "circle_left",
+        routeId: "connect",
+        entrySurface: "connect_circles",
+        targetType: "circle",
+      });
+      announceCircleMutation(
+        selected.action === "delete"
+          ? "location_circle_deleted"
+          : "location_circle_member_left",
+        latest.id,
+        selected.action === "leave" ? currentUserId : undefined,
+      );
+      setPendingCircle(null);
+    })();
+    void morphyToast.promise(operation, {
+      loading:
+        selected.action === "delete"
+          ? "Deleting circle…"
+          : "Leaving circle…",
+      success: "Circle updated.",
+      error: (error) =>
+        error instanceof Error
+          ? error.message
+          : "Could not update this circle.",
+    });
+    void operation
+      .catch(() => undefined)
+      .finally(() => {
+        if (isCurrent()) {
+          listMutationRef.current = false;
+          setBusy(false);
+        }
+      });
+
+  };
+
+  const wrapNative = (fallback: ReactNode, rich = false) => {
+    if (!nativePresentation) return fallback;
+    const people: NativeConnectPerson[] = [...owned, ...joined].map(circle => {
+      const kind = systemKindOf(circle);
+      const destructive = circle.viewerCapabilities?.canDeleteCircle === true && !kind && !circle.isSystem ? "delete" : circle.viewerCapabilities?.canLeaveCircle === true ? "leave" : null;
+      return { key: circle.id, label: circle.name, detail: circleRowDescription(circle),
+        primary: { key: `open:${circle.id}`, label: "Open Circle", web: true, run: () => openCircle(circle.id) },
+        group: circle.role !== "owner" ? "Joined circles" : kind || circle.isSystem ? "Your circles" : circle.customTypeLabel || (circle.kind === "family" ? "Family" : circle.kind === "friends" ? "Friends" : "Your circles"),
+        actions: [
+          ...(destructive ? [{ key: `change:${circle.id}`, label: destructive === "delete" ? "Delete Circle" : "Leave Circle", destructive: true, overflow: true, enabled: !busy,
+            run: () => setPendingCircle({ circle, action: destructive }) }] : []),
+        ],
+      };
+    });
+    const ideas = nativePresentation.ideas;
+    const creating = createActive && !createDialogOpen;
+    const peopleStep = creating && creation.step === "people";
+    const addPeople = creation.people;
+    const taskActions: import("../native-connect-workspace").NativeConnectAction[] = peopleStep ? [
+      { key: "people-add", label: `Add ${addPeople.selected.length || "people"}`, enabled: !addPeople.loading && !addPeople.saving && addPeople.selected.length > 0 && addPeople.selected.length <= addPeople.limit, run: () => addPeople.finish(true) },
+      { key: "people-later", label: "Add people later", enabled: !addPeople.saving, run: () => addPeople.finish(false) },
+      ...(addPeople.failed ? [{ key: "people-retry", label: "Try again", run: addPeople.retry }] : []),
+    ] : [];
+    if (creating) {
+      people.length = 0;
+      if (peopleStep) people.push(...addPeople.people.map(person => ({ key: person.userId, label: person.displayName, photoUrl: person.photoUrl, verified: person.isRia, group: "Add people", selected: addPeople.selected.includes(person.userId), enabled: !addPeople.saving && (addPeople.selected.includes(person.userId) || addPeople.selected.length < addPeople.limit),
+        toggle: () => { if (!addPeople.saving) { if (addPeople.selected.includes(person.userId)) addPeople.remove(person.userId); else if (addPeople.selected.length < addPeople.limit) addPeople.add(person.userId); } }, actions: [] })));
+    }
+    if (!creating && !circleQuery.trim() && ideas.expanded) people.push(...ideas.suggestions.map(starter => ({
+      key: `idea:${starter.id}`, label: starter.label, detail: starter.description, group: "Circle ideas · Optional",
+      actions: [
+        { key: `setup:${starter.id}`, label: `Setup ${starter.label} circle`, enabled: !ideas.snapshot.loading && !ideas.creating && !ideas.unavailable,
+          run: () => ideas.needsSetup ? ideas.onSetupCircles() : ideas.onUseStarter(starter) },
+        { key: `hide:${starter.id}`, label: `Hide ${starter.label} suggestion`, enabled: !ideas.creating, run: () => ideas.hide(starter.id) },
+      ],
+    })));
+    const confirmation = pendingCircle ? {
+      title: `${pendingCircle.action === "delete" ? "Delete" : "Leave"} ${pendingCircle.circle.name}?`,
+      description: pendingCircle.action === "delete" ? "This removes the circle for everyone. This cannot be undone." : "You will no longer be a member of this circle.",
+      confirm: { key: `${pendingCircle.action}:${pendingCircle.circle.id}`, label: pendingCircle.action === "delete" ? "Delete" : "Leave", enabled: !busy, destructive: true, run: confirmPendingCircle },
+      cancel: () => { if (!listMutationRef.current) setPendingCircle(null); },
+    } : pendingType ? {
+      title: `Delete ${pendingType} type?`, description: "Your circles and members are kept. Only this type is removed.",
+      confirm: { key: `type-delete:${pendingType}`, label: "Delete type", enabled: !busy, destructive: true, run: confirmPendingType },
+      cancel: () => { if (!listMutationRef.current) setPendingTypeDraft(null); },
+    } : undefined;
+    return <NativeConnectWorkspace fallback={fallback} model={{
+      confirmation,
+      task: creating, page: creating ? peopleStep ? "circle-people" : "circle-create" : "overview",
+      ...(creating && createDestination ? { editor: {
+        destinationId: createDestination, draft: { name: creation.name, kind: creation.kind, ...(customTypesSupported ? { customTypeLabel: creation.customTypeLabel } : {}) },
+        ...(customTypesSupported ? { customTypes: creation.customTypes } : {}),
+        current: () => listSessionRef.current === listSession && currentCreateDestination.current === createDestination && cancelledCreateDestination.current !== createDestination && creation.current(),
+        inputRevision: creation.inputRevision, mutationPending: creation.mutationPending, changeDraft: creation.changeDraft,
+        busy: busy || creation.saving, canSave: creation.canSubmit, error: creation.error || creation.typeError,
+        save: creation.prepare, onSaved: creation.advance, onCancel: cancelCreate,
+      } } : {}),
+      variant: "circles", frameRef: nativePresentation.frameRef, owner: currentUserId,
+      current: () => listSessionRef.current === listSession && Boolean(vaultOwnerToken),
+      surface: "circles", selectSurface: nativePresentation.selectSurface, view: creating ? `create-${creation.step}` : "circles", setView: () => {},
+      directory: "", directories: [], query: peopleStep ? addPeople.query : circleQuery, setQuery: peopleStep ? addPeople.changeQuery : setCircleQuery, searchLabel: peopleStep ? "Search contacts" : "Search your and joined circles",
+      summary: peopleStep ? `${addPeople.selected.length} selected · ${addPeople.limit > 0 ? `Choose up to ${addPeople.limit} people` : !addPeople.loading && !addPeople.failed ? "This Circle is full" : "Loading capacity…"}` : !creating && !loading && !error ? `Your circles · ${owned.length} · Joined circles · ${joined.length}` : undefined,
+      heading: peopleStep ? "Add people" : "Your circles", people, loading: peopleStep ? addPeople.loading : loading, error: peopleStep ? addPeople.failed ? "Could not load your contacts." : null : error,
+      empty: peopleStep ? addPeople.query ? "No contacts match that name." : "No connections to add yet. You can add people later." : circleQuery.trim() ? "No matching circles" : "No circles yet",
+      actions: creating ? taskActions : [
+        { key: "create", label: "New circle", enabled: !busy && Boolean(actions), run: () => go({ action: "create-circle" }) },
+        { key: "join", label: "Join with code", enabled: !busy && Boolean(actions), web: true, run: () => go({ action: "join-circle" }) },
+        ...(error ? [{ key: "retry", label: "Try again", run: () => setReloadToken(value => value + 1) }] : []),
+        ...(!vaultOwnerToken ? [{ key: "setup", label: "Finish setting up One", run: () => router.push(ROUTES.ONE_SETUP) }] : []),
+        ...(customTypesSupported ? allCustomGroups.map(group => ({ key: `type:${group.label}`, label: `Delete ${group.label} type`, destructive: true, enabled: !busy, run: () => setPendingTypeDraft({ session: listSession, label: group.label }) })) : []),
+        ...(!circleQuery.trim() ? [
+          { key: "ideas", label: ideas.expanded ? "Hide Circle ideas" : "Circle ideas · Optional", run: ideas.toggle },
+          ...(ideas.hidden.length ? [{ key: "ideas-restore", label: "Restore hidden", run: ideas.restore }] : []),
+          ...(ideas.expanded && ideas.unavailable ? [{ key: "ideas-retry", label: "Retry circles", run: ideas.onRetryCircles }] : []),
+          ...(ideas.expanded && ideas.needsSetup ? [{ key: "ideas-setup", label: "Finish setting up One", run: ideas.onSetupCircles }] : []),
+        ] : []),
+      ], footer: peopleStep && addPeople.hasMore ? [{ key: "people-more", label: "Load more contacts", enabled: !addPeople.loading && !addPeople.saving, run: addPeople.more }] : [], selectionMode: false, selectionCount: 0, selectionLimit: 0, cancelSelection: () => {},
+      webOnly: rich || !isActive, webChildOpen: createDialogOpen,
+    }} />;
+  };
+
   if (
     createDialogOpen ||
     (vaultOwnerToken && actions && action === "create-circle")
   ) {
     const form = actions ? (
-      <CreateCircleFlow
-        key={`${currentUserId}:${vaultOwnerToken}`}
-        busy={busy}
-        customTypes={allCustomGroups.map(group => group.label)}
-        customTypesSupported={customTypesSupported}
-        pathname={ROUTES.CONNECT}
-        backLayerQuery={createDialogOpen ? {} : { action: "create-circle" }}
-        onLoadPeople={actions.loadEligibleConnectionsPage}
-        onAddPeople={async (circleId, userIds) => {
-          await withBusy(() => actions.inviteConnections(circleId, userIds));
-          announceCircleMutation("location_circle_member_added", circleId);
-        }}
-        onSubmit={async (name, kind, existingCircleId, customTypeLabel) => {
-          const circle = await withBusy(() =>
-            actions.createCircle(name, kind, existingCircleId, customTypeLabel),
-          );
-          if (!existingCircleId)
-            trackEvent("one_location_circle_created", {
-              route_id: "connect",
-              result: "success",
-              circle_kind: kind,
-            });
-          announceCircleMutation(
-            existingCircleId
-              ? "location_circle_renamed"
-              : "location_circle_created",
-            circle.id,
-          );
-          return circle;
-        }}
-        onComplete={(circleId) => {
-          // Modal creation pushes details so Back returns to its launch page.
-          // The full-page flow replaces the form that just succeeded.
-          go(
-            { action: "circle-detail", circleId },
-            createDialogOpen ? "push" : "replace",
-          );
-          onCreateDialogOpenChange?.(false);
-        }}
-      />
+      <CreateCircleFlowBody model={creation} />
     ) : (
       <p className="text-sm text-[color:var(--app-secondary-label)]">
         Unlock One to create a Circle.
       </p>
     );
-    return createDialogOpen ? (
+    const presentation = createDialogOpen ? (
       <Dialog
         modal
         open
@@ -735,10 +915,11 @@ export function ConnectCirclesTab({
     ) : (
       form
     );
+    return wrapNative(presentation, !actions || createDialogOpen);
   }
 
   if (vaultOwnerToken && actions && action === "join-circle") {
-    return (
+    return wrapNative((
       <JoinCircleFlow
         busy={busy}
         initialCode={joinCode}
@@ -759,7 +940,7 @@ export function ConnectCirclesTab({
           announceCircleMutation("location_circle_code_joined", circle.id);
         }}
       />
-    );
+    ), true);
   }
 
   if (
@@ -768,7 +949,7 @@ export function ConnectCirclesTab({
     action === "circle-detail" &&
     circleIdParam
   ) {
-    return (
+    return wrapNative((
       <CircleDetailFlow
         livingCircleExperience
         memberSetup={searchParams.get("circleSetup") === "1"}
@@ -941,7 +1122,7 @@ export function ConnectCirclesTab({
           closeFlow(false);
         }}
       />
-    );
+    ), true);
   }
 
   const renderCircleRow = (circle: OneLocationCircleSummary) => {
@@ -991,8 +1172,9 @@ export function ConnectCirclesTab({
     ...customGroups.map(group => ({ ...group, custom: true })),
   ].filter(group => group.circles.length > 0);
 
-  return (
+  const fallback = (
     <div className="space-y-4" data-profile-type-scale="circles" data-testid="connect-circles-tab">
+      {nativePresentation?.fallbackTabs}
       {vaultOwnerToken ? (
         <>
           <label className={styles.circleSearch}>
@@ -1116,23 +1298,7 @@ export function ConnectCirclesTab({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={busy} onClick={event => {
-              event.preventDefault();
-              if (!pendingType || !vaultOwnerToken || !customTypesSupported || listMutationRef.current) return;
-              listMutationRef.current = true;
-              const session = listSession;
-              setBusy(true);
-              const operation = OneLocationService.deleteCircleType({ vaultOwnerToken, customTypeLabel: pendingType }).then(() => {
-                if (listSessionRef.current !== session) return;
-                setPendingTypeDraft(null);
-                setReloadToken(value => value + 1);
-                announceCircleMutation("location_circle_type_deleted");
-              });
-              morphyToast.promise(operation, { loading: "Deleting type…", success: "Type deleted. Your circles are kept.", error: "Could not delete this type. Try again." });
-              void operation.catch(() => undefined).finally(() => {
-                if (listSessionRef.current === session) { listMutationRef.current = false; setBusy(false); }
-              });
-            }}>Delete type</AlertDialogAction>
+            <AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); confirmPendingType(); }}>Delete type</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1158,80 +1324,7 @@ export function ConnectCirclesTab({
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
-                if (
-                  !pendingCircle ||
-                  !actions ||
-                  !currentUserId ||
-                  listMutationRef.current
-                )
-                  return;
-                listMutationRef.current = true;
-                const selected = pendingCircle;
-                const session = listSessionRef.current;
-                const isCurrent = () => listSessionRef.current === session;
-                setBusy(true);
-                const operation = (async () => {
-                  const latest = await actions.loadCircleOverview(
-                    selected.circle.id,
-                  );
-                  if (!isCurrent())
-                    throw new Error(
-                      "Circle action cancelled. Return to your current account to try again.",
-                    );
-                  const allowed =
-                    selected.action === "delete"
-                      ? latest.viewerCapabilities?.canDeleteCircle === true &&
-                        !latest.isSystem &&
-                        !latest.systemKind
-                      : latest.viewerCapabilities?.canLeaveCircle === true;
-                  if (!allowed)
-                    throw new Error(
-                      "Your permission to change this circle has changed.",
-                    );
-                  await (selected.action === "delete"
-                    ? actions.deleteCircle(latest.id, false)
-                    : actions.leaveCircle(latest.id, false));
-                  if (!isCurrent()) return;
-                  trackOneLocationJourneyAction({
-                    action:
-                      selected.action === "delete"
-                        ? "circle_deleted"
-                        : "circle_left",
-                    routeId: "connect",
-                    entrySurface: "connect_circles",
-                    targetType: "circle",
-                  });
-                  announceCircleMutation(
-                    selected.action === "delete"
-                      ? "location_circle_deleted"
-                      : "location_circle_member_left",
-                    latest.id,
-                    selected.action === "leave" ? currentUserId : undefined,
-                  );
-                  setPendingCircle(null);
-                })();
-                void morphyToast.promise(operation, {
-                  loading:
-                    selected.action === "delete"
-                      ? "Deleting circle…"
-                      : "Leaving circle…",
-                  success: "Circle updated.",
-                  error: (error) =>
-                    error instanceof Error
-                      ? error.message
-                      : "Could not update this circle.",
-                });
-                void operation
-                  .catch(() => undefined)
-                  .finally(() => {
-                    if (isCurrent()) {
-                      listMutationRef.current = false;
-                      setBusy(false);
-                    }
-                  });
-              }}
+              onClick={event => { event.preventDefault(); confirmPendingCircle(); }}
             >
               {busy
                 ? "Updating…"
@@ -1258,6 +1351,8 @@ export function ConnectCirclesTab({
           </Button>
         </div>
       ) : null}
+      {nativePresentation?.includeIdeas && !circleQuery.trim() ? <CircleDiscoveryCardBody model={nativePresentation.ideas} /> : null}
     </div>
   );
+  return wrapNative(fallback);
 }

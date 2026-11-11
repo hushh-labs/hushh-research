@@ -857,3 +857,9 @@ snapshot retains loaded history and scroll for an ordinary same-session return.
 Confirmed Dismiss/Clear/Undo advances a presentation revision and invalidates
 that snapshot, preventing an old unmount cleanup from resurrecting removed rows.
 Server mutation receipts and existing Undo/clear-watermark semantics remain canonical.
+
+## Experimental native presentation
+
+On supported iPhones with Native interface enabled, the existing shared workspace presents Feed sections, SMS groups/incidents, history detail, guarded decisions, clear/Cancel and paging. React retains the records, callbacks, pending state and restoration. Shared Back unwinds a decision, detail and SMS group before leaving Feed; the body adds no second Back.
+
+Rich document pricing, sent-file readers and payment-return reconciliation retain their complete React presentations. The native owner confirms retirement before a rich child is revealed and reactivates after dismissal. No generic JSX crosses the bridge. History removal uses the same undo callback through a bounded native feedback action; loading, errors and retry remain visible. Downward scrolling may hide shell navigation; scrolling upward restores it. Renderer-off retains the complete existing React route.

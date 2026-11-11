@@ -33,6 +33,9 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
 };
 export type NativeContentPaneIdentity = { documentId: string; ownerEpoch: string; generation: number; privacyGeneration: number };
 export type NativeContentPaneReceipt = NativeContentPaneIdentity & { phase: "active" | "retired" };
+export type NativeContentPaneRetirementState = NativeContentPaneIdentity & {
+  phase: "active" | "retired" | "retiring" | "unknown"; settled: boolean; handoffReady: boolean;
+};
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
   presentationApplied?: boolean;
@@ -40,6 +43,28 @@ export type ChromeAcknowledgement = ChromeIdentity & {
   frame?: ChromeFrame;
 };
 export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string; presentationGeneration?: number; presentationSequence?: number };
+export type ChromeLifecycleEvent = { documentId?: string; controls?: readonly ChromeIdentity[] };
+const chromeControlIds = new Set<ChromeControlId>((["back", "profile-back",
+  "history", "history-close", "agent-surface", "more", "add", "selection", "date", "close", "appearance", "accent"] as const).map(chromeControlId));
+/** Old wrappers emit no metadata. New wrappers must identify the source document. */
+export function chromeLifecycleEventApplies(event: ChromeLifecycleEvent | undefined, documentId: string, scoped: boolean): boolean {
+  return nativeDocumentId() === documentId && (!scoped || event?.documentId === documentId);
+}
+export function chromeInvalidationApplies(event: ChromeLifecycleEvent | undefined, documentId: string,
+  documentScoped: boolean, leaseScoped: boolean, identity: ChromeIdentity | undefined): boolean {
+  if (!chromeLifecycleEventApplies(event, documentId, documentScoped)) return false;
+  if (!leaseScoped) return true;
+  if (!identity) return false;
+  // An unusable current-document payload cannot prove the host survived.
+  // Retire it through the existing acknowledged recovery path instead.
+  if (!Array.isArray(event?.controls) || event.controls.some(control =>
+    !control || control.documentId !== documentId || typeof control.ownerEpoch !== "string" ||
+    control.ownerEpoch.length === 0 || control.ownerEpoch.length > 128 || !chromeControlIds.has(control.controlId) ||
+    !Number.isSafeInteger(control.revision) || control.revision < 0)) return true;
+  return event.controls.some(control =>
+    control?.documentId === identity.documentId && control.ownerEpoch === identity.ownerEpoch &&
+    control.controlId === identity.controlId && control.revision === identity.revision);
+}
 /** Bounded local diagnostics only; never echo an identity, value or provider error. */
 export type ChromeChoiceOutcome = "applied" | "inactive" | "disabled" | "not-allowed" | "update-pending" |
   "identity-stale" | "sequence-stale" | "value-refused" | "confirmation-refused" | "isolation-changed" | "uncertain";
@@ -64,6 +89,9 @@ export type NativeChromeCapabilities = {
   coherentPresentation?: boolean;
   ownedContentPane?: boolean;
   contentPanePreparation?: boolean;
+  contentPaneRetirementReadback?: boolean;
+  documentScopedLifecycleEvents?: boolean;
+  leaseScopedInvalidationEvents?: boolean;
   reservedPresentationRegions?: boolean;
   fullWindowOverlays?: boolean;
   /** Debug qualification: rectangular exposure of retained stationary chrome. */
@@ -76,6 +104,8 @@ export interface HushhNativeChromePlugin {
   acquireContentPane(options: NativeContentPaneIdentity & { viewport: { width: number; height: number }; preparationVisitId?: string }): Promise<NativeContentPaneReceipt>;
   confirmContentPanePreparation?(options: NativeContentPaneIdentity & { preparationVisitId: string; preparationId: string }): Promise<NativeContentPaneReceipt>;
   releaseContentPane(options: NativeContentPaneIdentity): Promise<NativeContentPaneReceipt>;
+  cancelContentPane?(options: NativeContentPaneIdentity): Promise<NativeContentPaneRetirementState>;
+  getContentPaneRetirementState?(options: NativeContentPaneIdentity): Promise<NativeContentPaneRetirementState | { valid: false }>;
   setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
   interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
   applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
@@ -92,8 +122,9 @@ export interface HushhNativeChromePlugin {
   retire(options: ChromeIdentity & { targetRevision?: number }): Promise<ChromeAcknowledgement>;
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
   addListener(eventName: "choiceRequested", listener: (event: ChromeChoice) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "invalidated", listener: () => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "invalidated", listener: (event: ChromeLifecycleEvent) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "readmissionRequested", listener: (event: ChromeLifecycleEvent) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "contentPaneHandoffChanged", listener: (event: { documentId: string }) => void): Promise<PluginListenerHandle>;
 }
 
 export const nativeChrome = registerPlugin<HushhNativeChromePlugin>("HushhNativeChrome");

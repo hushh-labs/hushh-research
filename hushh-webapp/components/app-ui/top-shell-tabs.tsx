@@ -101,6 +101,7 @@ export function TopShellTabs({
     tabSet.id === "calendar" ||
     tabSet.id === "location" ||
     tabSet.id === "connect" ||
+    tabSet.id === "connect-views" ||
     tabSet.id === "consent" ||
     tabSet.id === "finance" ||
     tabSet.id === "ria";
@@ -273,7 +274,7 @@ export function TopShellTabs({
               disabled={disabled}
               data-ui-role="agent-tab"
               data-voice-control-id={
-                tabSet.id === "ria" ? `ria_route_tab_${tab.value}` : undefined
+                tab.voiceControlId ?? (tabSet.id === "ria" ? `ria_route_tab_${tab.value}` : undefined)
               }
               aria-controls={topShellTabDomId(tabSet, "panel", tab.value)}
               aria-selected={isActive}

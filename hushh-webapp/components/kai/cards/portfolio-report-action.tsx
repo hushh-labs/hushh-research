@@ -1,5 +1,7 @@
 "use client";
 
+import type { FinancePortfolioPresentation } from "../sharing/finance-portfolio-sharing";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Download, Loader2, Share2 } from "@/components/icons";
@@ -12,13 +14,17 @@ import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 
-export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource }: {
+export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource, presentation }: {
   model: DashboardViewModel; source: string; period: string; disabled?: boolean; busy?: boolean; onExport: () => void;
-  sharingSource?: FinanceSource;
+  sharingSource?: FinanceSource; presentation?: FinancePortfolioPresentation;
 }) {
-  const [open, setOpen] = useState(false);
-  const [sharing, setSharing] = useState(false);
-  const pathname = usePathname();
+  const [localOpen, setLocalOpen] = useState(false);
+  const [localSharing, setLocalSharing] = useState(false);
+  const open = presentation ? presentation.view === "report" : localOpen;
+  const sharing = presentation ? presentation.view === "share" : localSharing;
+  const setOpen = (value: boolean) => presentation ? presentation.change(value ? "report" : null) : setLocalOpen(value);
+  const setSharing = (value: boolean) => presentation ? presentation.change(value ? "share" : null) : setLocalSharing(value);
+  const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const params = useSearchParams();
   const active = pathname !== "/one/kai" || params.get("tab") === "portfolio";
   const visible = open && active;

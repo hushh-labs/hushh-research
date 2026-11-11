@@ -1,5 +1,8 @@
 "use client";
 
+import { NativeLocationLayer, useNativeLocationEnabled } from "./native-location-workspace";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useCallback, useMemo, useState } from "react";
 import { Loader2 } from "@/components/icons";
 
@@ -186,10 +189,29 @@ export function SmsContactsFlow({
     [onAddCircleMembers],
   );
 
-  return (
-    // Renders inside the signed-in shell like every other Location task flow,
-    // so the top bar keeps the single back control, the SMS trail and the
-    // profile avatar.
+  const native = useNativeLocationEnabled();
+  useBackLayer(ROUTES.ONE_LOCATION, native && (pendingRemoval || reviewOpen || expandedCircleId) ? 3 : 0, () => {
+    if (removing) return true;
+    if (pendingRemoval) setPendingRemoval(null);
+    else if (reviewOpen) setReviewOpen(false);
+    else setExpandedCircleId(null);
+    return true;
+  });
+  const sortValue = tab === "circles" ? circleSort : contactSort;
+  return <NativeLocationLayer flow="sms-contacts" title="Emergency contacts" viewKey={reviewOpen ? "sms:review" : `sms:${tab}`} tabs={!reviewOpen ? { label: "Contact sources", options: TABS.map(entry => ({ key: entry.value, label: entry.label, selected: tab === entry.value, run: () => { setExpandedCircleId(null); setTab(entry.value); } })) } : undefined} sections={[
+    { key: "summary", rows: [{ key: "summary", label: "Emergency contacts", detail: "Choose who receives your Save My Soul alerts." },
+      { key: "review", label: `${selected.length} added`, run: () => setReviewOpen(true) },
+      ...(!reviewOpen ? [{ key: "sort", label: "Sort", choices: (["default", "name-asc", "name-desc"] as const).map(value => ({ key: value, label: value === "default" ? "Default" : value === "name-asc" ? "A–Z" : "Z–A", selected: sortValue === value, run: () => tab === "circles" ? setCircleSort(value) : setContactSort(value) })) }] : []),
+    ] },
+    { key: "contacts", rows: reviewOpen || tab === "all-contacts" ? (reviewOpen ? selected : visibleContacts).map(recipient => ({ key: recipient.userId, label: recipientLabel(recipient), detail: recipientSubtitle(recipient), person: { name: recipientLabel(recipient), photoUrl: recipient.photoUrl },
+      inlineActions: [{ key: selectedIds.has(recipient.userId) ? "remove" : "add", label: selectedIds.has(recipient.userId) ? "Remove" : "Add", tone: selectedIds.has(recipient.userId) ? "danger" as const : "primary" as const,
+        enabled: !busyKey && (selectedIds.has(recipient.userId) || isRecipientShareReady(recipient)), pending: busyKey === `sms-contact:${recipient.userId}`,
+        run: () => selectedIds.has(recipient.userId) ? askRemoveById(recipient.userId) : onAdd(recipient.userId) }] })) : visibleCircles.map(circle => ({ key: circle.id, label: circle.name, detail: `${circle.memberCount} members`, run: () => setExpandedCircleId(circle.id) })) },
+    ...(reviewOpen ? [{ key: "done", rows: [{ key: "done", label: "Done", run: () => setReviewOpen(false) }] }] : []),
+  ]} search={!reviewOpen ? { query: tab === "circles" ? circleQuery : contactQuery, label: tab === "circles" ? "Search Circles" : "Search contacts", change: tab === "circles" ? setCircleQuery : setContactQuery } : undefined}
+    confirmation={pendingRemoval ? { title: `Remove ${recipientLabel(pendingRemoval)}?`, description: "They won't receive SMS alerts.", cancelLabel: "Cancel", cancel: () => { if (!removing) setPendingRemoval(null); }, confirm: { key: "remove-contact", label: "Remove", destructive: true, enabled: !removing, pending: removing, run: removePending } } : undefined}>
+
+    {/* Keep the existing signed-in shell and authored Back. */}
     <section data-testid="sms-contacts-screen">
       {/* 430px is a phone, not a layout. Held at every width it left most of a
           tablet or a desktop window as empty grey while the lists below scrolled
@@ -359,7 +381,7 @@ export function SmsContactsFlow({
       </div>
 
       <SelectedContactsSheet
-        open={reviewOpen}
+        open={reviewOpen && !native}
         onOpenChange={setReviewOpen}
         recipients={selected}
         busyUserId={
@@ -373,7 +395,7 @@ export function SmsContactsFlow({
       />
 
       <AlertDialog
-        open={Boolean(pendingRemoval)}
+        open={Boolean(pendingRemoval) && !native}
         onOpenChange={(open) => {
           if (!open && !removing) setPendingRemoval(null);
         }}
@@ -436,5 +458,5 @@ export function SmsContactsFlow({
         </AlertDialogContent>
       </AlertDialog>
     </section>
-  );
+  </NativeLocationLayer>;
 }

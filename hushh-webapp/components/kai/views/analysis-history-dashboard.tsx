@@ -32,7 +32,7 @@ import {
 import { AnalysisHistoryList } from "./analysis-history-list";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import type { HistoryEntryWithVersion } from "./columns";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import {
   AlertDialog,
   AlertDialogAction,

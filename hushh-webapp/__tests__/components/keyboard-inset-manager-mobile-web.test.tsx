@@ -1,9 +1,13 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => false },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, isNativePlatform: () => false },
+  };
+});
 
 import { KeyboardInsetManager } from "@/components/keyboard-inset-manager";
 

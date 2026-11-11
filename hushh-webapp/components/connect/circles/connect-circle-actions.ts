@@ -1,6 +1,6 @@
 "use client";
 
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import {
   buildCircleJoinUrl,

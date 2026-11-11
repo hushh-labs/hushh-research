@@ -1,15 +1,16 @@
-"""Writes one Gemini answer from the exact approved information.
+"""Writes one answer with the approved model from the exact approved information.
 
 Where this runs, and why that matters
 -------------------------------------
 The owner's device decrypts their own PKM, projects it down to exactly the
-approved scopes and dates, and sends that projection here for one request so a
-model can write the answer. The backend decrypts nothing and stores nothing:
+approved scopes and dates, and sends that projection to the admitted runtime for
+one request so a model can write the answer. This runtime decrypts and stores nothing:
 the projection lives for the duration of the call and the written answer goes
 straight back to the device, which seals it to the requester's key.
 
-This is the same owner-present shape One chat already uses, but it does mean
-approved plaintext transits the backend during that one request. That is a
+Private owners execute in their own pod; Shared uses its configured hub model.
+This is the same owner-present shape One chat already uses: approved plaintext
+transits that selected runtime during one request. That is a
 security-model property worth stating plainly rather than burying: if it is
 not acceptable for this lane, the rollback is to disable admission and composition, retain owed refunds,
 and leave failed written answers available for explicit retry until timeout.
@@ -27,6 +28,7 @@ Boundary declaration (backend-semantic-boundary.md, "new semantic surface"):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -73,6 +75,31 @@ ANSWER_COMPOSE_SCHEMA: dict[str, Any] = {
 
 class AnswerComposerError(RuntimeError):
     """A model failure. Preparation stays retryable; no completed answer is staged."""
+
+
+def shared_answer_model() -> tuple[dict[str, Any], Any]:
+    """Describe and build the SAME configured shared runtime; never choose by host cloud."""
+    from hushh_mcp.runtime_providers.factory import (
+        ManagedGeminiRuntimeBinding,
+        build_managed_regional_gemini_adk_model,
+    )
+    from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+    from hushh_mcp.services.answer_composition_contract import ProcessingRuntime
+    from hushh_mcp.services.answer_composition_receipt import composition_model
+
+    azure = ManagedAzureBinding.from_environment()
+    model = build_managed_regional_gemini_adk_model(composition_model())
+    provider = "azure_openai" if azure else "gemini"
+    binding = {"provider": provider, "model": model.model}
+    if azure:
+        binding.update(policy=azure.policy_fingerprint, generation=azure.generation)
+    else:
+        google = ManagedGeminiRuntimeBinding.from_environment()
+        binding.update(project=google.project, locations=google.locations, auth=google.auth_mode)
+    fingerprint = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
+    return ProcessingRuntime(
+        provider=provider, model=model.model, mode="shared", fingerprint=fingerprint
+    ).model_dump(), model
 
 
 def omitted_coverage_sentence(scopes: Sequence[str]) -> str | None:
@@ -152,8 +179,9 @@ def _prompt(
 
 
 class AnswerComposer:
-    def __init__(self, *, runner=None) -> None:
+    def __init__(self, *, runner=None, model=None) -> None:
         self._runner = runner
+        self._model = model
 
     async def compose(
         self,
@@ -234,7 +262,9 @@ class AnswerComposer:
                 or selected_model != composition_model()
             ):
                 raise AnswerComposerError("composer gene must use the configured Gemini model")
-            agent = build_single_turn_agent(gene, output_schema=ANSWER_COMPOSE_SCHEMA)
+            agent = build_single_turn_agent(
+                gene, output_schema=ANSWER_COMPOSE_SCHEMA, model=self._model
+            )
             return await run_single_turn(
                 agent,
                 prompt_parts=prompt,

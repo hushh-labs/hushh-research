@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { HushhNotifications } from "@/lib/capacitor";
 import { OneLocationService } from "@/lib/one-location/service";

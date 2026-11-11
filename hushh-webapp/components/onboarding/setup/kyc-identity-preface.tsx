@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Brain, Check, Copy } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";

@@ -27,7 +27,7 @@ export function NativePrivateProfileForm<D extends object, S extends string>({ m
   const pathname = usePathname(), appearance = useNativeControlAppearance("secondary");
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const [phase, setPhase] = useState("checking");
-  const [edit, setEdit] = useState<{ identity: Identity | null; revision: number; composing: boolean }>({ identity: null, revision: 0, composing: false });
+  const [edit, setEdit] = useState<{ identity: Identity | null; revision: number; composing: boolean; draft?: D; modelRevision?: number }>({ identity: null, revision: 0, composing: false });
   const live = useRef({ model, appearance, privacy, edit, destinationId, owner, onClose, onSaved, onFallback });
   useLayoutEffect(() => { live.current = { model, appearance, privacy, edit, destinationId, owner, onClose, onSaved, onFallback }; });
   const replica = useRef<{ identity: Identity; presentation: Presentation; sequence: number; fingerprint: string | null;
@@ -46,7 +46,8 @@ export function NativePrivateProfileForm<D extends object, S extends string>({ m
         return;
       }
       if (replica.current) { replica.current.finalInput.nativeRevision = event.editRevision; replica.current.finalInput.modelRevision = m.inputRevision(); }
-      setEdit({ identity: replica.current?.identity ?? null, revision: event.editRevision, composing: event.composing });
+      setEdit({ identity: replica.current?.identity ?? null, revision: event.editRevision, composing: event.composing,
+        draft: { ...event.draft }, modelRevision: m.inputRevision() });
     },
     commit: async () => {
       const m = live.current.model;
@@ -60,8 +61,11 @@ export function NativePrivateProfileForm<D extends object, S extends string>({ m
   const publish = useCallback(() => {
     const current = replica.current, v = live.current, m = v.model;
     if (!current || !v.appearance || !m.current() || !v.privacy || !nativeProfileSceneCanPrepare(v.privacy, current.identity.scene, current.identity.destinationId)) return;
-    const edit = v.edit.identity === current.identity ? v.edit : { revision: 0, composing: false };
-    const draft = { ...m.draft };
+    const edit: typeof v.edit = v.edit.identity === current.identity ? v.edit : { identity: null, revision: 0, composing: false };
+    // The owner advances its revision before React commits its new props.
+    // Acknowledge the accepted text, never that render's older draft. A later
+    // authored revision still supersedes this transient, memory-only snapshot.
+    const draft = { ...(edit.modelRevision === m.inputRevision() && edit.draft ? edit.draft : m.draft) };
     const value = { ...current.identity, ...v.appearance, draft, draftRevision: m.inputRevision(), acknowledgedEditRevision: edit.revision, privacyGeneration: v.privacy.generation,
       canSave: !edit.composing && m.canSave, busy: m.busy, error: m.error };
     const fingerprint = JSON.stringify(value); // Private memory only; never telemetry.

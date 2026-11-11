@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { RefreshCw } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { FilesService, type OrganizationJob } from "@/lib/files/service";

@@ -1,14 +1,14 @@
 import { validateCardImage } from "@/lib/wallet/card-scan-image";
 import { normalizeToAvatarDataUrl } from "@/lib/profile/avatar-capture";
-import { admittedPortraitSource } from "@/lib/profile/provider-avatar";
+import { admittedPortraitSource, googlePeoplePhotoSource } from "@/lib/profile/provider-avatar";
 import { isNative } from "@/lib/capacitor/platform";
 
 const MAX_BYTES = 512 * 1024;
 
 /** Bounded, cancellable media preparation. Remote sources are admitted by the
  * authored provider gate; this is not an arbitrary URL or authenticated API. */
-export async function prepareProfilePortrait(source: string, signal: AbortSignal): Promise<string> {
-  if (!admittedPortraitSource(source)) throw new Error("PORTRAIT_UNAVAILABLE");
+export async function prepareProfilePortrait(source: string, signal: AbortSignal, family: "account" | "people" = "account"): Promise<string> {
+  if (!admittedPortraitSource(source) && !(family === "people" && googlePeoplePhotoSource(source))) throw new Error("PORTRAIT_UNAVAILABLE");
   // CapacitorHttp's GET proxy buffers an entire URLSession response before JS
   // sees its stream. Use the SDK-preserved WebKit fetch for this public media
   // read, so byte limits, AbortSignal and redirect policy apply during transfer.
@@ -51,7 +51,7 @@ export async function prepareProfilePortrait(source: string, signal: AbortSignal
       if (timeout.signal.aborted) { finish(); reject(new Error("PORTRAIT_UNAVAILABLE")); return; }
       file.readAsDataURL(blob);
     });
-    return await normalizeToAvatarDataUrl(data, timeout.signal);
+    return await normalizeToAvatarDataUrl(data, timeout.signal, family === "people" ? 128 : 256);
   } finally {
     clearTimeout(timer); signal.removeEventListener("abort", abort);
     await reader?.cancel().catch(() => undefined);

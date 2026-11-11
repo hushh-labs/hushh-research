@@ -73,6 +73,12 @@ Archive small sanitized evidence envelopes beside the existing release artifacts
 under `pod-releases/<image-source>/<prepare-run>/qualification-<kind>.json`.
 Retain original authenticated native execution observations and reviewed probe
 code. Do not replace those observations with authored success booleans.
+The offline `scripts/ops/inspect-pod-release-evidence.py` inspector checks consistency
+of retained image, recovery and reviewed-envelope records. For metadata-only
+publication, supply both `--image-release-json` and `--image-preparation-json`
+for the original build alongside the current publication files. Its output
+does not verify live object generations, current native state, adapter journeys
+or physical purge and does not authorize catalog activation.
 
 A subsequent reviewed Main change may add an activation pin (`pod-publication.json` in the `deploy` directory). It has
 `schemaVersion=1`, `descriptorSourceRevision`, the existing four-field `release`
@@ -851,8 +857,10 @@ handoff fences generic expiry takeover; an upgraded revision must carry that exa
 writer operation. Read-only recovery uses frozen retained model bindings so retiring
 a model profile cannot strand inspection; new mutations still require current policy.
 
-Complete partial-provision cleanup, operator adapter, archive and reconciliation
-acceptance remains required before either pilot owner is provisioned.
+The two synthetic pilot owners were provisioned in October 2026. Complete
+partial-provision cleanup, operator adapter, archive and reconciliation
+acceptance remain separate requirements for the pilot; those prior provisions
+do not establish them.
 Pre-host abort uses the same frozen erasure reservation, without inventing a
 running service UID or successful Memory deletion. `HostedPrefixAbortOperator`
 retains native inventory before disabling the runtime writer, removes retained
@@ -893,6 +901,18 @@ BYOC rendering is unchanged. An empty mail inventory alone never permits key
 destruction: SQL requires the exact admitted managed plan, a valid matching
 inventory, and no declared mail resource, including legacy resources. Any
 declared mail resource still requires its own deletion evidence.
+
+Hosted Files remains unavailable until the reviewed database custody family can
+prove that an interrupted Files executor has exited and its provider effects have
+settled. The current 974 custody functions alone do not establish that proof.
+A retained update may be inspected and its late receipt recorded, but neither
+lease age nor that receipt alone authorizes a new write or erasure completion.
+Cancellation now fences managed Files provider work and joins its local worker
+and named late-receipt callbacks. These joins are not durable executor-exit or
+provider-settlement evidence; the erasure gate remains closed without that proof.
+When qualified, Files uses the existing managed storage offer and owner-approved
+update; the hosted pilot does not enable document model analysis. Normal Files
+reads and writes must not require an available model.
 
 Cleanup receipt payload checks are separate from dependency ordering: validate
 inventory and IAM dependencies once per completion pass, then each exact pair.

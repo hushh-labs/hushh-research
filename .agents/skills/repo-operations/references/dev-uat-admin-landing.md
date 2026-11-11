@@ -8,9 +8,10 @@ maintainer authority; the target's canonical policy and live branch exceptions m
 both authorize the operator. Team membership does not grant Main or production
 permission. If an ordinary review is requested, use the maintainer team rather than
 requesting individuals merely for routing.
-Automatic CODEOWNERS requests are reserved for protected changes. Mixed PRs
-containing CI or fundamental guidance use only the pipeline-editor review route;
-the ordinary maintainer team cannot override it.
+CODEOWNERS defaults ordinary changes to the maintainer Team. Run
+`./bin/hushh agents review-route --pr <number> --apply` after creation or updates
+to reconcile mixed or semantic-protected changes to `pipeline-editors` only.
+The ordinary maintainer Team cannot override protected approval.
 
 Use this bounded preflight before requesting the queue:
 

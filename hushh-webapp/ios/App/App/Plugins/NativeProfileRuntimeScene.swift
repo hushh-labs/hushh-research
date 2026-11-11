@@ -30,12 +30,57 @@ protocol NativeProfileEditorProjection {
 /// UIKit edit menus live beyond their field's SwiftUI body. Track actual
 /// dismissal completion without borrowing an operation or feature lifetime.
 @MainActor final class NativeEditorMenuLifetime {
-    private var visible = [ObjectIdentifier: UIView]()
+    private struct Presentation { let token: UUID; let delegate: AnyObject?; var dismissing = false }
+    private struct Menus { let view: UIView; var detached = false; var presentations: [Presentation] }
+    private var visible = [ObjectIdentifier: Menus]()
     private var retirement = [() -> Void]()
     func contains(_ view: UIView) -> Bool { visible[ObjectIdentifier(view)] != nil }
-    func presented(_ view: UIView) { visible[ObjectIdentifier(view)] = view }
-    func dismissed(_ view: UIView) {
-        visible.removeValue(forKey: ObjectIdentifier(view))
+    func presented(_ view: UIView) {
+        let delegate: AnyObject?
+        if let field = view as? UITextField { delegate = field.delegate }
+        else if let text = view as? UITextView { delegate = text.delegate }
+        else { delegate = nil }
+        // UIKit delegates are weak. Keep the coordinator alive if SwiftUI
+        // dismantles its editor before the dismissal completion arrives.
+        let id = ObjectIdentifier(view)
+        let presentation = Presentation(token: UUID(), delegate: delegate)
+        if var menus = visible[id] { menus.presentations.append(presentation); visible[id] = menus }
+        else { visible[id] = Menus(view: view, presentations: [presentation]) }
+    }
+    func markDetached(_ view: UIView) -> Bool {
+        let id = ObjectIdentifier(view)
+        guard var menus = visible[id] else { return false }
+        menus.detached = true; visible[id] = menus
+        return true
+    }
+    func detach(_ view: UIView) -> Bool {
+        guard markDetached(view) else { return false }
+        if #available(iOS 16.0, *) {
+            for interaction in view.interactions { (interaction as? UIEditMenuInteraction)?.dismissMenu() }
+        }
+        return true
+    }
+    func beginDismissal(_ view: UIView) -> UUID? {
+        let id = ObjectIdentifier(view)
+        guard var menus = visible[id], let index = menus.presentations.firstIndex(where: { !$0.dismissing }) else { return nil }
+        menus.presentations[index].dismissing = true
+        let token = menus.presentations[index].token
+        visible[id] = menus
+        return token
+    }
+    func dismissed(_ view: UIView, token: UUID) {
+        let id = ObjectIdentifier(view)
+        guard var menus = visible[id], let index = menus.presentations.firstIndex(where: { $0.token == token && $0.dismissing }) else { return }
+        let entry = menus.presentations.remove(at: index)
+        if menus.presentations.isEmpty {
+            visible.removeValue(forKey: id)
+            if menus.detached {
+                if let field = view as? UITextField, (field.delegate as AnyObject?) === entry.delegate { field.delegate = nil }
+                if let text = view as? UITextView, (text.delegate as AnyObject?) === entry.delegate { text.delegate = nil }
+            }
+        } else {
+            visible[id] = menus
+        }
         if visible.isEmpty { let callbacks = retirement; retirement.removeAll(); callbacks.forEach { $0() } }
     }
     func dismiss(_ views: [UIView], completion: @escaping () -> Void) {
@@ -45,7 +90,7 @@ protocol NativeProfileEditorProjection {
             // clear() scrubs text/undo state and removes editor registries
             // first. Retain only the visible menu's already-scrubbed trigger
             // until UIKit reports its actual dismissal completion.
-            let targets = Dictionary((views + Array(visible.values)).map { (ObjectIdentifier($0), $0) }, uniquingKeysWith: { first, _ in first })
+            let targets = Dictionary((views + visible.values.map(\.view)).map { (ObjectIdentifier($0), $0) }, uniquingKeysWith: { first, _ in first })
             for view in targets.values { for interaction in view.interactions { (interaction as? UIEditMenuInteraction)?.dismissMenu() } }
         }
     }
@@ -90,17 +135,49 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     @Published private(set) var presentationEnabled = true
     func setPresentationEnabled(_ enabled: Bool) {
         guard presentationEnabled != enabled else { return }; presentationEnabled = enabled
-        if !enabled { fields.values.compactMap(\.value).forEach { $0.resignFirstResponder() }; textViews.values.compactMap(\.value).forEach { $0.resignFirstResponder() } }
+        if !enabled {
+            let interruptedComposition = composing || lastComposing
+            suppressCapture += 1
+            for (name, entry) in fields {
+                guard let field = entry.value else { continue }
+                if interruptedComposition { field.unmarkText(); field.text = committedDraft[name]; field.undoManager?.removeAllActions() }
+                field.resignFirstResponder()
+            }
+            for (name, entry) in textViews {
+                guard let field = entry.value else { continue }
+                if interruptedComposition { field.unmarkText(); field.text = committedDraft[name]; field.undoManager?.removeAllActions() }
+                field.resignFirstResponder()
+            }
+            suppressCapture -= 1
+            if interruptedComposition { draft = committedDraft; pendingCompositionReset = true }
+        } else { flushCompositionReset() }
     }
     private var sequence = 0; private var confirmed = 0; private var lastComposing = false
+    private var suppressCapture = 0
+    private var committedDraft: Projection.Draft
+    private var pendingCompositionReset = false
     private var fields = [String: WeakField]()
     private final class WeakField { weak var value: UITextField?; init(_ value: UITextField) { self.value = value } }
     private var textViews = [String: WeakTextView]()
     private let editMenus = NativeEditorMenuLifetime()
     func editMenuPresented(_ view: UIView) { editMenus.presented(view) }
-    func editMenuDismissed(_ view: UIView) {
-        if retired { (view as? UITextView)?.delegate = nil; (view as? UITextField)?.delegate = nil }
-        editMenus.dismissed(view)
+    func detachEditor(_ view: UIView) -> Bool { editMenus.detach(view) }
+    func beginEditorMenuDismissal(_ view: UIView) -> UUID? { editMenus.beginDismissal(view) }
+    func editMenuDismissed(_ view: UIView, token: UUID) { editMenus.dismissed(view, token: token) }
+    func scrubEditor(_ view: UIView, _ scrub: () -> Void) {
+        let wasComposing = (view as? UITextField)?.markedTextRange != nil || (view as? UITextView)?.markedTextRange != nil
+        suppressCapture += 1
+        scrub()
+        suppressCapture -= 1
+        guard wasComposing, !retired else { return }
+        draft = committedDraft
+        pendingCompositionReset = true
+        flushCompositionReset()
+    }
+    private func flushCompositionReset() {
+        guard pendingCompositionReset, canEdit, !composing else { return }
+        pendingCompositionReset = false
+        emit(committedDraft)
     }
     func dismissEditorMenus(completion: @escaping () -> Void) {
         editMenus.dismiss(fields.values.compactMap(\.value).map({ $0 as UIView }) + textViews.values.compactMap(\.value).map({ $0 as UIView }), completion: completion)
@@ -114,25 +191,34 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     var canCancel: Bool { presentationEnabled && !retired && !projection.busy && (pending == nil || projection.primary == "validate" && pending?.action == "save") }
     var canSave: Bool { canEdit && !projection.checking && !composing && projection.canSave && projection.acknowledgedEditRevision == editRevision }
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
-    init(_ projection: Projection) { self.projection = projection; draft = projection.draft }
+    init(_ projection: Projection) { self.projection = projection; draft = projection.draft; committedDraft = projection.draft }
     func register(_ field: UITextField, name: String) { fields[name] = WeakField(field) }
     func register(_ field: UITextView, name: String) { textViews[name] = WeakTextView(field) }
+    func unregister(_ field: UITextField, name: String) { if fields[name]?.value === field { fields.removeValue(forKey: name) } }
+    func unregister(_ field: UITextView, name: String) { if textViews[name]?.value === field { textViews.removeValue(forKey: name) } }
     func update(_ next: Projection) -> Bool {
         guard !retired, next.valid, next.identity == projection.identity, next.scene == projection.scene, next.destinationId == projection.destinationId,
               next.privacyGeneration == projection.privacyGeneration, next.updateSequence > projection.updateSequence,
               next.draftRevision >= projection.draftRevision,
               next.acknowledgedEditRevision >= projection.acknowledgedEditRevision, next.acknowledgedEditRevision <= editRevision else { return false }
-        if next.acknowledgedEditRevision == editRevision && !composing { draft = next.draft }
-        projection = next; return true
+        if next.acknowledgedEditRevision == editRevision && !composing && !lastComposing { draft = next.draft; committedDraft = next.draft }
+        projection = next; flushCompositionReset(); return true
     }
     private func emit(_ value: Projection.Draft) {
         guard canEdit, value.valid, editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return }
         let marked = composing
-        guard value != draft || marked != lastComposing else { return }
-        draft = value; lastComposing = marked; editRevision += 1
-        if edit?(value, marked, editRevision) != true { clear() }
+        if marked {
+            guard !lastComposing else { return }
+            lastComposing = true; editRevision += 1
+            if edit?(committedDraft, true, editRevision) != true { clear() }
+            return
+        }
+        guard value != draft || lastComposing else { return }
+        draft = value; committedDraft = value; lastComposing = false; editRevision += 1
+        if edit?(value, false, editRevision) != true { clear() }
     }
     func capture() {
+        guard suppressCapture == 0 else { return }
         var value = draft
         for (name, field) in fields { if let text = field.value?.text { value[name] = text } }
         for (name, field) in textViews { if let text = field.value?.text { value[name] = text } }
@@ -164,9 +250,10 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
               action.action == "cancel" || !projection.checking && !composing && projection.canSave && action.editRevision == editRevision && projection.acknowledgedEditRevision == editRevision else { return false }
         confirmed = action.sequence; return true
     }
-    func settle(_ action: NativeProfileNameAction) -> Bool { guard !retired, pending == action else { return false }; pending = nil; return true }
+    func settle(_ action: NativeProfileNameAction) -> Bool { guard !retired, pending == action else { return false }; pending = nil; flushCompositionReset(); return true }
     func clear() {
         guard !retired else { return }
+        let hadUncommittedComposition = composing || lastComposing
         retired = true; edit = nil; choose = nil
         let editors = fields.values.compactMap(\.value)
         for field in editors { field.unmarkText(); field.resignFirstResponder() }
@@ -177,16 +264,20 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
         // A committed edit is still unacknowledged even if the bridge callback
         // accepted dispatch. This also covers callback rejection after emit()
         // updated the local draft; equality alone cannot prove React received it.
-        if !composing && last.valid && (last != draft || lastComposing || editRevision > projection.acknowledgedEditRevision), editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration {
-            editRevision += 1; finalEdit?(last, editRevision)
+        let finalDraft = hadUncommittedComposition ? committedDraft : last
+        if finalDraft.valid && (hadUncommittedComposition || last != draft || editRevision > projection.acknowledgedEditRevision), editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration {
+            editRevision += 1; finalEdit?(finalDraft, editRevision)
         }
         finalEdit = nil
-        for field in editors { field.text = ""; field.undoManager?.removeAllActions() }
+        for field in editors {
+            field.text = ""; field.undoManager?.removeAllActions()
+            if !editMenus.markDetached(field) { field.delegate = nil }
+        }
         for field in textViews.values.compactMap({ $0.value }) {
-            if !editMenus.contains(field) { field.delegate = nil }
+            if !editMenus.markDetached(field) { field.delegate = nil }
             field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
         }
-        fields.removeAll(); textViews.removeAll(); draft = .empty; projection.draft = .empty; projection.error = nil; pending = nil
+        fields.removeAll(); textViews.removeAll(); draft = .empty; committedDraft = .empty; projection.draft = .empty; projection.error = nil; pending = nil; pendingCompositionReset = false
     }
 }
 typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
@@ -210,17 +301,17 @@ typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
     func updateUIView(_ field: UITextField, context: Context) {
         context.coordinator.owner = self; field.isEnabled = model.canEdit; field.textColor = .label; field.tintColor = model.accent
         let text = model.draft[name]
-        if field.markedTextRange == nil && field.text != text {
-            let selection = field.selectedTextRange.map { (field.offset(from: field.beginningOfDocument, to: $0.start), field.offset(from: field.beginningOfDocument, to: $0.end)) }
-            field.text = text
-            if let selection, let start = field.position(from: field.beginningOfDocument, offset: min(selection.0, text.utf16.count)),
-               let end = field.position(from: field.beginningOfDocument, offset: min(selection.1, text.utf16.count)) { field.selectedTextRange = field.textRange(from: start, to: end) }
-        }
+        NativeTextFieldProjection.apply(text, to: field)
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     static func dismantleUIView(_ field: UITextField, coordinator: Coordinator) {
-        field.delegate = nil; field.removeTarget(coordinator, action: #selector(Coordinator.changed), for: .editingChanged)
-        field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+        let model = coordinator.owner.model
+        model.scrubEditor(field) {
+            model.unregister(field, name: coordinator.owner.name)
+            field.removeTarget(coordinator, action: #selector(Coordinator.changed), for: .editingChanged)
+            field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+            if !model.detachEditor(field) { field.delegate = nil }
+        }
     }
     final class Coordinator: NSObject, UITextFieldDelegate {
         var owner: NativeProfilePrivateField; init(_ owner: NativeProfilePrivateField) { self.owner = owner }
@@ -228,7 +319,9 @@ typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
         func textFieldDidChangeSelection(_ field: UITextField) { owner.model.capture() }
         func textField(_ textField: UITextField, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) { owner.model.editMenuPresented(textField) }
         func textField(_ textField: UITextField, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
-            let model = owner.model; animator.addCompletion { model.editMenuDismissed(textField) }
+            let model = owner.model
+            guard let token = model.beginEditorMenuDismissal(textField) else { return }
+            animator.addCompletion { model.editMenuDismissed(textField, token: token) }
         }
         func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             guard owner.model.canEdit, let text = field.text as NSString?, range.location <= text.length, range.length <= text.length - range.location else { return false }

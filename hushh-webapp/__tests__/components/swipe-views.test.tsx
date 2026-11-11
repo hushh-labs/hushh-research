@@ -60,8 +60,7 @@ const OPTIONS = [
 
 describe("SwipeViews", () => {
   it.each(["prop", "shell"] as const)("does not report a %s-owned tab choice back as another selection", source => {
-    const changed = vi.fn();
-    const committed = vi.fn();
+    const changed = vi.fn(), committed = vi.fn();
     const view = render(<SwipeViews options={OPTIONS} tabSetId="route-choice" activeValue="first" onSelectionChange={changed} onSelectionCommit={committed}><div>First</div><div>Second</div></SwipeViews>);
     // Real Embla emits select synchronously from scrollTo. A prop update runs
     // before the old subscription's effect cleanup, so closures can be stale.
@@ -499,6 +498,8 @@ describe("SwipeViews", () => {
       rendered = target;
       act(() => embla.listeners.get("settle")?.());
       expect(onSelectionChange).not.toHaveBeenCalled();
+      // The tab/route owner already issued the reversal. Settling its motion
+      // must not issue another navigation and supersede the owner's intent.
       expect(onSelectionCommit).not.toHaveBeenCalled();
     },
   );

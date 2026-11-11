@@ -16,10 +16,26 @@ One is the private agent. Kai is the finance specialist. The maintained command 
 
 `kai-action-gateway.vnext.json`, existing `lib/voice` types, route journeys and local action identifiers remain compatibility contracts shared with typed search, text chat and Location tap flows. Authored `.voice-action-contract.json` files remain the source; generated projections must not become independent catalogs.
 
+Capability graph compatibility permits appended search terms. Reachable
+routes/screens may append only for existing navigation-only actions, with their
+prior ordered entries and every other action field remaining exact. Existing alias additions retain their relative-order rule. Targets,
+fallback, input, authorization and confirmation changes still require an explicit
+migration or exact-revision retirement; these additions do not retire paused runs.
+
+Connections may retain paused setup across added, unbound PATCH inventory only
+under its already-established authenticated read boundary. The compiler still
+excludes those entries from executable capabilities. Existing endpoints,
+steps, cursors, bindings and permissions stay exact; only the accurate inventory
+count changes. New bindings, public authority or executable-plan changes remain
+incompatible.
+
 Capability graph generation preserves compatible workflow history from the
 committed feature parents of a merge with the current base, including an
 isolated first parent when the base arrives through another parent. Both
-lineages retain their qualified histories. Ancestor identity and workflow
+lineages retain their qualified histories. Target-branch retirements remain
+rejected when an older branch carries stale compatibility for those ancestors;
+a rejected incoming head, reverse rejection or migration-policy conflict still
+stops generation. Ancestor identity and workflow
 semantics remain verified; exact declared deprecations remain authoritative.
 The Connections endpoint-inventory retirement covers both serving graph
 `076c05cd70ea69d7` and merged graph `f6d226a2c5ca0b34`: their Connections

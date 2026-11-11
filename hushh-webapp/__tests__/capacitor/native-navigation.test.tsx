@@ -79,6 +79,25 @@ describe("native navigation presentation boundary", () => {
     }
     expect(measureNativeNavigationColumn(null)).toBeNull();
   });
+  it("keeps the React bottom bar when the native renderer flag is off", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
+    await act(async () => { await Promise.resolve(); });
+    expect(view.result.current.ready).toBe(false);
+    expect(view.result.current.reserved).toBe(false);
+    expect(bridge.getCapabilities).not.toHaveBeenCalled();
+    expect(bridge.setState).not.toHaveBeenCalled();
+    view.unmount();
+  });
+  it("restores the React bottom bar when native state admission is refused", async () => {
+    bridge.setState.mockResolvedValue({ supported: false, contentHeight: 0, bottomInset: 0 });
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
+    await waitFor(() => expect(view.result.current.reserved).toBe(false));
+    expect(view.result.current.ready).toBe(false);
+    expect(bridge.getCapabilities).toHaveBeenCalledOnce();
+    expect(bridge.setState).toHaveBeenCalled();
+    view.unmount();
+  });
   it("projects shared scroll without React rerenders only after native capability and state admission", async () => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, synchronizedBottomScroll: true,
       wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
@@ -179,7 +198,7 @@ describe("native navigation presentation boundary", () => {
       view.unmount();
     });
   it.each([false, true])("isolates retained overlays through exit/reopen; native drawers=%s", async (wholeNativeDrawers) => {
-    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, wholeNativeDrawers,
       interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
     bridge.regions.mockResolvedValue(false);
@@ -192,7 +211,7 @@ describe("native navigation presentation boundary", () => {
     await act(async () => { await Promise.resolve(); });
     expect(lastState().interactionEnabled).toBe(true);
     overlay.rerender(<Overlay state="open" />);
-    await waitFor(() => expect(lastState()).toMatchObject({ visible: wholeNativeDrawers, interactionEnabled: false }));
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: false }));
     select(before); expect(action).not.toHaveBeenCalled();
     const node = overlay.container.firstElementChild as HTMLDivElement;
     await act(async () => { node.hidden = true; });

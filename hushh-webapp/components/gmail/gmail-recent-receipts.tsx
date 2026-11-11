@@ -1,4 +1,5 @@
 "use client";
+import { NativeMailLayer, useNativeMailPaneActive, type MailNativeSection } from "./native-mail-workspace";
 
 import { withDeadline } from "@/lib/utils/with-deadline";
 import mailStyles from "./mail-workspace.module.css";
@@ -13,7 +14,7 @@ import {
 } from "react";
 
 import { ReceiptScrollContinuity } from "./receipt-scroll-continuity";
-import { ReceiptCollectionOverview } from "./receipt-collection-overview";
+import { ReceiptCollectionOverview, receiptCollectionOverview } from "./receipt-collection-overview";
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { MailActionButton as Button } from "./mail-action-button";
@@ -442,11 +443,13 @@ export function GmailRecentReceipts({
   onReceiptDetailLoaded,
   title = "Recent receipts",
   showOverview = true,
+  nativePresentation = true,
 }: {
   accountKey: string | null | undefined;
   headingId?: string;
   title?: string;
   showOverview?: boolean;
+  nativePresentation?: boolean;
   receipts: readonly ReceiptListItem[];
   savedRows?: readonly RecentReceiptRow[];
   sourceKeyAliases?: Readonly<Record<string, string>>;
@@ -466,6 +469,8 @@ export function GmailRecentReceipts({
   }>;
   onReceiptDetailLoaded?: (item: ReceiptListItem) => void;
 }) {
+  const nativePaneActive = useNativeMailPaneActive("receipts");
+  const nativeActive = nativePresentation && nativePaneActive;
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [selectedReceiptKey, setSelectedReceiptKey] = useState<string | null>(
     null,
@@ -638,7 +643,7 @@ export function GmailRecentReceipts({
         .join(" · ")
     : "";
 
-  return (
+  const fallback = (
     <ReceiptScrollContinuity scope={scope}>
       {showOverview ? <ReceiptCollectionOverview rows={rows} /> : null}
       <SectionHeader id={headingId} title={title} />
@@ -924,7 +929,43 @@ export function GmailRecentReceipts({
       </AdaptiveDetailSurface>
     </ReceiptScrollContinuity>
   );
+  if (!nativeActive) return fallback;
+  const overview = receiptCollectionOverview(rows);
+  const nativeSections: MailNativeSection[] = [
+    ...(showOverview ? [
+      { key: "receipt-overview", title: "Overview", rows: [
+        { key: "saved-count", label: "Saved receipts", detail: String(overview.active.length) },
+        { key: "paid-count", label: "Paid", detail: String(overview.summary.paid) },
+        { key: "attention-count", label: "Needs attention", detail: String(overview.summary.attention) },
+        { key: "upcoming-count", label: "Coming up", detail: String(overview.summary.upcoming) },
+        { key: "sample", label: "From your saved Mail sample." },
+        ...(rows.length !== overview.active.length ? [{ key: "archive-counts", label: "Previously saved receipts remain below; unresolved archive entries are excluded from these counts." }] : []),
+      ] },
+      { key: "receipt-categories", title: "Categories", rows: overview.ranked.length ? overview.ranked.map(([category, count]) => ({
+        key: "category:" + category, label: category, detail: String(count) + " · " + String(Math.round(count / overview.active.length * 100)) + "%",
+      })) : [{ key: "categories-empty", label: "Categories appear as receipts arrive." }] },
+    ] : []),
+    { key: "receipt-filters", title: "Receipt status filters", rows: RECEIPT_FILTER_OPTIONS.map(option => ({
+      key: "filter:" + option.value, label: option.label, selected: activeFilter === option.value,
+      run: () => { setActiveFilter(option.value); setDisplayPage(1); },
+    })) },
+    ...visibleGroups.map(group => ({ key: "month:" + group.key, title: group.label, rows: group.rows.map(row => ({
+      key: "receipt:" + row.id, label: row.merchantName,
+      detail: [formatReceiptAmount(row.currency, row.amount), row.archived ? "Previously saved · reconciliation needed" : row.sourceUnavailable ? "Source unavailable · " + receiptSecondaryLabel(row) : receiptSecondaryLabel(row)].filter(Boolean).join(" · "),
+      web: true, run: () => { selectedRowTriggerRef.current = null; setSelectedRowId(row.id); setSelectedReceiptKey(row.primaryReceiptKey); },
+    })) })),
+    ...(!visibleGroups.length ? [{ key: "receipt-empty", rows: [{ key: "empty", label: rows.length ? "No receipts match this view." : "No saved receipts yet. New receipts will appear after the next update." }] }] : []),
+    ...(pageCount > 1 ? [{ key: "receipt-pagination", rows: [
+      { key: "page", label: String(currentPage) + " / " + String(pageCount) },
+      { key: "previous", label: "Previous", enabled: currentPage > 1, run: () => setDisplayPage(currentPage - 1) },
+      { key: "next", label: "Next", enabled: currentPage < pageCount, run: () => setDisplayPage(currentPage + 1) },
+    ] }] : []),
+  ];
+  return <NativeMailLayer active={nativeActive} title={title} includeRoot sections={nativeSections}
+    search={{ query: search, label: "Search receipts", change: query => { setSearch(query); setDisplayPage(1); } }}
+    webChild={Boolean(selectedRow && selectedReceiptAvailable)} fallback={fallback} />;
 }
+
 
 function ReceiptDetailRow({
   label,
