@@ -41,7 +41,12 @@ that same task. Do not hand routine sync commands back to the developer.
 2. Reuse an existing sync PR or record the destination commit when equivalent
    content is already present. Coalesce overlapping Main/UAT syncs so the same
    patch is carried once; do not create recursive sync PRs merely for ancestry.
-3. Use the destination's normal review, combined-result CI and authorized merge
+3. Before landing a nonurgent sync, inspect active destination queue groups.
+   Coalesce the required operations delta before application admission, or let a
+   valid active group finish. Advancing its base rebuilds the group and can waste
+   already-running checks. An urgent correctness/security repair may supersede
+   it explicitly; record why. Preparation can continue without landing.
+   Use the destination's normal review, combined-result CI and authorized merge
    route. Record each sync PR, landed commit and verification in the existing
    release record before closing the merge task.
 4. Prepare downstream syncs while an admitted release runs; its source and

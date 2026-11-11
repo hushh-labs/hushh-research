@@ -335,10 +335,14 @@ def receipt_matches(receipt, state, validation):
     }
 
 
-def reusable(state, validations, read=api):
+def reusable(state, validations, read=api, *, reasons=None):
+    def explain(reason):
+        if reasons is not None:
+            reasons.append(reason)
+        return False
     # A single PR receipt cannot prove a multi-PR selection/approval context.
     if len(validations) != 1:
-        return False
+        return explain("multiple_prs_require_combined_selection")
     validation = validations[0]
     inventory = read(f"repos/{state['repository']}/actions/runs/{validation['run']}/artifacts?per_page=100")
     rows = inventory.get("artifacts")
@@ -347,7 +351,7 @@ def reusable(state, validations, read=api):
     name = f"ci-combined-inputs-{validation['run']}-{validation['attempt']}"
     matches = [row for row in rows if row.get("name") == name]
     if not matches or (len(matches) == 1 and matches[0].get("expired") is True):
-        return False  # Old successful runs without current proof receive checks.
+        return explain("combined_input_receipt_missing_or_expired")
     require(len(matches) == 1 and matches[0].get("expired") is False,
             "Combined-input receipt is ambiguous")
     from release_artifact_receipts import immutable_archive, _status_bytes
@@ -356,7 +360,16 @@ def reusable(state, validations, read=api):
         run_command=lambda argv, **kw: subprocess.run(argv, check=True, capture_output=True, **kw),
         timeout=60)
     receipt = json.loads(_status_bytes(archive, "ci-combined-inputs.json"))
-    return receipt_matches(receipt, state, validation)
+    matches = receipt_matches(receipt, state, validation)
+    if not matches:
+        # Explain only machine fields, never provider/account payloads. Exact
+        # matching remains the existing receipt owner's decision.
+        expected = {"base": state["base"], "tree": state["tree"],
+                    "head": validation["head"], "attempt": validation["attempt"]}
+        changed = [key for key, value in expected.items()
+                   if not isinstance(receipt, dict) or receipt.get(key) != value]
+        return explain("combined_inputs_differ:" + ",".join(changed or ["selection_or_receipt_contract"]))
+    return True
 
 
 
@@ -599,14 +612,15 @@ def main():
         state = snapshot()
         validations = current_validations(state)
         if args.operation == "plan":
-            reuse = reusable(state, validations)
-            value = {"state": state, "validations": validations, "reuse": reuse}
+            reuse_reasons = []
+            reuse = reusable(state, validations, reasons=reuse_reasons)
+            value = {"state": state, "validations": validations, "reuse": reuse, "reuse_reasons": reuse_reasons}
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
                 output.write(f"reuse={'true' if reuse else 'false'}\n")
             print(
                 "Reusing proven combined inputs."
                 if reuse
-                else "Validating changed contracts on the combined result."
+                else "Validating combined result: " + "; ".join(reuse_reasons)
             )
         else:
             value = json.loads(args.receipt.read_text())
