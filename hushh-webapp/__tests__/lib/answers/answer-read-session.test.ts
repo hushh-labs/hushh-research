@@ -2,11 +2,11 @@ import "fake-indexeddb/auto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const transport = vi.hoisted(() => ({ apiFetch: vi.fn(), encrypt: vi.fn(), refreshAccountIdentityShadow: vi.fn() }));
+const transport = vi.hoisted(() => ({ apiFetch: vi.fn(), encrypt: vi.fn(), refreshAccountIdentityShadow: vi.fn(), getPersonalAgentStatus: vi.fn(), firebaseUser: { uid: "answer-read-owner" } as { uid: string } | null }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
 vi.mock("@/lib/capacitor", () => ({ HushhPersonalKnowledgeModel: {}, HushhVault: { encryptData: transport.encrypt } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: transport }));
-vi.mock("@/lib/firebase/config", () => ({ auth: { currentUser: null } }));
+vi.mock("@/lib/firebase/config", () => ({ auth: { get currentUser() { return transport.firebaseUser; } } }));
 
 import { ensureMarketplaceRecipientKey, encryptSliceForRecipient, decryptMarketplaceEnvelope } from "@/lib/one-marketplace/encryption";
 import { loadMarkdownMemory, clearMarkdownMemory, replaceMarkdownMemoryDocument } from "@/lib/pkm/markdown-memory";
@@ -20,6 +20,7 @@ import { encryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { AnswerRequestService, type AnswerableWork } from "@/lib/services/answer-request-service";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const OWNER = "answer-read-owner";
 const KEY = "ab".repeat(32);
@@ -137,6 +138,9 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-10-13T12:00:00.000Z"));
   transport.apiFetch.mockReset();
+  transport.getPersonalAgentStatus.mockReset().mockResolvedValue({ hostingMode: "shared" });
+  transport.firebaseUser = { uid: OWNER };
+  publishValidatedAuthSessionPrincipal({ firebaseUid: OWNER, ownerId: OWNER, accountGeneration: 0 });
   transport.refreshAccountIdentityShadow.mockReset();
   transport.encrypt.mockImplementation(({ plaintext, keyHex }) => encryptData(plaintext, keyHex));
   clearMarkdownMemory();
@@ -146,6 +150,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  publishValidatedAuthSessionPrincipal(null);
+  transport.firebaseUser = null;
   vi.useRealTimers();
   clearMarkdownMemory();
   vi.restoreAllMocks();
@@ -452,13 +458,13 @@ describe("actual application Gemini preparation and encrypted staging", () => {
     expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
   });
 
-  it("keeps Gemini failure retryable and stages only after a later successful composition", async () => {
+  it("stops failed Gemini preparation until a later explicit successful attempt", async () => {
     const work = await applicationWork([NAME]);
     let succeed = false;
     const state = applicationTransport({ work, compose: () => succeed
       ? Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "A later Gemini answer.", covers: [NAME], gaps: [] })
       : new Response("", { status: 503 }) });
-    expect(await sweep()).toMatchObject({ delivered: 0, empty: 0, retry: 1 });
+    await expect(sweep()).rejects.toMatchObject({ name: "AnswerPreparationError" });
     expect(state.staged).toHaveLength(0);
     succeed = true;
     expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
@@ -469,7 +475,7 @@ describe("actual application Gemini preparation and encrypted staging", () => {
   it("refuses a readable-looking reply without authenticated Gemini composition evidence", async () => {
     const work = await applicationWork([NAME]);
     const state = applicationTransport({ work, compose: () => Response.json({ answerMode: "agent", answer: "An unproven direct answer.", covers: [NAME], gaps: [] }) });
-    expect(await sweep()).toMatchObject({ delivered: 0, empty: 0, retry: 1 });
+    await expect(sweep()).rejects.toMatchObject({ name: "AnswerPreparationError" });
     expect(state.staged).toHaveLength(0);
     expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
   });
@@ -480,7 +486,7 @@ describe("actual application Gemini preparation and encrypted staging", () => {
       answerMode: "agent", compositionReceipt: "synthetic-composition-receipt",
       answer: "I can only answer part of this question.", covers: [NAME], gaps: ["The question is not fully answered."],
     }) });
-    expect(await sweep()).toMatchObject({ delivered: 0, empty: 0, retry: 1 });
+    await expect(sweep()).rejects.toMatchObject({ name: "AnswerPreparationError" });
     expect(state.projections).toHaveLength(1);
     expect(state.staged).toHaveLength(0);
     expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
@@ -594,15 +600,16 @@ describe("actual application Gemini preparation and encrypted staging", () => {
     expect(JSON.stringify(await rawCache())).not.toContain("STALE_REMOTE_GEMINI_ANSWER");
   });
 
-  it.each(["vault lock", "account switch"])("cannot stage an in-flight Gemini answer after %s", async () => {
+  it.each(["vault lock", "account switch"])("cannot stage an in-flight Gemini answer after %s", async event => {
     const work = await applicationWork([NAME]);
     let release!: (response: Response) => void;
     const state = applicationTransport({ work, compose: () => new Promise<Response>(resolve => { release = resolve; }) });
     const pending = sweep();
     await vi.waitFor(() => expect(state.projections).toHaveLength(1));
-    advanceVaultSessionEpoch();
+    if (event === "vault lock") advanceVaultSessionEpoch();
+    else transport.firebaseUser = { uid: "another-firebase-owner" };
     release(Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "PRIVATE_PENDING_ANSWER", covers: [NAME], gaps: [] }));
-    await pending;
+    await expect(pending).rejects.toMatchObject({ name: "AnswerPreparationError" });
     expect(state.staged).toHaveLength(0);
     expect(JSON.stringify(await rawCache())).not.toContain("PRIVATE_PENDING_ANSWER");
   });

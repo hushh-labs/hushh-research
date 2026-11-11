@@ -352,3 +352,14 @@ it("times out visibly and never stages a late Gemini result", async () => {
     expect(deliver).not.toHaveBeenCalled();
   } finally { vi.useRealTimers(); }
 });
+
+it("does not turn an unconfirmed model dispatch into another preparation attempt", async () => {
+  const { AnswerPreparationError } = await import("@/lib/answers/answer-preparation-error");
+  answerable.mockResolvedValue([work()]);
+  setScopeProjection({ payload: { trips: ["Tokyo"] }, sourceContentRevision: 7 });
+  compose.mockRejectedValue(new AnswerPreparationError("Preparation was not confirmed."));
+  await expect(runAnswerDeliverySweep({ ...params, firebaseIdToken: "fixture-token" })).rejects.toBeInstanceOf(AnswerPreparationError);
+  expect(compose).toHaveBeenCalledTimes(1);
+  expect(encrypt).not.toHaveBeenCalled();
+  expect(deliver).not.toHaveBeenCalled();
+});

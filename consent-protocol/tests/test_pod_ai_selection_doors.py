@@ -191,6 +191,7 @@ async def test_a_checked_selection_is_sealed_into_the_log_and_never_echoed(
         "model": None,
         "checkedAtMs": checked,
         "lastFailure": None,
+        "answerRuntime": None,
     }
     records = await _records(pod)
     assert [r["payload"]["apiKey"] for r in records] == [SECRET], "held in the pod's own log"
@@ -496,10 +497,21 @@ async def test_default_patch_requires_an_actual_response_and_no_configuration_bo
 
 
 @pytest.mark.parametrize("provider", ["azure_openai", "gemini"])
+@pytest.mark.parametrize("wrong_cloud", [False, True])
 async def test_effective_default_uses_the_turn_authority_without_inference_or_selection_write(
-    pod, monkeypatch, provider
+    pod, monkeypatch, provider, wrong_cloud
 ):
     from unittest.mock import Mock
+
+    from hushh_mcp.services import pod_ai_effective_connection, pod_platform
+
+    cloud = "azure" if provider == "azure_openai" else "gcp"
+    if wrong_cloud:
+        cloud = "gcp" if cloud == "azure" else "azure"
+    monkeypatch.setattr(pod_platform, "workload_platform", lambda: cloud)
+    monkeypatch.setattr(
+        pod_ai_effective_connection, "cloud_default_fingerprint", lambda *args, **kwargs: "a" * 64
+    )
 
     monkeypatch.setattr(pod_turn, "_resolve_model", lambda: ("gemini", "manifest-model"))
     resolve = Mock(
@@ -525,6 +537,17 @@ async def test_effective_default_uses_the_turn_authority_without_inference_or_se
         "verification": "unverified",
     }
     assert await _records(pod) == before
+    assert state["answerRuntime"] == (
+        None
+        if wrong_cloud
+        else {
+            "version": 1,
+            "provider": provider,
+            "model": "actual-deployment",
+            "mode": "private",
+            "fingerprint": "a" * 64,
+        }
+    )
     resolve.assert_called_once()
 
 

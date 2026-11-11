@@ -550,3 +550,248 @@ async def test_unreceipted_legacy_stage_requires_gemini_refresh_before_new_check
     assert (await payments.get_payment(requester_user_id=REQUESTER, request_id=request))[
         "preparationStatus"
     ] == "ready"
+
+
+@pytest.mark.parametrize("attack", [None, "image", "epoch", "processor", "concurrent_image"])
+async def test_private_paid_stage_locks_runtime_and_retains_historical_recovery(
+    answer_engine,  # noqa: F811 -- imported pytest fixture
+    monkeypatch,
+    attack,
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import answer_composition_receipt as receipts
+    from hushh_mcp.services.answer_composition_contract import private_answer_binding
+
+    monkeypatch.setattr(
+        receipts,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="synthetic-private-runtime-signing-key"),
+    )
+    runtime = {
+        "version": 1,
+        "provider": "azure_openai",
+        "model": "gpt-fixture",
+        "mode": "private",
+        "fingerprint": "a" * 64,
+    }
+    service, request_id, digest = await _approved(answer_engine, processing_runtime=runtime)
+    metadata = {
+        "serviceUid": "native-service",
+        "source_image": "registry.example/one@sha256:" + "b" * 64,
+    }
+    row = {
+        "user_id": OWNER,
+        "hushh_id": "agent",
+        "status": "provisioned",
+        "backend_metadata": metadata,
+        "pod_signing_key_id": "key",
+        "placement_epoch": 2,
+    }
+    with answer_engine.begin() as conn:
+        conn.execute(
+            text("""CREATE TABLE IF NOT EXISTS personal_agent_registry (
+            user_id TEXT PRIMARY KEY, hushh_id TEXT, status TEXT, backend_metadata JSONB,
+            pod_signing_key_id TEXT, placement_epoch BIGINT)""")
+        )
+        conn.execute(
+            text("DELETE FROM personal_agent_registry WHERE user_id=:owner"), {"owner": OWNER}
+        )
+        conn.execute(
+            text("""INSERT INTO personal_agent_registry
+            (user_id,hushh_id,status,backend_metadata,pod_signing_key_id,placement_epoch)
+            VALUES (:owner,'agent','provisioned',CAST(:metadata AS jsonb),'key',2)"""),
+            {"owner": OWNER, "metadata": json.dumps(metadata)},
+        )
+    work = await service.assert_answerable(owner_user_id=OWNER, request_id=request_id)
+    assert work["processingRuntime"] == runtime
+    assert work["termsDigest"] == digest
+    issued_runtime = {**runtime, "model": "changed-model"} if attack == "processor" else runtime
+    receipt = receipts.issue_private_composition_receipt(
+        work={**work, "processingRuntime": issued_runtime},
+        binding=private_answer_binding(row),
+        processing_runtime=issued_runtime,
+        selection_revision=1,
+        runtime_mode="user_azure_mi",
+        answer_digest="c" * 64,
+        input_digest="d" * 64,
+    )
+    if attack == "concurrent_image":
+        from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+
+        metadata["source_image"] = "registry.example/one@sha256:" + "e" * 64
+        # A competing real session owns the row. The native lock deadline must
+        # refuse staging; a snapshot would accept the obsolete incarnation.
+        with answer_engine.begin() as replacement:
+            replacement.execute(
+                text(
+                    "UPDATE personal_agent_registry SET backend_metadata=CAST(:metadata AS jsonb) WHERE user_id=:owner"
+                ),
+                {"owner": OWNER, "metadata": json.dumps(metadata)},
+            )
+            with pytest.raises(ConnectorLifecycleError, match="connector_storage_unavailable"):
+                await service.deliver(
+                    owner_user_id=OWNER,
+                    request_id=request_id,
+                    envelope=ENVELOPE,
+                    composition_receipt=receipt,
+                )
+        with answer_engine.connect() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT count(*) FROM pkm_answer_deliveries WHERE request_id=:request"),
+                    {"request": request_id},
+                ).scalar()
+                == 0
+            )
+        return
+    if attack in {"image", "epoch"}:
+        if attack == "image":
+            metadata["source_image"] = "registry.example/one@sha256:" + "e" * 64
+        with answer_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE personal_agent_registry SET backend_metadata=CAST(:metadata AS jsonb),placement_epoch=:epoch WHERE user_id=:owner"
+                ),
+                {
+                    "owner": OWNER,
+                    "metadata": json.dumps(metadata),
+                    "epoch": 3 if attack == "epoch" else 2,
+                },
+            )
+    if attack:
+        with pytest.raises(AnswerRequestError, match="composition_receipt_required"):
+            await service.deliver(
+                owner_user_id=OWNER,
+                request_id=request_id,
+                envelope=ENVELOPE,
+                composition_receipt=receipt,
+            )
+        with answer_engine.connect() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT count(*) FROM pkm_answer_deliveries WHERE request_id=:request"),
+                    {"request": request_id},
+                ).scalar()
+                == 0
+            )
+        return
+    await service.deliver(
+        owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE, composition_receipt=receipt
+    )
+    # Later key/image retirement cannot invalidate an already immutable staged answer.
+    with answer_engine.begin() as conn:
+        conn.execute(
+            text("DELETE FROM personal_agent_registry WHERE user_id=:owner"), {"owner": OWNER}
+        )
+    payment = await PkmAnswerPaymentService(_db(answer_engine)).get_payment(
+        requester_user_id=REQUESTER, request_id=request_id
+    )
+    assert payment["preparationStatus"] == "ready"
+    assert (
+        receipts.verify_composition_receipt(
+            receipt,
+            request_id=request_id,
+            owner_user_id=OWNER,
+            terms_digest=digest,
+            require_fresh=False,
+        )["processing_runtime"]["model"]
+        == "gpt-fixture"
+    )
+
+
+async def test_runtime_approval_migration_replay_and_incompatible_rollback(
+    answer_engine,  # noqa: F811 -- imported pytest fixture
+):
+    from pathlib import Path
+
+    from psycopg2.errors import RaiseException
+
+    root = Path(__file__).resolve().parents[2] / "db/migrations"
+    forward = (root / "parked/989_pkm_answer_processing_runtime.sql").read_text()
+    rollback = (root / "rollback/989_pkm_answer_processing_runtime.rollback.sql").read_text()
+    raw = answer_engine.raw_connection()
+    driver = raw.driver_connection
+    original_autocommit = driver.autocommit
+    try:
+        driver.autocommit = True
+        with driver.cursor() as cursor:
+            cursor.execute(forward)
+            cursor.execute(forward)
+            cursor.execute(rollback)
+            cursor.execute(rollback)
+            cursor.execute(
+                "SELECT count(*) FROM information_schema.columns WHERE table_name='pkm_answer_requests' AND column_name='composer_runtime'"
+            )
+            assert cursor.fetchone()[0] == 0
+            cursor.execute(forward)
+    finally:
+        with driver.cursor() as cleanup_cursor:
+            cleanup_cursor.execute("ROLLBACK")
+        driver.autocommit = original_autocommit
+        raw.close()
+    runtime = {
+        "version": 1,
+        "provider": "azure_openai",
+        "model": "gpt-fixture",
+        "mode": "private",
+        "fingerprint": "a" * 64,
+    }
+    service, request_id, _ = await _approved(answer_engine, processing_runtime=runtime)
+    raw = answer_engine.raw_connection()
+    driver = raw.driver_connection
+    original_autocommit = driver.autocommit
+    try:
+        driver.autocommit = True
+        with (
+            driver.cursor() as cursor,
+            pytest.raises(RaiseException, match="incompatible rollback refused"),
+        ):
+            cursor.execute(rollback)
+    finally:
+        with driver.cursor() as cleanup_cursor:
+            cleanup_cursor.execute("ROLLBACK")
+        driver.autocommit = original_autocommit
+        raw.close()
+    assert (await service.assert_answerable(owner_user_id=OWNER, request_id=request_id))[
+        "processingRuntime"
+    ] == runtime
+
+
+async def test_shared_openai_stage_preserves_configured_runtime_without_a_private_placement(
+    answer_engine,  # noqa: F811 -- imported pytest fixture
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import answer_composition_receipt as receipts
+
+    monkeypatch.setattr(
+        receipts,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="synthetic-shared-runtime-signing-key"),
+    )
+    runtime = {
+        "version": 1,
+        "provider": "azure_openai",
+        "model": "gpt-fixture",
+        "mode": "shared",
+        "fingerprint": "a" * 64,
+    }
+    service, request_id, digest = await _approved(answer_engine, processing_runtime=runtime)
+    receipt = receipts.issue_composition_receipt(
+        request_id=request_id,
+        owner_user_id=OWNER,
+        terms_digest=digest,
+        answer="Tokyo.",
+        projection={"memory": "Synthetic approved trip."},
+        processing_runtime=runtime,
+    )
+    await service.deliver(
+        owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE, composition_receipt=receipt
+    )
+    assert (
+        await PkmAnswerPaymentService(_db(answer_engine)).get_payment(
+            requester_user_id=REQUESTER, request_id=request_id
+        )
+    )["preparationStatus"] == "ready"

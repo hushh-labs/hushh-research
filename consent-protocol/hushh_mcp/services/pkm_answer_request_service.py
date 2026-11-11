@@ -581,6 +581,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         scopes: list[str],
         amount_cents: int,
         model_processing_consent: bool = False,
+        processing_runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """The owner approves the exact question, the exact scopes and a price.
 
@@ -589,6 +590,15 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         """
         if not model_processing_consent:
             raise AnswerRequestError("model_processing_consent_required")
+        if processing_runtime is not None:
+            from hushh_mcp.services.answer_composition_contract import ProcessingRuntime
+
+            try:
+                processing_runtime = ProcessingRuntime.model_validate(
+                    processing_runtime
+                ).model_dump()
+            except ValueError:
+                raise AnswerRequestError("model_processing_consent_required") from None
         if not valid_answer_price_cents(amount_cents):
             raise AnswerRequestError("invalid_price")
         chosen = sorted({str(scope or "").strip().lower() for scope in scopes if scope})
@@ -645,6 +655,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 owner_user_id=owner_user_id,
                 requester_user_id=request["requester_user_id"],
                 amount_cents=amount_cents,
+                processing_runtime=processing_runtime,
             )
             connection.execute(
                 text(
@@ -652,12 +663,23 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                        SET status = 'approved', amount_cents = :amount,
                            terms_digest = :digest, approved_at = clock_timestamp(),
                            composer_consent_at = clock_timestamp(),
-                           composer_consent_version = 'approved-projection-v1',
+                           composer_consent_version = :consent_version,
+                           composer_runtime = CAST(:runtime AS jsonb),
                            composer_consent_digest = :digest,
                            updated_at = clock_timestamp()
                        WHERE request_id = :request"""
                 ),
-                {"request": request_id, "amount": amount_cents, "digest": digest},
+                {
+                    "request": request_id,
+                    "amount": amount_cents,
+                    "digest": digest,
+                    "runtime": json.dumps(processing_runtime)
+                    if processing_runtime is not None
+                    else None,
+                    "consent_version": "approved-runtime-v2"
+                    if processing_runtime is not None
+                    else "approved-projection-v1",
+                },
             )
             self._feed(
                 connection,
@@ -858,7 +880,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             request = self._row(
                 connection,
                 """SELECT request_id, owner_user_id, requester_user_id, status, question, terms_digest,
-                          period_start, period_end, answer_deadline_at, composer_consent_digest
+                          period_start, period_end, answer_deadline_at, composer_consent_digest, composer_runtime
                    FROM pkm_answer_requests WHERE request_id = :request FOR SHARE""",
                 {"request": request_id},
             )
@@ -891,6 +913,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 "requestId": str(request["request_id"]),
                 "termsDigest": request["terms_digest"],
                 "question": request["question"],
+                "processingRuntime": request.get("composer_runtime"),
                 "modelProcessingConsented": request["composer_consent_digest"]
                 == request["terms_digest"],
                 "approvedScopes": [r["scope"] for r in scope_rows if r["approved"]],
@@ -949,7 +972,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             request = self._row(
                 connection,
                 """SELECT request_id, owner_user_id, requester_user_id, status, terms_digest, answer_deadline_at,
-                          composer_consent_digest
+                          composer_consent_digest, composer_runtime
                    FROM pkm_answer_requests WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
@@ -980,11 +1003,37 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 if request["composer_consent_digest"] != request["terms_digest"]:
                     raise AnswerRequestError("model_processing_consent_required")
                 try:
+                    runtime_binding = None
+                    if (
+                        isinstance(composition_receipt, str)
+                        and composition_receipt.startswith("v2.")
+                        and (request.get("composer_runtime") or {}).get("mode") == "private"
+                    ):
+                        from hushh_mcp.services.answer_composition_contract import (
+                            private_answer_binding,
+                        )
+
+                        # Hold the current incarnation through the same staging transaction.
+                        placement = self._row(
+                            connection,
+                            """SELECT user_id, hushh_id, status,
+                            backend_metadata, pod_signing_key_id, placement_epoch
+                            FROM personal_agent_registry WHERE user_id=:owner FOR SHARE""",
+                            {"owner": owner_user_id},
+                        )
+                        if placement is None:
+                            raise CompositionReceiptError("composition_receipt_required")
+                        try:
+                            runtime_binding = private_answer_binding(dict(placement))
+                        except (ValueError, KeyError, TypeError):
+                            raise CompositionReceiptError("composition_receipt_required") from None
                     verify_composition_receipt(
                         composition_receipt,
                         request_id=request_id,
                         owner_user_id=owner_user_id,
                         terms_digest=request["terms_digest"],
+                        runtime_binding=runtime_binding,
+                        processing_runtime=request.get("composer_runtime"),
                     )
                 except CompositionReceiptError:
                     raise AnswerRequestError("composition_receipt_required") from None
@@ -1013,7 +1062,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 stored, request
             ):
                 # A duplicate empty delivery must never release a legacy
-                # success envelope which has not yet been repaired by Gemini.
+                # success envelope which has not yet been repaired by the approved model.
                 raise AnswerRequestError("composition_receipt_required")
             if staging:
                 # Prepared, sealed to the requester's key, and withheld. The

@@ -17,6 +17,26 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
+## Dev PKM scope sharing — 11 November 2026
+
+**Question delivery and owner approval passed; paid-answer acceptance remains open.**
+The receiving-key fix [#9306](https://github.com/hushh-labs/hushh-research/pull/9306)
+and exact-leaf eligibility fix [#9311](https://github.com/hushh-labs/hushh-research/pull/9311)
+passed exact-source CI and governed Dev releases. The actual two-account interface
+verified isolated Dev identity, normal unlock, one synthetic question, its exact
+available PKM scope and a $1 owner approval. No payment was attempted.
+
+The hub correctly refused private composition. The follow-up candidate reuses the
+writer through the existing owner-pod session and sealed consent feed, with
+provider/model-bound terms: Azure/OpenAI, GCP/Gemini and configured Shared runtime.
+It adds forward migration 989; this candidate is local and has not been released.
+The earlier Google-only approval requires fresh owner approval for Azure/OpenAI.
+Checkout, signed settlement, requester decryption and cold recovery remain pending.
+Canonical tasks: [paid scope sharing #7587](https://github.com/hushh-labs/hushh-research/issues/7587)
+and [owner pods #5507](https://github.com/hushh-labs/hushh-research/issues/5507).
+This is PKM scope sharing, not Drive/document sharing. Managed-pilot acceptance
+remains paused at 0/2; this work does not establish production readiness.
+
 ## Current decision — 9 November 2026
 
 **UAT application acceptance passed; installed-owner pod acceptance remains a

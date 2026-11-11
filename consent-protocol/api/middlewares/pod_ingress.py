@@ -70,6 +70,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/commands/assess",
         "/api/one/pod/memory/proposals",
         "/api/one/pod/memory/rewrite",
+        "/api/one/pod/answers/compose",
         "/api/one/pod/files/worker",
         "/api/one/pod/tasks",
         "/api/one/pod/tasks/control",

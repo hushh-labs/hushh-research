@@ -4,7 +4,7 @@
  * Owner review for one paid-answer request.
  *
  * The semantic resolver proposes the exact memory; the owner reviews it and
- * confirms a price with explicit Gemini processing consent. Failed resolution
+ * confirms a price with explicit provider/model processing consent. Failed resolution
  * permits retry or decline only.
  *
  * Approval binds the question, the chosen scopes, both people and the quote
@@ -21,6 +21,8 @@ import { AccountIdentityService } from "@/lib/services/account-identity-service"
 import {
   AnswerRequestService,
   type PendingAnswerRequest,
+  type AnswerProcessingRuntime,
+  answerProcessorLabel,
 } from "@/lib/services/answer-request-service";
 import { answerScopeAvailability, type AnswerScopeAvailability } from "@/lib/answers/answer-scope-availability";
 import { retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
@@ -65,8 +67,13 @@ export function AnswerRequestReview({
   const coverage = checked?.key === coverageKey ? checked.value : null;
   const chosen = coverage?.available ?? [];
   const period = request.periodStart && request.periodEnd ? { start: request.periodStart, end: request.periodEnd } : null;
-  const termsKey = JSON.stringify([request.requestId, request.question, proposed, period]);
-  const [consented, setConsented] = useState(false);
+  const processorKey = JSON.stringify([request.requestId, userId, snapshotVaultSessionEpoch()]);
+  const [processorFailed, setProcessorFailed] = useState<string | null>(null);
+  const [processor, setProcessor] = useState<{ key: string; value: AnswerProcessingRuntime } | null>(null);
+  const runtime = processor?.key === processorKey && processorFailed !== processorKey ? processor.value : null;
+  const termsKey = JSON.stringify([request.requestId, request.question, proposed, period, runtime]);
+  const [consentKey, setConsentKey] = useState<string | null>(null);
+  const consented = consentKey === termsKey;
   const [priceOpen, setPriceOpen] = useState(false);
   const [pricedSelection, setPricedSelection] = useState<{ key: string; scopes: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,7 +83,7 @@ export function AnswerRequestReview({
     if (pricedSelection && pricedSelection.key !== termsKey) {
       setPriceOpen(false);
       setPricedSelection(null);
-      setConsented(false);
+      setConsentKey(null);
     }
   }, [pricedSelection, termsKey]);
 
@@ -108,11 +115,19 @@ export function AnswerRequestReview({
       if (!idToken) throw new Error("Sign in to check these details.");
       const identity = await AccountIdentityService.refreshIdentityForSession(userId, idToken, { force: true });
       if (!identity || !current()) throw new Error("Account identity unavailable.");
-      const retrieval = await retrieveApprovedMemoryScopes({
+      const [retrievalRead, runtimeRead] = await Promise.allSettled([retrieveApprovedMemoryScopes({
         userId, vaultKey, vaultOwnerToken,
         approvedScopes: proposed,
         ownerIdentity: { displayName: identity.display_name, email: identity.email, photoUrl: identity.photo_url },
-      });
+      }), AnswerRequestService.runtime(idToken)]);
+      if (current()) {
+        if (runtimeRead.status === "fulfilled") {
+          setProcessor({ key: processorKey, value: runtimeRead.value });
+          setProcessorFailed(null);
+        } else setProcessorFailed(processorKey);
+      }
+      if (retrievalRead.status === "rejected") throw retrievalRead.reason;
+      const retrieval = retrievalRead.value;
       if (current()) setChecked({ key: coverageKey, value: answerScopeAvailability({ scopes: proposed, retrieval, period }) });
     };
     void inspect().catch(() => {
@@ -145,7 +160,7 @@ export function AnswerRequestReview({
   const approve = (amountCents: number | null) => {
     if (amountCents === null) return;
     const approvedScopes = pricedSelection?.key === termsKey ? pricedSelection.scopes : [];
-    if (!consented || !matched || !approvedScopes.length) { setError("Check the available information and agree to Gemini processing before confirming."); return; }
+    if (!consented || !matched || !runtime || !approvedScopes.length) { setError("Check the available information and connected model before confirming."); return; }
     void run(async (token) => {
       if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to confirm.");
       const identity = await AccountIdentityService.refreshIdentityForSession(userId, token, { force: true });
@@ -161,7 +176,13 @@ export function AnswerRequestReview({
       const fresh = answerScopeAvailability({ scopes: approvedScopes, retrieval, period });
       if (!retrieval.complete || fresh.available.length !== approvedScopes.length) throw new Error("The available information changed. Review this request again.");
       await retrieval.assertCurrent();
-      await AnswerRequestService.approve(token, request.requestId, approvedScopes, amountCents, consented);
+      const freshRuntime = await AnswerRequestService.runtime(token);
+      if (JSON.stringify(freshRuntime) !== JSON.stringify(runtime)) {
+        setRefreshTick(value => value + 1);
+        setConsentKey(null);
+        throw new Error("The connected model changed. Review this request again.");
+      }
+      await AnswerRequestService.approve(token, request.requestId, approvedScopes, amountCents, consented, runtime);
     }, true);
   };
 
@@ -185,7 +206,7 @@ export function AnswerRequestReview({
             ) : null}
           </div>
 
-          <HelperText as="p">One will use the matched memory with Gemini to prepare this answer.</HelperText>
+          <HelperText as="p">{runtime ? `One will use ${answerProcessorLabel(runtime)} to prepare this answer from the approved memory.` : processorFailed === processorKey ? "Could not verify the connected model. Update your agent or try again." : "Checking the connected model…"}</HelperText>
           {matched ? (
             <>
               {!coverage ? <HelperText as="p" role="status">Checking what is recorded in your memory…</HelperText> : (
@@ -204,9 +225,9 @@ export function AnswerRequestReview({
                   type="checkbox"
                   checked={consented}
                   disabled={busy}
-                  onChange={event => setConsented(event.target.checked)}
+                  onChange={event => setConsentKey(event.target.checked ? termsKey : null)}
                 />
-                I agree to Google Gemini processing this question and the available information.
+                I agree to {runtime ? answerProcessorLabel(runtime) : "the connected model"} processing this question and the available information.
               </Label>
             </>
           ) : (
@@ -227,7 +248,7 @@ export function AnswerRequestReview({
               <Button data-consent-role="primary-action"
                 type="button"
                 size="prominent"
-                disabled={busy || !matched || !consented || chosen.length === 0}
+                disabled={busy || !matched || !runtime || !consented || chosen.length === 0}
                 onClick={() => {
                   setPricedSelection({ key: termsKey, scopes: [...chosen] });
                   setPriceOpen(true);
