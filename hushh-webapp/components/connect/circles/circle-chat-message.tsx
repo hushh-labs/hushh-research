@@ -130,17 +130,17 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
               if (!confirmed || !visible || layoutBlocked) return;
               event.preventDefault(); longPress.cancel(); setMenuOpen(true);
             }}>
-            {!own && !grouped ? <p className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{senderName}</bdi></p> : null}
-            {deleted ? <p className={styles.failed}>This message was deleted.</p> : message.failed ? <p className={styles.failed}>This message could not be opened on this device.</p> : <>
+            {!own && !grouped ? <p data-connect-role="description" className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{senderName}</bdi></p> : null}
+            {deleted ? <p data-connect-role="description" className={styles.failed}>This message was deleted.</p> : message.failed ? <p data-connect-role="description" className={styles.failed}>This message could not be opened on this device.</p> : <>
               {confirmed && message.replyToMessageId ? replyTarget?.content && !replyTarget.deletedForEveryoneAt && !replyTarget.failed ? <button type="button" className={styles.quote} aria-label={`View original message from ${replyName}`} onClick={() => onJump?.(replyTarget)} disabled={!visible || layoutBlocked}>
                 <strong><bdi>{replyName}</bdi></strong><span dir="auto">{replyTarget.content.text || replyTarget.content.attachment?.name || replyTarget.content.image?.name || "Attachment"}</span>
               </button> : <div className={styles.quote}>Original message unavailable</div> : null}
               {image ? <ChatImage session={session} message={confirmed ? message : undefined} type={image.type} localImage={message.localImage} thumbnail={image.thumbnail} messagesLane={messagesLane}
                 visible={visible} layoutBlocked={layoutBlocked} scrollRoot={scrollRoot} onError={onMediaError} onViewerChange={(open) => onViewerChange(viewerId, open)} /> : null}
               {file && confirmed ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
-              {message.content?.text ? <p dir="auto" className={`${styles.text} ${image || file ? styles.caption : ""}`}>{message.content.text}</p> : null}
+              {message.content?.text ? <p data-location-type-role="body" dir="auto" className={`${styles.text} ${image || file ? styles.caption : ""}`}>{message.content.text}</p> : null}
             </>}
-            <div className={styles.meta}>
+            <div data-connect-role="description" className={styles.meta}>
               {confirmed && message.editedAt && !deleted ? <span>Edited</span> : null}
               <time dateTime={message.createdAt} title={time.toLocaleString()}>{time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</time>
               {own ? confirmed ? <span aria-label={status} title={status} className={seen ? styles.seen : ""}>{seen ? <CheckCheck aria-hidden="true" className="size-3" /> : <Check aria-hidden="true" className="size-3" />}</span>
@@ -174,7 +174,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
           className={`${styles.pill} ${reaction.reactedByViewer ? styles.mine : ""}`} aria-label={`${reaction.emoji}, ${reaction.count} reactions${reaction.reactedByViewer ? ", you reacted" : ""}`}
           disabled={busy || !visible || layoutBlocked} onClick={() => void react(reaction.emoji)}><span className={styles.badge}><span aria-hidden="true">{reaction.emoji}</span><span>{reaction.count}</span></span></button>)}
         </div> : null}
-        {reactionError ? <p role="alert" className={styles.reactionError}>Reaction could not be saved. Try again.</p> : null}
+        {reactionError ? <p data-connect-role="description" role="alert" className={styles.reactionError}>Reaction could not be saved. Try again.</p> : null}
       </div>
     </div>
   </li>;

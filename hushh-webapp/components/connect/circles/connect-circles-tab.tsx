@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   useCallback,
   useContext,
@@ -702,7 +703,7 @@ export function ConnectCirclesTab({
         }}
       />
     ) : (
-      <p className="text-sm text-[color:var(--app-secondary-label)]">
+      <p data-connect-role="description" className="text-sm text-[color:var(--app-secondary-label)]">
         Unlock One to create a Circle.
       </p>
     );
@@ -822,7 +823,7 @@ export function ConnectCirclesTab({
           );
           announceCircleMutation("location_circle_photo_updated", circleId);
           toast.success(
-            photoUrl ? "Circle photo updated." : "Circle photo removed.",
+            photoUrl ? "Circle photo updated." : "Circle photo removed.", { className: connectTypography.toast },
           );
           return updated;
         }}
@@ -859,7 +860,7 @@ export function ConnectCirclesTab({
           if (!onRequestConnection) {
             // Never fall back to sending outright. A request that skips the
             // review is the one thing this row must not do.
-            toast.error("Open Connections to send a connection request.");
+            toast.error("Open Connections to send a connection request.", { className: connectTypography.toast });
             return;
           }
           await onRequestConnection({
@@ -1054,7 +1055,7 @@ export function ConnectCirclesTab({
               {ownedGroups.map(group => (
                 <section key={group.label.toLocaleLowerCase()} aria-label={`${group.label} circles`}>
                   <div className={styles.circleHeading}>
-                    <h3>{group.label} <span className={styles.count}>{group.circles.length}</span></h3>
+                    <h3 data-connect-role="section">{group.label} <span className={styles.count}>{group.circles.length}</span></h3>
                     {group.custom && customTypesSupported ? (
                       <Button type="button" variant="none" effect="fade" size="icon-touch"
                         aria-label={`Delete ${group.label} type`} disabled={busy}
@@ -1076,14 +1077,14 @@ export function ConnectCirclesTab({
             </section>
           ) : (
             <div className="py-5 text-center">
-              <h3 className="text-sm font-semibold">
+              <h3 data-connect-role="section" className="text-sm font-semibold">
                 {circleQuery
                   ? "No circles found"
                   : joined.length
                     ? "No circles created yet."
                     : "Make a circle"}
               </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p data-connect-role="description" className="mt-1 text-xs text-muted-foreground">
                 {circleQuery
                   ? "Try a different name."
                   : "Bring together people you choose."}
@@ -1128,7 +1129,7 @@ export function ConnectCirclesTab({
                 setReloadToken(value => value + 1);
                 announceCircleMutation("location_circle_type_deleted");
               });
-              morphyToast.promise(operation, { loading: "Deleting type…", success: "Type deleted. Your circles are kept.", error: "Could not delete this type. Try again." });
+              morphyToast.promise(operation, { className: connectTypography.toast, loading: "Deleting type…", success: "Type deleted. Your circles are kept.", error: "Could not delete this type. Try again." });
               void operation.catch(() => undefined).finally(() => {
                 if (listSessionRef.current === session) { listMutationRef.current = false; setBusy(false); }
               });
@@ -1212,7 +1213,7 @@ export function ConnectCirclesTab({
                   );
                   setPendingCircle(null);
                 })();
-                void morphyToast.promise(operation, {
+                void morphyToast.promise(operation, { className: connectTypography.toast,
                   loading:
                     selected.action === "delete"
                       ? "Deleting circle…"

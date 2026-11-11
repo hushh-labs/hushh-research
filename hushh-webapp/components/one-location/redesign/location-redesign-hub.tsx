@@ -18,6 +18,7 @@
  *   selection, swipes, and deep links cannot drift from the shared top shell.
  */
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   useCallback,
   useEffect,
@@ -1530,7 +1531,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       // said the action was gone while the retired screen stayed on screen.
       params.set(LOCATION_HUB_TAB_PARAM, "now");
       const query = params.toString();
-      toast.message("That's no longer there.");
+      toast.message("That's no longer there.", { className: connectTypography.toast });
       router.replace(query ? `${pathname}?${query}` : pathname, {
         scroll: false,
       });
@@ -3474,7 +3475,7 @@ function ActiveShareMetadata({
       <span>Active</span>
       <span aria-hidden="true">·</span>
       {sms ? (
-        <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[rgba(255,59,48,0.12)] px-1.5 text-[10px] font-semibold leading-none text-[#FF3B30]">
+        <span data-location-type-role="status" className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[rgba(255,59,48,0.12)] px-1.5 text-[10px] font-semibold leading-none text-[#FF3B30]">
           SMS
         </span>
       ) : null}
@@ -3886,7 +3887,7 @@ function CircleInvitationsDialog({
           decision === "accept"
             ? "Could not join this Circle."
             : "Could not decline this invitation.",
-        ),
+        ), { className: connectTypography.toast },
       );
     } finally {
       setRespondingInviteId(null);

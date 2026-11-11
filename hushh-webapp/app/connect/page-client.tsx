@@ -1,5 +1,8 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
+
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -570,7 +573,7 @@ async function resolveConnectionForVoice({
   return { matches: [], complete: false };
 }
 
-export default function ConnectPageClient() {
+function ConnectPageClientContent() {
   const { user, userId, phoneNumber, resolveVerifiedPhoneNumber } = useRequireAuth();
   const router = useRouter();
 
@@ -1323,7 +1326,7 @@ export default function ConnectPageClient() {
       // Only the clipboard fallback needs saying out loud. The native sheet and
       // Web Share both show the person their own send, so a toast on top of
       // that reports something they just watched happen.
-      if (delivery === "copied") toast.success("Invite link copied.");
+      if (delivery === "copied") toast.success("Invite link copied.", { className: connectTypography.toast });
     } catch (error) {
       // Dismissing the sheet is a decision, not a failure.
       if (isShareCancellationError(error)) return;
@@ -1335,7 +1338,7 @@ export default function ConnectPageClient() {
             "This browser cannot share links."
           : // The channel exists and something went wrong inside it, so the
             // copy stays neutral about which rung failed.
-            "Could not share the invite.",
+            "Could not share the invite.", { className: connectTypography.toast },
       );
     } finally {
       invitingRef.current = false;
@@ -1620,7 +1623,7 @@ export default function ConnectPageClient() {
         toast.success(
           outgoing
             ? "Connection request sent"
-            : "This person already asked to connect. Review their request.",
+            : "This person already asked to connect. Review their request.", { className: connectTypography.toast },
         );
         if (!outgoing)
           router.push(
@@ -1632,7 +1635,7 @@ export default function ConnectPageClient() {
         toast.error(
           sendError instanceof Error
             ? sendError.message
-            : "Failed to send request",
+            : "Failed to send request", { className: connectTypography.toast },
         );
         return false;
       } finally {
@@ -1711,13 +1714,13 @@ export default function ConnectPageClient() {
             p.userId === connection.userId ? { ...p, relationship: "none" } : p,
           ),
         );
-        toast.success("Connection removed");
+        toast.success("Connection removed", { className: connectTypography.toast });
       } catch (removeError) {
         if (!isCurrent()) return;
         toast.error(
           removeError instanceof Error
             ? removeError.message
-            : "Failed to remove connection",
+            : "Failed to remove connection", { className: connectTypography.toast },
         );
       } finally {
         if (isCurrent()) { setBusyId(null); setPendingRemoveTarget(null); }
@@ -1914,13 +1917,13 @@ export default function ConnectPageClient() {
           toast.info(
             result.person.relationship === "connected"
               ? "This connection is active. Continue your Location task to check its requirements."
-              : "Your connection request is still pending. Nothing has been sent again.",
+              : "Your connection request is still pending. Nothing has been sent again.", { className: connectTypography.toast },
           );
         }
       } catch {
         if (!cancelled)
           toast.error(
-            "This connection could not be checked. Refresh Connect or cancel the task.",
+            "This connection could not be checked. Refresh Connect or cancel the task.", { className: connectTypography.toast },
           );
       }
     })();
@@ -1982,7 +1985,7 @@ export default function ConnectPageClient() {
     // changed outside the row controls.
     if (draftPeople.length > MAX_BULK_CONNECTION_REQUESTS) {
       toast.error(
-        `Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
+        `Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`, { className: connectTypography.toast },
       );
       return;
     }
@@ -2074,7 +2077,7 @@ export default function ConnectPageClient() {
             failedCount ? `${failedCount} couldn't be sent.` : "",
           ]
             .filter(Boolean)
-            .join(" "),
+            .join(" "), { className: connectTypography.toast },
         );
         if (incoming.size === 1 && sendable.length === 1) {
           const response = results.find(
@@ -2088,9 +2091,9 @@ export default function ConnectPageClient() {
             );
         }
       } else if (sendable.length === 0) {
-        toast.error("Already asked.");
+        toast.error("Already asked.", { className: connectTypography.toast });
       } else {
-        toast.error("Couldn't send. Try again.");
+        toast.error("Couldn't send. Try again.", { className: connectTypography.toast });
       }
 
       // Only the people who were actually sent leave the selection. Anyone who
@@ -2122,7 +2125,7 @@ export default function ConnectPageClient() {
         );
       }
     } catch {
-      if (isCurrent()) toast.error("Couldn't send. Try again.");
+      if (isCurrent()) toast.error("Couldn't send. Try again.", { className: connectTypography.toast });
     } finally {
       if (isCurrent()) {
         batchSendingRef.current = false;
@@ -2152,12 +2155,12 @@ export default function ConnectPageClient() {
         });
         CacheSyncService.onConnectionCapabilityMutated(userId);
         setCircleRefreshToken((token) => token + 1);
-        toast.success("Connection request cancelled");
+        toast.success("Connection request cancelled", { className: connectTypography.toast });
       } catch (cancelError) {
         toast.error(
           cancelError instanceof Error
             ? cancelError.message
-            : "Failed to cancel connection request",
+            : "Failed to cancel connection request", { className: connectTypography.toast },
         );
       } finally {
         setBusyId(null);
@@ -2446,7 +2449,7 @@ export default function ConnectPageClient() {
     return { status: "succeeded", summary: "Connect people opened." };
   });
   useLocalOnboardingActionHandler("connect.explore_network", () => {
-    const opened = openPersonProfilePreview({ networkList: "discovery" });
+    const opened = openPersonProfilePreview({ networkList: "discovery", presentation: "connect" });
     return { status: opened ? "succeeded" : "blocked", summary: opened ? "Your network opened." : "Open Connect and try again." };
   });
   useLocalOnboardingActionHandler("connect.open_connections", () => {
@@ -3132,7 +3135,7 @@ export default function ConnectPageClient() {
           CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
           "!text-[color:var(--app-accent)]",
         )}
-        onClick={(event) => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}
+        onClick={(event) => openPersonProfilePreview({ networkList: "discovery", presentation: "connect" }, event.currentTarget)}
       >
         Explore your network
         <ChevronRight aria-hidden="true" className="ml-1 size-4 shrink-0" />
@@ -3567,9 +3570,9 @@ export default function ConnectPageClient() {
                                                       const result = await ConnectionsService.listMutualConnections({ idToken: await user.getIdToken(), personRef: person.publicPersonRef!, page: 1 });
                                                       if (request !== mutualResolutionRef.current || connectOwnerRef.current !== userId || generation !== getAuthSessionGeneration()) return;
                                                       if (result.totalCount > 1) router.push(connectMutualsHref(person.publicPersonRef!, searchParams, query), { scroll: false });
-                                                      else if (result.items[0]) openPersonProfilePreview({ personRef: result.items[0].publicPersonRef });
-                                                      else toast.info("This mutual connection’s profile is unavailable.");
-                                                    } catch { if (request === mutualResolutionRef.current && connectOwnerRef.current === userId && generation === getAuthSessionGeneration()) toast.error("Could not open this mutual connection. Please try again."); }
+                                                      else if (result.items[0]) openPersonProfilePreview({ personRef: result.items[0].publicPersonRef, presentation: "connect" });
+                                                      else toast.info("This mutual connection’s profile is unavailable.", { className: connectTypography.toast });
+                                                    } catch { if (request === mutualResolutionRef.current && connectOwnerRef.current === userId && generation === getAuthSessionGeneration()) toast.error("Could not open this mutual connection. Please try again.", { className: connectTypography.toast }); }
                                                     return;
                                                   }
                                                   router.push((person.mutualConnectionCount ?? 0) > 1
@@ -3631,7 +3634,7 @@ export default function ConnectPageClient() {
                                                     MAX_BULK_CONNECTION_REQUESTS
                                                 ) {
                                                   toast.error(
-                                                    `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`,
+                                                    `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`, { className: connectTypography.toast },
                                                   );
                                                   setShowLimitBanner(true);
                                                   return;
@@ -4343,4 +4346,8 @@ export default function ConnectPageClient() {
       </SettingsPresentationProvider>
     </AppPageShell>
   );
+}
+
+export default function ConnectPageClient() {
+  return <ConnectTypeScale><ConnectPageClientContent /></ConnectTypeScale>;
 }

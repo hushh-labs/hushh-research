@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleDiscoveryCard } from "./circle-discovery-card";
@@ -120,7 +121,7 @@ export function LivingConnections({
             name: starter.name,
             kind: starter.kind,
           });
-    void morphyToast.promise(operation, {
+    void morphyToast.promise(operation, { className: connectTypography.toast,
       loading: `Preparing ${starter.name}…`,
       success: () =>
         isCurrent()

@@ -397,6 +397,8 @@ function WheelColumn({
           return (
             <div
               key={paddedIndex}
+              data-connect-role="duration-option"
+              data-selected={isSelected}
               aria-hidden={isSpacer ? true : undefined}
               className={cn(
                 "flex items-center justify-center text-[17px] tabular-nums",

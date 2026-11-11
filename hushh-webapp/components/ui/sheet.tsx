@@ -4,6 +4,7 @@ import * as React from "react"
 import { XIcon } from "@/components/icons"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
+import { useTypographyScope } from "@/lib/morphy-ux/ui/typography-scope"
 import { cn } from "@/lib/utils"
 import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
@@ -186,6 +187,7 @@ function SheetContent(
     ...props
   }: SheetContentProps,
 ) {
+  const typographyScope = useTypographyScope()
   const sheet = React.useContext(SheetContext)
   const {
     setSheetContentRef,
@@ -227,9 +229,11 @@ function SheetContent(
       <SheetPrimitive.Content
         ref={nativeContentRef}
         data-slot="sheet-content"
+        data-typography-scope={typographyScope}
         data-sheet-side={side}
         data-stationary-side-frame={stationaryChrome && (side === "left" || side === "right") ? side : undefined}
         className={cn(
+          typographyScope,
           "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-(--z-sheet) flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
           // A full-height side sheet reaches the top of the window; on the
           // phone that is under the status bar and the Dynamic Island unless

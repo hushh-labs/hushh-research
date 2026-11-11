@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -392,7 +393,7 @@ export function CirclesSection({
           decision === "accept"
             ? "Could not join this Circle."
             : "Could not decline this invitation.",
-        ),
+        ), { className: connectTypography.toast },
       );
     } finally {
       responseInFlightRef.current = false;
@@ -761,7 +762,7 @@ export function useCreateCircleFlow({
       if (!mounted.current) return false;
       submittingRef.current = false;
       const message = circleFlowErrorMessage(error, "Could not create this Circle.");
-      setError(message); toast.error(message);
+      setError(message); toast.error(message, { className: connectTypography.toast });
       return false;
     } finally {
       if (mounted.current) setSaving(false);
@@ -2085,7 +2086,7 @@ export function CircleDetailFlow({
       setMemberTotalCount(result.totalCount);
     } catch (error) {
       toast.error(
-        circleFlowErrorMessage(error, "Could not load more members."),
+        circleFlowErrorMessage(error, "Could not load more members."), { className: connectTypography.toast },
       );
     } finally {
       if (requestId === memberRequestRef.current) setMemberLoadingMore(false);
@@ -2289,7 +2290,7 @@ export function CircleDetailFlow({
       toast.success(
         inviteeUserIds.length === 1
           ? "Added to the Circle."
-          : `${inviteeUserIds.length} people added to the Circle.`,
+          : `${inviteeUserIds.length} people added to the Circle.`, { className: connectTypography.toast },
       );
       // Adding is the sheet's terminal action for any selection size, so close
       // it and let the toast confirm. Bump the request ref first so a slower
@@ -2306,7 +2307,7 @@ export function CircleDetailFlow({
       }
     } catch (error) {
       if (scope !== peopleMutationScopeRef.current) return;
-      toast.error(circleFlowErrorMessage(error, "Could not add them."));
+      toast.error(circleFlowErrorMessage(error, "Could not add them."), { className: connectTypography.toast });
       // A capacity/eligibility conflict means this selected set is no longer
       // authoritative. Clear it before the bounded page refresh; intersecting
       // with one partial page would incorrectly preserve or discard rows.
@@ -2364,14 +2365,14 @@ export function CircleDetailFlow({
       // to come exclusively from the existing atomic batch mutation and reads.
       await onInviteConnections(circle.id, userIds);
       if (scope !== peopleMutationScopeRef.current) return;
-      toast.success("Circle members updated.");
+      toast.success("Circle members updated.", { className: connectTypography.toast });
       setPeopleSheetOpen(false);
       peopleRequestRef.current += 1;
       setSelectedConnections(new Map());
       setEligibleConnections((current) => current.filter((person) => !userIds.includes(person.userId)));
     } catch (error) {
       if (scope !== peopleMutationScopeRef.current) return;
-      toast.error(circleFlowErrorMessage(error, "Could not add them."));
+      toast.error(circleFlowErrorMessage(error, "Could not add them."), { className: connectTypography.toast });
       // Keep valid choices for retry; the full eligibility read below removes
       // connections or capacity that changed while this batch was saving.
     } finally {
@@ -2393,11 +2394,11 @@ export function CircleDetailFlow({
     setCancellingInviteId(inviteId);
     try {
       await onCancelMemberInvite(inviteId);
-      toast.success("Circle invitation cancelled.");
+      toast.success("Circle invitation cancelled.", { className: connectTypography.toast });
       await loadEligibleConnections();
     } catch (error) {
       toast.error(
-        circleFlowErrorMessage(error, "Could not cancel the invitation."),
+        circleFlowErrorMessage(error, "Could not cancel the invitation."), { className: connectTypography.toast },
       );
     } finally {
       cancelInviteInFlightRef.current = false;
@@ -2414,7 +2415,7 @@ export function CircleDetailFlow({
       setReplaceCodeConfirmOpen(false);
     } catch (error) {
       toast.error(
-        circleFlowErrorMessage(error, "Could not create an invite code."),
+        circleFlowErrorMessage(error, "Could not create an invite code."), { className: connectTypography.toast },
       );
     }
   };
@@ -2453,7 +2454,7 @@ export function CircleDetailFlow({
     } catch (error) {
       if (requestId !== renameRequestRef.current) return false;
       toast.error(
-        circleFlowErrorMessage(error, "Could not rename this Circle."),
+        circleFlowErrorMessage(error, "Could not rename this Circle."), { className: connectTypography.toast },
       );
       return false;
     } finally {
@@ -2471,7 +2472,7 @@ export function CircleDetailFlow({
       await reload();
     } catch (error) {
       toast.error(
-        circleFlowErrorMessage(error, "Could not remove this member."),
+        circleFlowErrorMessage(error, "Could not remove this member."), { className: connectTypography.toast },
       );
     }
   };
@@ -2483,7 +2484,7 @@ export function CircleDetailFlow({
       onBack();
     } catch (error) {
       toast.error(
-        circleFlowErrorMessage(error, "Could not leave this Circle."),
+        circleFlowErrorMessage(error, "Could not leave this Circle."), { className: connectTypography.toast },
       );
     }
   };
@@ -2495,7 +2496,7 @@ export function CircleDetailFlow({
       onBack();
     } catch (error) {
       toast.error(
-        circleFlowErrorMessage(error, "Could not delete this Circle."),
+        circleFlowErrorMessage(error, "Could not delete this Circle."), { className: connectTypography.toast },
       );
     }
   };
@@ -2656,7 +2657,7 @@ export function CircleDetailFlow({
                 </SheetHeader>
                 <TaskSurfaceBody>
                   <label className="block space-y-2">
-                    <span data-profile-role="label" className="text-[15px] font-semibold leading-5 text-foreground">
+                    <span data-connect-role="form-label" data-profile-role="label" className="text-[15px] font-semibold leading-5 text-foreground">
                       Circle name
                     </span>
                     <div className={CIRCLE_NAME_ROW_CLASSNAME}>
@@ -2973,7 +2974,7 @@ export function CircleDetailFlow({
 
                 <TaskSurfaceBody>
                   {peopleLoading ? (
-                    <div role="status" className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <div data-connect-role="description" role="status" className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
                       Loading connections…
                     </div>

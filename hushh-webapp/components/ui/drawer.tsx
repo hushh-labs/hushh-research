@@ -4,6 +4,7 @@ import * as React from "react"
 import { XIcon } from "@/components/icons"
 import { Drawer as DrawerPrimitive } from "vaul"
 
+import { useTypographyScope } from "@/lib/morphy-ux/ui/typography-scope"
 import { cn } from "@/lib/utils"
 import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
@@ -74,6 +75,7 @@ function DrawerContent({
    */
   overlayStyle?: React.CSSProperties
 }) {
+  const typographyScope = useTypographyScope()
   const contentRef = useNativeNavigationOverlayRef(ref)
   return (
     <DrawerPortal data-slot="drawer-portal">
@@ -81,7 +83,9 @@ function DrawerContent({
       <DrawerPrimitive.Content
         ref={contentRef}
         data-slot="drawer-content"
+        data-typography-scope={typographyScope}
         className={cn(
+          typographyScope,
           "group/drawer-content bg-background fixed z-(--z-sheet) flex h-auto flex-col",
           "data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=top]:rounded-b-lg data-[vaul-drawer-direction=top]:border-b",
           // bottom-anchored drawers lift above the on-screen keyboard by

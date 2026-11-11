@@ -31,3 +31,170 @@
 @media (max-width: 620px) {
   .scale { --type-input-value-size: 16px; }
 }
+
+.root { display: contents; }
+
+/* The consuming route opts in. Nested Task and Profile hosts rebind their
+   aliases here so their local defaults cannot reset the workspace scale. */
+.surface {
+  composes: scale;
+  --connect-input-size: 14px;
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+}
+
+.surface,
+.surface :where([data-profile-type-scale], [data-task-surface], [data-location-type-scale]) {
+  --type-row-label-size: 14px !important;
+  --type-row-label-line: 21px !important;
+  --type-row-label-weight: 550 !important;
+  --type-row-label-compact-size: 14px !important;
+  --type-row-label-compact-line: 21px !important;
+  --type-row-label-compact-weight: 550 !important;
+  --type-row-description-size: 12px !important;
+  --type-row-description-line: 18px !important;
+  --type-row-description-compact-size: 12px !important;
+  --type-row-description-compact-line: 18px !important;
+  --type-section-label-size: 14px !important;
+  --type-section-label-line: 22px !important;
+  --type-section-label-weight: 600 !important;
+  --type-section-label-compact-size: 14px !important;
+  --type-section-label-compact-line: 22px !important;
+  --type-section-label-compact-weight: 600 !important;
+  --type-form-label-size: 15px !important;
+  --type-form-label-line: 22px !important;
+  --type-form-label-weight: 550 !important;
+  --type-input-value-size: var(--connect-input-size) !important;
+  --type-input-value-line: 22px !important;
+  --type-button-label-size: 12px !important;
+  --type-button-label-line: 18px !important;
+  --type-button-label-weight: 550 !important;
+  --type-compact-button-label-size: 12px !important;
+  --type-compact-button-label-line: 18px !important;
+  --type-compact-button-label-weight: 550 !important;
+  --type-page-subtitle-size: 12px !important;
+  --type-page-subtitle-line: 18px !important;
+  --profile-type-label-size: 14px !important;
+  --profile-type-label-line: 21px !important;
+  --profile-type-label-weight: 550 !important;
+  --profile-type-description-size: 12px !important;
+  --profile-type-description-line: 18px !important;
+  --profile-type-action-size: 12px !important;
+  --profile-type-action-line: 18px !important;
+  --profile-type-action-weight: 550 !important;
+  --profile-type-dialog-title-size: 20px !important;
+  --profile-type-dialog-title-line: 28px !important;
+  --profile-type-dialog-title-weight: 600 !important;
+  --profile-type-dialog-description-size: 12px !important;
+  --profile-type-dialog-description-line: 18px !important;
+  --profile-type-dialog-action-size: 12px !important;
+  --profile-type-dialog-action-weight: 550 !important;
+  --app-side-pane-row-title-size: 14px !important;
+  --app-side-pane-row-title-line: 21px !important;
+  --app-side-pane-row-title-weight: 550 !important;
+  --app-side-pane-section-size: 14px !important;
+  --app-side-pane-section-line: 22px !important;
+  --app-side-pane-section-weight: 600 !important;
+}
+
+/* Match the existing base-layer semantic locks, including Profile Circles. */
+@layer base {
+  .surface.surface.surface :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"], [data-slot="sheet-title"], [data-slot="drawer-title"], [data-location-type-role="task-title"], [data-location-type-role="overlay-title"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+  }
+
+  .surface.surface.surface :is([data-slot="settings-row-title"], [data-profile-role="name"], [data-profile-role="label"], :global(.type-callout), :global(.ui-text-row-label), [data-connect-role="name"], [data-location-type-role="row-title"]) {
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+
+  .surface.surface.surface :is([data-slot="settings-group-heading"], [data-connect-role="section"], :global(.type-title2), :global(.type-title3), [data-location-type-role="section-heading"]) {
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
+  }
+
+  .surface.surface.surface :is([data-slot="dialog-description"], [data-slot="alert-dialog-description"], [data-slot="sheet-description"], [data-slot="drawer-description"], [data-slot="settings-row-description"], [data-profile-role="description"], [data-connect-role="description"], [data-location-type-role="row-description"], [data-location-type-role="task-description"], [data-location-type-role="helper"], :global(.ui-text-row-description), :global(.ui-text-helper-text), :global(.ui-text-caption), :global(.type-footnote), :global(.type-caption)) {
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+  }
+
+  .surface.surface.surface :is([data-connect-role="action"], [data-profile-role="action"], [data-location-type-role="compact-action"], [data-location-type-role="utility-action"], [data-location-type-role="primary-action"], [data-location-type-role="task-action"], :global(.ui-text-button-label), :global(.ui-text-compact-button-label)) {
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 550 !important;
+  }
+
+  .surface.surface.surface :is(input:not([type="checkbox"], [type="radio"], [type="range"]), textarea, select, [data-slot="select-trigger"], [data-location-type-role="input"]) {
+    font-size: var(--connect-input-size) !important;
+    line-height: 22px !important;
+    font-weight: 400 !important;
+  }
+
+  .surface.surface.surface :is(:global(.ui-text-form-label), [data-connect-role="form-label"], [data-location-type-role="form-label"]) {
+    font-size: 15px !important;
+    line-height: 22px !important;
+    font-weight: 550 !important;
+  }
+
+  .surface.surface.surface :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [data-slot="select-item"]) {
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+
+  .surface.surface.surface:global([data-slot="tooltip-content"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+  }
+}
+
+@media (max-width: 620px) {
+  .surface { --connect-input-size: 16px; }
+}
+
+.toast { composes: scale; }
+.surface:global([data-sonner-toast][data-styled]) :global([data-title]),
+.toast:global([data-sonner-toast][data-styled]) :global([data-title]) {
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 550;
+}
+.surface:global([data-sonner-toast][data-styled]) :global([data-description]),
+.toast:global([data-sonner-toast][data-styled]) :global([data-description]) {
+  font-family: var(--font-app-body);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+@layer base {
+  .surface.surface.surface [data-connect-role="duration-option"] {
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+  .surface.surface.surface [data-connect-role="duration-option"][data-selected="true"] {
+    font-weight: 600 !important;
+  }
+}
+
+@layer base {
+  .surface.surface.surface [data-location-type-role="body"] {font-size:14px!important;line-height:21px!important;font-weight:400!important;}
+  .surface.surface.surface [data-location-type-role="status"] {font-size:12px!important;line-height:18px!important;font-weight:550!important;}
+}
+
+@layer base {
+  .surface.surface.surface [data-location-type-role="primary-action"] {
+    font-size: var(--type-button-label-size) !important;
+    line-height: max(18px, calc(var(--type-button-label-size) * 1.5)) !important;
+  }
+}

@@ -661,7 +661,7 @@ for (const width of [320, 393, 1440]) {
     await page.getByRole("tab", { name: "Circles", exact: true }).click();
     const group = page.getByRole("region", { name: "Finance circles", exact: true });
     await expect(group.getByText("Investments", { exact: true })).toBeVisible();
-    await expect(group.getByRole("heading", { level: 3 })).toHaveCSS("font-size", "13px");
+    await expect(group.getByRole("heading", { level: 3 })).toHaveCSS("font-size", "14px");
     const owned = page.getByTestId("connect-circle-group-owned");
     const joined = page.getByTestId("connect-circle-group-joined");
     await expect(owned.getByRole("region", { name: "Family circles", exact: true })).toContainText("Weekend family");
@@ -704,7 +704,9 @@ for (const width of [320, 393, 768]) {
     await page.locator("[data-connect-page]").evaluate(node => {
       const scopedClass = [...node.classList].find(name => name.includes("workspace"));
       if (!scopedClass) throw new Error("Connect typography scope is missing");
-      node.classList.remove(scopedClass);
+      node.removeAttribute("class");
+      const outer = node.closest("[data-typography-scope]");
+      outer?.removeAttribute("class");
     });
     expect(await read(page, '[data-testid="directory-person-row"] [data-slot="settings-row-title"]')).not.toMatchObject({ size: "14px", line: "21px" });
     expect(await read(page, '[data-testid="top-app-bar-breadcrumb-trail"]')).toEqual(shell);
@@ -866,14 +868,14 @@ for (const width of [393, 1440]) {
       const form = page.getByTestId("one-location-create-circle-flow");
       const name = form.getByRole("textbox", { name: "Circle name" });
       await expect(name).toBeVisible();
-      await expect(name).toHaveCSS("font-size", "14px");
+      await expect(name).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
       await expect(name).toHaveCSS("line-height", "22px");
       await expect(form.getByText("Circle name", { exact: true })).toHaveCSS("font-size", "15px");
       await expect(form.getByText("Circle name", { exact: true })).toHaveCSS("font-weight", "550");
       await expect(form.getByRole("radio", { name: "Finance", exact: true })).toBeVisible();
       await form.getByRole("radio", { name: "Other", exact: true }).click();
       const type = form.getByRole("textbox", { name: "Type name (optional)" });
-      await assertThinFocusedCircleType(type);
+      await assertThinFocusedCircleType(type, width <= 620 ? "16px" : "14px");
       await expect(form.getByText("Type name (optional)", { exact: true })).toHaveCSS("font-size", "15px");
       const error = form.getByText("Enter a Circle name.", { exact: true });
       await expect(error).toHaveCSS("font-size", "12px");

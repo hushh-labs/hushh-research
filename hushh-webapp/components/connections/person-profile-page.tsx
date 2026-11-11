@@ -14,7 +14,8 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
-import { toast } from "sonner";
+import { useTypographyToast } from "@/lib/morphy-ux/ui/use-typography-toast";
+import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -59,6 +60,7 @@ import {
   type PersonRequestHistoryPage,
 } from "@/lib/services/person-profile-service";
 import {
+  normalizeInternalRouteHref,
   resolvePersonRefFromProfilePathname,
   buildPersonProfileRoute,
   ROUTES,
@@ -131,10 +133,15 @@ function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | 
 
 export function PersonProfilePage(props: Props) {
   const { user } = useAuth();
-  return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
+  const searchParams = useSearchParams();
+  const origin = normalizeInternalRouteHref(searchParams?.get("from"))?.split(/[?#]/)[0];
+  const workspaceOrigin = !props.embedded && (origin === "/one/connect" || origin === "/connect" || origin === "/one/location" || origin?.startsWith("/one/location/"));
+  const session = <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
+  return workspaceOrigin ? <ConnectTypeScale>{session}</ConnectTypeScale> : session;
 }
 
 function PersonProfileSession({ personRef, initialProfile, embedded = false, calendarPresentation = false, onNetworkReady }: Props) {
+  const toast = useTypographyToast();
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -881,12 +888,12 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
           ) : user ? <span role="status" className="text-sm text-muted-foreground">Checking connection…</span> : null}
           contacts={<>
             {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
-            <a href={`mailto:${viewerProfile.contactEmail}`}>
+            <a data-connect-role="description" href={`mailto:${viewerProfile.contactEmail}`}>
               <Mail aria-hidden="true" /><span dir="auto">{viewerProfile.contactEmail}</span>
             </a>
           ) : null}
           {viewerProfile?.relationship.status === "connected" && /^\+[1-9][0-9]{1,14}$/.test(viewerProfile.contactPhoneNumber ?? "") ? (
-            <a href={`tel:${viewerProfile.contactPhoneNumber}`}>
+            <a data-connect-role="description" href={`tel:${viewerProfile.contactPhoneNumber}`}>
               <Phone aria-hidden="true" /><span dir="auto">{viewerProfile.contactPhoneNumber}</span>
             </a>
           ) : null}
@@ -998,7 +1005,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
           <SectionCard className={styles.signIn}>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h2 className="font-semibold">Connect through Hussh</h2>
+                <h2 data-connect-role="section" className="font-semibold">Connect through Hussh</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Sign in to see requestable information and consented access.
                 </p>
@@ -1016,7 +1023,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
         </div> : null}
         {user && !displayViewerProfile && !viewerUnavailable ? <section aria-label="Loading profile details" aria-busy="true" className="space-y-6">
           {["Shared with you", "Available to request", "Request history"].map((label) => <div key={label} className={styles.section}>
-            <h2 className={styles.heading}>{label}</h2><Skeleton className="h-20 w-full rounded-2xl" />
+            <h2 data-connect-role="section" className={styles.heading}>{label}</h2><Skeleton className="h-20 w-full rounded-2xl" />
           </div>)}
         </section> : null}
         {displayViewerProfile ? (
@@ -1027,7 +1034,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
               className={styles.section}
               ref={sharedSectionRef}
             >
-              <h2 id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
+              <h2 data-connect-role="section" id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
               <p className="sr-only">End-to-end encrypted information shared with your account, opened on this device only.</p>
 
               {!viewerProfile ? <p role="status" className="text-sm text-muted-foreground">Checking shared information…</p> : sharedCardItems.length ? (
@@ -1055,7 +1062,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
               ref={availableSectionRef}
               data-testid="person-profile-available"
             >
-              <h2 id="available-to-request" className={styles.heading}>Available to request</h2>
+              <h2 data-connect-role="section" id="available-to-request" className={styles.heading}>Available to request</h2>
               {/*
                 One nested list, the same one the Memory route uses.
 
@@ -1098,7 +1105,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
             </section>
 
             <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
-              <h2 id="request-history" className={styles.heading}>Request history</h2>
+              <h2 data-connect-role="section" id="request-history" className={styles.heading}>Request history</h2>
               {currentHistory?.failed ? (
                 <p role="status" className="text-sm text-muted-foreground">Couldn&rsquo;t load older requests. Showing recent ones.</p>
               ) : null}
