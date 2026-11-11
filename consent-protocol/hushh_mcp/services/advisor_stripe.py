@@ -23,8 +23,11 @@ class Resource:
                 resource = getattr(resource, part)
             operation = getattr(resource, action)
             if resource_id is None:
-                return operation(params=arguments, options=options)
-            return operation(resource_id, params=arguments, options=options)
+                result = operation(params=arguments, options=options)
+            else:
+                result = operation(resource_id, params=arguments, options=options)
+            # SDK 16 objects are not mappings: dict(result) raises TypeError.
+            return result.to_dict() if hasattr(result, "to_dict") else result
         finally:
             transport.close()
 

@@ -112,6 +112,7 @@ def test_one_time_offer_requires_price_and_allows_optional_details():
     assert AdvisorPlan.model_validate(good).interval == "one_time"
     minimum = {"amountCents": 2000, "interval": "one_time"}
     assert AdvisorPlan.model_validate(minimum).cancellationTerms == ""
+    assert AdvisorPlan.model_validate({**minimum, "amountCents": 50}).amountCents == 50
     short = AdvisorPlan.model_validate(
         {**minimum, "services": " Review ", "cancellationTerms": "  "}
     )
@@ -119,6 +120,7 @@ def test_one_time_offer_requires_price_and_allows_optional_details():
     for bad in (
         {"amountCents": True},
         {"amountCents": 0},
+        {"amountCents": 49},
         {"interval": "month"},
         {"services": "x" * 1501},
     ):
@@ -522,3 +524,24 @@ async def test_sandbox_payout_status_reads_a_real_stripe_list_object():
 
 async def _async(value):
     return value
+
+
+def test_advisor_stripe_calls_return_plain_dicts_the_billing_code_can_read(monkeypatch):
+    from types import SimpleNamespace
+
+    import stripe
+
+    from hushh_mcp.services import advisor_stripe
+
+    account = stripe.Account.construct_from(
+        {"id": "acct_1", "payouts_enabled": True, "capabilities": {"transfers": "active"}}, "k"
+    )
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            self.v1 = SimpleNamespace(accounts=SimpleNamespace(retrieve=lambda *_a, **_k: account))
+
+    monkeypatch.setattr(stripe, "StripeClient", Client)
+    remote = dict(advisor_stripe.provider().Account.retrieve("acct_1", api_key="k"))
+    assert remote["id"] == "acct_1"
+    assert remote["capabilities"].get("transfers") == "active"
