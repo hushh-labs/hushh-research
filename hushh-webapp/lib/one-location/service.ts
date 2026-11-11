@@ -591,10 +591,13 @@ export class OneLocationService {
     return alerts;
   }
 
-  static queueSmsIncident(vaultOwnerToken: string, incidentId: string, note?: string | null) {
-    return apiJson<{ incidentId: string; startedAt: string; grants: OneLocationGrant[]; skippedCount: number }>(
+  static queueSmsIncident(vaultOwnerToken: string, incidentId: string, note?: string | null,
+    escalation?: { callDeviceId: string; callRecipientUserId: string },
+  ) {
+    return apiJson<{ incidentId: string; startedAt: string; grants: OneLocationGrant[]; skippedCount: number;
+      callEscalation?: { callId: string; delayMs: number } | null }>(
       "/api/one/location/sms-alerts/incidents",
-      { method: "POST", headers: authHeaders(vaultOwnerToken), body: JSON.stringify({ incidentId, note }) },
+      { method: "POST", headers: authHeaders(vaultOwnerToken), body: JSON.stringify({ incidentId, note, ...escalation }) },
     );
   }
 

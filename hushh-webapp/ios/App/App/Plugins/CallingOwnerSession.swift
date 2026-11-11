@@ -24,7 +24,7 @@ final class CallingOwnerSession {
         client?.close(); client = nil
     }
     func ready(expectedOwner: String? = nil, allowEnrollment: Bool) async throws -> CallingAPI {
-        guard let user = Auth.auth().currentUser else { throw CallingError.cancelled }
+        guard let user = HushhFirebaseIdentity.auth.currentUser else { throw CallingError.cancelled }
         func validate(_ candidate: CallingAPI) throws {
             try candidate.check()
             guard expectedOwner == nil || expectedOwner == candidate.identity.owner else { throw CallingError.cancelled }
@@ -37,7 +37,7 @@ final class CallingOwnerSession {
                 try validate(result)
                 return result
             } catch CallingError.enrollmentRequired where allowEnrollment {
-                guard epoch == generation, Auth.auth().currentUser === user else { throw CallingError.cancelled }
+                guard epoch == generation, HushhFirebaseIdentity.auth.currentUser === user else { throw CallingError.cancelled }
                 // A foreground request may enroll after cold restoration refused.
                 // Advance the epoch so the old task cannot clear this new open.
                 reset()

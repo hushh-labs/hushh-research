@@ -342,6 +342,7 @@ import {
   sosRecipientReadinessMessage,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
+import { suppressScheduledSmsCall } from "@/lib/direct-messages/sms-call-escalation";
 import {
   emergencyInfoForCountryCode,
   isCachedEmergencyInfoUsableAt,
@@ -7535,6 +7536,7 @@ export function OneLocationAgentPageContent({
     if (!owner) throw new Error("Sign in to review the active SMS.");
     const operation = sosOperations.current.begin(owner);
     if (!operation) throw new Error("An SMS operation is still finishing. Review its result first.");
+    suppressScheduledSmsCall(owner);
     setBusy("sos");
     try {
       const result = await stopSosShares({ grantIds, signal,

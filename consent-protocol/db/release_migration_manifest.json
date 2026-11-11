@@ -389,7 +389,8 @@
     "452_direct_calls.sql",
     "454_calendar_email_followup_temporal.sql",
     "456_finance_advisor_one_time_payment.sql",
-    "457_location_sms_acknowledgements.sql"
+    "457_location_sms_acknowledgements.sql",
+    "458_location_sms_call_escalation.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -827,6 +828,7 @@
     "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql",
     "455_uat_account_cleanup_prior_drive_revocation.sql": "rollback/455_uat_account_cleanup_prior_drive_revocation.rollback.sql",
     "456_finance_advisor_one_time_payment.sql": "rollback/456_finance_advisor_one_time_payment.rollback.sql",
-    "457_location_sms_acknowledgements.sql": "rollback/457_location_sms_acknowledgements.rollback.sql"
+    "457_location_sms_acknowledgements.sql": "rollback/457_location_sms_acknowledgements.rollback.sql",
+    "458_location_sms_call_escalation.sql": "rollback/458_location_sms_call_escalation.rollback.sql"
   }
 }

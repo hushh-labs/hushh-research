@@ -132,6 +132,10 @@ const allowedAndroidPermissions = new Set([
   "android.permission.FOREGROUND_SERVICE_LOCATION",
   // One SMS alarm service owns audible playback and CPU wakefulness until ACK.
   "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+  // Telecom owns self-managed calls. The microphone service type starts on an explicit answer or a foreground start.
+  "android.permission.MANAGE_OWN_CALLS",
+  "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+  "android.permission.FOREGROUND_SERVICE_MICROPHONE",
   // Optional lock-screen presentation for SMS – Save my Soul.
   "android.permission.USE_FULL_SCREEN_INTENT",
   "android.permission.WAKE_LOCK",
@@ -172,6 +176,15 @@ for (const permission of ["ACCESS_BACKGROUND_LOCATION", "FOREGROUND_SERVICE", "F
 const backgroundService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhLocation\.BackgroundLocationService"[^>]*\/>/s)?.[0];
 if (!backgroundService?.includes('android:exported="false"') || !backgroundService.includes('android:foregroundServiceType="location"')) {
   fail("Background location sharing requires a non-exported location foreground service.");
+}
+const callingService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhCalling\.CallingService"[^>]*\/>/s)?.[0];
+if (!callingService?.includes('android:exported="false"') || !callingService.includes('android:foregroundServiceType="phoneCall|microphone"')) {
+  fail("Android calling requires a non-exported Telecom foreground service.");
+}
+for (const permission of ["MANAGE_OWN_CALLS", "FOREGROUND_SERVICE_PHONE_CALL", "FOREGROUND_SERVICE_MICROPHONE"]) {
+  if (!androidPermissions.includes(`android.permission.${permission}`)) {
+    fail(`Android Telecom requires android.permission.${permission}.`);
+  }
 }
 for (const permission of ["FOREGROUND_SERVICE_MEDIA_PLAYBACK", "WAKE_LOCK", "USE_FULL_SCREEN_INTENT"]) {
   if (!androidPermissions.includes(`android.permission.${permission}`)) {

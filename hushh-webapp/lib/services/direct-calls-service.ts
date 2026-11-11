@@ -5,6 +5,7 @@ import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurre
 import { communicationIdentity, signCommunicationCommand } from "@/lib/services/owner-pod-endpoint";
 import { digest, verifyCommunicationDevices, type CallEnvelope, type CallProof, type CommunicationDevice } from "@/lib/direct-messages/call-crypto";
 import { dispatchDirectMessagesUpdated } from "@/lib/direct-messages/direct-message-events";
+import type { SmsCallIntent } from "@/lib/direct-messages/sms-call-escalation";
 
 export type DirectCallState = "preparing" | "ringing" | "connecting" | "active" | "declined" | "cancelled" | "ended" | "expired";
 export type DirectCall = { id: string; conversationId: string; state: DirectCallState; revision: number; expiresAt: number;
@@ -13,7 +14,7 @@ export type SignedCallPayload = { payload: Record<string, unknown>; proof: CallP
 export type DirectCallRead = DirectCall & { offers: CallEnvelope[]; offerProof: SignedCallPayload;
   signals: { sequence: number; senderDeviceId: string; envelope: CallEnvelope; proof: SignedCallPayload }[] };
 export type CallIdentity = Awaited<ReturnType<typeof communicationIdentity>>;
-export type CallCapabilities = { available: boolean; relayOnly: true; agentParticipation: false; reason: string | null };
+export type CallCapabilities = { available: boolean; smsEscalationAvailable?: boolean; relayOnly: true; agentParticipation: false; reason: string | null };
 export type CallRelay = { iceTransportPolicy: "relay"; iceServers: RTCIceServer[]; expiresAt: number };
 const root = "/api/one/messages/calls";
 
@@ -85,8 +86,9 @@ export class DirectCallsService {
     return { items: result.items, fingerprint };
   }
 
-  async create(conversationId: string | null, callId: string, recipientPersonRef?: string | null): Promise<DirectCall> {
-    const call = await this.command<DirectCall>("create", { callId, ...(conversationId ? { conversationId } : { recipientPersonRef }) });
+  async create(conversationId: string | null, callId: string, recipientPersonRef?: string | null, sms?: SmsCallIntent): Promise<DirectCall> {
+    const recipient = sms ? { smsIncidentId: sms.incidentId } : conversationId ? { conversationId } : { recipientPersonRef };
+    const call = await this.command<DirectCall>("create", { callId, ...recipient });
     dispatchDirectMessagesUpdated({ userId: this.userId,conversationId:call.conversationId,messageId:null,source:"call" });
     return call;
   }

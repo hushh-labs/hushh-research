@@ -239,16 +239,42 @@ plus a valid environment `DIRECT_CALLS_TURN_HOST` and server-only
 `DIRECT_CALLS_TURN_SECRET`. Defaults remain unavailable. These are admission
 controls, not qualification evidence. Deployment workflows do not set them here.
 
+### SMS – Save my Soul
+
+The Dev implementation uses the same trusted-device proof and encrypted offer
+for an automatic SMS call. An owner opts in on the SMS Circle screen and chooses
+one connected contact on the current device. The confirmed incident reserves one
+call for that device and contact. The server admits preparation after ten seconds
+and rechecks the incident and current Circle membership before the offer rings.
+A receipt from any Circle recipient or a sender Stop cancels a preparing or
+ringing call and clears its pending push. An answered call continues.
+
+`ONE_LOCATION_SMS_CALL_ESCALATION_ENABLED=1` is an additional gate alongside
+the existing calling release requirements and
+`ONE_LOCATION_SMS_ALERT_FIRST_ENABLED=1`. For a disposable local rehearsal, apply
+migrations 457 and 458 and use the existing test calling providers and relay.
+Disabling escalation blocks new attempts, pending incoming delivery and answer.
+Android API 26 and later can use the native Telecom adapter when
+`DIRECT_CALLS_ANDROID_QUALIFIED=1`. An Android calling installation signs its
+registration against the account's current FCM installation. Incoming messages
+carry an opaque wake hint, and the device authenticates and decrypts the offer
+before showing the call. Audio opens after Telecom activation, relay connection
+and peer verification. Use the notification's Answer action for lock-screen
+microphone access.
+
+The opt-in `MEASURE_SMS_PUSH_LATENCY=1` PostgreSQL test runs 30 alert queue
+attempts through the normal listener and worker with a stub provider. It measures
+backend queue entry to the first provider attempt. Measure the sender interaction
+and device presentation on signed builds with the actual push providers.
+
 Remaining release blockers:
 
 - Implement/verify People text and attachment E2EE, historical migration and
   recovery, client-produced previews and navigation-key compatibility. Existing
   messages remain server-readable and their history is unchanged.
-- Qualify the implemented iOS media/signaling, CallKit/PushKit and native auth
-  recovery on physical devices after the scoped background-audio integration
-  above. Implement Android Telecom plus foreground-service
-  integration. Android remains unavailable; no WebView fallback claims native
-  locked-screen support.
+- Qualify iOS CallKit/PushKit and Android Telecom/FCM on signed physical
+  devices. Cover locked-screen answer, microphone permissions and audio routing,
+  app restart and account switching before enabling the platform gates.
 - Prove trusted relay TLS/renewal, invalid/expired allocations, independent-network
   media, physical-device background/locked answer, interruption/revocation,
   capacity/cost, telemetry privacy and scheduled retention.

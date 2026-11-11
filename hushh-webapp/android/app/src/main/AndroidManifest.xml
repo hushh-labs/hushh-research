@@ -26,6 +26,11 @@
         </service>
         <service android:name=".plugins.HushhNotifications.EmergencySmsAlarmService"
             android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <service android:name=".plugins.HushhCalling.CallingService"
+            android:exported="false" android:foregroundServiceType="phoneCall|microphone" />
+        <activity android:name=".plugins.HushhCalling.CallingAnswerActivity"
+            android:excludeFromRecents="true" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity android:name=".plugins.HushhNotifications.EmergencySmsAlarmActivity"
             android:excludeFromRecents="true" android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar" />
@@ -148,6 +153,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />

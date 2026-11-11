@@ -71,6 +71,7 @@ import {
   selectSmsRecipients,
   type SosDeliveryOutcome,
 } from "@/lib/one-location/sos-trigger";
+import { suppressScheduledSmsCall } from "@/lib/direct-messages/sms-call-escalation";
 import type {
   OneLocationRecipient,
   OneLocationState,
@@ -598,6 +599,7 @@ export function SaveMySoul() {
       return;
     }
     ++dispatchGeneration.current;
+    if (userId) suppressScheduledSmsCall(userId);
     setBusy("stop");
     try {
       const outcome = await stopSosShares({

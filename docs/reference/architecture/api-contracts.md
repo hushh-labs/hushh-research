@@ -3243,6 +3243,13 @@ not the product owner for live location.
 | POST | `/api/one/location/sms-alerts/incidents` | Vault-owner Bearer | Queues a confirmed SMS – Save my Soul alert for eligible Circle contacts. Accepts `incidentId` (a UUID reused for retries) and an optional note. Returns `incidentId`, `startedAt`, `grants`, and `skippedCount`. Grants and delivery jobs commit together. The encrypted location can arrive later. Enable in the local backend with `ONE_LOCATION_SMS_ALERT_FIRST_ENABLED=1`. |
 | PUT | `/api/one/location/sms-alerts/{grant_id}/acknowledgement` | Firebase Bearer | Records an explicit acknowledgement for the authenticated recipient. The receipt stops pending alarm delivery and leaves live location sharing active. |
 | GET | `/api/one/location/sms-alerts/acknowledgements` | Firebase Bearer | Returns the recipient's acknowledged grant IDs for up to 32 repeated `grant_id` parameters. The response contains no location information. |
+
+When calling is enabled, the incident request can also carry
+`callDeviceId` and `callRecipientUserId` together. A successful reservation returns
+`callEscalation` with `callId` and `delayMs`. The signed calling `create` command
+accepts `smsIncidentId` in place of a conversation or person reference. The
+server resolves the nominated Circle recipient and admits the reserved call
+only on the original enrolled device.
 | PATCH | `/api/one/location/auto-approve-preference` | VAULT_OWNER Bearer | Enable a server-timestamped standing rule for `all_contacts` or one active, person-created Circle owned by the caller, or disable it and clear its scope. Every change increments `ruleVersion` and writes metadata-only audit evidence |
 | GET | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Return the complete owner-scoped `{smsContactUserIds, recipients}` roster, independent of the ranked recipient picker limit. Refresh incomplete identity shadows through the canonical verified-phone service before projecting readiness; bounded provider failures leave final phone/key/membership gates intact. Response is `private, no-store`; the recipient projection is additive for older clients |
 | POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; refresh an eligible recipient's incomplete identity shadow before validation. Circle eligibility and selection are committed under the same membership locks |

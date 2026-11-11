@@ -836,6 +836,18 @@ def get_recent_received_sms_alerts(
 class QueueSmsIncidentRequest(_CamelModel):
     incident_id: UUID = Field(alias="incidentId")
     note: str | None = Field(default=None, max_length=140)
+    call_device_id: str | None = Field(
+        default=None, alias="callDeviceId", min_length=8, max_length=128
+    )
+    call_recipient_user_id: str | None = Field(
+        default=None, alias="callRecipientUserId", min_length=1, max_length=128
+    )
+
+    @model_validator(mode="after")
+    def paired_call_fields(self):
+        if bool(self.call_device_id) != bool(self.call_recipient_user_id):
+            raise ValueError("Choose a calling device and an SMS Circle contact.")
+        return self
 
 
 @sms_alert_router.post("/location/sms-alerts/incidents")
@@ -852,6 +864,8 @@ def queue_sms_incident(
             owner_user_id=_user_id(token_data),
             incident_id=str(payload.incident_id),
             note=(payload.note or "").strip() or None,
+            call_device_id=payload.call_device_id,
+            call_recipient_user_id=payload.call_recipient_user_id,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from hushh_mcp.services import direct_call_sms
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.direct_call_authority import CallAuthority, canonical
 from hushh_mcp.services.direct_call_lifecycle import clear_call, expire_call
@@ -98,7 +99,15 @@ def resolve_conversation(authority: CallAuthority, db, user: str, payload: dict)
     conversation_id = payload.get("conversationId")
     if not conversation_id:
         messages = DirectMessagesService(db=db, connection=authority.conn, defer_notifications=True)
-        peer, _ = messages._resolve_recipient(recipient_person_ref=payload["recipientPersonRef"])
+        incident_id = payload.get("smsIncidentId")
+        if incident_id:
+            peer = direct_call_sms.selected_peer(
+                authority.conn, owner=user, incident=incident_id, call_id=payload["callId"]
+            )
+        else:
+            peer, _ = messages._resolve_recipient(
+                recipient_person_ref=payload["recipientPersonRef"]
+            )
         messages._reject_self(user, peer)
         lock_connection_graph_users(authority.conn, user_ids=[user, peer])
         # Same canonical pair/trigger contract as the first message,
@@ -121,6 +130,27 @@ def create(authority: CallAuthority, db, user: str, payload: dict, proof: dict) 
     a, b = authority.conversation(user, conversation_id)
     authority.proof(user, "create", payload, proof)
     peer = b if user == a else a
+    incident_id = payload.get("smsIncidentId")
+    if incident_id:
+        direct_call_sms.require_pending(
+            authority.conn,
+            owner=user,
+            peer=peer,
+            device=proof["deviceId"],
+            incident=incident_id,
+            call_id=payload["callId"],
+            preparing=True,
+        )
+        if authority.one(
+            "SELECT 1 FROM direct_calls WHERE id=CAST(:id AS UUID)", {"id": payload["callId"]}
+        ):
+            raise CallError(
+                "SMS_CALL_ALREADY_ATTEMPTED", "The SMS call was already attempted.", 409
+            )
+    elif direct_call_sms.enabled() and direct_call_sms.reserved_call_id(
+        authority.conn, owner=user, call_id=payload["callId"]
+    ):
+        raise CallError("SMS_CALL_UNAVAILABLE", "The SMS call is unavailable.", 409)
     # Pair/user locks serialize busy admission, account erasure and blocks.
     abandoned = (
         authority.conn.execute(
@@ -159,9 +189,10 @@ def create(authority: CallAuthority, db, user: str, payload: dict, proof: dict) 
         )
     row = authority.one(
         """INSERT INTO direct_calls(id,conversation_id,caller_user_id,callee_user_id,
-        caller_device_id,state,revision,expires_at,offers,caller_proof)
+        caller_device_id,state,revision,expires_at,offers,caller_proof,sms_incident_id)
         VALUES(CAST(:id AS UUID),CAST(:conversation AS UUID),:owner,:peer,:device,'preparing',0,
-        clock_timestamp()+make_interval(secs=>:ring),CAST(:offers AS JSONB),CAST(:proof AS JSONB)) RETURNING *""",
+        clock_timestamp()+make_interval(secs=>:ring),CAST(:offers AS JSONB),CAST(:proof AS JSONB),
+        CAST(:incident AS UUID)) RETURNING *""",
         {
             "id": payload["callId"],
             "conversation": conversation_id,
@@ -171,6 +202,7 @@ def create(authority: CallAuthority, db, user: str, payload: dict, proof: dict) 
             "ring": RING_SECONDS,
             "offers": "[]",
             "proof": "{}",
+            "incident": incident_id,
         },
     )
     try:
@@ -189,6 +221,13 @@ def offer(authority: CallAuthority, user: str, payload: dict, proof: dict) -> di
     row = authority.call(user, payload["callId"])
     authority.proof(user, "offer", payload, proof)
     call = authority.snapshot(row)
+    if (
+        row.get("sms_incident_id")
+        and call.state == "cancelled"
+        and user == call.caller
+        and proof["deviceId"] == call.caller_device
+    ):
+        raise CallError("SMS_CALL_SETTLED", "The SMS call is no longer needed.", 409)
     if (
         user != call.caller
         or proof["deviceId"] != call.caller_device
@@ -210,6 +249,16 @@ def offer(authority: CallAuthority, user: str, payload: dict, proof: dict) -> di
     supplied = {(offer["deviceId"], offer["keyId"]) for offer in payload["offers"]}
     if not expected or expected != supplied or len(supplied) != len(payload["offers"]):
         raise CallError("CALL_ROSTER_CHANGED", "The recipient devices changed.")
+    if row.get("sms_incident_id"):
+        direct_call_sms.require_pending(
+            authority.conn,
+            owner=user,
+            peer=call.callee,
+            device=proof["deviceId"],
+            incident=str(row["sms_incident_id"]),
+            call_id=call.id,
+            preparing=False,
+        )
     row = authority.one(
         """UPDATE direct_calls SET state='ringing',revision=revision+1,
         offers=CAST(:offers AS JSONB),caller_proof=CAST(:proof AS JSONB)

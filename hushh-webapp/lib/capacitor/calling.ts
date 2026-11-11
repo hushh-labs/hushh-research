@@ -1,10 +1,11 @@
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { CallView } from "@/lib/direct-messages/call-session";
+import type { SmsCallIntent } from "@/lib/direct-messages/sms-call-escalation";
 
 export type NativeCallView = CallView & { verification: string | null };
 export interface HushhCallingPlugin {
-  initialize(options: { ownerId: string }): Promise<{ available: boolean }>;
-  start(options: { conversationId?: string; personRef?: string }): Promise<void>;
+  initialize(options: { ownerId: string }): Promise<{ available: boolean; deviceId?: string }>;
+  start(options: { conversationId?: string; personRef?: string; sms?: SmsCallIntent }): Promise<void>;
   answer(options: { callId: string }): Promise<void>;
   end(options: { callId: string; decline: boolean }): Promise<void>;
   mute(options: { callId: string }): Promise<void>;
@@ -12,5 +13,5 @@ export interface HushhCallingPlugin {
   addListener(event: "callState", callback: (view: NativeCallView) => void): Promise<PluginListenerHandle>;
 }
 
-/** iOS only. Other native platforms remain unavailable until their OS adapter exists. */
+/** Native system-call adapters are admitted independently by the calling service. */
 export const HushhCalling = registerPlugin<HushhCallingPlugin>("HushhCalling");

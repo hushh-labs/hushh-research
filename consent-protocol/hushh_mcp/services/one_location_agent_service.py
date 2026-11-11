@@ -1568,9 +1568,18 @@ class OneLocationAgentService:
             yield
 
     def queue_sms_incident(
-        self, *, owner_user_id: str, incident_id: str, note: str | None
+        self,
+        *,
+        owner_user_id: str,
+        incident_id: str,
+        note: str | None,
+        call_device_id: str | None = None,
+        call_recipient_user_id: str | None = None,
     ) -> dict[str, Any]:
         """Commit a confirmed Circle alert independently of the first location fix."""
+        from hushh_mcp.services import direct_call_sms
+        from hushh_mcp.services.direct_calls_service import DirectCallsService
+
         params = {"owner": owner_user_id, "incident": incident_id}
         with self._event_bound_writer(), self.sos_incident_guard(owner_user_id=owner_user_id):
             conn = self._key_writer_connection
@@ -1592,11 +1601,27 @@ class OneLocationAgentService:
                         "SMS_INCIDENT_ENDED", "This SMS alert has ended.", status_code=409
                     )
                 metadata = _loads_json(existing[0]["metadata"]) or {}
+                reserved = next(
+                    (
+                        _loads_json(row["metadata"]) or {}
+                        for row in active
+                        if row["recipient_user_id"] == call_recipient_user_id
+                    ),
+                    {},
+                )
+                escalation = (
+                    direct_call_sms.public_reservation(conn, reserved)
+                    if call_device_id
+                    and reserved.get("sms_call_device") == call_device_id
+                    and direct_call_sms.enabled()
+                    else None
+                )
                 return {
                     "incidentId": incident_id,
                     "startedAt": _iso(existing[0]["created_at"]),
                     "grants": [self._grant_payload(row) for row in active],
                     "skippedCount": int(metadata.get("sms_incident_skipped_count") or 0),
+                    **({"callEscalation": escalation} if call_device_id else {}),
                 }
             if self._execute_one(
                 """
@@ -1679,11 +1704,26 @@ class OneLocationAgentService:
                     {**params, "skipped": skipped_count},
                 )
             conn.execute(text("SELECT pg_notify('system_push_ready', '')"))
+            escalation = None
+            if (
+                call_device_id
+                and call_recipient_user_id
+                and direct_call_sms.enabled()
+                and (DirectCallsService.capabilities()["smsEscalationAvailable"])
+            ):
+                escalation = direct_call_sms.reserve(
+                    conn,
+                    owner=owner_user_id,
+                    incident=incident_id,
+                    device=call_device_id,
+                    peer=call_recipient_user_id,
+                )
             return {
                 "incidentId": incident_id,
                 "startedAt": grants[0]["createdAt"],
                 "grants": grants,
                 "skippedCount": skipped_count,
+                **({"callEscalation": escalation} if call_device_id else {}),
             }
 
     def _assert_envelope_precision_matches_preference(
@@ -5501,7 +5541,9 @@ class OneLocationAgentService:
         )
         return eligible
 
-    def _is_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> bool:
+    def _is_sms_contact(
+        self, *, owner_user_id: str, contact_user_id: str, connection: Any = None
+    ) -> bool:
         """Fail closed when the selected-contact table is unavailable.
 
         Postgres is the authoritative membership store. A future Redis layer may
@@ -5509,8 +5551,7 @@ class OneLocationAgentService:
         and fall back to Postgres without broadening the recipient set.
         """
         try:
-            row = self._execute_one(
-                """
+            sql = """
                 SELECT 1
                 WHERE EXISTS (
                         SELECT 1
@@ -5541,12 +5582,11 @@ class OneLocationAgentService:
                           AND membership.status = 'active'
                       )
                 LIMIT 1
-                """,
-                {
-                    "owner_user_id": owner_user_id,
-                    "contact_user_id": contact_user_id,
-                },
-            )
+                """
+            params = {"owner_user_id": owner_user_id, "contact_user_id": contact_user_id}
+            if connection is not None:
+                return connection.execute(text(sql), params).first() is not None
+            row = self._execute_one(sql, params)
         except Exception as exc:  # noqa: BLE001 - safety path must fail closed
             logger.warning(
                 "one_location.sms_contact_lookup_failed owner=%s contact=%s error=%s",
@@ -9821,8 +9861,20 @@ class OneLocationAgentService:
     ) -> Literal["recorded", "acknowledged", "missing"]:
         """Record the recipient's response without changing the location share."""
         from api.consent_listener import publish_user_state_event_in_transaction
+        from hushh_mcp.services import direct_call_sms
 
         with self._event_bound_writer():
+            conn = getattr(self, "_key_writer_connection", None)
+            reservation = (
+                direct_call_sms.lock_for_grant(
+                    conn,
+                    actor=recipient_user_id,
+                    grant_id=grant_id,
+                    acknowledgement=True,
+                )
+                if conn is not None
+                else None
+            )
             row = self._execute_one(
                 """
                 UPDATE one_location_share_grants g
@@ -9843,6 +9895,8 @@ class OneLocationAgentService:
                 {"grant_id": grant_id, "recipient_user_id": recipient_user_id},
             )
             if row:
+                if reservation:
+                    direct_call_sms.cancel_unanswered(conn, reservation)
                 publish_user_state_event_in_transaction(
                     self._key_writer_connection,
                     recipient_user_id,
@@ -10093,11 +10147,34 @@ class OneLocationAgentService:
         return sorted(str(row["id"]) for row in rows)
 
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
+        from hushh_mcp.services import direct_call_sms
+
         with self._event_bound_writer():
+            conn = getattr(self, "_key_writer_connection", None)
+            reservation = (
+                direct_call_sms.lock_for_grant(
+                    conn,
+                    actor=owner_user_id,
+                    grant_id=grant_id,
+                    acknowledgement=False,
+                )
+                if conn is not None
+                else None
+            )
             transition = self._revoke_grant_transition(
                 owner_user_id=owner_user_id,
                 grant_id=grant_id,
             )
+            if (
+                reservation
+                and transition["changed"]
+                and owner_user_id
+                in (
+                    reservation["owner"],
+                    reservation["peer"],
+                )
+            ):
+                direct_call_sms.cancel_unanswered(conn, reservation)
         row = transition["row"]
         if not transition["changed"]:
             return self._grant_payload(row) or {}

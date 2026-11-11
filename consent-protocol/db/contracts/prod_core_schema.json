@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 457,
+  "expected_migration_version": 458,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -1354,7 +1354,9 @@
       "generation",
       "environment",
       "topic",
-      "updated_at"
+      "updated_at",
+      "fcm_installation_id",
+      "fcm_token_hash"
     ],
     "direct_calls": [
       "id",
@@ -1372,7 +1374,8 @@
       "offers",
       "caller_proof",
       "caller_seen_at",
-      "callee_seen_at"
+      "callee_seen_at",
+      "sms_incident_id"
     ],
     "direct_communication_keys": [
       "device_id",
@@ -4985,5 +4988,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 457
+  "expected_schema_head": 458
 }

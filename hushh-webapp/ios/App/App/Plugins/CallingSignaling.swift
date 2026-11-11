@@ -114,7 +114,7 @@ extension CallingCoordinator {
         let epoch = generation
         do {
             try current(epoch, client)
-            guard verification == nil else { return }
+            guard !starting, verification == nil else { return }
             if let existing = call {
                 let remote = try await client.command("read", ["callId": try CallingWire.string(existing, "id"), "after": after])
                 try current(epoch, client)
@@ -128,7 +128,7 @@ extension CallingCoordinator {
             } else {
                 let result = try await client.command("inbox")
                 try current(epoch, client)
-                guard let incoming = (result["items"] as? [[String: Any]])?.first else { return }
+                guard !starting, call == nil, let incoming = (result["items"] as? [[String: Any]])?.first else { return }
                 if CallingRecovery.ownsOrphan(incoming, device: client.identity.deviceId) {
                     let id = try CallingWire.string(incoming, "id")
                     _ = try await client.command("action", ["callId": id, "action": "end", "revision": incoming["revision"] ?? 0])

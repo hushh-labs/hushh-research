@@ -7,6 +7,7 @@
  */
 
 import { OneLocationService } from "@/lib/one-location/service";
+import { scheduleSmsCall, smsCallSelection } from "@/lib/direct-messages/sms-call-escalation";
 import { apiErrorCode, ApiError } from "@/lib/services/api-client";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
@@ -221,7 +222,8 @@ export async function queueConfirmedSms({
     throw new Error("Location access changed. Try sending the alert again.");
   }
   const incidentId = crypto.randomUUID();
-  const request = () => OneLocationService.queueSmsIncident(vaultOwnerToken, incidentId, note);
+  const selection = smsCallSelection(ownerUserId);
+  const request = () => OneLocationService.queueSmsIncident(vaultOwnerToken, incidentId, note, selection);
   const queued = await request().catch(async (error: unknown) => {
     const code = apiErrorCode(error);
     if (code === "SMS_ALERT_FIRST_DISABLED" || (!code && error instanceof ApiError && error.status === 404)) return null;
@@ -236,6 +238,7 @@ export async function queueConfirmedSms({
   };
   if (isStale?.()) throw new Error("The signed-in account changed.");
   saveSosIncident(incident);
+  if (selection) scheduleSmsCall(ownerUserId, queued.incidentId, selection.callRecipientUserId, queued.callEscalation ?? null);
   return { ...queued, incident };
 }
 
