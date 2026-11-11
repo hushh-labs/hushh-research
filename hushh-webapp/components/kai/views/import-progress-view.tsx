@@ -5,6 +5,7 @@ import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { FileChartColumn, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { cn } from "@/lib/utils";
 
 const stageLabels = {
@@ -41,7 +42,9 @@ const EASE_SECONDS = 15;
 const STILL_WORKING_AFTER_SECONDS = 8;
 
 function useImportProgress(stage: keyof typeof stageLabels) {
-  const [now, setNow] = useState(() => Date.now());
+  // The shared clock wakes every consumer together, after a frame and never
+  // while the page is hidden, instead of a timer of this component's own.
+  const now = Math.max(Date.now(), useCoarseClock(1_000));
   const [began] = useState(() => Date.now());
   const [current, setCurrent] = useState({ stage, at: Date.now() });
   const failed = stage === "error";
@@ -49,11 +52,6 @@ function useImportProgress(stage: keyof typeof stageLabels) {
   useEffect(() => {
     setCurrent({ stage, at: Date.now() });
   }, [stage]);
-  useEffect(() => {
-    if (failed) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(timer);
-  }, [failed]);
 
   const [start, ceiling] = stageRange[stage];
   const inStage = current.stage === stage ? Math.max(0, now - current.at) / 1000 : 0;
@@ -111,8 +109,8 @@ export function ImportProgressView({
             className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
           >
             <div
-              className="h-full rounded-full bg-[var(--app-accent)] motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-out"
-              style={{ width: `${percent}%` }}
+              className="h-full w-full origin-left rounded-full bg-[var(--app-accent)] motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-out"
+              style={{ transform: `scaleX(${percent / 100})` }}
             />
           </div>
         )}
