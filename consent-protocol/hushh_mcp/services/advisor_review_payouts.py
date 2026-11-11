@@ -8,7 +8,7 @@ from db.db_client import get_db
 from hushh_mcp.services.advisor_review_billing import test_config
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError, load, require_accepted
 from hushh_mcp.services.advisor_stripe import provider as stripe_provider
-from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
+from hushh_mcp.services.pkm_packet_order_service import PacketOrderError, _stripe_dict
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 
 
@@ -44,11 +44,13 @@ class AdvisorSandboxPayouts:
         if not readiness["ready"]:
             setup = "restricted" if readiness["status"] == "restricted" else "setup_required"
             return {"mode": "test", "setup": setup, "latest": None}
-        result = await asyncio.to_thread(
-            self.provider.Payout.list,
-            api_key=self.key,
-            stripe_account=account["stripe_account_id"],
-            limit=1,
+        result = _stripe_dict(
+            await asyncio.to_thread(
+                self.provider.Payout.list,
+                api_key=self.key,
+                stripe_account=account["stripe_account_id"],
+                limit=1,
+            )
         )
         data = result.get("data") or []
         latest = None
