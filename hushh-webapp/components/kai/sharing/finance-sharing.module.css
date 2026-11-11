@@ -36,6 +36,11 @@
 .grantDates dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
 .grantActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 16px; }
 .sharedSheet.sharedSheet { width: min(100%, 728px); margin-inline: auto; height: min(620px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; }
+.managerSheet.managerSheet { width: min(100%, 728px); margin-inline: auto; height: min(620px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; }
+@media (min-width: 640px) {
+  :is(.managerSheet, .sharedSheet):is(.managerSheet, .sharedSheet):has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; }
+  :is(.managerSheet, .sharedSheet):is(.managerSheet, .sharedSheet):has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 20px; }
+}
 .sharedBody { display: flex; flex-direction: column; overflow: hidden; }
 .sharedLayout { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 16px; }
 .sharedPager { flex: 1; min-height: 0; }
