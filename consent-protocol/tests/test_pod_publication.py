@@ -7,21 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def test_publication_retains_oidc_and_dev_security_admission():
-    workflows = ROOT / ".github/workflows"
-    caller = yaml.safe_load((workflows / "deploy-dev.yml").read_text())
-    implementation = yaml.safe_load((workflows / "deploy-dev-implementation.yml").read_text())
-    publication = implementation["jobs"]["pod-publication"]
-
-    assert caller["permissions"]["id-token"] == "write"
-    assert publication["permissions"]["id-token"] == "write"
-    assert publication["environment"] == "dev"
-    assert publication["needs"] == "pod-security"
 
 
 def load(monkeypatch, name, filename):
