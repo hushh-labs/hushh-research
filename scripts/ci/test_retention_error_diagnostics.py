@@ -17,6 +17,31 @@ DIAGNOSTICS = importlib.import_module("retention_pass_diagnostics")
 
 
 class RetentionErrorDiagnosticTest(unittest.TestCase):
+    def test_known_refusal_exposes_only_an_authored_reason(self):
+        message = "GitHub authority lookup exceeded its bounded budget"
+        diagnostic = DIAGNOSTICS.safe_failure_diagnostic(
+            "release_preflight",
+            MAINTENANCE.retention.UnsafeState(message),
+            MAINTENANCE.retention,
+        )
+        self.assertEqual(
+            diagnostic,
+            "Hosted maintenance stopped: stage=release_preflight kind=safety_refusal "
+            "reason=authority_lookup_budget_exceeded",
+        )
+        for error in (
+            ValueError(message),
+            MAINTENANCE.retention.UnsafeState(message + ": private payload"),
+        ):
+            self.assertNotIn(
+                "reason=",
+                DIAGNOSTICS.safe_failure_diagnostic(
+                    "release_preflight",
+                    error,
+                    MAINTENANCE.retention,
+                ),
+            )
+
     def test_release_context_stage_and_due_skip_output_are_preserved(self):
         args = SimpleNamespace(
             verify_source_only=True,
