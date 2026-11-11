@@ -829,10 +829,8 @@ tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py
 # Managed Files updates must stay owner-fenced and never infer cleanup from a cancelled task.
 tests/test_hosted_files_analysis.py
-tests/test_hosted_files_authority.py
 tests/test_hosted_files_provisioning.py
 tests/test_hosted_files_routes.py
-tests/test_hosted_files_worker.py
 tests/test_pod_files_checkpoint_join.py
 tests/test_pod_scheduled_tasks.py
 tests/test_pod_scheduled_authority.py

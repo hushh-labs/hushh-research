@@ -71,6 +71,7 @@ async def _claim_files(fixture, client):
 
 async def _assert_unqualified_work_refused(fixture, state, monkeypatch):
     from hushh_mcp.services import user_gcp_bootstrap
+    from hushh_mcp.services.hosted_tier_guard import HostedTierNotPermittedError
     from hushh_mcp.services.hosted_upgrade_authority import bind_managed_upgrade
     from hushh_mcp.services.pod_files.capability_bootstrap import apply_upgrade_configuration
     from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
@@ -90,7 +91,7 @@ async def _assert_unqualified_work_refused(fixture, state, monkeypatch):
         "mint_bootstrap_token",
         lambda **_: pytest.fail("Unqualified Files work minted a credential"),
     )
-    with pytest.raises(ProvisionReconciliationRequired, match="recovery schema"):
+    with pytest.raises(HostedTierNotPermittedError, match="retained executor session"):
         await HostedGcpBackend(
             deployment=bound.private_gcp_deployment, authority=bound.hosted_admission_guard
         ).upgrade(bound)

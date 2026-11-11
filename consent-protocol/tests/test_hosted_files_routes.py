@@ -19,18 +19,9 @@ async def test_hosted_files_offer_requires_retained_authority_and_read_only_insp
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, Mock
 
-    from db.hosted_custody_adoption import QUALIFIED
     from hushh_mcp.services.pod_files import update_offer
     from tests.test_hosted_files_provisioning import hosted_files_fixture
 
-    # Simulate a future reviewed custody family only for this offer-contract
-    # test. The real PostgreSQL test separately proves 974 remains refused.
-    for signature in (
-        "hosted_files_queue_erasure_settled(jsonb)",
-        "valid_erasure_memory_binding(jsonb,jsonb)",
-        "valid_erasure_substrate_inventory(jsonb,jsonb)",
-    ):
-        monkeypatch.setitem(QUALIFIED, signature, "f" * 64)
     row, target, service, _ = hosted_files_fixture(monkeypatch)
     monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "true")
     changed = deepcopy(row)
@@ -39,7 +30,9 @@ async def test_hosted_files_offer_requires_retained_authority_and_read_only_insp
     ] = "changed"
     current = changed if case == "changed-placement" else row
     db = Mock()
-    db.execute_raw.return_value = SimpleNamespace(data=[{"ready": case != "stale-schema"}])
+    db.execute_raw.return_value = SimpleNamespace(data=[])
+    if case == "stale-schema":
+        db.execute_raw.side_effect = RuntimeError("synthetic custody qualification refused")
     repo = Mock(
         _db=Mock(return_value=db),
         files_upgrade_admission_ready=AsyncMock(return_value=True),
@@ -71,7 +64,8 @@ async def test_hosted_files_offer_requires_retained_authority_and_read_only_insp
     assert offer["modelProcessing"] == "Files analysis is not available in this pilot."
     assert "managed pod" in offer["summary"]
     assert len(inspected) == 1
-    assert len(db.execute_raw.call_args.args[1]) == 14
+    db.execute_raw.assert_called_once()
+    assert db.execute_raw.call_args.args[1] == {}
     repo.approve_upgrade.assert_not_called()
 
 
