@@ -37,7 +37,8 @@ import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { createPhoneVerificationRecovery } from "@/lib/auth/phone-verification-recovery";
-import { confirmLinkedDeletion, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
+import { confirmLinkedDeletion, linkedDeletionNeedsFreshProof, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
+import { apiErrorCode } from "@/lib/services/api-client";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -2049,18 +2050,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [phoneRecovery, requirePhoneVerificationOwner]);
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
     const principal = principalRef.current;
+    const proof = phoneTransferProofRef.current;
+    const releaseChallenge = () => {
+      phoneRecovery.cancelNativeStart();
+      phoneTransferProofRef.current = null;
+      setPhoneVerificationAttempt(null);
+      if (!Capacitor.isNativePlatform()) resetRecaptcha();
+    };
     return confirmLinkedDeletion(input, {
       user: () => userRef.current,
       retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
       requireOwner: requirePhoneVerificationOwner,
       finalize: (verified) => {
-        phoneRecovery.cancelNativeStart();
-        phoneTransferProofRef.current = null;
-        setPhoneVerificationAttempt(null);
-        if (!Capacitor.isNativePlatform()) resetRecaptcha();
+        releaseChallenge();
         applyAuthUser(verified, principal);
         phoneVerificationOwnerRef.current = null;
       },
+    }).catch((error: unknown) => {
+      // A spent proof retires its own challenge, never a newer verification.
+      if (linkedDeletionNeedsFreshProof(apiErrorCode(error)) && proof &&
+        proof.phone === input.phoneNumber && phoneTransferProofRef.current === proof &&
+        userRef.current?.uid === proof.userId && phoneVerificationOwnerRef.current === proof.userId &&
+        phoneVerificationEpochRef.current === proof.epoch &&
+        (Capacitor.isNativePlatform() || AuthService.getCurrentUser()?.uid === proof.userId)) {
+        releaseChallenge();
+        phoneVerificationOwnerRef.current = null;
+      }
+      throw error;
     });
   }, [applyAuthUser, phoneRecovery, requirePhoneVerificationOwner]);
 
