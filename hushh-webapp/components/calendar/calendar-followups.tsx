@@ -41,6 +41,8 @@ const lastCatchUp = new Map<string, number>();
 // worker does the bulk of the first month, so the card keeps looking for new
 // results; bounded (about 30 minutes) so a stuck account never polls forever.
 const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, ...Array.from({ length: 14 }, () => 120_000)];
+// A first scan reads the most recent month only; later passes are incremental.
+const FIRST_SCAN_DAYS = 30;
 // Each scan call does one bounded step on the server. While it reports more work
 // the card keeps asking, so the first results arrive in seconds, not scheduler
 // ticks. Capped, and it stops the moment the card goes away.
@@ -74,7 +76,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [historyDays, setHistoryDays] = useState(30);
   const [notify, setNotify] = useState<boolean | null>(null);
   const [reminderInput, setReminderInput] = useState("");
   const [reminderOpen, setReminderOpen] = useState<string | null>(null);
@@ -317,7 +318,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       // Renewing access for an account that is already monitored keeps its
       // approved period, timing and reminders; only a first opt-in chooses them.
       const existing = status?.monitoring_enabled ? status : null;
-      const historical = existing?.historical_start_at || new Date(Date.now() - historyDays * 86_400_000).toISOString();
+      const historical = existing?.historical_start_at || new Date(Date.now() - FIRST_SCAN_DAYS * 86_400_000).toISOString();
       await CalendarFollowupsService.post("preferences", {
         user_id: userId, account_id: accountId, enabled: true,
         notifications_enabled: existing ? existing.notifications_enabled : remind && Boolean(status?.background_available),
@@ -476,14 +477,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           <p className="font-medium">Find Calendar follow-ups in email.</p>
           <p className={styles.muted}>
             {status?.mail_connected
-              ? `Choose how far back to check ${accountEmail}.`
+              ? `Checks the last ${FIRST_SCAN_DAYS} days of ${accountEmail}, then only new mail.`
               : `Allow your private agent to check ${accountEmail} for meetings and deadlines.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2">Look back<select className="min-h-10 rounded-md border bg-background px-2" value={historyDays} onChange={event => setHistoryDays(Number(event.target.value))} disabled={busy}>
-            <option value={30}>30 days</option><option value={90}>90 days</option>
-          </select></label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={remind && Boolean(status?.background_available)} onChange={event => setNotify(event.target.checked)} disabled={busy || !status?.background_available} />Remind me</label>
           <Button size="compact" disabled={busy || (!status?.mail_connected && !onConnectMail)} onClick={() => void turnOn()}>{status?.mail_connected ? "Turn on" : "Allow email access"}</Button>
         </div>
@@ -558,8 +556,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
                 </Button> : null}
               </div>
               {request.kind !== "meeting" && request.linked_event ? <p className={styles.muted}>{request.linked_event[1]}{shortDate(request.linked_event[2]) ? ` · ${shortDate(request.linked_event[2])}` : ""}</p> : null}
-              {request.kind === "meeting" ? <MeetingReview key={request.id} request={request} zone={zone} busy={busy}
+              {request.kind === "meeting" ? <>
+                {request.reminder_at ? <p className={styles.muted}>{reminderText(request, zone)}</p> : null}
+                <MeetingReview key={request.id} request={request} zone={zone} busy={busy}
                 onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
+              </>
               : <>
                 {request.reminder_at ? <p className={styles.muted}>{reminderText(request, zone)}</p> : null}
                 <div className="flex flex-wrap items-center gap-2">

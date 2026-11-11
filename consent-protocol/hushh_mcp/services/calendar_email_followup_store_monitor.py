@@ -166,6 +166,19 @@ class _MonitorState:
 
         await asyncio.to_thread(release)
 
+    async def refresh_meeting_reminders(
+        self, monitor: Monitor, *, now: datetime | None = None
+    ) -> int:
+        """Give proposed meetings stored before they had reminders their day-before reminder."""
+
+        def write() -> int:
+            with self.db.engine.begin() as conn:
+                return configure_sql.schedule_meeting_reminders(
+                    conn, monitor.user_id, monitor.account_id, monitor, now=now
+                )
+
+        return await asyncio.to_thread(write)
+
     async def save_checkpoint(
         self,
         monitor: Monitor,
