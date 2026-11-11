@@ -77,6 +77,15 @@ def bridge_revision_names(receipt):
 
 
 def validate_receipt_extension(value, validate_receipt):
+    startup = value.get("startupProbe")
+    if startup is not None and (
+        value.get("profile") != recorded.PROFILE
+        or not isinstance(startup, str)
+        or startup not in recorded.STARTUP_PHASES
+        or value.get("requested") is not True
+        or (value.get("status") == "verified") != (startup == "complete")
+    ):
+        raise retention.UnsafeState("Invalid recorded bridge startup receipt")
     if value.get("profile") == recorded.PROFILE:
         if (
             value["revision"] != recorded.REVISION

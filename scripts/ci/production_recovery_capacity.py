@@ -125,6 +125,11 @@ def template():
 REVISION = BACKEND + "-cap-" + fingerprint([PROFILE, DISPLACED, SPEC, LABELS, ANNOTATIONS])[:16]
 
 
+OBSERVED_BRIDGE_UID = "6b0af8c2-b677-43e7-b362-0403b4b8dc99"
+STARTUP_TAG = "capacity-" + REVISION.rsplit("-", 1)[-1]
+STARTUP_PHASES = frozenset({"tag_requested", "removal_requested", "complete"})
+
+
 def has_inert_identity(revision):
     metadata = revision.get("metadata", {})
     return metadata.get("name") == REVISION or metadata.get("labels", {}).get("capacity-bridge") == LABEL
@@ -160,7 +165,7 @@ def reconciled(service):
     )
 
 
-def verified_inert(service, revision):
+def inert_revision_matches(service, revision):
     metadata = revision.get("metadata", {})
     labels = metadata.get("labels", {})
     annotations = runtime_annotations(revision)
@@ -182,6 +187,12 @@ def verified_inert(service, revision):
         and annotations == ANNOTATIONS
         and revision.get("spec") == SPEC
         and revision.get("status", {}).get("imageDigest") == BACKEND_IMAGE
+    )
+
+
+def verified_inert(service, revision):
+    return (
+        inert_revision_matches(service, revision)
         and ready(revision)
         and reconciled(service)
         and unrouted(service, REVISION)
