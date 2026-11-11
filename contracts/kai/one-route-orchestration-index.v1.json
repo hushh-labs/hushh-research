@@ -6105,9 +6105,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.finance",
-        "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
+        "purpose": "Answer or skip investing preferences, choose an optional portfolio source, then finish setup.",
         "screen": "one_setup_finance",
-        "entry_cue": "Explore the introduction, then answer or skip investing preferences.",
+        "entry_cue": "Answer or skip the three investing questions, then choose how to add a portfolio.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.finish_finance",
         "happy_path_action_ids": [

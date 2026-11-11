@@ -38,7 +38,7 @@ export function FinanceOnboardingFixture() {
           ) : phase === "source" ? (
             <PortfolioImportView
               presentation="onboarding"
-              onIntroductionBack={() => setPhase("persona")}
+              onSetupBack={() => setPhase("persona")}
               onSkip={() => setPhase("complete")}
               onFileSelect={() => record("statement")}
               onConnectPlaid={() => record("plaid")}

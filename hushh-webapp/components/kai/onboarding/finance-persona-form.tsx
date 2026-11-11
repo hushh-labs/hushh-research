@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState, type FormEvent } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { KAI_PREFERENCE_QUESTIONS } from "@/lib/kai/preference-questions";
 import {
   getInvestingPersona,
   personaPlanningNote,
@@ -9,59 +10,56 @@ import {
 } from "@/lib/kai/investing-persona";
 import styles from "./finance-persona.module.css";
 
-const questions = [
+const editQuestions = [
   {
-    key: "investment_horizon",
+    id: "investment_horizon",
     prompt:
       "When do you expect to start withdrawing money from these investments?",
-    choices: [
-      ["short_term", "Less than 3 years"],
-      ["medium_term", "In 3–7 years"],
-      ["long_term", "More than 7 years"],
+    options: [
+      { value: "short_term", label: "Less than 3 years" },
+      { value: "medium_term", label: "In 3–7 years" },
+      { value: "long_term", label: "More than 7 years" },
     ],
   },
   {
-    key: "drawdown_response",
+    id: "drawdown_response",
     prompt:
       "If your investments fell 20% in a market downturn, what would you do first?",
-    choices: [
-      ["reduce", "Sell some investments to limit further losses"],
-      ["stay", "Keep my investments while I review my plan"],
-      ["buy_more", "Consider investing more if my plan still fits"],
+    options: [
+      { value: "reduce", label: "Sell some investments to limit further losses" },
+      { value: "stay", label: "Keep my investments while I review my plan" },
+      { value: "buy_more", label: "Consider investing more if my plan still fits" },
     ],
   },
   {
-    key: "volatility_preference",
+    id: "volatility_preference",
     prompt:
       "Which of these hypothetical one-year investments would you choose?",
     hint: "In each example, the gain and loss are equally likely.",
-    choices: [
-      ["small", "Lose 5% or gain 8%"],
-      ["moderate", "Lose 15% or gain 18%"],
-      ["large", "Lose 30% or gain 35%"],
+    options: [
+      { value: "small", label: "Lose 5% or gain 8%" },
+      { value: "moderate", label: "Lose 15% or gain 18%" },
+      { value: "large", label: "Lose 30% or gain 35%" },
     ],
   },
   {
-    key: "loss_capacity",
+    id: "loss_capacity",
     prompt:
       "If your investments stayed down for a year, would you need to sell any?",
-    choices: [
-      ["essentials", "I’d probably need to sell to cover bills"],
-      [
-        "delay_goal",
-        "I could cover bills, but I might delay a planned expense",
-      ],
-      ["flexible", "I could keep the money invested without changing my plans"],
+    options: [
+      { value: "essentials", label: "I’d probably need to sell to cover bills" },
+      { value: "delay_goal", label: "I could cover bills, but I might delay a planned expense" },
+      { value: "flexible", label: "I could keep the money invested without changing my plans" },
     ],
   },
 ] as const;
 
 function answer<T extends string>(
   data: FormData,
-  question: { key: string; choices: readonly (readonly [T, string])[] },
+  question: { id: string; options: readonly { value: T }[] },
 ): T | null {
-  const value = data.get(question.key);
-  return question.choices.find(([choice]) => choice === value)?.[0] ?? null;
+  const selected = data.get(question.id);
+  return question.options.find(({ value }) => value === selected)?.value ?? null;
 }
 
 export function FinancePersonaBadge({
@@ -128,15 +126,17 @@ export function FinancePersonaForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const saving = useRef(false);
+  const questions = onboarding ? KAI_PREFERENCE_QUESTIONS : editQuestions;
+  const [horizon, drawdown, volatility, capacity] = questions;
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (saving.current) return;
     const data = new FormData(event.currentTarget);
     const preferences = {
-      investment_horizon: answer(data, questions[0]),
-      drawdown_response: answer(data, questions[1]),
-      volatility_preference: answer(data, questions[2]),
-      loss_capacity: answer(data, questions[3]),
+      investment_horizon: answer(data, horizon),
+      drawdown_response: answer(data, drawdown),
+      volatility_preference: answer(data, volatility),
+      ...(capacity ? { loss_capacity: answer(data, capacity) } : {}),
     } satisfies PersonaPreferences;
     saving.current = true;
     setBusy(true);
@@ -178,7 +178,7 @@ export function FinancePersonaForm({
       {onboarding ? (
         <header>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="ui-text-helper-text">Finance setup · Step 2 of 2</p>
+            <p className="ui-text-helper-text">Finance setup</p>
             <ShellActionSurface
               type="button"
               variant="pill"
@@ -204,10 +204,10 @@ export function FinancePersonaForm({
       </p>
       <div className={styles.questions}>
         {questions.map((question, index) => {
-          const hintId = `${id}-${question.key}`;
+          const hintId = `${id}-${question.id}`;
           return (
             <fieldset
-              key={question.key}
+              key={question.id}
               disabled={busy}
               aria-describedby={"hint" in question ? hintId : undefined}
             >
@@ -223,18 +223,18 @@ export function FinancePersonaForm({
                 </p>
               ) : null}
               {[
-                ...question.choices,
-                ["unknown", "I’m not sure yet"] as const,
-              ].map(([value, label]) => (
+                ...question.options,
+                { value: "unknown", label: "I’m not sure yet" },
+              ].map(({ value, label }) => (
                 <label key={value}>
                   <input
                     type="radio"
-                    name={question.key}
+                    name={question.id}
                     value={value}
                     required
                     defaultChecked={
                       initial
-                        ? (initial[question.key] ?? "unknown") === value
+                        ? (initial[question.id] ?? "unknown") === value
                         : false
                     }
                   />
