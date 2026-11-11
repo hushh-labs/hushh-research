@@ -947,8 +947,9 @@ describe("Connect — People", () => {
     expect(rows.map(row => row.getAttribute("data-voice-label"))).toEqual([
       "Asha Contact", "Manual Friend", "Legacy Friend", "Second Contact",
     ]);
-    const contactBadge = within(rows[0]).getByRole("button", { name: "Via contacts" });
-    const riaBadge = within(rows[0]).getByRole("button", { name: "Verified Advisor" });
+    const avatar = rows[0].querySelector('[data-avatar-size="compact"]') as HTMLElement;
+    const contactBadge = within(avatar).getByRole("button", { name: "Via contacts" });
+    const riaBadge = within(avatar).getByRole("button", { name: "Verified Advisor" });
     const profileButton = within(rows[0]).getByRole("button", { name: "Open Asha Contact's profile" });
     expect(profileButton).not.toContainElement(contactBadge);
     expect(profileButton).not.toContainElement(riaBadge);
@@ -962,12 +963,12 @@ describe("Connect — People", () => {
 
     expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
     fireEvent.click(contactBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Via contacts");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("You connected with this person through a match from your synced contacts.");
     fireEvent.blur(contactBadge);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.click(riaBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Verified Advisor");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Hussh verified this person's advisor profile.");
     fireEvent.keyDown(riaBadge, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
@@ -1703,6 +1704,22 @@ describe("Connect — People", () => {
     view.unmount();
     render(<ConnectPageClient />);
     expect(screen.queryByText("Other account peer")).toBeNull();
+  });
+
+  it("removes a deleted person from an open Connections list after a viewer-scoped graph hint", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections");
+    const live = { connectionId: "live-edge", userId: "live", displayName: "Current Friend", photoUrl: null };
+    const retired = { connectionId: "retired-edge", userId: "retired", displayName: "Deleted Friend", photoUrl: null };
+    mocks.listConnections.mockResolvedValue([live, retired]);
+    render(<ConnectPageClient />);
+    await screen.findByText("Deleted Friend");
+
+    mocks.listConnections.mockResolvedValue([live]);
+    await act(async () => dispatchConnectionGraphChanged("other-owner", { broadcast: false }));
+    expect(screen.getByText("Deleted Friend")).toBeVisible();
+    await act(async () => dispatchConnectionGraphChanged("me", { broadcast: false }));
+    await waitFor(() => expect(screen.queryByText("Deleted Friend")).toBeNull());
+    expect(screen.getByText("Current Friend")).toBeVisible();
   });
 
   it("restores a typed search query after the page remounts", async () => {

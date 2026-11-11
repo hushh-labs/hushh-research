@@ -190,7 +190,13 @@ for (const destination of ["mutual-list", "discovery"] as const) {
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.singleMutualSettled)).toBe("1");
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(page.getByTestId("fixture-person-profile")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Explore your network", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Your network", exact: true })).toBeVisible();
+    if (destination === "discovery") {
+      const preview = page.locator("[data-person-profile-preview]");
+      await preview.getByRole("button", { name: "Back to previous screen", exact: true }).click();
+      await expect(preview).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Explore your network", exact: true })).toBeFocused();
+    }
   });
 }
 
@@ -310,11 +316,26 @@ for (const dark of [false, true]) {
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
       await settle(page, width);
+      const directory = page.getByTestId("connect-directory-group");
+      const explore = directory.getByRole("button", { name: "Explore your network", exact: true });
+      await expect(explore).toBeVisible();
+      await expect(page.getByRole("tablist", { name: "Connection views" }).getByText("Explore your network")).toHaveCount(0);
+      const [searchBox, exploreBox, firstResult] = await Promise.all([
+        directory.getByRole("textbox", { name: "Search people" }).boundingBox(),
+        explore.boundingBox(),
+        directory.getByText("Avery Stone", { exact: true }).boundingBox(),
+      ]);
+      expect(exploreBox!.height).toBeGreaterThanOrEqual(44);
+      expect(exploreBox!.y).toBeGreaterThanOrEqual(searchBox!.y + searchBox!.height);
+      expect(exploreBox!.y + exploreBox!.height).toBeLessThanOrEqual(firstResult!.y);
+      expect(exploreBox!.x).toBeGreaterThanOrEqual(searchBox!.x - 1);
+      expect(exploreBox!.x + exploreBox!.width).toBeLessThanOrEqual(searchBox!.x + searchBox!.width + 1);
       const workspaceBox = await page.locator("[data-connect-page]").boundingBox();
       expect(workspaceBox).not.toBeNull();
       expect(workspaceBox!.width).toBeLessThanOrEqual(728);
       if (width >= 768) expect(workspaceBox!.width).toBe(728);
       await page.getByRole("tab", { name: /My connections/ }).click();
+      await expect(explore).toBeHidden();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
       await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(0);
       const contactBadge = connectionGroup.getByRole("button", { name: "Via contacts" });
@@ -332,35 +353,52 @@ for (const dark of [false, true]) {
           fill: getComputedStyle(icon.querySelector("g[fill]")!).fill,
           stroke: getComputedStyle(icon.querySelector("g[stroke]")!).stroke };
       });
-      expect(contactIcon.width).toBe(16);
-      expect(contactIcon.height).toBe(16);
+      expect(contactIcon.width).toBe(12);
+      expect(contactIcon.height).toBe(12);
       expect(contactIcon.fill).toBe(contactIcon.accent);
       expect(contactIcon.stroke).toBe(contactIcon.outline);
       expect(contactIcon.fill).not.toBe(contactIcon.stroke);
       await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
       const connectionRows = connectionGroup.getByTestId("connect-person-row");
       const jordan = connectionRows.filter({ hasText: "Jordan Lee" });
-      await expect(jordan.getByRole("button", { name: "Via contacts" })).toBeVisible();
+      const avatar = jordan.locator('[data-avatar-size="compact"]');
+      const avatarContactBadge = avatar.getByRole("button", { name: "Via contacts" });
+      const riaBadge = avatar.getByRole("button", { name: "Verified Advisor" });
+      await expect(avatarContactBadge).toBeVisible();
+      await expect(riaBadge).toBeVisible();
+      const face = (await avatar.boundingBox())!;
+      const contact = (await avatarContactBadge.boundingBox())!;
+      const advisor = (await riaBadge.boundingBox())!;
+      expect(advisor.y + advisor.height / 2).toBeLessThan(face.y + face.height / 2);
+      expect(contact.y + contact.height / 2).toBeGreaterThan(face.y + face.height / 2);
+      expect(advisor.y + advisor.height).toBeLessThanOrEqual(contact.y);
       await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByRole("button", { name: "Via contacts" })).toHaveCount(0);
       if (width === WIDTHS[0]) {
         const glyph = contactBadge.locator("svg");
         if (testInfo.project.use.hasTouch) await glyph.tap();
-        else await glyph.click();
+        else await glyph.hover();
         const contactDetails = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Via contacts" });
         await expect(contactDetails).toBeVisible();
+        await expect(contactDetails).toContainText("You connected with this person through a match from your synced contacts.");
         const bounds = (await contactDetails.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
         await page.keyboard.press("Escape");
         await expect(contactDetails).toBeHidden();
 
-        const riaBadge = jordan.getByRole("button", { name: "Verified Advisor" });
         if (testInfo.project.use.hasTouch) await riaBadge.tap();
-        else await riaBadge.focus();
+        else await riaBadge.hover();
         const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });
-        await expect(riaDetails).toBeAttached();
+        await expect(riaDetails).toContainText("Hussh verified this person's advisor profile.");
         await page.keyboard.press("Escape");
         await expect(riaDetails).toHaveCount(0);
+
+        if (!testInfo.project.use.hasTouch) {
+          await riaBadge.focus();
+          await expect(riaDetails).toBeAttached();
+          await page.keyboard.press("Escape");
+          await expect(riaDetails).toHaveCount(0);
+        }
       }
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();

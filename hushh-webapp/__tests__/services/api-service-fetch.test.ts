@@ -37,6 +37,32 @@ describe("ApiService.apiFetch", () => {
     vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(matching);
     expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBe(matching);
   });
+  it("binds the Firebase token to the admitted application owner", async () => {
+    const ownerId = `acct_${"a".repeat(32)}`;
+    const firebaseUid = "firebase-a";
+    publishValidatedAuthSessionPrincipal({ firebaseUid, ownerId, accountGeneration: 1 });
+    const matching = makeUnsignedToken({ sub: firebaseUid });
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(matching);
+
+    expect(await ApiService.getFirebaseIdTokenForOwner(ownerId)).toBe(matching);
+    expect(await ApiService.getFirebaseIdTokenForOwner(firebaseUid)).toBeUndefined();
+
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(makeUnsignedToken({ sub: "firebase-b" }));
+    expect(await ApiService.getFirebaseIdTokenForOwner(ownerId)).toBeUndefined();
+  });
+  it("refuses a late token after the same owner signs in again", async () => {
+    const ownerId = "owner-a";
+    publishValidatedAuthSessionOwner(ownerId);
+    const token = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token.promise);
+    const request = ApiService.getFirebaseIdTokenForOwner(ownerId);
+
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner(ownerId);
+    token.resolve(makeUnsignedToken({ sub: ownerId }));
+
+    expect(await request).toBeUndefined();
+  });
   it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ success: true }));
     await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });

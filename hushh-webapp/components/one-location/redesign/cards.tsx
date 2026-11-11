@@ -603,7 +603,7 @@ export function SharedWithMeCard({
                 aria-hidden="true"
               />
             ) : (
-              <RowDescription data-location-type-role="row-description" className="min-w-0 break-words text-[13px] font-medium leading-5 text-[color:var(--app-label)]">
+              <RowDescription data-location-type-role="row-description" className="min-w-0 break-words [--app-tertiary-label:var(--app-label)]">
                 {address ?? coordinatesFallback}
               </RowDescription>
             )}
@@ -680,10 +680,10 @@ export function SharedWithMeCard({
           <button data-location-type-role="utility-action"
             type="button"
             className={cn(
-              "ui-text-button-label inline-flex min-h-11 items-center gap-2 rounded-[13px] px-3.5 text-[color:var(--app-accent)] transition-[background-color,color,transform] duration-150 hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none",
+              "ui-text-button-label inline-flex min-h-11 items-center gap-2 rounded-[13px] px-3.5 text-[color:var(--app-accent)] transition-[background-color,color,transform] duration-150 hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none",
               isPreviewExpanded
-                ? "-ml-2 min-h-10 rounded-full bg-transparent px-2"
-                : "w-full justify-center bg-[color:var(--app-accent-tint)]",
+                ? "-ml-2 rounded-full bg-transparent px-2 underline-offset-4 hover:underline"
+                : "w-full justify-center bg-[color:var(--app-accent-tint)] hover:bg-[color:var(--app-accent-surface-strong)]",
             )}
             aria-label={
               isPreviewExpanded
@@ -757,9 +757,10 @@ export function SharedWithMeCard({
           {canOpenMap ? (
             <Button data-location-type-role="utility-action"
               asChild
-              variant="ghost"
+              variant="link"
+              disableHoverRipple
               size="sm"
-              className="h-11 min-w-0 justify-center rounded-[11px] px-2.5 text-[13px] font-medium text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)] hover:text-[color:var(--app-accent-deep)]"
+              className="h-11 min-h-11 min-w-0 justify-center rounded-[11px] px-2.5 text-[13px] font-medium text-[color:var(--app-accent)] hover:text-[color:var(--app-accent-deep)]"
             >
               <a
                 href={mapHref}
@@ -778,7 +779,7 @@ export function SharedWithMeCard({
               onClick={onRemove}
               disabled={removeBusy}
               aria-label={`Remove ${name} from Shared with me`}
-              className="inline-flex min-h-11 items-center justify-center rounded-[11px] px-2.5 text-[13px] font-medium text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive-tint)] hover:text-[color:var(--app-destructive)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex min-h-11 items-center justify-center rounded-[11px] px-2.5 text-[13px] font-medium text-[color:var(--app-destructive)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
             >
               <X className="mr-1.5 h-4 w-4" aria-hidden="true" />
               {removeBusy ? "Stopping…" : "Stop viewing"}

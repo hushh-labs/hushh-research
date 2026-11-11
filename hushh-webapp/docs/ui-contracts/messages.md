@@ -38,6 +38,8 @@ People sends, including inline attachments, use verified-owner budgets of 30/min
 
 ## Page, state and action ledger
 
+In Messages, a stationary touch opens message actions after 500 ms. Touch bubbles reserve selection for that gesture and offer **Copy text** for readable plain text; opaque share references are excluded. Whole-chat list holds retain 1,000 ms. Taps, scrolling, cancellation and blocked states still cancel a pending hold. Copy is a manual, current-message clipboard action, not an automatic voice executor.
+
 Dynamic person/Circle names, message text, file names, dates, durations and counts below are templates or server projections. Unless a wire is named, interaction is local and makes **no API call**. All rows use a shared list read; they do not each issue a request. Source owners are under `components/direct-messages/` and `components/connect/circles/` unless another path is named.
 
 | Host and visible state / copy | Trigger, branch and effect | Owner and wire |

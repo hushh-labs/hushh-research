@@ -28,7 +28,10 @@ function normalizeDetail(
  * The DOM event updates mounted consumers in this tab. BroadcastChannel covers
  * another open Hushh tab without writing relationship data to localStorage.
  */
-export function dispatchConnectionGraphChanged(userId: string): void {
+export function dispatchConnectionGraphChanged(
+  userId: string,
+  { broadcast = true }: { broadcast?: boolean } = {},
+): void {
   if (typeof window === "undefined") return;
   const detail = normalizeDetail({ userId, changedAt: Date.now() });
   if (!detail) return;
@@ -40,7 +43,7 @@ export function dispatchConnectionGraphChanged(userId: string): void {
     ),
   );
 
-  if (typeof BroadcastChannel === "undefined") return;
+  if (!broadcast || typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel(CONNECTION_GRAPH_CHANNEL);
   channel.postMessage(detail);
   channel.close();

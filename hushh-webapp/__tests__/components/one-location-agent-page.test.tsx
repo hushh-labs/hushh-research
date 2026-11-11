@@ -25,6 +25,7 @@ import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigatio
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import * as locationNotifications from "@/lib/one-location/notifications";
+import * as liveMapModule from "@/components/one-location/live-map";
 import {
   OneLocationContactSyncError,
   type OneLocationContactSignalResult,
@@ -6275,11 +6276,13 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("keeps only the refresh action below a stale shared map", async () => {
+    const liveMap = vi.spyOn(liveMapModule, "LiveMap");
     const staleGrant = {
       id: "grant_stale",
       ownerUserId: "user_a",
       recipientUserId: "user_b",
       ownerDisplayName: "Trusted A",
+      ownerPhotoUrl: "https://example.test/trusted-a.jpg",
       recipientKeyId: "key_b",
       status: "active",
       consentScope: "cap.location.live.view",
@@ -6352,6 +6355,10 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/^Live until /)).toBeNull();
 
     const mapPreview = screen.getByTitle("Live location map preview");
+    expect(liveMap.mock.calls.map(([props]) => props)).toContainEqual(
+      expect.objectContaining({ avatarUrl: staleGrant.ownerPhotoUrl, displayName: staleGrant.ownerDisplayName }),
+    );
+    liveMap.mockRestore();
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
     );
@@ -7017,12 +7024,12 @@ describe("OneLocationAgentPage", () => {
     // something that stopped being news a second later.
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining("Request sent."),
+        "Location Request sent",
       ),
     );
     expect(playSound).not.toHaveBeenCalled();
     playSound.mockRestore();
-    expect(screen.queryByText("Request sent.")).toBeNull();
+    expect(screen.queryByText("Location Request sent")).toBeNull();
   });
 
   it("returns to My Location after a complete request and reopens cleanly", async () => {
@@ -7042,7 +7049,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining("Request sent."),
+        "Location Request sent",
       ),
     );
 
@@ -7100,7 +7107,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining("Request sent."),
+        "Location Request sent",
       ),
     );
     await waitFor(() =>
@@ -7161,7 +7168,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   // The confirmation used to latch the instant the button was tapped, so a send
-  // that failed still reported "Request sent."
+  // that failed still reported "Location Request sent".
   it("does not claim a request was sent when the send fails", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -7192,7 +7199,7 @@ describe("OneLocationAgentPage", () => {
     // it would pass for the wrong reason. The channel that DOES carry a
     // success is the one that has to stay silent.
     expect(toast.success).not.toHaveBeenCalledWith(
-      expect.stringContaining("Request sent."),
+      "Location Request sent",
     );
   });
 
@@ -7647,7 +7654,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockShortenGrant).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "Asked Trusted B for 1 hour more.",
+        "Location Request sent",
       ),
     );
   }, 10_000);

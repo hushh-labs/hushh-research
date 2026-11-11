@@ -217,7 +217,7 @@ describe("Connect circle growth", () => {
         members={[]}
         memberCount={1}
         canInvite
-        candidates={[candidate]}
+        candidates={[{ ...candidate, connectedFromContacts: true }]}
         availableCount={1}
         remainingCapacity={5}
         loading={false}
@@ -232,9 +232,10 @@ describe("Connect circle growth", () => {
         onRetry={vi.fn()}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add Asha Rao to Family" }),
-    );
+    const choice = screen.getByRole("button", { name: "Add Asha Rao to Family" });
+    expect(choice).toHaveAccessibleDescription("Connected from your contacts");
+    expect(screen.getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    fireEvent.click(choice);
     expect(onAdd).toHaveBeenCalledWith("person-1");
     const data = new Map<string, string>();
     const dataTransfer = {

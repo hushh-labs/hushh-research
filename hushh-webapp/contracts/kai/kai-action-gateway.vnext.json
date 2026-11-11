@@ -14669,6 +14669,105 @@
       }
     },
     {
+      "action_id": "messages.copy_text",
+      "surface_id": "one_messages",
+      "label": "Copy message text",
+      "aliases": [],
+      "search_keywords": [
+        "message",
+        "copy text"
+      ],
+      "meaning": "Explicitly copies readable plain text from the current message menu to the local clipboard; opaque shares are excluded.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/messages"
+        ],
+        "screens": [
+          "one_messages"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Signed-in user; destination retains its existing access checks."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible message menu owns the user gesture and current-message clipboard scope.",
+        "intended_handler": "Message context menu"
+      },
+      "control_ids": [
+        "messages-people-copy-text",
+        "messages-circles-copy-text"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/messages"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.messages.copy_text",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "messages.copy_text",
+            "label": "Copy message text",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_agents",
       "surface_id": "one_agents",
       "label": "Open Agents",

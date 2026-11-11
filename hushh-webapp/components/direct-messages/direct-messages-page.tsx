@@ -119,6 +119,7 @@ import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadat
 
 import styles from "./direct-messages-page.module.css";
 import quietStyles from "./messages-quiet-action.module.css";
+import { copyToClipboard } from "@/lib/utils/clipboard";
 import { WalletSharedCardMessage } from "@/components/wallet/wallet-shared-card-message";
 import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
 import { cardAccessReference } from "@/lib/services/wallet-card-access-service";
@@ -127,6 +128,13 @@ import { connectionMessagePreview as walletMessagePreview } from "@/lib/finance-
 import { financeReference } from "@/lib/finance-sharing/contract";
 import { FinanceShareMessage } from "@/components/kai/sharing/finance-share-message";
 import { cardRequestReference, walletCardRequestHref } from "@/lib/wallet/card-request";
+
+/** Only ordinary message text may be copied; opaque shares keep their own owner. */
+function directMessagePlainText(content: string): string | null {
+  if (financeReference(content) || cardRequestReference(content)
+    || cardAccessReference(content) || isWalletCardShare(content)) return null;
+  return content;
+}
 
 type ThreadState = {
   conversation: DirectMessageConversation | null;
@@ -689,7 +697,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [atBottom, setAtBottom] = useState(true);
   const [readRevision, setReadRevision] = useState(0);
   const blockingLayer = Boolean(useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions);
-  const messageLongPress = useLongPress(lane !== "people" || !hasRouteSelection || !isCurrentRead || pendingSelection || blockingLayer);
+  const copyAdmission = useRef(false);
+  copyAdmission.current = isCurrentRead && !pendingSelection && !blockingLayer;
+  const messageLongPress = useLongPress(
+    lane !== "people" || !hasRouteSelection || !isCurrentRead || pendingSelection || blockingLayer,
+    false,
+    500,
+  );
   const cancelMessageLongPress = messageLongPress.cancel;
   const foreground = () => document.visibilityState === "visible" && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
   const bottomIsUncovered = useCallback(() => {
@@ -1617,6 +1631,23 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setJumpTarget(null);
   }, [jumpTarget, messages, messageSearchQuery]);
 
+  const copyMessageText = async (message: DirectMessage) => {
+    const text = directMessagePlainText(message.content);
+    const opening = messageMenuOpening.current;
+    if (!text?.trim() || !isCurrentRead || pendingSelection || blockingLayer || !opening ||
+        opening.generation !== operationGeneration.current || opening.messageId !== message.id) return;
+    const generation = operationGeneration.current;
+    const selection = selectionRef.current;
+    const isCurrent = () => copyAdmission.current && generation === operationGeneration.current && selection === selectionRef.current &&
+      readAdmission.current.ownerId === userId && readAdmission.current.lane === "people" &&
+      messagesRef.current.some(current => current.id === message.id && current.content === text && !current.deletedForEveryoneAt);
+    const copied = await copyToClipboard(text, isCurrent);
+    if (isCurrent()) {
+      if (copied) morphyToast.success("Copied.");
+      else morphyToast.error("Couldn't copy. Try again.");
+    }
+  };
+
   const startReply = (message: DirectMessage) => {
     if (sendingSelections.current.has(draftScope) || sendAttempts.current.get(draftScope)?.unconfirmed) return;
     const opening = messageMenuOpening.current;
@@ -2165,6 +2196,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                             );
                           }
                         }}
+                        onPointerDownCapture={messageLongPress.resetClick}
+                        onClickCapture={messageLongPress.consumeClick}
                         onPointerDown={(event) => messageLongPress.start(event, () => openMessageActions(message))}
                         onPointerMove={messageLongPress.move}
                         onPointerUp={messageLongPress.cancel}
@@ -2334,6 +2367,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       <DropdownMenuItem disabled={sending || hasUnconfirmedSend} onSelect={() => startReply(message)}>
                                         <ArrowBendUpLeft weight="fill" className="h-3.5 w-3.5" aria-hidden="true" />
                                         Reply
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {openMessageMenu === message.id && !message.deletedForEveryoneAt && directMessagePlainText(message.content)?.trim() ? (
+                                      <DropdownMenuItem data-voice-control-id="messages-people-copy-text" onSelect={() => { void copyMessageText(message); }}>
+                                        Copy text
                                       </DropdownMenuItem>
                                     ) : null}
                                     {message.senderIsViewer && !message.deletedForEveryoneAt && !isWalletCardShare(message.content) ? (
@@ -2664,7 +2702,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 if (onSelect) onSelect({ kind: "person", ref: person.publicPersonRef });
                 else void navigateDirectMessage(router, { personRef: person.publicPersonRef });
               }}>
-              <ConnectionPersonAvatar userId={person.userId} label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
+              <ConnectionPersonAvatar
+                userId={person.userId}
+                label={person.displayName || "Connection"}
+                photoUrl={person.photoUrl}
+                verified={person.isRia}
+                fromContacts={person.connectedFromContacts}
+                size="list"
+              />
               <span>{person.displayName || "Connection"}</span>
             </PersonSelectionSurface>)}
             {newChatHasMore ? <Button type="button" variant="none" effect="fade" className={cn(styles.newChatMore, quietStyles.action)} disabled={newChatLoading}
