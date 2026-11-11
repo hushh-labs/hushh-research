@@ -661,6 +661,46 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("textbox", { name: "Message Ankit Kumar Singh" })).not.toBeInTheDocument();
   });
 
+  it.each([false, true])("keeps a third reaction visible through stale history, successful save=%s", async (success) => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const message = { ...visibleMessage, reactions: [
+      { emoji: "👍", count: 1, reactedByViewer: false },
+      { emoji: "😂", count: 2, reactedByViewer: false },
+    ] };
+    const history = { conversation: mocks.conversation, items: [message], canSend: true, disconnectedNotice: null, nextBefore: null };
+    mocks.getConversationMessages.mockResolvedValue(history);
+    let finish!: (value: unknown) => void;
+    let fail!: (error: Error) => void;
+    mocks.reactToMessage.mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    renderConnectionThread();
+    fireEvent.click(await screen.findByText(message.content));
+    fireEvent.click(screen.getByRole("button", { name: "React to message" }));
+    fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
+    await screen.findByRole("button", { name: "❤️ reaction, 1" });
+    await waitFor(() => expect(mocks.reactToMessage).toHaveBeenCalled());
+
+    // A refresh can include a remote edit/count update before our PUT commits.
+    const refreshed = { ...message, content: "Remote edit while saving", reactions: [
+      { emoji: "👍", count: 3, reactedByViewer: false }, message.reactions[1]!,
+    ] };
+    mocks.getConversationMessages.mockResolvedValue({ ...history, items: [refreshed] });
+    fireEvent(window, new Event("focus"));
+    await screen.findByText(refreshed.content);
+    expect(screen.getByRole("button", { name: "❤️ reaction, 1" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "👍 reaction, 3" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "😂 reaction, 2" })).toBeVisible();
+
+    const committed = { ...refreshed, reactions: [...refreshed.reactions, { emoji: "❤️", count: 1, reactedByViewer: true }] };
+    mocks.getConversationMessages.mockResolvedValue({ ...history, items: [success ? committed : refreshed] });
+    await act(async () => { if (success) finish(committed); else fail(new Error("Reaction rejected")); });
+    await waitFor(() => expect(mocks.getConversationMessages).toHaveBeenCalledTimes(3));
+    if (success) expect(screen.getByRole("button", { name: "❤️ reaction, 1" })).toBeVisible();
+    else expect(screen.queryByRole("button", { name: "❤️ reaction, 1" })).not.toBeInTheDocument();
+    expect(screen.getByText(refreshed.content)).toBeVisible();
+    expect(screen.getByRole("button", { name: "👍 reaction, 3" })).toBeVisible();
+  });
+
   it.each(["edit", "delete"] as const)("preserves a remote %s when a held reaction fails", async (change) => {
     vi.spyOn(document, "hasFocus").mockReturnValue(true);
     const history = { conversation: mocks.conversation, items: [{ ...visibleMessage, reactions: [] }], canSend: true, disconnectedNotice: null, nextBefore: null };
