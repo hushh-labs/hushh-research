@@ -12,6 +12,7 @@ import {
 import { usePathname } from "next/navigation";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import type {
@@ -32,6 +33,11 @@ import {
 import { FinanceSharedDetail } from "./finance-shared-detail";
 import finance from "@/components/kai/shared/finance-workspace.module.css";
 import styles from "./finance-sharing.module.css";
+
+const directionTabs: { value: "outgoing" | "received"; label: string }[] = [
+  { value: "outgoing", label: "Shared by you" },
+  { value: "received", label: "Shared with you" },
+];
 
 export function FinanceSharingManager({
   open,
@@ -289,37 +295,19 @@ export function FinanceSharingManager({
   return (
     <>
       <KaiControlSurface
-        open={open && !updateData}
+        open={open && !updateData && !selected}
         onOpenChange={onOpenChange}
         title="Finance sharing"
         description="Review access person by person."
+        presentation="sheet"
         surfaceClassName={finance.detail}
       >
-        <div
-          className={styles.managerTabs}
-          role="group"
-          aria-label="Sharing direction"
-        >
-          <ShellActionSurface
-            variant="pill"
-            wrapperClassName="w-full"
-            className="w-full min-h-11 justify-center"
-            disabled={!canManageOutgoing}
-            aria-pressed={direction === "outgoing"}
-            onClick={() => setDirection("outgoing")}
-          >
-            Shared by you
-          </ShellActionSurface>
-          <ShellActionSurface
-            variant="pill"
-            wrapperClassName="w-full"
-            className="w-full min-h-11 justify-center"
-            aria-pressed={direction === "received"}
-            onClick={() => setDirection("received")}
-          >
-            Shared with you
-          </ShellActionSurface>
-        </div>
+        <SegmentedTabs
+          value={direction}
+          options={canManageOutgoing ? directionTabs : directionTabs.slice(1)}
+          ariaLabel="Sharing direction"
+          onValueChange={(value) => setDirection(value === "received" ? "received" : "outgoing")}
+        />
         {!hasPortfolio ? (
           <p className={`${styles.caption} mt-3`}>
             {canManageOutgoing
