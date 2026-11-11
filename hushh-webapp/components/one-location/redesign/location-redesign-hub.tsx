@@ -3318,15 +3318,15 @@ function LocationSettingsFlow({
 
           <DialogFooter>
             <FlowActionGroup
-              stacked
+              separateSecondary={false}
               measure="decision"
-              className="max-w-[244px]"
+              className="w-auto max-w-44"
               primary={
                 <Button
                   type="button"
-                  size="prominent"
+                  size="compact"
                   data-location-action-fit=""
-                  className="h-auto py-3"
+                  className="h-11 px-5"
                   disabled={!draftScope}
                   onClick={commitAutoApproveScope}
                 >

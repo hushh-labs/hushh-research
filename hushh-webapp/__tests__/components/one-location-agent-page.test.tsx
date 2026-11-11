@@ -2581,7 +2581,9 @@ describe("OneLocationAgentPage", () => {
     const autoApproveActions = autoApproveDialog.querySelector(
       '[data-ui-role="flow-actions"]',
     );
-    expect(autoApproveActions).toHaveClass("mx-auto", "max-w-[244px]");
+    expect(autoApproveActions).toHaveClass("mx-auto", "max-w-44");
+    expect(autoApproveActions?.querySelector('[data-action-priority="secondary"]')).not.toHaveClass("border-t");
+    expect(within(autoApproveDialog).getByRole("button", { name: "Turn on", exact: true })).toHaveClass("h-11", "px-5");
     const allContacts = screen.getByRole("checkbox", { name: "All contacts" });
     fireEvent.click(allContacts);
     expect(allContacts).toHaveAttribute("aria-checked", "true");

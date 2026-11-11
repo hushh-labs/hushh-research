@@ -47,16 +47,16 @@ test.beforeAll(async () => {
   });
   css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
-async function mount(page: Page, dark = false, workspace = false, inviteCode = false, v14 = false) {
+async function mount(page: Page, dark = false, workspace = false, inviteCode = false, v14 = false, review = false) {
   await page.route("http://localhost/fixture-person-*.webp", (route) => {
     const index = Number(route.request().url().match(/person-(\d+)/)![1]);
     return route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${index + 1}.webp`)) });
   });
   await page.route("http://localhost/circle-chat-fixture*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`http://localhost/circle-chat-fixture${workspace ? `?workspace=1${inviteCode ? "&inviteCode=1" : ""}${v14 ? "&v14=1" : ""}` : ""}`);
+  await page.goto(`http://localhost/circle-chat-fixture${workspace ? `?workspace=1${inviteCode ? "&inviteCode=1" : ""}${v14 ? "&v14=1" : ""}${review ? "&review=1" : ""}` : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
-  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+  if (!review) await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
   await page.bringToFront();
 }
 
@@ -727,10 +727,31 @@ for (const width of [393, 1440]) test(`Connect circle controls stay compact and 
   await expect(actions.getByRole("button", { name: "Add people", exact: true })).toBeVisible();
   const remove = actions.getByRole("button", { name: "Delete circle", exact: true });
   expect((await remove.boundingBox())!.width).toBeLessThan(180);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const rename = page.getByRole("dialog", { name: "Rename Circle", exact: true });
+  await expect(rename.locator('[data-task-region="footer"]')).toHaveCSS("border-top-width", "0px");
+  await rename.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByTestId("one-location-circle-invite-code-row").click();
   const dialog = page.getByRole("dialog", { name: "Invite code", exact: true });
   await expect(dialog.getByRole("button", { name: "Create code", exact: true })).toBeVisible();
   await expect(dialog.locator('[data-task-region="footer"]')).toHaveCSS("border-top-width", "0px");
   await expect(dialog.locator('[data-task-region="footer"]')).toHaveCSS("padding-top", "8px");
   await page.screenshot({ path: test.info().outputPath(`compact-invite-${width}.png`), animations: "disabled" });
+});
+
+for (const width of [393, 1440]) test(`Review actions keep equal decisions and compact durations at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await mount(page, false, true, false, true, true);
+  const approve = page.getByRole("button", { name: "Approve 24 hours", exact: true });
+  const decline = page.getByRole("button", { name: "Decline", exact: true });
+  const a = (await approve.boundingBox())!;
+  const d = (await decline.boundingBox())!;
+  expect(a.width).toBe(176);
+  expect(d.width).toBe(a.width);
+  expect(d.height).toBe(a.height);
+  for (const duration of await page.getByTestId("one-location-approve-shorter").getByRole("button").all()) {
+    expect((await duration.boundingBox())!.width).toBeLessThan(a.width);
+    await expect(duration).toHaveCSS("height", "44px");
+  }
+  await page.screenshot({ path: test.info().outputPath(`compact-review-${width}.png`), animations: "disabled" });
 });

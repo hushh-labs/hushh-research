@@ -380,10 +380,11 @@ export function RequestCard({
           {decision === "approved" ? "Approved" : "Declined"}
         </StatusText>
       ) : (
-        <div className="mt-3.5 space-y-2.5">
+        <div className="mx-auto mt-3.5 w-44 max-w-full space-y-2.5">
           {/* The full ask stays the primary answer: it is what was actually
               requested, and most of the time it is what gets granted. */}
           <Button
+            size="compact"
             onClick={() => void settleDecision("approved", "approve", onApprove)}
             disabled={decided}
             isLoading={pendingDecision === "approve"}
@@ -401,13 +402,14 @@ export function RequestCard({
                 {isExtension ? "Or add less" : "Or approve for less"}
               </p>
               <div
-                className="grid grid-cols-2 gap-2"
+                className="flex flex-wrap justify-center gap-2"
                 data-testid="one-location-approve-shorter"
               >
                 {shorterOptions.map((option) => {
                   const key = `shorter:${option.hours}`;
                   return (
                     <Button
+                      size="compact"
                       key={key}
                       onClick={() =>
                         void settleDecision("approved", key, () =>
@@ -424,7 +426,7 @@ export function RequestCard({
                           ? `Add ${option.label} instead`
                           : `Approve for ${option.label} instead`
                       }
-                      className="ui-text-button-label h-11 min-w-0 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
+                      className="ui-text-button-label h-11 w-auto min-w-0 rounded-full px-4 bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill-strong)]/80"
                     >
                       {option.label}
                     </Button>
@@ -435,6 +437,7 @@ export function RequestCard({
           ) : null}
 
           <Button
+            size="compact"
             onClick={() => void settleDecision("declined", "decline", onDecline)}
             disabled={decided}
             isLoading={pendingDecision === "decline"}

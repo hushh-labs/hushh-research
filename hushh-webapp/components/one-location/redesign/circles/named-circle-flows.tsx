@@ -2685,7 +2685,7 @@ export function CircleDetailFlow({
                     <p data-profile-role="description" className="text-sm text-destructive">Enter a name.</p>
                   ) : null}
                 </TaskSurfaceBody>
-                <TaskSurfaceFooter>
+                <TaskSurfaceFooter className="!border-t-0">
                   <FlowActionGroup
                     separateSecondary={false}
                     className={taskSurfaceStyles.actionGroup}
@@ -3319,7 +3319,7 @@ export function CircleDetailFlow({
               rename, invite, remove. The API and a database trigger refuse the
               delete too; this only keeps the person from being offered
               something that cannot happen. */}
-          <div className="flex flex-wrap items-center justify-between gap-3" data-circle-member-actions>
+          <div className="flex flex-wrap items-center justify-center gap-4" data-circle-member-actions>
             {canInviteMembers && visibleMemberCount > 1 ? <AddPeopleAction data-connect-role="action" onClick={openPeopleSheet} disabled={busy} className="rounded-full px-2.5" data-testid="one-location-circle-add-people-row" /> : null}
           {canDeleteCircle ? (
             <AlertDialog>
