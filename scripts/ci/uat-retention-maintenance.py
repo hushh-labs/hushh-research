@@ -111,6 +111,7 @@ REQUIRED_PRODUCTION_STEPS = (
 
 
 GITHUB_LOOKUP_SECONDS = 90
+PRODUCTION_RELEASE_LOOKUP_SECONDS = 150
 PASS_SECONDS = 300
 _LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
 _API_CACHE: ContextVar[dict | None] = ContextVar("api_cache", default=None)
@@ -1866,6 +1867,19 @@ def maintenance_pass() -> int:
         pass_diagnostics.checkpoint_guard(assert_checkpoint_publication, repository, args)
         pass_diagnostics.restore_checkpoint(restore_state, repository, args)
         importlib.import_module("retention_publication").preserve(sys.modules[__name__], args)
+        if (
+            args.environment == "production"
+            and args.force_inspection
+            and args.release_run_id
+            and os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
+            and os.getenv("GITHUB_REF_NAME") == "main"
+        ):
+            # The checkpoint proof has completed. Give the independent live
+            # release proof its own bounded window inside the same pass deadline.
+            _LOOKUP_DEADLINE.set(
+                time.monotonic()
+                + retention.remaining_seconds(PRODUCTION_RELEASE_LOOKUP_SECONDS)
+            )
     pass_diagnostics.load_release_context(
         production_retention_context, args, repository, sys.modules[__name__]
     )
