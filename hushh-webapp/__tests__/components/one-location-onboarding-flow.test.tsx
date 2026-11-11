@@ -632,7 +632,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
   it("keeps the map claim honest", async () => {
     await renderReady({ mapPoint: null });
     expect(
-      screen.getByRole("heading", { name: "Your people." }),
+      screen.getByRole("heading", { name: "Find your circle" }),
     ).toBeTruthy();
     expect(screen.getByText("Turn on Location when you're ready.")).toBeTruthy();
   });

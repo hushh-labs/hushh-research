@@ -8,13 +8,14 @@ import styles from "./person-profile-page.module.css";
 
 /** Presentation only. The profile keeps authority, request lifetimes and actions. */
 export function PersonProfileHero({
-  profile, status, options, contacts, primaryActions, tasks, footer, shareOnly = false,
+  profile, status, options, contacts, network, primaryActions, tasks, footer, shareOnly = false,
 }: {
   profile: { displayName: string; photoUrl?: string | null; verifiedRole?: string | null };
   shareOnly?: boolean;
   status?: ReactNode;
   options?: ReactNode;
   contacts?: ReactNode;
+  network?: ReactNode;
   primaryActions: ReactNode;
   tasks?: ReactNode;
   footer?: ReactNode;
@@ -46,6 +47,7 @@ export function PersonProfileHero({
                 <HelperText className={styles.role}>{profile.verifiedRole}</HelperText>
               ) : null}
               <div className={styles.contactLines}>{contacts}</div>
+              {network}
             </div>
             <div className={styles.primaryActions} data-share-only={shareOnly}>{primaryActions}</div>
           </div>

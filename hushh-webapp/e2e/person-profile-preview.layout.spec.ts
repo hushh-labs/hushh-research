@@ -93,7 +93,19 @@ for (const width of [320, 393, 768, 1440]) {
     await preview.getByRole("button", { name: "2 mutual connections", exact: true }).click();
     await preview.getByRole("button", { name: "Open Aarav Sharma's profile" }).click();
     await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
-    await preview.getByRole("button", { name: "View connections", exact: true }).click();
+    const count = preview.getByRole("button", { name: "3 connections", exact: true });
+    await expect(count).toBeVisible();
+    const [contactBounds, countBounds] = await Promise.all([
+      preview.getByRole("link", { name: "profile@example.com" }).boundingBox(), count.boundingBox(),
+    ]);
+    expect(countBounds!.y).toBeGreaterThanOrEqual(contactBounds!.y + contactBounds!.height);
+    expect(countBounds!.x).toBeCloseTo(contactBounds!.x, 0);
+    expect(countBounds!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: testInfo.outputPath(`profile-connection-count-${width}.png`) });
+    await count.click();
+    const connected = preview.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Open Maya Singh's profile" }) });
+    await expect(connected.getByText("Connected", { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`profile-connections-${width}.png`) });
     await preview.getByRole("textbox", { name: "Search network by name" }).fill("Second");
     const connect = preview.getByRole("button", { name: "Connect with Second Degree Person" });
     await expect(connect).toBeVisible();
@@ -129,6 +141,7 @@ for (const width of [320, 393, 768, 1440]) {
     await page.screenshot({ path: testInfo.outputPath(`network-shared-list-${width}.png`) });
     await back(); // Aarav's revisited profile
     await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
+    await expect(count).toBeFocused();
     await back(); // Maya's mutual list
     await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
     await back(); // Maya
@@ -163,7 +176,7 @@ for (const width of [320, 393, 768, 1440]) {
     await preview.getByRole("button", { name: "Open Third Degree Person's profile" }).click();
     await expect(preview.getByText("3rd connection", { exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: /mutual connection/ })).toHaveCount(0);
-    await expect(preview.getByRole("button", { name: "View connections", exact: true })).toHaveCount(0);
+    await expect(preview.locator('[data-voice-control-id="person-network-connections"]')).toHaveCount(0);
     await back();
     await expect(preview.getByRole("button", { name: "Extended network", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(preview.getByRole("button", { name: "Open Third Degree Person's profile" })).toBeFocused();
