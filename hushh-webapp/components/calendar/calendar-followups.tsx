@@ -333,7 +333,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
             <span className="block truncate text-xs text-muted-foreground">{previewLine(entry)} · {shortSender(entry.sender)}</span>
             {entry.source_completeness === "partial" ? <span className="text-xs text-amber-700">Source check incomplete</span> : null}
           </div>
-          <Button size="compact" variant="ghost" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${next?.title || entry.subject}`}>Review</Button>
+          <Button size="compact" variant="link" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${next?.title || entry.subject}`}>Review</Button>
         </div>;
       })}
       {status?.monitoring_enabled && list?.total_conversations === 0 && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">{EMPTY_LABELS[activeView]}</p> : null}
@@ -341,15 +341,15 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       {status?.monitoring_enabled && status.scan_state === "pending" && !rows.length ? <p className="text-sm text-muted-foreground">Checking your email…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
-        {!expanded && (list?.total_conversations || 0) > 2 ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
-        {status?.monitoring_enabled ? <div className="flex items-center gap-1"><Button size="compact" variant="ghost" disabled={loading || busy} onClick={() => void retryScan()}>Retry</Button>
-          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div> : null}
+        {!expanded && (list?.total_conversations || 0) > 2 ? <Button size="compact" variant="link" onClick={onViewAll}>View all</Button> : <span />}
+        {status?.monitoring_enabled ? <div className="flex items-center gap-1"><Button size="compact" variant="link" disabled={loading || busy} onClick={() => void retryScan()}>Retry</Button>
+          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon-touch" className="text-[color:var(--app-accent)]" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div> : null}
       </div>
       {expanded && (list?.total_conversations || 0) > FOLLOWUP_PAGE_SIZE ? <div className="flex items-center justify-between gap-2 text-sm">
         <span className="text-muted-foreground">Page {Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1} of {Math.ceil((list?.total_conversations || 0) / FOLLOWUP_PAGE_SIZE)}</span>
         <div className="flex items-center gap-1">
-          <Button size="compact" variant="ghost" disabled={loading || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}>Previous</Button>
-          <Button size="compact" variant="ghost" disabled={loading || list?.next_offset == null} onClick={() => { if (list?.next_offset != null) setPageOffset(list.next_offset); }}>Next</Button>
+          <Button size="compact" variant="link" disabled={loading || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}>Previous</Button>
+          <Button size="compact" variant="link" disabled={loading || list?.next_offset == null} onClick={() => { if (list?.next_offset != null) setPageOffset(list.next_offset); }}>Next</Button>
         </div>
       </div> : null}
     </div>
@@ -364,7 +364,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       headerTextOverflow="wrap">
       <div className="space-y-4 text-sm">
         {actionError ? <div><p role="alert" className="text-red-600">{actionError}</p>{!detail && selectedId ? <Button size="compact" variant="outline" onClick={() => void retryDetail()}>Retry</Button> : null}</div> : null}
-        {source ? <><Button variant="ghost" size="compact" onClick={() => setSource(null)}>Back to follow-up</Button>
+        {source ? <><Button variant="link" size="compact" onClick={() => setSource(null)}>Back to follow-up</Button>
           <p className="text-xs text-muted-foreground">Source email in {accountEmail}</p>
           <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border p-3">{source.body}</div></> : detail ? <>
           {detail.source_completeness === "partial" ? <p className="text-amber-700">Some messages in this conversation could not be checked completely.</p> : null}
@@ -372,10 +372,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
             <div className="flex items-start justify-between gap-2"><div className="min-w-0"><strong className="break-words">{request.title}</strong>
               <p className="text-muted-foreground">{request.original_due_wording || (request.proposed_date ? `Proposed for ${dateLabel(request.proposed_date)}` : "Date needs review")}</p>
               {statusNote(request) ? <p className="text-xs text-muted-foreground">{statusNote(request)}</p> : null}</div>
-              {request.kind !== "meeting" && request.state !== "done" && request.state !== "cancelled" ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
+              {request.kind !== "meeting" && request.state !== "done" && request.state !== "cancelled" ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon-touch" className="text-[color:var(--app-accent)]" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
             </div>
             <p className="line-clamp-3 whitespace-pre-wrap break-words text-muted-foreground">“{request.source_excerpt}”</p>
-            <Button variant="ghost" size="compact" disabled={busy} onClick={() => void openSource(request)}>Open email</Button>
+            <Button variant="link" size="compact" disabled={busy} onClick={() => void openSource(request)}>Open email</Button>
             {request.kind === "meeting" ? <>
               <p className="font-medium">{request.booking_state === "booked" ? "Booked" : "Not booked"}</p>
               <MeetingReview key={request.id} request={request} zone={zone} busy={busy} onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
@@ -392,7 +392,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
                     void act(request, "set_reminder", reminder);
                   } catch { setActionError("Choose a future reminder."); }
                 }}>Set reminder</Button>
-                <Button variant="ghost" size="compact" disabled={busy} onClick={() => void act(request, "snooze", new Date(Date.now() + 86_400_000).toISOString())}>Snooze 1 day</Button></div> : null}
+                <Button variant="link" size="compact" disabled={busy} onClick={() => void act(request, "snooze", new Date(Date.now() + 86_400_000).toISOString())}>Snooze 1 day</Button></div> : null}
             </>}
           </div>)}
         </> : <p role="status">Checking follow-up…</p>}

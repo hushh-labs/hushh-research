@@ -2259,13 +2259,13 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
+      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
         <RowLabel
           as="span"
-          className="min-w-0"
+          className="min-w-0 underline-offset-4 group-hover:underline"
         >
           {title}
         </RowLabel>
@@ -3315,7 +3315,7 @@ function LocationSettingsFlow({
               secondary={
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="link"
                   size="standard"
                   onClick={() => setScopeSheetOpen(false)}
                 >
@@ -3523,7 +3523,7 @@ export function PersonRow({
             ? "grid-cols-[auto_minmax(0,1fr)] gap-2 sm:gap-3"
             : "grid-cols-[auto_minmax(0,1fr)_auto] gap-3",
           "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-          "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+          "hover:[&_[data-location-row-title]]:underline [&_[data-location-row-title]]:underline-offset-4",
         )}
       >
         <div className="relative shrink-0">
@@ -3579,8 +3579,7 @@ export function PersonRow({
           {onShare ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={shareReady ? onShare : onShareUnavailable}
               disableHoverRipple
@@ -3600,8 +3599,7 @@ export function PersonRow({
           {onAsk ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onAsk}
               className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
@@ -3765,7 +3763,7 @@ export function CircleSummaryGroup({
         className={cn(
           "grid min-h-[68px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left outline-none transition-colors motion-reduce:transition-none",
           "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-          "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+          "hover:[&_[data-location-row-title]]:underline [&_[data-location-row-title]]:underline-offset-4",
         )}
       >
         <span className="min-w-0">
@@ -3790,7 +3788,7 @@ export function CircleSummaryGroup({
             "relative grid min-h-[56px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5 text-left outline-none transition-colors motion-reduce:transition-none",
             "before:absolute before:left-4 before:right-4 before:top-0 before:h-px before:bg-[color:var(--app-separator)] before:content-['']",
             "focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2",
-            "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+            "hover:[&_[data-location-row-title]]:underline [&_[data-location-row-title]]:underline-offset-4",
           )}
           data-testid="one-location-circle-invitations-summary"
         >
@@ -4577,8 +4575,7 @@ export function PublicLinkActionRows({
       <div className="flex flex-wrap items-center gap-2" data-testid="public-link-actions">
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onShare}
           size="compact"
           className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
@@ -4590,8 +4587,7 @@ export function PublicLinkActionRows({
         </MorphyButton>
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={handleCopy}
           disabled={copyBusy}
           aria-busy={copyBusy || undefined}
@@ -4639,8 +4635,7 @@ function ActiveLinkRow({
       trailing={
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onCopy}
           size="compact"
           className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "shrink-0")}
@@ -5378,7 +5373,7 @@ function ShareFlow({
             }
             secondary={
               <Button
-                variant="ghost"
+                variant="link"
                 size="standard"
                 onClick={() => onClose()}
                 className="bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
@@ -5669,7 +5664,7 @@ function LiveShareDurationEditor({
         }
         secondary={
           <Button
-            variant="ghost"
+            variant="link"
             size="standard"
             onClick={onCancel}
             disabled={saving}
@@ -6261,7 +6256,7 @@ function AskFlow({
               }
               secondary={
                 <Button
-                  variant="ghost"
+                  variant="link"
                   size="standard"
                   onClick={() => onClose()}
                   className="h-[50px] min-h-[50px] bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
@@ -6593,8 +6588,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
         <div className="grid grid-cols-2 gap-2.5" data-testid="circle-invite-actions">
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onShareCircleInvite}
@@ -6606,8 +6600,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
           </MorphyButton>
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onCopyCircleInvite}

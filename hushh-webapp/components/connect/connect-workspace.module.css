@@ -190,10 +190,6 @@
   font-weight: 550;
   color: var(--app-accent);
 }
-.joinAction.joinAction {
-  background: transparent;
-}
-
 .rosterSearch {
   position: relative;
   margin-bottom: 18px;
