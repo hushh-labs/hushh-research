@@ -269,6 +269,7 @@ Sources: [global typography](../../app/globals.css),
 | --- | --- | --- |
 | Avatar/name/role | Public identity loaded | Display only. Photo fallback uses initials. |
 | Email / phone | Connected, with valid server-returned value; phone must pass E.164-style validation | `mailto:` / `tel:` OS handler. No contact editor here. |
+| **Connections count** | Active connection and the profile owner shares their list | Appears below contact details. Opens the shared Connections dialog with name search, pagination, and viewer-relative relationship actions. Values above 500 display as **500+ connections**. Back returns focus to the count. |
 | **Browse** | Authenticated viewer loaded | Scrolls Available to request. Does not open a dialog or send. |
 | **Share**, accessible “Share profile” | Public profile loaded | Calls clipboard write for the complete current URL, including queries, then immediately toasts “Profile link copied.” No Web Share chooser or clipboard failure recovery is implemented. |
 | **Request files** | Connected + authenticated + unlocked vault + connector overview `drive_document_sharing` enabled | Opens the existing file-request form; details below. |
