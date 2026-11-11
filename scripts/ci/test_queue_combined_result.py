@@ -400,7 +400,9 @@ def test_two_individually_green_prs_require_combined_execution():
 
 def test_missing_legacy_receipt_requests_checks_instead_of_branch_sync():
     state, validation, _ = receipt_fixture()
-    assert not queue.reusable(state, [validation], read=lambda _: {"total_count": 0, "artifacts": []})
+    reasons = []
+    assert not queue.reusable(state, [validation], read=lambda _: {"total_count": 0, "artifacts": []}, reasons=reasons)
+    assert reasons == ["combined_input_receipt_missing_or_expired"]
 
 
 @pytest.mark.parametrize("later_state", ["failure", "in_progress"])

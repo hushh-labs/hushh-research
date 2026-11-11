@@ -496,22 +496,30 @@ def execution_sql(
 ) -> str:
     """Adapt pending420 in either executing mode; caller keeps observe/skip gates."""
     from db import firebase_erasure_adoption as firebase_erasure
+    from db import private_agent_adoption_successors as retirement
     from db.legacy_cloud_removal_adoption import installation_sql, preserve_successor
 
+    if entry.migration_id == "988":
+        return retirement.installation_sql(entry)
     if entry.migration_id == "987":
         return firebase_erasure.installation_sql(entry)
     if entry.migration_id in {"418", "419", "437"}:
-        return firebase_erasure.replay_sql(entry)
+        return retirement.adoption_sql(entry, firebase_erasure.replay_sql(entry))
 
     if entry.migration_id in {"985", "986"}:
         return installation_sql(entry)
     if entry.migration_id == "420":
-        return firebase_erasure.adoption_sql(
-            preserve_successor(entry, private_agent_adoption_sql(entry))
+        return retirement.adoption_sql(
+            entry,
+            firebase_erasure.adoption_sql(
+                preserve_successor(entry, private_agent_adoption_sql(entry))
+            ),
         )
     sql = replay(entry) if replay is not None else entry.sql
     return (
-        preserve_successor(entry, hosted_custody_recovery_replay(entry, sql))
+        retirement.adoption_sql(
+            entry, preserve_successor(entry, hosted_custody_recovery_replay(entry, sql))
+        )
         if entry.migration_id == "421"
         else sql
     )

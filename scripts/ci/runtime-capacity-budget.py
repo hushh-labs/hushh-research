@@ -17,6 +17,7 @@ import json
 import re
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -41,6 +42,23 @@ _CLI_SPEC.loader.exec_module(_cli)
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 CAPACITY_PHASES = ("pre-deploy", "post-release")
 CapacityPhase = Literal["pre-deploy", "post-release"]
+
+
+@lru_cache(maxsize=1)
+def production_recovery_profile():
+    # Historical UAT checkouts overlay the shared budget reader. Resolve this
+    # production-only companion only for the exact production backend budget.
+    spec = importlib.util.spec_from_file_location(
+        "production_recovery_capacity", Path(__file__).with_name("production_recovery_capacity.py")
+    )
+    if spec is None or spec.loader is None:
+        raise BudgetError("Production recovery capacity policy is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except OSError as exc:
+        raise BudgetError("Production recovery capacity policy is unavailable") from exc
+    return module
 
 
 def selected_uat_profile(profile: dict[str, Any], target_sha: str) -> dict[str, Any]:
@@ -432,10 +450,25 @@ def service_budget(
         # Deferred UAT retirement allows several old generations to drain at
         # once. Until they are deleted, reserve each one's full connection cap.
         referenced.update(by_name)
-    return [
-        revision_connections(by_name[name], service, settings, database_connection_name)
-        for name in sorted(referenced)
-    ]
+    recovery = (
+        production_recovery_profile()
+        if service == "consent-protocol"
+        and database_connection_name == "hushh-pda:us-central1:hushh-vault-db"
+        else None
+    )
+    rows = []
+    for name in sorted(referenced):
+        revision = by_name[name]
+        if recovery is not None and recovery.has_inert_identity(revision):
+            if not recovery.verified_inert(service_doc, revision):
+                raise BudgetError(f"{name}: inert recovery revision is unverified or routable")
+            rows.append({
+                "name": name, "max_instances": 1, "workers_per_instance": 0,
+                "connections_per_worker": 0, "connections": 0,
+            })
+        else:
+            rows.append(revision_connections(revision, service, settings, database_connection_name))
+    return rows
 
 
 def job_budget(

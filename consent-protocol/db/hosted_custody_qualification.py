@@ -502,4 +502,22 @@ def complete_family_qualification_sql(
     sql = _FAMILY_SQL
     for token, value in replacements.items():
         sql = sql.replace(token, value)
-    return sql
+    from db import private_agent_adoption_successors as retirement
+
+    # Preserve the installed Files guard's full behavior. Its one qualified
+    # retirement prefix is admissible only after the entire new contract passes;
+    # every existing custody function, marker, preimage and ACL check still runs.
+    extra = json.dumps(
+        {"guard_personal_agent_erasure_registry()": [retirement.NATIVE_REGISTRY_HASH]},
+        separators=(",", ":"),
+    ).replace("'", "''")
+    sql = sql.replace(
+        "BEGIN\n",
+        f"""BEGIN
+ IF ({retirement.FOOTPRINT}) THEN
+  alternate_hashes:=alternate_hashes||'{extra}'::jsonb;
+ END IF;
+""",
+        1,
+    )
+    return retirement.qualification_sql() + sql
