@@ -145,7 +145,6 @@ SOFTWARE.
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
-- `greenlet` `3.4.0` — MIT AND PSF-2.0
 - `grpc-google-iam-v1` `0.14.5` — Apache Software License
 - `grpcio` `1.76.0` — Apache Software License
 - `grpcio-status` `1.76.0` — Apache Software License
@@ -262,7 +261,6 @@ SOFTWARE.
 - `python-dotenv` `1.2.2` — BSD-3-Clause
 - `python-multipart` `0.0.32` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
-- `pywin32` `311` — Python Software Foundation License
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
