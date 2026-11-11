@@ -171,6 +171,28 @@ try {
     stage = scenario;
     await fixtureRequest("reset", scenario);
     context = await browser.newContext({ viewport: { width: 393, height: 852 }, locale: "en-US", timezoneId: "America/Los_Angeles" });
+    await context.route("https://identitytoolkit.googleapis.com/**", async route => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (url.pathname !== "/v1/accounts:signInWithPhoneNumber" ||
+          url.search !== "?key=synthetic-only") {
+        await route.abort("blockedbyclient"); return;
+      }
+      const cors = { "access-control-allow-origin": origin,
+        "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type" };
+      if (request.method() === "OPTIONS" && request.headers().origin === origin &&
+          request.headers()["access-control-request-method"] === "POST" &&
+          request.headers()["access-control-request-headers"]?.toLowerCase() === "content-type") {
+        await route.fulfill({ status: 204, headers: cors }); return;
+      }
+      if (request.method() !== "POST") { await route.abort("blockedbyclient"); return; }
+      const recorded = await context.request.post(`${config.backend}/__phone_fixture/sdk/link`, {
+        data: request.postDataJSON(),
+      });
+      await route.fulfill({ response: recorded, headers: {
+        ...recorded.headers(), ...cors,
+      } });
+    });
     const page = await context.newPage(); page.setDefaultTimeout(15_000);
     let transferClick;
     let erasures = 0, transfers = 0, revocations = 0;
@@ -253,11 +275,13 @@ try {
         await page.getByRole("button", { name: "Delete and continue", exact: true }).click();
         const receipt = await confirmed;
         assert.equal(receipt.status, 200); assert.equal(receipt.body.state, "admitted");
-        await page.getByTestId("phone-fixture-destination").filter({ hasText: "/one/setup" }).waitFor();
+        await page.getByRole("alert").filter({ hasText: "Deletion requested. Verify this number again to continue." }).waitFor();
+        await page.getByRole("button", { name: "Verify this number again", exact: true }).waitFor();
+        assert.equal(await page.getByTestId("phone-fixture-destination").count(), 0);
         assert.equal(linkedConfirms, 1); assert.equal(erasures, 0); assert.equal(transfers, 0);
         stage = "delete_linked_worker";
         await fixtureRequest("drain", scenario);
-        record("delete_linked_phone_proof_claim_and_worker_erasure");
+        record("delete_linked_erasure_requires_fresh_phone_verification");
       } else if (scenario === "transfer") {
         await page.getByRole("button", { name: "Use this number on this account", exact: true }).click();
         await page.getByRole("heading", { name: "Use this number on this account?", exact: true }).waitFor();
