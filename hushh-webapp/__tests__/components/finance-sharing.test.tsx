@@ -11,7 +11,7 @@ vi.mock("@/lib/services/finance-sharing-service", () => ({ FinanceSharingService
 vi.mock("@/lib/finance-sharing/saved-source", () => ({ readSavedFinance: mocks.saved }));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: ({ open, title, children, footer }: { open: boolean; title: string; children: ReactNode; footer?: ReactNode }) => open ? <section role="dialog" aria-label={title}><h1>{title}</h1>{children}{footer}</section> : null }));
 vi.mock("@/components/app-ui/shell-action-surface", () => ({ ShellActionSurface: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button disabled={disabled} onClick={onClick}>{children}</button> }));
-vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection }: { projection: unknown }) => <pre>{JSON.stringify(projection)}</pre> }));
+vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection, section }: { projection: unknown; section?: string }) => !section || section === "portfolio" ? <pre>{JSON.stringify(projection)}</pre> : null }));
 import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharedDetail } from "@/components/kai/sharing/finance-shared-detail";
@@ -167,7 +167,7 @@ it("opens an advisor snapshot in the recipient account without offering AI proce
   mocks.view.mockResolvedValue(advisorGrant);
   mocks.decrypt.mockResolvedValue({ schema: "finance-share-v2", source: "statement", sourcePeriod: null, allocation: [], performance: { balanceChangePct: null, unit: "USD", history: [] }, holdings: [], cashBalance: { value: 100, currency: "USD" } });
   render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
-  expect(await screen.findByText(/reply to the owner in your connection conversation/)).toBeTruthy();
+  expect(await screen.findByRole("tab", { name: "Portfolio" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Review with Agent One" })).toBeNull();
 });
 
@@ -226,6 +226,19 @@ it("renders the Agent One review as formatted text instead of raw markdown", asy
   expect(screen.getByText("Mostly equities").tagName).toBe("STRONG");
   expect(screen.getAllByRole("listitem")).toHaveLength(2);
   expect(document.body.textContent).not.toContain("**");
+});
+
+it("returns from allocation to the portfolio before closing the shared view", async () => {
+  const close = vi.fn();
+  render(<FinanceSharedDetail grantId="grant" onClose={close} />);
+  await screen.findByText(/decrypted-sentinel/);
+  fireEvent.click(screen.getByRole("tab", { name: "Allocation" }));
+  expect(screen.getByRole("tab", { name: "Allocation" })).toHaveAttribute("aria-selected", "true");
+  act(() => { expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(true); });
+  expect(screen.getByRole("tab", { name: "Portfolio" })).toHaveAttribute("aria-selected", "true");
+  expect(close).not.toHaveBeenCalled();
+  act(() => { expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(true); });
+  expect(close).toHaveBeenCalledOnce();
 });
 
 it("selects and clears every stock with one button", async () => {

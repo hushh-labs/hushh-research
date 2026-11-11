@@ -21,7 +21,7 @@
 .privacy { padding: 14px 16px; border-radius: 14px; background: var(--muted); font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .section { display: grid; gap: 14px; }
 .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--muted); }
-.value { font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: 600; font-variant-numeric: tabular-nums; }
+.value { font-size: 14px; line-height: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .toolbar { width: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .managerTabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .managerTabs :global(button[aria-pressed="true"]) { color: var(--app-accent-deep); border-color: var(--app-accent-border); background: var(--app-accent-surface); }
@@ -37,6 +37,14 @@
 .grantDates dt { color: var(--muted-foreground); flex: none; }
 .grantDates dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
 .grantActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 16px; }
+.sharedSheet.sharedSheet { width: min(100%, 728px); margin-inline: auto; height: min(620px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; }
+.sharedBody { display: flex; flex-direction: column; overflow: hidden; }
+.sharedLayout { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 16px; }
+.sharedPager { flex: 1; min-height: 0; }
+.sharedPager > div { height: 100%; }
+.sharedPager > div > [role="tabpanel"] { overflow: hidden auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.compactDetails { margin-top: 16px; }
+.compactDetails > summary { cursor: pointer; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 @media(min-width: 768px) { .grantInfo { grid-template-columns: minmax(0, 1fr) minmax(240px, .9fr); gap: 24px; } }
 @media(min-width: 1024px) {
   .layout { grid-template-columns: minmax(0,1.05fr) minmax(0,1fr); align-items: start; gap: 28px; }
@@ -73,3 +81,4 @@
 .primaryAction:hover { background: var(--app-accent-hover) !important; }
 .recipientList::-webkit-scrollbar, .optionBody::-webkit-scrollbar { width: 6px; }
 .recipientList::-webkit-scrollbar-thumb, .optionBody::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--border); }
+.footnote { padding-inline: 19px; }

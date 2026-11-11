@@ -10,25 +10,16 @@ import { readPortfolioReviewInput } from "@/lib/finance-sharing/portfolio-review
 import type { FinanceShareContext } from "@/lib/services/finance-sharing-service";
 import { KaiProfileService, type KaiPreferences } from "@/lib/services/kai-profile-service";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
-import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { getReviewSession, setReviewSession } from "@/lib/finance-sharing/portfolio-review-session";
 import {
   portfolioReviewCacheGeneration, readSavedPortfolioReview, savePortfolioReviewOnDevice,
-  type PortfolioReviewResponse as Review, type SavedPortfolioReview,
+  type PortfolioReviewResponse as Review,
 } from "@/lib/finance-sharing/portfolio-review-cache";
 import { isRequestTimeoutError } from "@/lib/utils/request-timeouts";
 import { PortfolioPersona } from "./portfolio-persona";
 import styles from "./advisor-review.module.css";
 
 type SavedReviewInput = Awaited<ReturnType<typeof readPortfolioReviewInput>>;
-type ReviewApproval = { scope: string; sourceFence: string };
-type ReviewSession = { approval: ReviewApproval; cached?: SavedPortfolioReview };
-let reviewSession: ReviewSession | null = null;
-if (typeof window !== "undefined") {
-  subscribeVaultSessionEpoch(() => { reviewSession = null; });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) reviewSession = null;
-  });
-}
 
 export function PortfolioAgentReview({
   context,
@@ -47,7 +38,7 @@ export function PortfolioAgentReview({
   const readKey = useMemo(() => ({ sourceKey, revision, sourceRetry }), [sourceKey, revision, sourceRetry]);
   const [saved, setSaved] = useState<{ key: typeof readKey; input: SavedReviewInput | null; cached?: Review } | null>(null);
   const [recentPreferences, setRecentPreferences] = useState<{ sourceKey: typeof sourceKey; value: KaiPreferences } | null>(null);
-  const [approval, setApproval] = useState(() => reviewSession?.approval.scope === scope ? reviewSession.approval : null);
+  const [approval, setApproval] = useState(() => getReviewSession()?.approval.scope === scope ? getReviewSession()!.approval : null);
   const [attempt, setAttempt] = useState(0);
   const [settled, setSettled] = useState<{ digest: string; attempt: number; review: Review | null; error?: string } | null>(null);
 
@@ -74,10 +65,10 @@ export function PortfolioAgentReview({
   }, [context, readKey]);
 
   const input = saved?.key === readKey && context.isCurrent() ? saved.input : null;
-  const enabled = approval !== null && approval === reviewSession?.approval && approval.scope === scope && (!input || approval.sourceFence === input.sourceFence);
+  const enabled = approval !== null && approval === getReviewSession()?.approval && approval.scope === scope && (!input || approval.sourceFence === input.sourceFence);
   useEffect(() => {
     if (input && approval && input.sourceFence !== approval.sourceFence) {
-      if (reviewSession?.approval === approval) reviewSession = null;
+      if (getReviewSession()?.approval === approval) setReviewSession(null);
       setApproval(null);
       setSettled(null);
     }
@@ -86,10 +77,10 @@ export function PortfolioAgentReview({
   useEffect(() => {
     if (!input || !approval || !enabled || !context.isCurrent() || document.hidden) return;
     const abort = new AbortController();
-    const current = () => !abort.signal.aborted && context.isCurrent() && !document.hidden && reviewSession?.approval === approval;
+    const current = () => !abort.signal.aborted && context.isCurrent() && !document.hidden && getReviewSession()?.approval === approval;
     void (async () => {
       try {
-        const cached = reviewSession?.approval === approval ? reviewSession.cached : undefined;
+        const cached = getReviewSession()?.approval === approval ? getReviewSession()!.cached : undefined;
         const cacheGeneration = cached?.digest === input.digest ? undefined : await portfolioReviewCacheGeneration(context.userId);
         if (!current()) return;
         const review = cached?.digest === input.digest
@@ -97,7 +88,7 @@ export function PortfolioAgentReview({
           : await advisorRequest<Review>(context, "/portfolio-analysis", "POST", input.payload, abort.signal);
         if (!current()) return;
         const savedReview = { digest: input.digest, review };
-        reviewSession = { approval, cached: savedReview };
+        setReviewSession({ approval, cached: savedReview });
         setSettled({ digest: input.digest, attempt, review });
         setSaved((previous) => previous?.input === input ? { ...previous, cached: review } : previous);
         if (cacheGeneration !== undefined) {
@@ -129,7 +120,7 @@ export function PortfolioAgentReview({
         <h2 className="ui-text-section-label">Portfolio review</h2>
         {enabled ? (
           <button type="button" className={styles.quietAction} onClick={() => {
-            if (reviewSession?.approval === approval) reviewSession = null;
+            if (getReviewSession()?.approval === approval) setReviewSession(null);
             setSettled(null);
             setApproval(null);
           }}>Turn off automatic review</button>
@@ -167,7 +158,7 @@ export function PortfolioAgentReview({
               <ShellActionSurface variant="pill" aria-describedby={disclosureId} onClick={() => {
                 if (input && context.isCurrent()) {
                   const next = { scope, sourceFence: input.sourceFence };
-                  reviewSession = { approval: next };
+                  setReviewSession({ approval: next });
                   setApproval(next);
                 }
               }}>Allow portfolio review</ShellActionSurface>

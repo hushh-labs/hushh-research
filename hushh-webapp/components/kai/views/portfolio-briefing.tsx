@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
@@ -10,20 +10,26 @@ import { readSavedPortfolioReview, type PortfolioReviewResponse } from "@/lib/fi
 import { readPortfolioReviewInput } from "@/lib/finance-sharing/portfolio-review-input";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
+import { getReviewSession, subscribeReviewSession } from "@/lib/finance-sharing/portfolio-review-session";
 import type { DashboardViewModel } from "./dashboard-data-mapper";
 
 export function PortfolioBriefing({
   review,
   onOpen,
+  needsAction = false,
 }: {
   review?: Pick<PortfolioReviewResponse, "score" | "next_step">;
   onOpen: () => void;
+  needsAction?: boolean;
 }) {
   const score = review?.score ?? null;
   return (
     <SurfaceCard data-testid="portfolio-briefing">
       <SurfaceCardContent className={styles.insightCard}>
-        <h2 className="ui-text-section-label">Portfolio review</h2>
+        <div className="relative">
+          <h2 className="ui-text-section-label">Portfolio review</h2>
+          {needsAction ? <span className="ui-text-helper-text absolute right-0 top-1/2 -translate-y-1/2 whitespace-nowrap text-amber-600 dark:text-amber-400">Needs action</span> : null}
+        </div>
         <dl className="flex items-baseline justify-between gap-3">
           <dt className="ui-text-row-description">Portfolio score</dt>
           <dd className="shrink-0 ui-text-row-description tabular-nums">
@@ -50,6 +56,7 @@ export function PortfolioBriefing({
 
 export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSource; onOpen: () => void }) {
   const { capture, ready, session } = useFinanceShareContext();
+  const activeReview = useSyncExternalStore(subscribeReviewSession, getReviewSession, () => null);
   const { kind, snapshotId, representation } = source;
   const [revision, setRevision] = useState(0);
   const key = useMemo(() => ({
@@ -57,7 +64,8 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
   }), [kind, snapshotId, representation, ready, session, revision]);
   const [saved, setSaved] = useState<{
     key: typeof key;
-    review: PortfolioReviewResponse;
+    review?: PortfolioReviewResponse;
+    sourceFence: string;
     isCurrent: () => boolean;
   } | null>(null);
 
@@ -79,10 +87,10 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
     if (context.isCurrent()) {
       void (async () => {
         const stored = await readSavedPortfolioReview(context);
-        if (!stored || disposed || !context.isCurrent()) return;
-        const { digest } = await readPortfolioReviewInput(context, key.source);
-        if (digest === stored.digest && !disposed && context.isCurrent()) {
-          setSaved({ key, review: stored.review, isCurrent: context.isCurrent });
+        if (disposed || !context.isCurrent()) return;
+        const { digest, sourceFence } = await readPortfolioReviewInput(context, key.source);
+        if (!disposed && context.isCurrent()) {
+          setSaved({ key, sourceFence, review: digest === stored?.digest ? stored.review : undefined, isCurrent: context.isCurrent });
         }
       })().catch(() => { /* Leave the score unavailable if the saved review cannot be opened. */ });
     }
@@ -94,7 +102,9 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
     };
   }, [capture, key]);
 
-  return <PortfolioBriefing review={saved?.key === key && saved.isCurrent() ? saved.review : undefined} onOpen={onOpen} />;
+  const current = saved?.key === key && saved.isCurrent() ? saved : null;
+  const approved = activeReview?.approval.scope === session && activeReview.approval.sourceFence === current?.sourceFence;
+  return <PortfolioBriefing review={current?.review} needsAction={Boolean(current && !current.review && !approved)} onOpen={onOpen} />;
 }
 
 /** Charts use saved holdings and balance history, never model estimates. */
