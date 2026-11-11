@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
@@ -437,6 +438,7 @@ describe("Location command connection prerequisite", () => {
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "1 incoming request needs your review.",
+      { className: connectTypography.toast },
     );
     expect(mocks.sendRequest).toHaveBeenCalledOnce();
   });
@@ -963,7 +965,7 @@ describe("Connect — People", () => {
 
     expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
     fireEvent.click(contactBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("You connected with this person through a match from your synced contacts.");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Matched from your contacts.");
     fireEvent.blur(contactBadge);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
@@ -3064,7 +3066,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     fireEvent.click(await screen.findByText("Invite them to One"));
 
     await waitFor(() =>
-      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied."),
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied.", { className: connectTypography.toast }),
     );
   });
 
@@ -3089,6 +3091,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
         "This browser cannot share links.",
+      { className: connectTypography.toast },
       ),
     );
   });
@@ -3102,6 +3105,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
         "Could not share the invite.",
+      { className: connectTypography.toast },
       ),
     );
   });

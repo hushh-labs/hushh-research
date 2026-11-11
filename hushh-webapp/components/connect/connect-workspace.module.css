@@ -169,7 +169,7 @@
   --type-compact-button-label-weight: 550;
   --type-compact-button-label-line: 21px;
   gap: 7px;
-  padding-inline: 0;
+  padding-inline: 10px;
   font-size: 13px;
   font-weight: 550;
   color: var(--app-accent);
@@ -647,4 +647,10 @@
     --type-compact-button-label-size: 12px;
     --type-section-label-size: 12px;
   }
+}
+
+/* Preserve 44px targets while centering compact feedback around each glyph. */
+.rowIconAction :global(.morphy-ripple-host) {
+  inset: 5px;
+  border-radius: 50%;
 }

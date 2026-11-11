@@ -79,7 +79,7 @@ export function ConnectPersonRow({
     </>
   );
   const identityClassName =
-    "grid min-h-[52px] w-full min-w-0 grid-cols-[30px_minmax(0,1fr)] items-center gap-x-2 py-1.5 text-left";
+    "grid min-h-[52px] -ms-2.5 w-fit max-w-full min-w-0 grid-cols-[30px_minmax(0,1fr)] items-center gap-x-2 px-2.5 py-1.5 text-left";
 
   return (
     <div

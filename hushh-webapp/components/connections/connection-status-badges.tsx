@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 export const CONNECTION_BADGE_DESCRIPTIONS = {
   advisor: "Hussh verified this person's advisor profile.",
-  contacts: "You connected with this person through a match from your synced contacts.",
+  contacts: "Matched from your contacts.",
 } as const;
 
 export function ConnectionStatusBadge({ verified, interactive = true, className, iconClassName }: {

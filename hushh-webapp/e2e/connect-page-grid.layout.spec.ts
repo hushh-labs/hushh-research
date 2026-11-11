@@ -379,7 +379,9 @@ for (const dark of [false, true]) {
         else await glyph.hover();
         const contactDetails = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Via contacts" });
         await expect(contactDetails).toBeVisible();
-        await expect(contactDetails).toContainText("You connected with this person through a match from your synced contacts.");
+        await expect(contactDetails).toContainText("Matched from your contacts.");
+        const descriptionLines = await contactDetails.locator(":scope > span").nth(1).evaluate(node => node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight));
+        expect(descriptionLines).toBeLessThanOrEqual(1.1);
         const bounds = (await contactDetails.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
@@ -885,29 +887,34 @@ for (const width of [393, 1440]) {
       await page.screenshot({ path: test.info().outputPath(`create-circle-${presentation}-${width}.png`), animations: "disabled" });
     });
   }
-  test(`Connection icons halve their visible gap at ${width}px without shrinking targets`, async ({ page }) => {
+  test(`Connection hover highlights stay centered inside touch targets at ${width}px`, async ({ page }) => {
     await open(page, width, false);
     await settle(page, width);
     await page.getByRole("tab", { name: /My connections/ }).click();
     const row = page.getByTestId("connect-person-row").filter({ has: page.getByRole("button", { name: "Message Jordan Lee", exact: true }) });
-    const spacing = await row.evaluate(node => {
-      const message = node.querySelector('button[aria-label="Message Jordan Lee"]')!;
-      const options = node.querySelector('button[aria-label="Options for Jordan Lee"]')!;
-      const first = message.querySelector("svg")!;
-      const second = options.querySelector("svg")!;
-      const gap = () => second.getBoundingClientRect().left - first.getBoundingClientRect().right;
-      const tightened = gap();
-      first.classList.remove("translate-x-1.5");
-      second.classList.remove("-translate-x-1.5");
-      const previous = gap();
-      first.classList.add("translate-x-1.5");
-      second.classList.add("-translate-x-1.5");
-      const a = message.getBoundingClientRect(), b = options.getBoundingClientRect();
-      return { tightened, previous, targets: [a.width, a.height, b.width, b.height], overlap: a.right > b.left };
-    });
-    expect(spacing.tightened / spacing.previous).toBeCloseTo(0.5, 1);
-    expect(spacing.targets).toEqual([44, 44, 44, 44]);
-    expect(spacing.overlap).toBe(false);
+    for (const label of ["Message Jordan Lee", "Options for Jordan Lee"]) {
+      const action = row.getByRole("button", { name: label, exact: true });
+      await action.hover();
+      const geometry = await action.evaluate(node => {
+        const target = node.getBoundingClientRect();
+        const icon = node.querySelector("svg")!.getBoundingClientRect();
+        const hover = node.querySelector(".morphy-ripple-host")!.getBoundingClientRect();
+        return { target: [target.width, target.height], hover: [hover.width, hover.height],
+          center: Math.abs(icon.left + icon.width / 2 - hover.left - hover.width / 2) };
+      });
+      expect(geometry.target).toEqual([44, 44]);
+      expect(geometry.hover).toEqual([32, 32]);
+      expect(geometry.center).toBeLessThanOrEqual(1);
+    }
+    const refresh = page.getByRole("button", { name: "Refresh contacts", exact: true });
+    await refresh.hover();
+    await expect(refresh).toHaveCSS("padding-left", "10px");
+    await expect(refresh).toHaveCSS("padding-right", "10px");
+    const identity = row.locator('[data-person-row-action]').first();
+    if (await identity.count()) {
+      const identityBox = (await identity.boundingBox())!;
+      expect(identityBox.width).toBeLessThan((await row.boundingBox())!.width - 88);
+    }
   });
   for (const joined of [false, true]) {
     test(`Join with code stays transparent with joined=${joined} at ${width}px`, async ({ page }) => {

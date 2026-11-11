@@ -380,7 +380,7 @@ const CONNECT_ROW_ACTION_CLASSNAME =
 const CONNECT_ROW_ACTION_PILL_CLASSNAME =
   "inline-flex h-11 min-w-[88px] items-center justify-center rounded-full border px-[15px]";
 /** An icon-only action: a 44px target around a 22px glyph. */
-const CONNECT_ROW_ICON_ACTION_CLASSNAME = "!size-11 !min-w-11 !bg-transparent !p-0";
+const CONNECT_ROW_ICON_ACTION_CLASSNAME = cn("!size-11 !min-w-11 !rounded-full !bg-transparent !p-0", styles.rowIconAction);
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_REMOVE_BUTTON_CLASSNAME =
@@ -3928,7 +3928,7 @@ function ConnectPageClientContent() {
                                               void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
                                             }}
                                           >
-                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
+                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} />
                                           </Button>
                                         ) : <span className="size-11 shrink-0" aria-hidden="true" />}
                                         <Button
@@ -3941,7 +3941,7 @@ function ConnectPageClientContent() {
                                           className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                           onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
                                         >
-                                          <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                          <MoreHorizontal aria-hidden="true" className="size-5" />
                                         </Button>
                                       </span>
                                     }
