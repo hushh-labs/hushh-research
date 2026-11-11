@@ -69,7 +69,7 @@ class PrivateFinanceRoute(APIRoute):
                 if exc.status_code >= 500:
                     logger.warning(
                         "finance_sharing.error reason=%s status=%s route=%s",
-                        exc.code,
+                        str(exc.code).lower().replace("_", "."),
                         exc.status_code,
                         route_path,
                     )
