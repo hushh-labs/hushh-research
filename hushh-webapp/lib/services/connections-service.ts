@@ -70,6 +70,7 @@ export type NetworkSummary = {
   mutualConnectionCount: number;
   mutualConnectionPreview: NetworkPerson | null;
   canBrowseConnections: boolean;
+  visibleConnectionCount?: number | null;
 };
 
 export type ConnectionPersonContext = {

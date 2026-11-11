@@ -4966,7 +4966,6 @@ class OneLocationAgentService:
             "candidate_user_ids": targets,
             "mutual_target_user_id": mutual_target_user_id,
             "network_user_ids": network_user_ids,
-            "exclude_network_user_ids": exclude_network_user_ids,
             "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
             "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
@@ -4984,6 +4983,8 @@ class OneLocationAgentService:
         }
         if lookup_emails is not None:
             params["verified_emails"] = lookup_emails
+        if exclude_network_user_ids:
+            params["exclude_network_user_ids"] = exclude_network_user_ids
         # The cache is not account authority. Scan ordered SQL batches until
         # the requested logical page plus one current account is available.
         # Applying auth filtering after SQL OFFSET would permanently skip real

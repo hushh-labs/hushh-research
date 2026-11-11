@@ -29,7 +29,7 @@ async def probe_uat_runtime(
     if chat_binding is None:
         raise RuntimeError("UAT requires the configured chat binding")
     async with asyncio.timeout(max(0, deadline - monotonic())):
-        core = await probe_managed_text("vertex")
+        core = await probe_managed_text("vertex", qualification_mode=mode)
         if mode == "core":
             return {
                 "check": "managed_vertex_runtime",
