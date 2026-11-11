@@ -21,7 +21,8 @@ def job_block(workflow, name):
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
     depth = "fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
-    if (depth not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
+    full_history = bool(re.search(r"^          fetch-depth: 0$", ui, re.M))
+    if ((depth not in ui and not full_history) or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
             or "UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}" not in ui):
         raise ValueError("UI review inheritance requires the verified tested merge base and its history")
     if depth not in job_block(workflow, "web-core-check"):
@@ -74,6 +75,9 @@ class UiGateTests(unittest.TestCase):
         self.assertNotIn("  search-web-contracts:", self.workflow)
 
     def test_skip_and_failure_suppression_are_rejected(self):
+        ui = job_block(self.workflow, "ui-contracts")
+        with self.assertRaises(ValueError):
+            validate(self.workflow.replace(ui, ui.replace("fetch-depth: 0", "fetch-depth: 1")))
         for old, new in (("&& '0' || '2'", "&& '1' || '1'"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
             with self.assertRaises(ValueError):
                 validate(self.workflow.replace(old, new))

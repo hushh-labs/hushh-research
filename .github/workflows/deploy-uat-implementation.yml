@@ -1915,8 +1915,13 @@ jobs:
             fi
           fi
 
-          BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
-          bash scripts/env/use_profile.sh uat
+          # Only the pre-verification browser diagnostic consumes these local
+          # profiles early. Core verification hydrates fresh files at its owner.
+          if [ "$LEGACY_UAT_ANALYTICS_REQUIRED" = "true" ] \
+            || [ "${{ inputs.repeat_reviewer_byok }}" = "true" ]; then
+            BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
+            bash scripts/env/use_profile.sh uat
+          fi
 
 
       - name: Install PostgreSQL client for selected preservation

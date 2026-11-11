@@ -670,6 +670,23 @@ explicit lifecycle before promising a fresh start.
 
 ## Security
 
+The 11 November 2026 dependency review found **18 open records across 11
+advisories and seven packages**. The compatible correction updates pyasn1 to
+0.6.5, joserfc to 1.7.6 and fast-xml-parser to 5.12.0; rimraf's 6.1.4 parent
+patch supplies patched Glob. A consumer-scoped typescript-estree override uses
+Minimatch 11 while preserving ESLint's unrelated Minimatch 3 contracts. These
+source changes address 15 records; closure requires landed-lock readback and
+GitHub's refreshed inventory, and running services need separate deployment.
+
+Three records retain their mitigation gates: ADK 2.9 caps OpenTelemetry below
+the fixed 1.45.1; ADK 2.14 permits it but documents runtime behavior changes.
+AG-UI 1.x removes its nested Zod dependency but is a major upgrade; no patched
+Zod 3 exists. Neither upgrade is silently forced by a dependency-only repair.
+Actual instrumented incoming-tracestate and bounded AG-UI transport checks
+remain required; mitigations do not close the advisories.
+
+The following figures are the historical 25 October assessment:
+
 At 07:48 UTC on 25 October, GitHub reports **3 open dependency alerts**
 (1 high and 2 moderate), down from 15 after PR #8437 landed. These are the
 constrained Zod record and two OpenTelemetry manifest records; no alerts were

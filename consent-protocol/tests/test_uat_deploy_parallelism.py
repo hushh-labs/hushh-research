@@ -20,6 +20,56 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UAT_BACKEND_IMAGE = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
 
 
+@pytest.mark.parametrize(
+    "legacy,reviewer,expected",
+    [("false", "false", False), ("true", "false", True), ("false", "true", True)],
+)
+def test_early_profile_hydration_is_only_for_its_browser_consumer(
+    tmp_path, legacy, reviewer, expected
+):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
+    early = next(
+        step["run"]
+        for step in steps
+        if "# Only the pre-verification browser" in step.get("run", "")
+    )
+    script = (
+        early[early.index("          # Only") :]
+        if "          # Only" in early
+        else early[early.index("# Only") :]
+    )
+    script = script.replace("${{ inputs.repeat_reviewer_byok }}", reviewer)
+    calls = tmp_path / "calls"
+    stub = tmp_path / "bash"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\n')
+    stub.chmod(0o755)
+    subprocess.run(  # noqa: S603 - authored hydration block with synthetic profile commands.
+        ["/bin/bash", "-euc", script],
+        check=True,
+        env={
+            **os.environ,
+            "LEGACY_UAT_ANALYTICS_REQUIRED": legacy,
+            "CALLS": str(calls),
+            "PATH": str(tmp_path) + ":" + os.environ["PATH"],
+        },
+    )
+    assert calls.exists() is expected
+    if expected:
+        assert calls.read_text().splitlines() == [
+            "scripts/env/bootstrap_profiles.sh --strict",
+            "scripts/env/use_profile.sh uat",
+        ]
+    # Actual core verification still reads fresh credentials at its own boundary.
+    later = next(
+        step
+        for step in steps
+        if step.get("name") == "Bootstrap isolated UAT files before candidate verification"
+    )
+    assert "bootstrap_profiles.sh --strict" in later["run"]
+
+
 def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend_setting():
     module = _uat_build_module()
     backend = module.candidate_parallel_config(

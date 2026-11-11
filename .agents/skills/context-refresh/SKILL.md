@@ -22,6 +22,13 @@ A recap that replays the transcript is a recording, not a status report.
 
 ---
 
+## Quick status during active work
+
+For an ongoing task, use [the status brief](references/status-brief.md). Refresh the
+claims that may have changed; do not repeat a full repository or deployment audit
+just to report progress. `$context-refresh` can produce this brief on request.
+Use the complete sequence below after an absence or when reconstructing custody.
+
 ## The refresh sequence
 
 Run these in order. Each one can invalidate your assumptions from the previous step, and
