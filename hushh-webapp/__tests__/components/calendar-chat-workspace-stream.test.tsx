@@ -1,6 +1,7 @@
 import { fixture, resetCalendarChatFixture } from "./calendar-chat-workspace-fixture";
 import { clearAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import * as connections from "@/lib/connections/google-connect-in-place";
 import result from "../../../consent-protocol/tests/fixtures/calendar/chat_proposal_result.json";
 import { calendarChatStream as sse } from "../fixtures/calendar-chat-stream";
@@ -178,6 +179,33 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
       expect(nameWrites()).toHaveLength(0);
     }
     expect(screen.queryByRole("button", { name: "Review in Settings" })).toBeNull();
+  });
+
+  it("shows the audio player's activity independently of the relay phase", async () => {
+    const view = workspace();
+    const voice = useVoiceSessionStore.getState();
+    const expectPose = (pose: string) => waitFor(() => {
+      const layer = view.container.querySelector(
+        '[data-agent-chat-one-profile-trigger] [data-one-presence-layer="current"]',
+      );
+      expect(layer).toBeVisible();
+      expect(layer).toHaveAttribute("data-one-presence-artwork", pose);
+    });
+    try {
+      act(() => voice.dispatch({ type: "connecting", conversationId: "voice-presence" }));
+      await expectPose("connected");
+      // Audio and the relay phase update independently.
+      act(() => voice.dispatch({ type: "speaking", speaking: true }));
+      await expectPose("answering");
+      act(() => voice.dispatch({ type: "speaking", speaking: false }));
+      await expectPose("connected");
+      act(() => voice.dispatch({ type: "speaking", speaking: true }));
+      await expectPose("answering");
+      act(() => voice.dispatch({ type: "closed", code: 1000, reason: "stopped", now: Date.now() }));
+      await expectPose("connected");
+    } finally {
+      act(() => voice.reset());
+    }
   });
 
   it("cancels memory preparation before dispatch and ignores its late result", async () => {

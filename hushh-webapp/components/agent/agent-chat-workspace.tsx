@@ -3100,6 +3100,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const commandPresentation = useOptionalLocationCommand();
   const liveVoiceEnabled = useOneVoiceLiveEnabled();
   const liveVoiceError = useVoiceSessionStore(state => state.state.error !== null);
+  const liveVoicePlaying = useVoiceSessionStore(state => state.state.speaking);
   const showVoiceBar = voiceActive || (liveVoiceEnabled
     ? liveVoiceError
     : Boolean(commandPresentation?.active) || commandPresentation?.view.phase === "result");
@@ -3112,7 +3113,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ((isChatLoading || isStreaming) && activeToolCalls.length > 0) ||
       isToolWorking || appActionBusy || (specialistBusy && !directiveConnectWaiting) ||
       activeActionRun?.phase === "executing" || activeActionRun?.phase === "navigating",
-    answering: voiceState === "speaking",
+    answering: liveVoicePlaying || voiceState === "speaking",
     thinking: isChatLoading || isStreaming || voiceState === "thinking",
   });
   const rootChatReady = useRootChatDeferredReady();
