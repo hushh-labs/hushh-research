@@ -26,6 +26,7 @@ import {
 } from "@/lib/services/pre-vault-user-state-service";
 import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 type Settlement = {
   status: "started" | "succeeded" | "blocked" | "failed";
@@ -35,6 +36,8 @@ type Settlement = {
 };
 
 type SetupSettlementOptions = {
+  /** Physical CTAs own this capture; gateway and automatic callers retain theirs. */
+  recordAttempt?: boolean;
   /**
    * A physical setup surface may own one promise toast for the whole durable
    * settlement. Keep the coordinator's default recovery toast for every
@@ -591,13 +594,25 @@ export function useSetupCapabilityCoordinator({
     ],
   );
 
+  const settleWithObservation = useCallback(async (
+    kind: "finish" | "skip", options?: SetupSettlementOptions,
+  ): Promise<Settlement> => {
+    if (!options?.recordAttempt || !userId) return settle(kind, options);
+    const attempt = captureProductAttempt(kind === "finish" ? finishActionId : skipActionId, userId);
+    attempt.started();
+    const result = await settle(kind, options);
+    if (result.status !== "started") {
+      attempt.settled(result.status === "succeeded" ? "returned" : result.status);
+    }
+    return result;
+  }, [settle, userId, finishActionId, skipActionId]);
   const finish = useCallback(
-    (options?: SetupSettlementOptions) => settle("finish", options),
-    [settle],
+    (options?: SetupSettlementOptions) => settleWithObservation("finish", options),
+    [settleWithObservation],
   );
   const skip = useCallback(
-    (options?: SetupSettlementOptions) => settle("skip", options),
-    [settle],
+    (options?: SetupSettlementOptions) => settleWithObservation("skip", options),
+    [settleWithObservation],
   );
   useLocalOnboardingActionHandler(finishActionId, finish, {
     prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "navigation", summary: "Open the Location introduction to finish setup." } : undefined,
@@ -717,7 +732,9 @@ export function SetupCapabilityTerminalFooter({
       label={label}
       onComplete={() => {
         if (pending) return;
-        void (operationallyReady ? coordinator.finish() : coordinator.skip());
+        void (operationallyReady
+          ? coordinator.finish({ recordAttempt: true })
+          : coordinator.skip({ recordAttempt: true }));
       }}
       busy={coordinator.isSettling || pending}
       disabled={pending}
