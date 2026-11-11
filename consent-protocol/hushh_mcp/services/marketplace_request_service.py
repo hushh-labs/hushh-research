@@ -73,7 +73,7 @@ def _recipient_key_row(row: dict) -> dict[str, Any]:
     return {
         "userId": _str_or_none(row.get("user_id")),
         "keyId": row.get("key_id"),
-        "publicKeyJwk": row.get("public_key_jwk"),
+        "publicKeyJwk": _parse_metadata(row.get("public_key_jwk")),
         "algorithm": row.get("algorithm") or _DEFAULT_KEY_ALGORITHM,
         "createdAt": _str_or_none(row.get("created_at")),
     }
