@@ -75,7 +75,7 @@ export function FinanceGrantDetails({
     <section key={item.id} data-finance-grant={item.id} className="pt-2.5">
       <div className={styles.grantSummary}>
         <div className="min-w-0">
-          <p className="text-sm capitalize">{item.policy.sections.join(", ")}</p>
+          <p className={styles.grantSections}>{item.policy.sections.join(", ")}</p>
           <p className={`${styles.caption} mt-0.5`}>{detail}</p>
         </div>
         {direction === "received" ? actions : null}

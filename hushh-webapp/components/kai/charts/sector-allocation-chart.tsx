@@ -28,7 +28,8 @@ import {
 import { ChevronDown, ChevronUp } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ChartSurfaceCard, SurfaceInset } from "@/components/app-ui/surfaces";
+import { ChartSurfaceCard } from "@/components/app-ui/surfaces";
+import styles from "@/components/kai/shared/finance-workspace.module.css";
 import {
   Collapsible,
   CollapsibleContent,
@@ -113,7 +114,7 @@ const SectorBarChart = memo(function SectorBarChart({
   sectorData,
 }: SectorBarChartProps) {
   return (
-    <SurfaceInset className="p-3 sm:p-4">
+    <>
       <ChartContainer
         config={chartConfig}
         className="w-full min-w-0"
@@ -129,7 +130,7 @@ const SectorBarChart = memo(function SectorBarChart({
             tickFormatter={(value) => formatCurrency(value)}
             axisLine={false}
             tickLine={false}
-            tick={{ fontSize: 10, fill: "hsl(var(--foreground) / 0.72)" }}
+            tick={{ fontSize: 12, fill: "hsl(var(--foreground) / 0.72)" }}
           />
           <CartesianGrid
             strokeDasharray="3 3"
@@ -143,7 +144,7 @@ const SectorBarChart = memo(function SectorBarChart({
             axisLine={false}
             tickLine={false}
             width={yAxisWidth}
-            tick={{ fontSize: 10, fill: "hsl(var(--foreground) / 0.72)" }}
+            tick={{ fontSize: 12, fill: "hsl(var(--foreground) / 0.72)" }}
           />
           <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
@@ -158,7 +159,7 @@ const SectorBarChart = memo(function SectorBarChart({
                   };
                   return (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         Sector Allocation
                       </span>
                       <span className="text-sm font-semibold">
@@ -187,7 +188,7 @@ const SectorBarChart = memo(function SectorBarChart({
                 dataKey="value"
                 position="right"
                 className="fill-foreground"
-                fontSize={10}
+                fontSize={12}
                 formatter={(value: number) => formatCurrency(Number(value))}
               />
             ) : null}
@@ -201,7 +202,7 @@ const SectorBarChart = memo(function SectorBarChart({
           </Bar>
         </BarChart>
       </ChartContainer>
-    </SurfaceInset>
+    </>
   );
 });
 
@@ -316,13 +317,12 @@ export function SectorAllocationChart({
   }, [sectorData.data]);
 
   // Responsive dimensions
-  const chartHeight = useMemo(() => {
-    if (!responsive) return 184;
-    // Give bars more breathing room while still fitting dashboard density.
-    if (windowWidth < 640) return 168;
-    if (windowWidth < 1024) return 196;
-    return 224;
-  }, [responsive, windowWidth]);
+  // Height follows the bar count so a short list is not stretched into a tall, empty card.
+  const barCount = sectorData.data.length;
+  const chartHeight = useMemo(
+    () => Math.min(280, Math.max(112, barCount * 36 + 32)),
+    [barCount],
+  );
 
   const leftMargin = 0;
 
@@ -334,10 +334,10 @@ export function SectorAllocationChart({
   }, [responsive, windowWidth]);
 
   const yAxisWidth = useMemo(() => {
-    if (!responsive) return 96;
-    if (windowWidth < 640) return 66;
-    if (windowWidth < 1024) return 82;
-    return 96;
+    if (!responsive) return 104;
+    if (windowWidth < 640) return 76;
+    if (windowWidth < 1024) return 92;
+    return 104;
   }, [responsive, windowWidth]);
 
   const showInlineValueLabels = windowWidth < 768;
@@ -362,7 +362,8 @@ export function SectorAllocationChart({
     <ChartSurfaceCard
       title={title}
       description={subtitle}
-      className={cn("h-full min-w-0", className)}
+      className={cn("min-w-0", className)}
+      headerClassName={styles.allocationHeader}
       contentClassName="space-y-3"
     >
       <SectorBarChart
@@ -375,8 +376,7 @@ export function SectorAllocationChart({
         sectorData={sectorData}
       />
 
-      <SurfaceInset className="px-3 py-3 sm:px-4">
-        <div className="space-y-2">
+      <div className={styles.allocationRows}>
           {sectorData.data.map((sector) => {
             const totalPages = Math.max(
               1,
@@ -402,41 +402,45 @@ export function SectorAllocationChart({
                     [sector.name]: nextOpen,
                   }))
                 }
-                className="rounded-lg border border-border/60 bg-background/80"
               >
                 <CollapsibleTrigger asChild>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 p-2.5 text-left transition-colors hover:bg-background/60"
+                    className={cn(
+                      styles.allocationRow,
+                      styles.interactiveRow,
+                      "relative isolate focus-visible:outline-none",
+                    )}
                   >
-                    <div
-                      className="h-3 w-3 shrink-0 rounded-full"
+                    <span
+                      aria-hidden="true"
+                      className={styles.allocationDot}
                       style={{ backgroundColor: sector.color }}
                     />
-                    <span className="text-sm font-medium text-foreground">
-                      {sector.name}
+                    <span className={styles.allocationText}>
+                      <span className={styles.allocationName}>{sector.name}</span>
+                      <span className={styles.allocationMeta}>
+                        {sector.count} holding{sector.count !== 1 ? "s" : ""}
+                      </span>
                     </span>
-                    <span className="text-xs font-medium text-foreground/80">
-                      {formatCurrency(sector.value)} (
-                      {sector.percent.toFixed(1)}%)
-                    </span>
-                    <span className="ml-auto text-[11px] text-muted-foreground">
-                      {sector.count} holding{sector.count !== 1 ? "s" : ""}
+                    <span className={styles.allocationAmount}>
+                      <span>{formatCurrency(sector.value)}</span>
+                      <span className={styles.allocationMeta}>{sector.percent.toFixed(1)}%</span>
                     </span>
                     {isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                      <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
                     ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                     )}
                   </button>
                 </CollapsibleTrigger>
-                <CollapsibleContent className="border-t border-border/50">
-                  <div className="space-y-2 p-2.5">
-                    <div className="flex flex-wrap gap-1.5">
+                <CollapsibleContent>
+                  <div className={styles.allocationDetail}>
+                    <div className={styles.allocationChips}>
                       {visibleHoldings.map((holding) => (
                         <span
                           key={`${sector.name}-${holding.symbol}-${holding.name}`}
-                          className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 bg-background/90 px-2 py-0.5 text-[11px]"
+                          className={styles.allocationChip}
                           title={`${holding.symbol} · ${holding.name} · ${formatCurrency(holding.marketValue)}`}
                         >
                           <span className="font-semibold">
@@ -450,18 +454,18 @@ export function SectorAllocationChart({
                     </div>
 
                     {totalPages > 1 ? (
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-[11px] text-muted-foreground">
+                      <div className={styles.allocationPager}>
+                        <span>
                           Showing {start + 1}-
                           {Math.min(end, sector.holdings.length)} of{" "}
                           {sector.holdings.length}
                         </span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[11px]"
+                            className="h-8 px-3 text-xs"
                             disabled={clampedPage === 0}
                             onClick={() =>
                               setSectorHoldingPages((prev) => ({
@@ -479,7 +483,7 @@ export function SectorAllocationChart({
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[11px]"
+                            className="h-8 px-3 text-xs"
                             disabled={clampedPage >= totalPages - 1}
                             onClick={() =>
                               setSectorHoldingPages((prev) => ({
@@ -501,8 +505,7 @@ export function SectorAllocationChart({
               </Collapsible>
             );
           })}
-        </div>
-      </SurfaceInset>
+      </div>
     </ChartSurfaceCard>
   );
 }

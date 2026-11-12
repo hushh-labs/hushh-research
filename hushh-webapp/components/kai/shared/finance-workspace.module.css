@@ -98,6 +98,9 @@ button.portfolioListRow { min-height: 44px; }
     display: none;
   }
 }
+/* One highlight radius for every tappable Finance row: a compact utility rect (8px), concentric inside the
+   18px card. Set here, unlayered, so a stray rounded-* utility on the row cannot widen it into a pill. */
+.interactiveRow { --finance-row-radius: var(--app-radius-sm); border-radius: var(--finance-row-radius); }
 .interactiveRow:not(button) {
   background-color: var(--finance-row-fill, revert-layer);
   box-shadow: var(--finance-row-indicator, revert-layer);
@@ -109,15 +112,15 @@ button.interactiveRow::before {
   inset: 2px 0;
   z-index: -1;
   pointer-events: none;
-  border-radius: var(--radius-lg);
+  border-radius: var(--finance-row-radius);
   background-color: var(--finance-row-fill, transparent);
   box-shadow: var(--finance-row-indicator, none);
   transition: background-color 120ms ease;
 }
 .stockRows > button.interactiveRow::before { inset-inline: -8px; }
 .mobileHoldingRow {
-  --settings-row-top-radius: var(--radius-lg);
-  --settings-row-bottom-radius: var(--radius-lg);
+  --settings-row-top-radius: var(--app-radius-sm);
+  --settings-row-bottom-radius: var(--app-radius-sm);
 }
 @media (hover: hover) {
   .interactiveRow:not(.selectedRow):not([data-finance-selected="true"]):hover {
@@ -210,3 +213,22 @@ button.interactiveRow::before {
   font-size: var(--type-row-description-size, 12px);
   color: var(--muted-foreground);
 }
+
+/* Allocation: every card shares one header (14/22/600 title, 12/18 note) and one row pattern
+   (14/21/550 name, 12/18 muted meta, 14/21/550 amount), with no card nested inside a card. */
+.allocationHeader > :first-child { font-size: 14px; line-height: 22px; font-weight: 600; }
+.allocationHeader > :nth-child(2) { margin-top: 2px; font-size: 12px; line-height: 18px; }
+.allocationRows { display: grid; min-width: 0; }
+.allocationRows > button.interactiveRow::before, .allocationRows > div > button.interactiveRow::before { inset-inline: -8px; }
+.allocationRow { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 56px; padding-block: 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.allocationRows > :last-child > .allocationRow, .allocationRows > .allocationRow:last-child { border-bottom: 0; }
+.allocationDot { width: 10px; height: 10px; flex: none; border-radius: 999px; }
+.allocationText { display: grid; min-width: 0; flex: 1; }
+.allocationName { font-size: 14px; line-height: 21px; font-weight: 550; color: var(--foreground); overflow-wrap: anywhere; }
+.allocationMeta { font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted-foreground); }
+.allocationAmount { display: grid; flex: none; justify-items: end; text-align: right; font-variant-numeric: tabular-nums; }
+.allocationAmount > :first-child { font-size: 14px; line-height: 21px; font-weight: 550; color: var(--foreground); }
+.allocationDetail { padding: 0 0 12px 22px; }
+.allocationChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.allocationChip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 10px; background: var(--muted); font-size: 12px; line-height: 18px; }
+.allocationPager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
