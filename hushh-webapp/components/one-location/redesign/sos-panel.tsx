@@ -661,10 +661,11 @@ export function SosPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={stopBusy}>
+            <AlertDialogCancel size="standard" disabled={stopBusy}>
               Keep active
             </AlertDialogCancel>
             <AlertDialogAction
+              size="standard"
               variant="destructive"
               disabled={stopBusy}
               onClick={(event) => {

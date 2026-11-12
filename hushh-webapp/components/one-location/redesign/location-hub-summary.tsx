@@ -141,14 +141,14 @@ export function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         </div>
         <Button
           type="button"
-          size="prominent"
+          size="standard"
           data-voice-control-id="one-location-action-share"
           data-voice-action-id="location.open_share"
           data-voice-label="Share location"
           data-location-action-fit=""
           aria-label="Share location"
           onClick={onClick}
-          className="col-start-2 mr-auto h-auto w-full max-w-[244px] shrink-0 py-3 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
+          className="col-start-2 mr-auto h-auto w-full max-w-[244px] shrink-0 py-2.5 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
         >
           Share location
         </Button>
