@@ -194,6 +194,99 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(bridge.budget.BudgetError, "unverified"):
             evaluate(*args)
 
+    def test_existing_recorded_bridge_starts_once_then_removes_only_its_tag(self):
+        recorded = bridge.recorded
+        original = [
+            {"revisionName": recorded.SERVING_BACKEND, "percent": 100},
+            {"revisionName": recorded.SERVING_BACKEND, "tag": "healthy"},
+        ]
+        target = {"revisionName": recorded.REVISION, "tag": recorded.STARTUP_TAG}
+        candidate = recorded.template()
+        candidate["metadata"]["uid"] = recorded.OBSERVED_BRIDGE_UID
+        candidate["metadata"]["labels"]["serving.knative.dev/serviceUid"] = recorded.BACKEND_SERVICE_UID
+        candidate["status"] = {
+            "imageDigest": recorded.BACKEND_IMAGE,
+            "conditions": [{"type": "Ready", "status": "True", "reason": "Retired"}],
+        }
+        service = {
+            "metadata": {"uid": recorded.BACKEND_SERVICE_UID, "generation": 1, "resourceVersion": "1"},
+            "spec": {"traffic": copy.deepcopy(original), "template": recorded.template()},
+            "status": {
+                "traffic": [{**original[0], "tag": "healthy"}],
+                "latestCreatedRevisionName": recorded.REVISION,
+                "latestReadyRevisionName": recorded.DISPLACED,
+                "observedGeneration": 1,
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+        }
+        receipt = {
+            "desiredTraffic": original,
+            "traffic": bridge.traffic(service),
+            "serviceControlsFingerprint": bridge.service_controls(service),
+        }
+        operations = []
+        saved = []
+
+        def replace(command, **_):
+            body = json.loads(Path(command[4]).read_text())
+            self.assertEqual(body["metadata"]["resourceVersion"], service["metadata"]["resourceVersion"])
+            self.assertEqual(body["spec"]["template"], recorded.template())
+            routes = body["spec"]["traffic"]
+            self.assertIn(routes, [original, [*original, target]])
+            self.assertEqual(saved[-1], "tag_requested" if target in routes else "removal_requested")
+            generation = service["metadata"]["generation"] + 1
+            service["metadata"].update(generation=generation, resourceVersion=str(generation))
+            service["status"]["observedGeneration"] = generation
+            service["spec"] = body["spec"]
+            service["status"]["traffic"] = [{**original[0], "tag": "healthy"}]
+            if target in routes:
+                service["status"]["traffic"].append(target)
+            operations.append(routes)
+
+        def wake(state):
+            self.assertEqual(state["spec"]["traffic"], [*original, target])
+            self.assertFalse(recorded.verified_inert(state, candidate))
+            service["status"]["latestReadyRevisionName"] = recorded.REVISION
+            candidate["status"]["conditions"].append({"type": "ContainerHealthy", "status": "True"})
+
+        def reconcile(create):
+            bridge.reconcile_recorded_startup(
+                copy.deepcopy(service), copy.deepcopy(candidate), receipt,
+                lambda: saved.append(receipt["startupProbe"]),
+                create=create, profile={}, inventory={},
+            )
+
+        with (
+            mock.patch.object(bridge.retention, "service_state", side_effect=lambda *_: copy.deepcopy(service)),
+            mock.patch.object(bridge.retention, "revision_state", side_effect=lambda *_: [copy.deepcopy(candidate)]),
+            mock.patch.object(bridge.budget, "evaluate", return_value={"admitted": True}),
+            mock.patch.object(bridge.retention, "run_command", side_effect=replace) as provider,
+            mock.patch.object(bridge, "wake_recorded_listener", side_effect=wake) as probe,
+        ):
+            with self.assertRaisesRegex(bridge.retention.MutationUncertain, "explicit startup"):
+                reconcile(create=False)
+            receipt["startupProbe"] = "tag_requested"
+            with self.assertRaisesRegex(bridge.retention.MutationUncertain, "tag outcome"):
+                reconcile(create=True)
+            del receipt["startupProbe"]
+            provider.assert_not_called()
+
+            reconcile(create=True)
+            self.assertEqual(receipt["startupProbe"], "complete")
+            self.assertEqual(operations, [[*original, target], original])
+            self.assertTrue(recorded.verified_inert(service, candidate))
+            reconcile(create=False)
+            self.assertEqual(provider.call_count, 2)
+            probe.assert_called_once()
+
+            # A changed traffic allocation or revision UID cannot authorize a
+            # write, including during a replay of an existing intent.
+            service["status"]["traffic"][0]["percent"] = 99
+            service["status"]["traffic"].append({**target, "percent": 1})
+            with self.assertRaisesRegex(bridge.retention.MutationUncertain, "routes changed"):
+                reconcile(create=True)
+            self.assertEqual(provider.call_count, 2)
+
     def test_bootstrap_keeps_listener_headroom_and_overrides_the_real_frozen_launcher(
         self,
     ):
