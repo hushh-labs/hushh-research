@@ -124,6 +124,7 @@ Usage:
   ./bin/hushh agents list-workflows [--json|--text] [--verbose]
   ./bin/hushh agents pre-pr (--base-ref <target> [--body-file <path>] | --pr <number>) [--report-path <path>] [--json|--text]
   ./bin/hushh agents pre-pr --diagnostic [--include-advisory] [--report-path <path>] [--json|--text]
+  ./bin/hushh agents review-route --pr <number> [--apply] [--json|--text]
   ./bin/hushh agents ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
   ./bin/hushh agents admin-merge --pr <number> --sha <head> --receipt <path> [--apply]
   ./bin/hushh agents ci-rerun --run-id <id> --expected-attempt <n> --sha <sha> [--failed|--all|--job-id <id>] [--json|--text]
@@ -555,6 +556,9 @@ run_agents() {
         exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/pre_pr_readiness.py" "${args[@]}" "$format_flag"
       fi
       exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/pre_pr_readiness.py" "$format_flag"
+      ;;
+    review-route)
+      exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/pr_review_routing.py" "${args[@]}" "$format_flag"
       ;;
     ci-status)
       if [ "${#args[@]}" -gt 0 ]; then
