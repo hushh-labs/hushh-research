@@ -15,6 +15,7 @@
 
 "use client";
 import { usePathname, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -27,10 +28,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
 import { PortfolioDashboardEmpty } from "./views/portfolio-dashboard-empty";
 import { ImportProgressView, ImportStage } from "./views/import-progress-view";
-import {
-  PortfolioReviewView,
-  PortfolioData as ReviewPortfolioData,
-} from "./views/portfolio-review-view";
+import type { PortfolioData as ReviewPortfolioData } from "./views/portfolio-review-view";
 import type { PortfolioData } from "./types/portfolio";
 import {
   DashboardMasterView,
@@ -109,6 +107,21 @@ import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-ser
 // =============================================================================
 // TYPES
 // =============================================================================
+
+// The review step (holdings table, entry editor, vault services) is only needed once a
+// statement has been read, so it loads on demand instead of with the first import screen.
+const loadReviewView = () => import("./views/portfolio-review-view");
+const PortfolioReviewView = dynamic(
+  () => loadReviewView().then((module) => module.PortfolioReviewView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[360px] w-full items-center justify-center">
+        <HushhLoader variant="inline" label="Preparing your review..." />
+      </div>
+    ),
+  },
+);
 
 export type FlowState =
   | "checking"
@@ -763,6 +776,12 @@ export function KaiFlow({
     },
     [pathname, router, searchParams],
   );
+
+  // Start fetching the review step while the statement is being read, so it is ready by
+  // the time the review opens.
+  useEffect(() => {
+    if (state === "importing") void loadReviewView();
+  }, [state]);
 
   // Old links can still reopen a saved extraction through the review stage.
   useEffect(() => {
