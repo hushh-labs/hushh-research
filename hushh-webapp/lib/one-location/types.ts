@@ -724,6 +724,7 @@ export type DriveDestination = {
   latitude: number;
   longitude: number;
   placeId?: string | null;
+  categories?: import("./nearby-places").OneLocationNearbyPlaceCategory[] | null;
 };
 
 export type TrafficLevel = "light" | "moderate" | "heavy";

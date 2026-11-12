@@ -1242,6 +1242,7 @@ class GoogleMapsService:
             "label": label,
             "latitude": latitude,
             "longitude": longitude,
+            "categories": _place_categories(_place_types(data)),
         }
 
     async def reverse_geocode(self, *, lat: float, lng: float) -> dict[str, Any]:

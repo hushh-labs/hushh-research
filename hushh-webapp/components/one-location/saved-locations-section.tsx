@@ -1,13 +1,12 @@
 "use client";
 
 import { NativeLocationLayer } from "./redesign/native-location-workspace";
+import { SavedLocationCategoryIcon, savedLocationCategoryPresentation } from "./saved-location-category-icon";
+import { checkedInPlaceCategory, type CheckedInPlaceCategory } from "@/lib/one-location/nearby-places";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Briefcase,
   ChevronRight,
-  Home,
   Loader2,
-  MapPin,
   Pencil,
   RefreshCw,
   ShieldCheck,
@@ -57,31 +56,6 @@ import { useVault } from "@/lib/vault/vault-context";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 
-function CategoryIcon({ category }: { category: SavedLocationCategory }) {
-  const config: {
-    Icon: typeof Home;
-    bg: string;
-    fg: string;
-  } = category === "home"
-    ? { Icon: Home, bg: "bg-[color:var(--app-accent)]", fg: "text-white" }
-    : category === "work"
-      ? { Icon: Briefcase, bg: "bg-[color:var(--app-warning)]", fg: "text-white" }
-      : { Icon: MapPin, bg: "bg-transparent", fg: "text-[color:var(--app-accent-deep)]" };
-  return (
-    <span
-      className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]",
-        config.bg,
-        config.fg,
-      )}
-      data-testid={`saved-location-icon-${category}`}
-      aria-hidden="true"
-    >
-      <config.Icon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
-    </span>
-  );
-}
-
 export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { nativeActive?: boolean; onNativeBack?: () => void } = {}) {
   const [nativePage, setNativePage] = useState(0);
   const { userId } = useAuth();
@@ -109,6 +83,8 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
     Record<string, string | null>
   >({});
   const addressLookupsRef = useRef(new Set<string>());
+  const categoryLookupsRef = useRef(new Set<string>());
+  const [resolvedCategories, setResolvedCategories] = useState<Record<string, CheckedInPlaceCategory | null>>({});
   // One row open at a time: this is a short list a person scans, not a set of
   // panels they compare, and several open rows push the rest off the screen.
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -152,7 +128,9 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
   useEffect(() => {
     vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
     addressLookupsRef.current.clear();
+    categoryLookupsRef.current.clear();
     setResolvedAddresses({});
+    setResolvedCategories({});
   }, [userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
@@ -335,6 +313,41 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
     setRepairingId(null);
     setLoading(false);
   }, [hasVaultAccess]);
+
+  useEffect(() => {
+    if (!hasVaultAccess || !userId || !vaultOwnerToken || loadedUserId !== userId ||
+      !rendererDisclosureAccepted || locationControl.paused) return;
+    const session = { userId, vaultKey, vaultOwnerToken };
+    let cancelled = false;
+    const lookups = categoryLookupsRef.current;
+    const requested = new Set<string>();
+    const resolve = async () => {
+      for (const location of locations) {
+        if (cancelled || !isCurrentVaultSession(session)) return;
+        if (location.savedFrom !== "check_in" || location.placeCategory || !location.placeId) continue;
+        const key = `${location.id}:${location.placeId}`;
+        if (lookups.has(key)) continue;
+        lookups.add(key);
+        requested.add(key);
+        let category: CheckedInPlaceCategory | null = null;
+        try {
+          const details = await OneLocationService.placeDetails({ vaultOwnerToken, placeId: location.placeId });
+          category = checkedInPlaceCategory(details.categories);
+        } catch {
+          // Older records remain readable while their provider metadata is unavailable.
+        }
+        requested.delete(key);
+        if (cancelled || !isCurrentVaultSession(session)) return;
+        setResolvedCategories((current) => ({ ...current, [key]: category }));
+      }
+    };
+    void resolve();
+    return () => {
+      cancelled = true;
+      requested.forEach((key) => lookups.delete(key));
+    };
+  }, [hasVaultAccess, isCurrentVaultSession, loadedUserId, locationControl.paused, locations,
+    rendererDisclosureAccepted, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (!locationControl.paused) return;
@@ -776,7 +789,21 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
       const name = location.category === "other" ? location.placeName || venue?.name || location.label : location.label;
       const address = location.address || resolvedAddresses[location.id] || venue?.address;
       const finding = !address && (checkedIn || location.placeName) && resolvedAddresses[location.id] === undefined;
-      return [{ key: location.id, label: name, detail: address || (finding ? "Finding address…" : "Address unavailable"), selected: expandedId === location.id, symbol: location.category === "home" ? "house" : location.category === "work" ? "briefcase" : "mappin", run: () => setExpandedId(current => current === location.id ? null : location.id) },
+      const icon = savedLocationCategoryPresentation({
+        ...location, placeCategory: location.placeCategory ?? resolvedCategories[`${location.id}:${location.placeId}`],
+      });
+      return [{
+        key: location.id,
+        label: name,
+        detail: address || (finding ? "Finding address…" : "Address unavailable"),
+        selected: expandedId === location.id,
+        symbol: icon.symbol,
+        iconHex: icon.color,
+        trailing: checkedIn
+          ? new Date(location.checkedInAt || location.savedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+          : undefined,
+        run: () => setExpandedId(current => current === location.id ? null : location.id),
+      },
         ...(expandedId === location.id ? [
           { key: `${location.id}:date`, label: "Saved", detail: new Date(location.checkedInAt || location.savedAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) },
           ...(!location.address && (resolvedAddresses[location.id] === null || (!address && !finding)) ? [{ key: `${location.id}:repair`, label: "Find address", enabled: repairingId === null, pending: repairingId === location.id, run: () => handleRepairAddress(location) }] : []),
@@ -883,6 +910,7 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                     : location.label;
                   const address = location.address || resolvedAddresses[location.id] || venue?.address;
                   const findingAddress = !address && (checkedIn || location.placeName) && resolvedAddresses[location.id] === undefined;
+                  const iconLocation = { ...location, placeCategory: location.placeCategory ?? resolvedCategories[`${location.id}:${location.placeId}`] };
                   const dateValue = location.checkedInAt || location.savedAt;
                   const visitDate = checkedIn && Number.isFinite(Date.parse(dateValue))
                     ? new Date(dateValue)
@@ -904,7 +932,7 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                         aria-expanded={expanded}
                         className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
                       >
-                        <CategoryIcon category={location.category} />
+                        <SavedLocationCategoryIcon location={iconLocation} />
                         <div className="min-w-0 flex-1">
                           <p data-location-type-role="row-title" className="truncate text-[17px] font-normal leading-[22px] text-foreground">
                             {name}
@@ -917,11 +945,10 @@ export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { 
                           <time
                             dateTime={dateValue}
                             title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
-                            className="shrink-0 self-start pt-0.5 text-right text-[11px] font-normal leading-[14px] tabular-nums text-[color:var(--app-secondary-label)]"
+                            className="shrink-0 self-start whitespace-nowrap pt-0.5 text-right text-[10px] font-normal leading-[14px] tabular-nums text-[color:var(--app-secondary-label)]"
                           >
-                            {!location.checkedInAt ? <span className="block">Saved</span> : null}
-                            {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
-                            <span className="block">{visitDate.getFullYear()}</span>
+                            {!location.checkedInAt ? <span>Saved </span> : null}
+                            {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
                           </time>
                         ) : null}
                         <ChevronRight
