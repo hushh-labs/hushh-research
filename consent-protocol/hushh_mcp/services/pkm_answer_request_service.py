@@ -709,6 +709,13 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 "requesterKeyReady": bool(row["requester_key_ready"]),
                 "deliveryRecipientKeyId": row["delivery_recipient_key_id"],
                 "deliveryRecipientKeyActive": bool(row["delivery_recipient_key_active"]),
+                "answerPrepared": bool(
+                    row["staged_has_content"]
+                    and row["delivery_recipient_key_active"]
+                    and PkmAnswerPaymentService._has_composed_answer(
+                        {"source_revisions": row["staged_revisions"]}, row
+                    )
+                ),
             }
             # Before approval, the proposed selectors are for the owner's
             # review only. After approval, both people may see the exact

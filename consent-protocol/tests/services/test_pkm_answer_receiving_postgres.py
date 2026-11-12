@@ -13,6 +13,7 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     REQUESTER,
     StubResolver,
     _db,
+    _deliver_composed,
     _fixture_catalog,
     answer_engine,
     clean,
@@ -37,6 +38,66 @@ async def _approve_for(service, requester):
         model_processing_consent=True,
     )
     return request_id
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "empty", "revoked", "foreign", "terms", "consent", "receipt"]
+)
+async def test_participant_readiness_requires_current_composed_stage(answer_engine, fault):  # noqa: F811
+    service = PkmAnswerRequestService(
+        _db(answer_engine),
+        resolver=StubResolver(["attr.travel.trips"]),
+        catalog_reader=_fixture_catalog(answer_engine),
+    )
+    request = await _approve_for(service, REQUESTER)
+    assert not (await service.participant_state(user_id=OWNER, request_id=request))[
+        "answerPrepared"
+    ]
+    await _deliver_composed(
+        service,
+        answer_engine,
+        owner_user_id=OWNER,
+        request_id=request,
+        envelope=ENVELOPE,
+        has_content=True,
+    )
+    with answer_engine.begin() as connection:
+        if fault == "empty":
+            connection.execute(
+                text("UPDATE pkm_answer_deliveries SET has_content=false WHERE request_id=:r"),
+                {"r": request},
+            )
+        elif fault == "revoked":
+            connection.execute(
+                text("UPDATE marketplace_recipient_keys SET status='revoked' WHERE user_id=:u"),
+                {"u": REQUESTER},
+            )
+        elif fault == "foreign":
+            connection.execute(
+                text(
+                    "UPDATE marketplace_recipient_keys SET user_id='foreign-owner' WHERE user_id=:u"
+                ),
+                {"u": REQUESTER},
+            )
+        elif fault in {"terms", "consent"}:
+            column = "terms_digest" if fault == "terms" else "composer_consent_digest"
+            connection.execute(
+                text(f"UPDATE pkm_answer_requests SET {column}=repeat('a',64) WHERE request_id=:r"),
+                {"r": request},
+            )
+        elif fault == "receipt":
+            connection.execute(
+                text(
+                    "UPDATE pkm_answer_deliveries SET source_revisions=source_revisions-'_composition_receipt' WHERE request_id=:r"
+                ),
+                {"r": request},
+            )
+    for participant in (OWNER, REQUESTER):
+        state = await service.participant_state(user_id=participant, request_id=request)
+        assert state["answerPrepared"] is (fault is None)
+        assert not {"staged_revisions", "composer_consent_digest", "terms_digest"} & state.keys()
+    with pytest.raises(AnswerRequestError, match="request_unavailable"):
+        await service.participant_state(user_id="stranger", request_id=request)
 
 
 async def test_keyless_requests_are_visible_and_cannot_starve_ready_work(answer_engine):  # noqa: F811
