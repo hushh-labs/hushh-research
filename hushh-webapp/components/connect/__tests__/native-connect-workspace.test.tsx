@@ -15,7 +15,10 @@ vi.mock("@/lib/capacitor/use-native-workspace", () => ({
   useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: "native", reason: "active", held: true }, retireForWeb: vi.fn() }),
   useNativeWorkspace: (value: { content: unknown; actions: Map<string, () => unknown> }) => { state.apply(); state.content = value.content; state.actions = value.actions; return "native"; },
 }));
-vi.mock("@/lib/capacitor/use-native-workspace-handoff", () => ({ useNativeWorkspaceHandoff: () => ({ activationRevision: 0, intent: { current: 0 }, handoff: vi.fn() }) }));
+vi.mock("@/lib/capacitor/use-native-workspace-handoff", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/use-native-workspace-handoff")>(),
+  useNativeWorkspaceHandoff: () => ({ activationRevision: 0, intent: { current: 0 }, handoff: vi.fn() }),
+}));
 
 import { NativeConnectWorkspace, type NativeConnectModel } from "../native-connect-workspace";
 import { NativeFeedWorkspace, type NativeFeedModel } from "@/components/feed/native-feed-workspace";

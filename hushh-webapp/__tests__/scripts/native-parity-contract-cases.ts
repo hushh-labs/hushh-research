@@ -10,7 +10,7 @@ export function registerNativeParityReportCases(root: string) {
     const directory = mkdtempSync(join(tmpdir(), "hushh-native-parity-"));
     try {
       const route = { route: "/one", classification: "native-required-functional", expectedMarker: "one", expectedRoute: "/one", expectedAuth: "authenticated", allowedDataStates: ["loaded"] };
-      const result = { route: "/one", ok: true, observed: { ready: "1", found: "1", marker: "one", route: "/one", auth: "authenticated", data: "loaded" } };
+      const result = { route: "/one", ok: true, observed: { ready: "1", found: "1", marker: "one", route: "/one", routeok: "1", auth: "authenticated", data: "loaded" } };
       const report = { audited_routes: 1, completed_routes: 1, audit_complete: true, failed_routes: 0, passed_routes: 1, results: [result] };
       writeFileSync(join(directory, "native-route-inventory.json"), JSON.stringify({ routes: [route] }));
       const verify = (value: unknown) => {
@@ -18,6 +18,8 @@ export function registerNativeParityReportCases(root: string) {
         return spawnSync(process.execPath, [join(root, "scripts/native/verify-native-parity-reports.mjs"), "--platform=ios"], { cwd: directory, encoding: "utf8" });
       };
       expect(verify(report).status).toBe(0);
+      expect(verify({ ...report, results: [{ ...result, observed: { ...result.observed, routeok: "0" } }] }).status).not.toBe(0);
+      expect(verify({ ...report, results: [{ ...result, observed: { ...result.observed, route: "/wrong" } }] }).status).not.toBe(0);
       expect(verify({ ...report, results: [{ ...result, skipped: true }] }).status).not.toBe(0);
       expect(verify({ ...report, audit_complete: false }).status).not.toBe(0);
       expect(verify({ ...report, completed_routes: 0 }).status).not.toBe(0);

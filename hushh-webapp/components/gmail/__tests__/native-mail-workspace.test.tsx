@@ -14,7 +14,10 @@ vi.mock("@/lib/capacitor/use-native-workspace", () => ({
   useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: state.enabled ? "native" : "web", reason: state.enabled ? "active" : "inactive", held: state.enabled && state.held }, retireForWeb: vi.fn() }),
   useNativeWorkspace: (value: { content: unknown; active: boolean; actions: Map<string, () => unknown> }) => { state.apply(); state.active = value.active; state.content = value.content; state.actions = value.actions; return "native"; },
 }));
-vi.mock("@/lib/capacitor/use-native-workspace-handoff", () => ({ useNativeWorkspaceHandoff: () => ({ activationRevision: 0, intent: { current: 0 }, handoff: state.handoff }) }));
+vi.mock("@/lib/capacitor/use-native-workspace-handoff", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/use-native-workspace-handoff")>(),
+  useNativeWorkspaceHandoff: () => ({ activationRevision: 0, intent: { current: 0 }, handoff: state.handoff }),
+}));
 import { NativeMailRoute, NativeMailReactOnly } from "../native-mail-workspace";
 
 function Saver() { useEffect(() => { state.mounted++; return () => { state.unmounted++; }; }, []); return null; }
