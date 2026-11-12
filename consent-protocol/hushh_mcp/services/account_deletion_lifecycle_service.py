@@ -221,6 +221,26 @@ def _validated_intent_metadata(
     return intent_kind, normalized_digest
 
 
+def is_account_deletion_write_guard(exc: BaseException) -> bool:
+    """Recognize the database erasure fence through driver and service wrappers."""
+    seen: set[int] = set()
+    while id(exc) not in seen:
+        seen.add(id(exc))
+        constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
+        if (constraint or getattr(exc, "constraint_name", None)) in {
+            "account_deletion_tombstone_guard",
+            "account_retired_generation_update_guard",
+        }:
+            return True
+        nested = getattr(exc, "orig", None) or exc.__cause__
+        if nested is None and not exc.__suppress_context__:
+            nested = exc.__context__
+        if not isinstance(nested, BaseException):
+            return False
+        exc = nested
+    return False
+
+
 class AccountDeletionLifecycleService:
     """Own the durable tombstone and its external Firebase cleanup intent."""
 

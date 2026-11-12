@@ -28,12 +28,24 @@ from typing import Any, Callable
 from sqlalchemy import text
 
 from db.db_client import DatabaseClient, get_db
+from hushh_mcp.operons.location.policy import (
+    LOCATION_PEER_UNAVAILABLE,
+    LOCATION_PEER_UNAVAILABLE_MESSAGE,
+)
 from hushh_mcp.runtime_settings import get_core_security_settings
-from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.account_deletion_lifecycle_service import (
+    AccountDeletionLifecycleService,
+    is_account_deletion_write_guard,
+)
 from hushh_mcp.services.circle_photo import validate_circle_photo
 from hushh_mcp.services.connection_graph_service import (
     ensure_connection_origin,
     revoke_circle_origins,
+)
+from hushh_mcp.services.directory_identity_service import (
+    DirectoryIdentityUnavailableError,
+    active_directory_user_ids,
+    exclude_retired_account_ids,
 )
 from hushh_mcp.services.location_circle_command import begin_circle_command, save_circle_command
 from hushh_mcp.services.people_search_sql import people_query_match_params
@@ -537,6 +549,12 @@ class OneLocationCircleService:
         return format_circle_code(raw)
 
     def _safe_db_failure(self, operation: str, exc: Exception) -> OneLocationCircleError:
+        if is_account_deletion_write_guard(exc):
+            return OneLocationCircleError(
+                LOCATION_PEER_UNAVAILABLE, LOCATION_PEER_UNAVAILABLE_MESSAGE, status_code=409
+            )
+        if isinstance(exc, DirectoryIdentityUnavailableError):
+            return OneLocationCircleError(exc.code, exc.message, status_code=503)
         logger.warning(
             "one_location.circle_db_failed operation=%s error_type=%s",
             operation,
@@ -852,8 +870,74 @@ class OneLocationCircleService:
                 source_circle_id=source_circle,
             )
 
+    def _assert_circle_accounts_active(self, user_ids: Iterable[str]) -> None:
+        ids = sorted(set(user_ids))
+        try:
+            active = active_directory_user_ids(ids, use_cache=False)
+            active = exclude_retired_account_ids(
+                sorted(active),
+                lambda sql, params: self._db.execute_raw(sql, params).data or [],
+            )
+        except DirectoryIdentityUnavailableError as exc:
+            raise OneLocationCircleError(exc.code, exc.message, status_code=503) from None
+        if set(ids) - active:
+            raise OneLocationCircleError(
+                LOCATION_PEER_UNAVAILABLE,
+                LOCATION_PEER_UNAVAILABLE_MESSAGE,
+                status_code=409,
+            )
+
+    def _live_circle_account_ids(
+        self,
+        user_id: str,
+        *,
+        circle_id: str | None = None,
+        include_connections: bool = False,
+    ) -> list[str]:
+        # Scope provider work to this authorized roster. A small Circle must
+        # not revalidate thousands of unrelated connections on every page.
+        result = self._db.execute_raw(
+            """
+            WITH visible_circles AS (
+              SELECT roster_circle.id, roster_circle.owner_user_id
+              FROM one_location_circle_memberships mine
+              JOIN one_location_circles roster_circle ON roster_circle.id = mine.circle_id
+                AND roster_circle.status = 'active'
+              WHERE mine.user_id = :user_id AND mine.status = 'active'
+                AND (CAST(:circle_id AS UUID) IS NULL OR roster_circle.id = CAST(:circle_id AS UUID))
+            )
+            SELECT membership.user_id FROM visible_circles circle
+            JOIN one_location_circle_memberships membership ON membership.circle_id = circle.id
+              AND membership.status = 'active'
+            WHERE NOT :include_connections
+            UNION SELECT owner_user_id FROM visible_circles
+            UNION
+            SELECT CASE WHEN user_a_id = :user_id THEN user_b_id ELSE user_a_id END
+            FROM connections WHERE :include_connections AND status = 'active'
+              AND (user_a_id = :user_id OR user_b_id = :user_id)
+              AND EXISTS (SELECT 1 FROM visible_circles)
+            UNION SELECT CAST(:user_id AS TEXT)
+            """,
+            {
+                "user_id": user_id,
+                "circle_id": circle_id,
+                "include_connections": include_connections,
+            },
+        )
+        active = active_directory_user_ids(
+            [str(row["user_id"]) for row in (result.data or []) if row.get("user_id")],
+            use_cache=False,
+        )
+        return sorted(
+            exclude_retired_account_ids(
+                sorted(active),
+                lambda sql, params: self._db.execute_raw(sql, params).data or [],
+            )
+        )
+
     def list_circles(self, *, user_id: str) -> list[dict[str, Any]]:
         try:
+            active_account_ids = self._live_circle_account_ids(user_id)
             result = self._db.execute_raw(
                 f"""
                 SELECT
@@ -868,18 +952,28 @@ class OneLocationCircleService:
                 JOIN one_location_circles c
                   ON c.id = mine.circle_id
                  AND c.status = 'active'
+                 AND c.owner_user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired_owner
+                    WHERE retired_owner.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(c.owner_user_id), 'sha256'), 'hex')
+                  )
                 LEFT JOIN actor_identity_cache owner_identity
                   ON owner_identity.user_id = c.owner_user_id
                 LEFT JOIN one_location_circle_memberships active_members
                   ON active_members.circle_id = c.id
                  AND active_members.status = 'active'
+                 AND active_members.user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired
+                    WHERE retired.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(active_members.user_id), 'sha256'), 'hex')
+                  )
                 WHERE mine.user_id = :user_id
                   AND mine.status = 'active'
                   AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="c", membership="mine", viewer="user_id")}
                 GROUP BY c.id, mine.role, owner_identity.display_name
                 ORDER BY c.updated_at DESC, c.created_at DESC
                 """,  # nosec B608 # Only static Trusted aliases; owner inputs remain bound.
-                {"user_id": user_id},
+                {"active_account_ids": active_account_ids, "user_id": user_id},
             )
             circles = [self._circle_summary(row) for row in (result.data or [])]
             photo_budget = 2_000_000
@@ -899,6 +993,7 @@ class OneLocationCircleService:
     def get_circle(self, *, user_id: str, circle_id: str) -> dict[str, Any]:
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
+            active_account_ids = self._live_circle_account_ids(user_id, circle_id=cleaned_circle_id)
             summary_result = self._db.execute_raw(
                 f"""
                 SELECT
@@ -925,6 +1020,11 @@ class OneLocationCircleService:
                 LEFT JOIN one_location_circle_memberships active_members
                   ON active_members.circle_id = c.id
                  AND active_members.status = 'active'
+                 AND active_members.user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired
+                    WHERE retired.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(active_members.user_id), 'sha256'), 'hex')
+                  )
                 LEFT JOIN LATERAL (
                     SELECT
                       code.id, code.circle_id, code.code_hash,
@@ -938,13 +1038,22 @@ class OneLocationCircleService:
                 ) active_code ON TRUE
                 WHERE c.id = CAST(:circle_id AS UUID)
                   AND c.status = 'active'
+                 AND c.owner_user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired_owner
+                    WHERE retired_owner.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(c.owner_user_id), 'sha256'), 'hex')
+                  )
                 GROUP BY
                   c.id, mine.role, owner_identity.display_name,
                   active_code.id, active_code.circle_id,
                   active_code.code_hash, active_code.expires_at,
                   active_code.metadata
                 """,  # nosec B608 # Only static Trusted aliases; owner inputs remain bound.
-                {"user_id": user_id, "circle_id": cleaned_circle_id},
+                {
+                    "active_account_ids": active_account_ids,
+                    "user_id": user_id,
+                    "circle_id": cleaned_circle_id,
+                },
             )
             summary_row = next(iter(summary_result.data or []), None)
             if not summary_row:
@@ -1025,11 +1134,20 @@ class OneLocationCircleService:
                 ) recipient_key ON TRUE
                 WHERE membership.circle_id = CAST(:circle_id AS UUID)
                   AND membership.status = 'active'
+                  AND membership.user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired
+                    WHERE retired.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(membership.user_id), 'sha256'), 'hex')
+                  )
                 ORDER BY
                   CASE membership.role WHEN 'owner' THEN 0 ELSE 1 END,
                   COALESCE(identity.display_name, membership.user_id)
                 """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
-                {"circle_id": cleaned_circle_id, "viewer_user_id": user_id},
+                {
+                    "active_account_ids": active_account_ids,
+                    "circle_id": cleaned_circle_id,
+                    "viewer_user_id": user_id,
+                },
             )
             circle = self._circle_summary(dict(summary_row))
             circle["members"] = [self._member_payload(row) for row in (members_result.data or [])]
@@ -1075,6 +1193,7 @@ class OneLocationCircleService:
 
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
+            active_account_ids = self._live_circle_account_ids(user_id, circle_id=cleaned_circle_id)
             result = self._db.execute_raw(
                 f"""
                 SELECT
@@ -1090,7 +1209,12 @@ class OneLocationCircleService:
                   active_code.metadata AS code_metadata,
                   (SELECT COUNT(*) FROM one_location_circle_memberships active_member
                    WHERE active_member.circle_id = c.id
-                     AND active_member.status = 'active') AS member_count
+                     AND active_member.status = 'active'
+                     AND active_member.user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired
+                    WHERE retired.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(active_member.user_id), 'sha256'), 'hex')
+                  )) AS member_count
                 FROM one_location_circles c
                 LEFT JOIN actor_identity_cache owner_identity
                   ON owner_identity.user_id = c.owner_user_id
@@ -1111,8 +1235,17 @@ class OneLocationCircleService:
                 ) active_code ON TRUE
                 WHERE c.id = CAST(:circle_id AS UUID)
                   AND c.status = 'active'
+                 AND c.owner_user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired_owner
+                    WHERE retired_owner.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(c.owner_user_id), 'sha256'), 'hex')
+                  )
                 """,  # nosec B608 # Only static Trusted aliases; owner inputs remain bound.
-                {"user_id": user_id, "circle_id": cleaned_circle_id},
+                {
+                    "active_account_ids": active_account_ids,
+                    "user_id": user_id,
+                    "circle_id": cleaned_circle_id,
+                },
             )
             row = next(iter(result.data or []), None)
             if not row:
@@ -1162,6 +1295,7 @@ class OneLocationCircleService:
         query_match = people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
+            active_account_ids = self._live_circle_account_ids(user_id, circle_id=cleaned_circle_id)
             result = self._db.execute_raw(
                 f"""
                 WITH authorized_circle AS (
@@ -1173,6 +1307,11 @@ class OneLocationCircleService:
                    AND viewer.status = 'active'
                   WHERE circle.id = CAST(:circle_id AS UUID)
                     AND circle.status = 'active'
+                    AND circle.owner_user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired_owner
+                    WHERE retired_owner.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(circle.owner_user_id), 'sha256'), 'hex')
+                  )
                     AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="circle", membership="viewer", viewer="viewer_user_id")}
                 ), candidates AS (
                   SELECT membership.user_id, membership.role, membership.joined_at,
@@ -1208,6 +1347,11 @@ class OneLocationCircleService:
                   JOIN one_location_circle_memberships membership
                     ON membership.circle_id = circle.id
                    AND membership.status = 'active'
+                  AND membership.user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired
+                    WHERE retired.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(membership.user_id), 'sha256'), 'hex')
+                  )
                   LEFT JOIN actor_identity_cache identity
                     ON identity.user_id = membership.user_id
                   LEFT JOIN actor_profiles profile
@@ -1302,6 +1446,7 @@ class OneLocationCircleService:
                 """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
+                    "active_account_ids": active_account_ids,
                     "viewer_user_id": user_id,
                     "query": normalized_query,
                     **query_match,
@@ -1666,8 +1811,14 @@ class OneLocationCircleService:
         operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Keep the emergency roster, legacy mirror and command receipt atomic."""
+        if added:
+            self._assert_circle_accounts_active([owner_user_id, contact_user_id])
         action = "location.add_emergency_contact" if added else "location.remove_emergency_contact"
         with self._db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                conn,
+                user_ids=(owner_user_id, contact_user_id),
+            )
             receipt = None
             if operation_id:
                 from hushh_mcp.services.location_command_effect_receipts import CommandEffectReceipt
@@ -3098,6 +3249,9 @@ class OneLocationCircleService:
 
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
+            active_account_ids = self._live_circle_account_ids(
+                actor_user_id, circle_id=cleaned_circle_id, include_connections=True
+            )
             membership_result = self._db.execute_raw(
                 """
                 SELECT membership.user_id
@@ -3106,11 +3260,22 @@ class OneLocationCircleService:
                   ON membership.circle_id = circle.id
                  AND membership.user_id = :actor_user_id
                  AND membership.status = 'active'
+                  AND membership.user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired
+                    WHERE retired.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(membership.user_id), 'sha256'), 'hex')
+                  )
                 WHERE circle.id = CAST(:circle_id AS UUID)
                   AND circle.status = 'active'
+                    AND circle.owner_user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired_owner
+                    WHERE retired_owner.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(circle.owner_user_id), 'sha256'), 'hex')
+                  )
                 """,
                 {
                     "circle_id": cleaned_circle_id,
+                    "active_account_ids": active_account_ids,
                     "actor_user_id": actor_user_id,
                 },
             )
@@ -3176,6 +3341,12 @@ class OneLocationCircleService:
                   END
                 WHERE circle.id = CAST(:circle_id AS UUID)
                   AND circle.status = 'active'
+                    AND circle.owner_user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired_owner
+                    WHERE retired_owner.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(circle.owner_user_id), 'sha256'), 'hex')
+                  )
+                  AND identity.user_id = ANY(CAST(:active_account_ids AS TEXT[]))
                   AND NOT EXISTS (
                     SELECT 1
                     FROM one_location_circle_memberships membership
@@ -3209,6 +3380,7 @@ class OneLocationCircleService:
                 """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
+                    "active_account_ids": active_account_ids,
                     "actor_user_id": actor_user_id,
                 },
             )
@@ -3240,6 +3412,9 @@ class OneLocationCircleService:
         query_match = people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
+            active_account_ids = self._live_circle_account_ids(
+                actor_user_id, circle_id=cleaned_circle_id, include_connections=True
+            )
             result = self._db.execute_raw(
                 f"""
                 WITH authorized_circle AS (
@@ -3251,6 +3426,11 @@ class OneLocationCircleService:
                    AND actor_membership.status = 'active'
                   WHERE circle.id = CAST(:circle_id AS UUID)
                     AND circle.status = 'active'
+                    AND circle.owner_user_id = ANY(CAST(:active_account_ids AS TEXT[])) AND NOT EXISTS (
+                    SELECT 1 FROM public.account_deletion_tombstones retired_owner
+                    WHERE retired_owner.user_id_hash = 'sha256:' || encode(
+                      digest(BTRIM(circle.owner_user_id), 'sha256'), 'hex')
+                  )
                 ), candidates AS (
                   SELECT DISTINCT
                     connection.id AS connection_id,
@@ -3290,7 +3470,8 @@ class OneLocationCircleService:
                     ON identity.user_id = CASE WHEN connection.user_a_id = :actor_user_id
                                                THEN connection.user_b_id
                                                ELSE connection.user_a_id END
-                  WHERE NOT EXISTS (
+                  WHERE identity.user_id = ANY(CAST(:active_account_ids AS TEXT[]))
+                    AND NOT EXISTS (
                     SELECT 1 FROM one_location_circle_memberships membership
                     WHERE membership.circle_id = circle.id
                       AND membership.user_id = CASE WHEN connection.user_a_id = :actor_user_id
@@ -3372,6 +3553,7 @@ class OneLocationCircleService:
                 """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
+                    "active_account_ids": active_account_ids,
                     "actor_user_id": actor_user_id,
                     "query": normalized_query,
                     **query_match,
@@ -3675,13 +3857,15 @@ class OneLocationCircleService:
                 "You are already in this Circle.",
                 status_code=422,
             )
+        if _connection is None:
+            self._assert_circle_accounts_active([actor_user_id, *cleaned_invitee_user_ids])
         added_user_ids: list[str] = []
         circle_name = ""
         try:
             with (
                 nullcontext(_connection) if _connection is not None else self._db.engine.begin()
             ) as conn:
-                if signup_insert_only:
+                if _connection is None or signup_insert_only:
                     # Existing Circle writers use shared deletion barriers.
                     # An exclusive graph gate here would invert their profile
                     # locks against membership INSERT's shared trigger guards.
@@ -3812,9 +3996,10 @@ class OneLocationCircleService:
                         WHERE circle_id = CAST(:circle_id AS UUID)
                           AND status = 'pending'
                           AND expires_at <= NOW()
+                          AND invitee_user_id = ANY(CAST(:invitee_user_ids AS TEXT[]))
                         """
                     ),
-                    {"circle_id": cleaned_circle_id},
+                    {"circle_id": cleaned_circle_id, "invitee_user_ids": cleaned_invitee_user_ids},
                 )
                 target_membership_rows = _all(
                     conn.execute(
@@ -4574,10 +4759,16 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("plan_direct_connection_adds", exc) from exc
 
+        candidate_ids = [str(row["user_id"]) for row in connection_rows if row.get("user_id")]
+        active_ids = active_directory_user_ids(candidate_ids, use_cache=False)
+        active_ids = exclude_retired_account_ids(
+            sorted(active_ids),
+            lambda sql, params: self._db.execute_raw(sql, params).data or [],
+        )
         connections: list[dict[str, Any]] = []
         for row in connection_rows:
             user_id = str(row.get("user_id") or "")
-            if not user_id:
+            if not user_id or user_id not in active_ids:
                 continue
             if str(row.get("membership_status") or "") == "active":
                 status = "member"
@@ -4646,12 +4837,17 @@ class OneLocationCircleService:
                 f"Choose between 1 and {CIRCLE_DEFAULT_MEMBER_LIMIT} connections to add.",
                 status_code=422,
             )
+        self._assert_circle_accounts_active([actor_user_id, *ids])
         added_user_ids: list[str] = []
         skipped_reasons: dict[str, str] = {}
         circle_name = ""
         membership_batch_id = str(uuid.uuid4())
         try:
             with self._db.engine.begin() as conn:
+                AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                    conn,
+                    user_ids=(actor_user_id, *ids),
+                )
                 for start in range(0, len(ids), CIRCLE_MEMBER_ADD_CHUNK):
                     chunk = ids[start : start + CIRCLE_MEMBER_ADD_CHUNK]
                     try:

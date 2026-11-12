@@ -30,6 +30,7 @@ from sqlalchemy.engine import Connection
 from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
@@ -219,6 +220,178 @@ def _requested(conn: Connection, requester: str, addressee: str, status: str = "
         ),
         {"requester": requester, "addressee": addressee, "status": status},
     )
+
+
+@pytest.mark.parametrize("retirement", ["provider", "local", "during_lookup"])
+def test_location_and_circle_reads_remove_retired_accounts_before_paging(
+    connection, monkeypatch, retirement
+):
+    connection.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"))
+    connection.execute(
+        text("SELECT set_config('search_path', current_schema() || ',public', true)")
+    )
+    connection.execute(
+        text("""
+        ALTER TABLE connections ADD COLUMN id TEXT DEFAULT gen_random_uuid()::text;
+        ALTER TABLE connections ADD COLUMN created_at TIMESTAMPTZ DEFAULT now();
+        CREATE TABLE connection_origins (connection_id TEXT, status TEXT, origin_kind TEXT, source_ref TEXT);
+        CREATE TABLE account_deletion_tombstones (user_id_hash TEXT PRIMARY KEY);
+        CREATE TABLE one_location_sms_contacts (owner_user_id TEXT, contact_user_id TEXT);
+        CREATE TABLE one_location_circles (
+          id UUID PRIMARY KEY, owner_user_id TEXT, name TEXT, kind TEXT DEFAULT 'friends',
+          status TEXT DEFAULT 'active', system_kind TEXT, is_system BOOLEAN DEFAULT FALSE,
+          photo_url TEXT, metadata JSONB DEFAULT '{}', member_limit INT DEFAULT 100,
+          created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now()
+        );
+        CREATE TABLE one_location_circle_memberships (
+          circle_id UUID, user_id TEXT, status TEXT DEFAULT 'active', role TEXT DEFAULT 'member',
+          joined_at TIMESTAMPTZ DEFAULT now(), metadata JSONB DEFAULT '{}'
+        );
+        CREATE TABLE one_location_circle_invite_codes (
+          id UUID, circle_id UUID, code_hash TEXT, status TEXT, expires_at TIMESTAMPTZ,
+          metadata JSONB, created_at TIMESTAMPTZ
+        );
+        CREATE TABLE one_location_circle_member_invites (
+          circle_id UUID, invitee_user_id TEXT, status TEXT, expires_at TIMESTAMPTZ
+        );
+    """)
+    )
+    circle_id, invite_circle_id = str(uuid4()), str(uuid4())
+    for uid, name in [
+        (OWNER, "Owner"),
+        ("retired", "A Retired"),
+        ("active", "Z Active"),
+        ("circle-only", "Y Circle Only"),
+    ]:
+        _person(connection, uid, name)
+    for uid in ("retired", "active"):
+        _connected(connection, uid)
+    connection.execute(
+        text(
+            "INSERT INTO connection_origins SELECT id, 'active', 'direct_request', NULL FROM connections"
+        )
+    )
+    connection.execute(
+        text(
+            "INSERT INTO one_location_sms_contacts VALUES (:owner, 'retired'), (:owner, 'active')"
+        ),
+        {"owner": OWNER},
+    )
+    for cid in (circle_id, invite_circle_id):
+        connection.execute(
+            text(
+                "INSERT INTO one_location_circles (id, owner_user_id, name) VALUES (CAST(:id AS UUID), :owner, 'Friends')"
+            ),
+            {"id": cid, "owner": OWNER},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships (circle_id,user_id,role) VALUES (CAST(:id AS UUID),:owner,'owner')"
+            ),
+            {"id": cid, "owner": OWNER},
+        )
+    for uid in ("retired", "active", "circle-only"):
+        connection.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships (circle_id,user_id) VALUES (CAST(:id AS UUID),:uid)"
+            ),
+            {"id": circle_id, "uid": uid},
+        )
+
+    def execute_many(sql, params):
+        # The disposable schema owns this test's tombstone table.
+        sql = sql.replace("public.account_deletion_tombstones", "account_deletion_tombstones")
+        return [dict(row) for row in connection.execute(text(sql), params).mappings()]
+
+    service = OneLocationAgentService()
+    monkeypatch.setattr(service, "_execute_many", execute_many)
+    monkeypatch.setattr(service, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
+    enabled = {OWNER, "retired", "active", "circle-only"}
+    retire_during_lookup = False
+
+    def active_accounts(ids, **_):
+        nonlocal retire_during_lookup
+        if retire_during_lookup and "retired" in ids:
+            retire_during_lookup = False
+            mark_retired()
+        return set(ids) & enabled
+
+    def mark_retired():
+        connection.execute(
+            text("INSERT INTO account_deletion_tombstones VALUES (:hash) ON CONFLICT DO NOTHING"),
+            {"hash": account_deletion_user_hash("retired")},
+        )
+
+    monkeypatch.setattr(service, "_active_directory_user_ids", active_accounts)
+    monkeypatch.setattr(
+        "hushh_mcp.services.one_location_circle_service.active_directory_user_ids", active_accounts
+    )
+    circle = OneLocationCircleService(
+        db=SimpleNamespace(
+            execute_raw=lambda sql, params=None: SimpleNamespace(
+                data=execute_many(sql, params or {})
+            ),
+        )
+    )
+    # Negative controls prove these exact statements previously admitted the account.
+    assert (
+        service.list_verified_recipients_page(owner_user_id=OWNER, limit=1)["items"][0]["userId"]
+        == "retired"
+    )
+    assert circle.get_circle(user_id=OWNER, circle_id=circle_id)["memberCount"] == 4
+    if retirement == "provider":
+        enabled.remove("retired")
+    elif retirement == "local":
+        mark_retired()
+    else:
+        retire_during_lookup = True
+    result = service.list_verified_recipients_page(owner_user_id=OWNER, limit=1)
+    assert result["items"][0]["userId"] == "circle-only"
+    assert result["totalCount"] == 2 and result["hasMore"]
+    assert service.list_sms_contact_ids(owner_user_id=OWNER) == ["active"]
+    assert {row["userId"] for row in service.list_verified_recipients(owner_user_id=OWNER)} == {
+        "active",
+        "circle-only",
+    }
+    detail = circle.get_circle(user_id=OWNER, circle_id=circle_id)
+    assert {row["userId"] for row in detail["members"]} == {OWNER, "active", "circle-only"}
+    assert detail["memberCount"] == 3
+    assert circle.get_circle_overview(user_id=OWNER, circle_id=circle_id)["memberCount"] == 3
+    assert (
+        next(row for row in circle.list_circles(user_id=OWNER) if row["id"] == circle_id)[
+            "memberCount"
+        ]
+        == 3
+    )
+    page = circle.list_circle_members_page(user_id=OWNER, circle_id=circle_id, page=1, limit=2)
+    assert page["totalCount"] == 3 and page["hasMore"]
+    assert "retired" not in {row["userId"] for row in page["items"]}
+    assert [
+        row["userId"]
+        for row in circle.list_eligible_direct_connections(
+            actor_user_id=OWNER, circle_id=invite_circle_id
+        )
+    ] == ["active"]
+    page = circle.list_eligible_direct_connections_page(
+        actor_user_id=OWNER, circle_id=invite_circle_id, limit=1
+    )
+    assert page["totalCount"] == 1 and not page["hasMore"]
+    assert page["items"][0]["userId"] == "active"
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
+
+    with pytest.raises(OneLocationAgentError) as failure:
+        service._assert_location_accounts_active(OWNER, "retired")
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+
+    circle._assert_circle_accounts_active([OWNER, "active"])
+    for method, key in [
+        (circle.create_member_invites, "invitee_user_ids"),
+        (circle.add_direct_connections, "user_ids"),
+    ]:
+        with pytest.raises(OneLocationCircleError) as failure:
+            method(actor_user_id=OWNER, circle_id=circle_id, **{key: ["retired"]})
+        assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
 
 
 @pytest.mark.asyncio

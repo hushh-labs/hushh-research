@@ -3019,6 +3019,8 @@ export function OneLocationAgentPageContent({
     useState<OneLocationFocusTarget | null>(null);
   const refreshInFlightRef = useRef<Promise<boolean | undefined> | null>(null);
   const connectionGraphRefreshRevisionRef = useRef(0);
+  const confirmedAudienceRevisionRef = useRef(0);
+  const recipientAuthorityRequestRef = useRef(0);
   const oneLocationStateRefreshRevisionRef = useRef(0);
   const foregroundReconcileInFlightRef = useRef<Promise<void> | null>(null);
   const foregroundReconcileQueuedRef = useRef(false);
@@ -3174,33 +3176,75 @@ export function OneLocationAgentPageContent({
   const reloadRecipientAuthority = useCallback(async (
     expectedRevision: number,
   ): Promise<void> => {
-    if (!vaultOwnerToken) {
-      if (connectionGraphRefreshRevisionRef.current === expectedRevision) {
-        setPagedRecipientsByUserId(new Map());
-      }
-      return;
-    }
+    const owner = auth.userId;
+    const ownerGeneration = shareComposerGenerationRef.current;
+    const requestId = ++recipientAuthorityRequestRef.current;
+    const isCurrent = () => Boolean(owner) && owner === shareAudienceOwnerUserIdRef.current &&
+      requestId === recipientAuthorityRequestRef.current &&
+      ownerGeneration === shareComposerGenerationRef.current &&
+      connectionGraphRefreshRevisionRef.current === expectedRevision;
+    if (!vaultOwnerToken || !owner) return;
     const latest = await readAllCommandPeople((page) =>
-      OneLocationService.listRecipientsPage({
-        vaultOwnerToken,
-        page,
-        limit: 100,
-      }),
+      OneLocationService.listRecipientsPage({ vaultOwnerToken, page, limit: 100 }),
     );
-    if (connectionGraphRefreshRevisionRef.current !== expectedRevision) return;
-    setPagedRecipientsByUserId(
-      new Map(latest.map((recipient) => [recipient.userId, recipient])),
-    );
-    // Only the complete directory can remove retained selections. A missing
-    // person on a bounded/search page is not evidence of a deleted connection.
-    const availableIds = new Set(latest.map((recipient) => recipient.userId));
-    const retainAvailable = (current: string[]) =>
-      connectionGraphRefreshRevisionRef.current === expectedRevision
-        ? current.filter((userId) => availableIds.has(userId))
-        : current;
+    if (!isCurrent()) return;
+    confirmedAudienceRevisionRef.current += 1;
+    // A complete, successful scan is authority for removal. Search/bounded
+    // pages and failed scans must never discard an existing audience.
+    const latestById = new Map(latest.map((recipient) => [recipient.userId, recipient]));
+    const availableIds = new Set(latestById.keys());
+    recipientPageRequestRef.current += 1;
+    shareRecipientPageRequestRef.current += 1;
+    setRecipientPageLoading(false);
+    setPagedRecipientsByUserId((current) => isCurrent() ? latestById : current);
+    const reconcileRows = (current: OneLocationRecipient[] | null) => isCurrent()
+      ? current?.flatMap((row) => latestById.has(row.userId) ? [latestById.get(row.userId)!] : []) ?? null
+      : current;
+    setRecipientPageRows(reconcileRows);
+    setShareRecipientPageRows(reconcileRows);
+    const retainAvailable = (current: string[]) => isCurrent()
+      ? current.filter((userId) => availableIds.has(userId)) : current;
     setSelectedRecipientIds(retainAvailable);
     setSelectedRequestOwnerIds(retainAvailable);
-  }, [setSelectedRecipientIds, vaultOwnerToken]);
+    setSelectedRecipientId((current) => isCurrent() && !availableIds.has(current) ? "" : current);
+    setSelectedRequestOwnerId((current) => isCurrent() && !availableIds.has(current) ? "" : current);
+    setSelectedShareCircleSelections((current) => !isCurrent() ? current : current.map((selection) => ({
+      ...selection,
+      circle: { ...selection.circle, members: selection.circle.members.filter(
+        (member) => member.userId === owner || availableIds.has(member.userId),
+      ) },
+      ready: selection.ready.flatMap((target) => {
+        const recipient = latestById.get(target.recipient.userId);
+        return recipient?.canReceiveLocation && recipient.keyId && recipient.publicKeyJwk
+          ? [{ ...target, recipient: { ...recipient, keyId: recipient.keyId, publicKeyJwk: recipient.publicKeyJwk } }]
+          : [];
+      }),
+      excluded: [
+        ...selection.excluded.filter(({ member }) => member.userId === owner || availableIds.has(member.userId)),
+        ...selection.ready.flatMap((target) => {
+          const recipient = latestById.get(target.recipient.userId);
+          const member = selection.circle.members.find((row) => row.userId === target.recipient.userId);
+          return recipient && member && (!recipient.canReceiveLocation || !recipient.keyId || !recipient.publicKeyJwk)
+            ? [{ member, reason: "location_setup_needed" as const, label: "Location setup is not complete" }]
+            : [];
+        }),
+      ],
+    })));
+    setNamedCircleShareContext((current) => {
+      if (!current || !isCurrent()) return current;
+      const recipientUserIds = current.recipientUserIds.filter((id) => availableIds.has(id));
+      return recipientUserIds.length ? { ...current, recipientUserIds,
+        recipients: recipientUserIds.map((id) => latestById.get(id)!),
+      } : null;
+    });
+    const current = OneLocationStateResource.readPresentation(owner);
+    if (current && isCurrent()) {
+      OneLocationStateResource.invalidate(owner);
+      OneLocationStateResource.write(owner, { ...current, recipients: latest });
+    }
+    setStateEntry((entry) => entry?.userId === owner && isCurrent()
+      ? { ...entry, state: { ...entry.state, recipients: latest } } : entry);
+  }, [auth.userId, setSelectedRecipientIds, setSelectedShareCircleSelections, vaultOwnerToken]);
 
   useEffect(() => {
     if (!vaultOwnerToken) {
@@ -8831,6 +8875,8 @@ export function OneLocationAgentPageContent({
       // requests before React has rendered the disabled row.
       if (pendingShareCircleIdsRef.current.has(circleId)) return;
 
+      const requestRevision = connectionGraphRefreshRevisionRef.current;
+      const audienceRevision = confirmedAudienceRevisionRef.current;
       const requestGeneration = shareComposerGenerationRef.current;
       const requestOwnerUserId = auth.userId;
       pendingShareCircleIdsRef.current.add(circleId);
@@ -8843,6 +8889,8 @@ export function OneLocationAgentPageContent({
           "location",
         );
         if (
+          requestRevision !== connectionGraphRefreshRevisionRef.current ||
+          audienceRevision !== confirmedAudienceRevisionRef.current ||
           requestGeneration !== shareComposerGenerationRef.current ||
           requestOwnerUserId !== shareAudienceOwnerUserIdRef.current
         ) {
@@ -8863,6 +8911,8 @@ export function OneLocationAgentPageContent({
         setShareReviewOpen(false);
       } catch (error) {
         if (
+          requestRevision !== connectionGraphRefreshRevisionRef.current ||
+          audienceRevision !== confirmedAudienceRevisionRef.current ||
           requestGeneration !== shareComposerGenerationRef.current ||
           requestOwnerUserId !== shareAudienceOwnerUserIdRef.current
         ) {
@@ -9614,12 +9664,21 @@ export function OneLocationAgentPageContent({
 
   const prepareNamedCircleShare = useCallback(
     async (circleId: string, recipientUserId: string): Promise<boolean> => {
+      const owner = auth.userId;
+      const revision = connectionGraphRefreshRevisionRef.current;
+      const generation = shareComposerGenerationRef.current;
+      const audienceRevision = confirmedAudienceRevisionRef.current;
+      const isCurrent = () => owner === shareAudienceOwnerUserIdRef.current &&
+        revision === connectionGraphRefreshRevisionRef.current &&
+        audienceRevision === confirmedAudienceRevisionRef.current &&
+        generation === shareComposerGenerationRef.current;
       setBusy("shareCircle");
       try {
         const selection = await handleResolveNamedCircleRecipients(
           circleId,
           "location",
         );
+        if (!isCurrent()) return false;
         const target = selection.ready.find(
           ({ recipient }) => recipient.userId === recipientUserId,
         );
@@ -9641,6 +9700,7 @@ export function OneLocationAgentPageContent({
         setShareMessage("");
         return true;
       } catch (error) {
+        if (!isCurrent()) return false;
         toast.error(
           oneLocationErrorMessage(
             error,
@@ -9649,10 +9709,10 @@ export function OneLocationAgentPageContent({
         );
         return false;
       } finally {
-        setBusy(null);
+        if (generation === shareComposerGenerationRef.current) setBusy(null);
       }
     },
-    [handleResolveNamedCircleRecipients, setSelectedRecipientIds],
+    [auth.userId, handleResolveNamedCircleRecipients, setSelectedRecipientIds],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {

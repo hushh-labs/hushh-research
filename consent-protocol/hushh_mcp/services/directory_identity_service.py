@@ -6,7 +6,8 @@ import logging
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from firebase_admin import auth
 
@@ -34,6 +35,31 @@ class DirectoryIdentityUnavailableError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__(self.message)
+
+
+def exclude_retired_account_ids(
+    user_ids: Sequence[str],
+    execute_many: Callable[[str, dict[str, Any]], list[dict[str, Any]]],
+) -> set[str]:
+    """Recheck local erasure after a provider lookup, including legacy owners."""
+    candidate_set = set(user_ids)
+    candidates = sorted(candidate_set)
+    if not candidates:
+        return set()
+    rows = execute_many(
+        """
+        SELECT candidate.user_id
+        FROM unnest(CAST(:account_user_ids AS TEXT[])) AS candidate(user_id)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM public.account_deletion_tombstones tombstone
+          WHERE tombstone.user_id_hash = 'sha256:' || encode(
+            digest(BTRIM(candidate.user_id), 'sha256'), 'hex'
+          )
+        )
+        """,
+        {"account_user_ids": candidates},
+    )
+    return {str(row["user_id"]) for row in rows if row.get("user_id") in candidate_set}
 
 
 def active_directory_user_ids(

@@ -23,6 +23,24 @@ from hushh_mcp.services.push_notifications import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _active_accounts_for_circle_sql_doubles(monkeypatch):
+    # DB doubles return preselected rows; provider and tombstone admission are
+    # integration-tested against the real roster statements separately.
+    monkeypatch.setattr(
+        OneLocationCircleService, "_live_circle_account_ids", lambda self, uid, **kwargs: []
+    )
+    monkeypatch.setattr(
+        OneLocationCircleService, "_assert_circle_accounts_active", lambda self, ids: None
+    )
+    monkeypatch.setattr(
+        circle_service_module, "active_directory_user_ids", lambda ids, **kwargs: set(ids)
+    )
+    monkeypatch.setattr(
+        circle_service_module, "exclude_retired_account_ids", lambda ids, execute: set(ids)
+    )
+
+
 def test_custom_circle_type_normalization_and_bounds() -> None:
     clean = circle_service_module._clean_custom_type_label
     assert clean("  Ｆｉｎａｎｃｅ  team  ", "other") == "Finance team"
@@ -402,6 +420,8 @@ class _CapacityConnection:
 
     def execute(self, statement, params):
         sql = str(statement)
+        if "pg_advisory_xact_lock_shared" in sql:
+            return _Rows()
         self.sql.append(sql)
         self.params.append(dict(params))
         if "current_setting('hushh.circle_member_add_batch_id'" in sql:
