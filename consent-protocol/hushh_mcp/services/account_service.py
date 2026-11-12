@@ -67,6 +67,7 @@ from hushh_mcp.services.account_recovery_erasure import recovery_erasure_queries
 from hushh_mcp.services.connection_graph_service import (
     list_connection_graph_viewer_ids,
     lock_connection_graph_users,
+    publish_connection_graph_events,
 )
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
@@ -2344,6 +2345,7 @@ class AccountService:
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
         backend_cleanup = None
         graph_viewer_ids: set[str] = set()
+        graph_hint_committed = False
         try:
             with get_db_connection() as conn:
                 # Apply before acquiring any lifecycle/domain lock. A blocked
@@ -2757,6 +2759,15 @@ class AccountService:
 
                     cloud_cleanup = summary_in_transaction(conn, user_id)
 
+                if graph_viewer_ids:
+                    try:
+                        with conn.begin_nested():
+                            publish_connection_graph_events(conn, graph_viewer_ids)
+                    except Exception:  # noqa: BLE001 - preserve erasure if the hint fails
+                        logger.warning("account.graph_commit_hint_failed", exc_info=True)
+                    else:
+                        graph_hint_committed = True
+
             logger.info("✅ FULL ACCOUNT DELETION completed for %s", user_id)
         except PersonalAgentDeprovisioningRequiredError:
             logger.warning(
@@ -2795,7 +2806,9 @@ class AccountService:
             try:
                 from hushh_mcp.services.connections_service import _notify_connection_graph_changed
 
-                _notify_connection_graph_changed(user_ids=graph_viewer_ids)
+                _notify_connection_graph_changed(
+                    user_ids=graph_viewer_ids, publish_live=not graph_hint_committed
+                )
             except Exception:  # a failed doorbell cannot undo committed erasure
                 logger.warning("account.graph_sync_failed", exc_info=True)
         return {

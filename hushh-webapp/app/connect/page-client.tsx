@@ -138,6 +138,7 @@ import {
 } from "@/lib/services/cache-service";
 import { Skeleton } from "@/components/ui/skeleton";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
@@ -728,6 +729,7 @@ export default function ConnectPageClient() {
         )
       : null,
   );
+  const verifiedConnectionsFirstPage = useRef(initialFirstPage);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>(
     () => initialFirstPage?.items ?? [],
   );
@@ -757,6 +759,7 @@ export default function ConnectPageClient() {
   const connectionsFirstPageRequestRef = useRef<number | null>(null);
   const connectionReconcileInFlightRef = useRef<Promise<void> | null>(null);
   const connectionReconcileQueuedRef = useRef(false);
+  const connectionVerificationQueuedRef = useRef(false);
   const directoryReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const suppressNextLocalGraphEventRef = useRef(false);
@@ -912,6 +915,7 @@ export default function ConnectPageClient() {
       page: number,
       audience: ConnectionAudience,
       query = "",
+      accountCheck?: "observe" | "reconcile",
     ): Promise<ConnectionPage | null> => {
       if (!user) return null;
       try {
@@ -922,6 +926,7 @@ export default function ConnectPageClient() {
           limit: CONNECTION_PAGE_SIZE,
           query,
           audience,
+          ...(accountCheck ? { accountCheck } : {}),
         });
       } catch {
         // Non-fatal: the directory below remains available.
@@ -956,19 +961,26 @@ export default function ConnectPageClient() {
       audience,
       clearBeforeLoad = false,
       removedConnection = false,
+      background = false,
+      accountCheck = background ? "observe" : undefined,
     }: {
       audience: ConnectionAudience;
       clearBeforeLoad?: boolean;
       removedConnection?: boolean;
+      background?: boolean;
+      accountCheck?: "observe" | "reconcile";
     }) => {
-      const requestId = ++connectionsRequestRef.current;
-      connectionsFirstPageRequestRef.current = requestId;
-      // A first-page refresh supersedes every append in flight. Clear its
-      // affordance synchronously so a page-2 response cannot leave the screen
-      // saying "Loading…" while this new generation owns the list.
-      setConnectionsLoadingMore(false);
-      setConnectionsRefreshingFirstPage(true);
+      const requestId = background
+        ? connectionsRequestRef.current
+        : ++connectionsRequestRef.current;
+      if (!background) {
+        connectionsFirstPageRequestRef.current = requestId;
+        // A first-page refresh supersedes any append already in flight.
+        setConnectionsLoadingMore(false);
+        setConnectionsRefreshingFirstPage(true);
+      }
       if (clearBeforeLoad) {
+        verifiedConnectionsFirstPage.current = null;
         setConnections([]);
         setConnectionsTotalCount(0);
         setConnectionsPage(1);
@@ -980,10 +992,21 @@ export default function ConnectPageClient() {
         : null;
 
       try {
-        const result = await loadConnectionsPage(1, audience);
+        const result = await loadConnectionsPage(1, audience, "", accountCheck);
         if (requestId !== connectionsRequestRef.current) return false;
+        if (background) {
+          if (!result) return false;
+          if (JSON.stringify(result) === JSON.stringify(verifiedConnectionsFirstPage.current)) {
+            setConnectionsRefreshError(false);
+            return true;
+          }
+          ++connectionsRequestRef.current;
+          setConnectionsLoadingMore(false);
+          setDirectoryRefreshNonce((nonce) => nonce + 1);
+        }
 
         if (result) {
+          verifiedConnectionsFirstPage.current = result;
           setConnectionsRefreshError(false);
           setConnections(result.items);
           setConnectionsPage(result.page);
@@ -993,6 +1016,7 @@ export default function ConnectPageClient() {
             CacheService.getInstance().set(cacheKey, result, CACHE_TTL.MEDIUM);
           }
         } else if (removedConnection) {
+          verifiedConnectionsFirstPage.current = null;
           // The cached page still holds the removed row.
           if (cacheKey) CacheService.getInstance().invalidate(cacheKey);
           // Do not keep a page-2 cursor over a shifted server list: the next
@@ -1010,7 +1034,7 @@ export default function ConnectPageClient() {
         }
         return true;
       } finally {
-        if (connectionsFirstPageRequestRef.current === requestId) {
+        if (!background && connectionsFirstPageRequestRef.current === requestId) {
           connectionsFirstPageRequestRef.current = null;
           setConnectionsRefreshingFirstPage(false);
           // Answered, even if the answer was an error: the retry row shows.
@@ -1025,11 +1049,14 @@ export default function ConnectPageClient() {
     ({
       ensureAfterCurrent = false,
       refreshDirectory = true,
+      verifyAccounts = false,
     }: {
       ensureAfterCurrent?: boolean;
       refreshDirectory?: boolean;
+      verifyAccounts?: boolean;
     } = {}) => {
       if (!user) return Promise.resolve();
+      if (verifyAccounts) connectionVerificationQueuedRef.current = true;
       if (refreshDirectory) directoryReconcileQueuedRef.current = true;
       const active = connectionReconcileInFlightRef.current;
       if (active) {
@@ -1040,9 +1067,12 @@ export default function ConnectPageClient() {
       const run = async () => {
         do {
           connectionReconcileQueuedRef.current = false;
+          const verifyAccounts = connectionVerificationQueuedRef.current;
+          connectionVerificationQueuedRef.current = false;
           await Promise.allSettled([
             refreshConnectionsFirstPage({
               audience: connectionAudienceRef.current,
+              accountCheck: verifyAccounts ? "reconcile" : undefined,
             }),
             loadOutgoingRequestIds(),
           ]);
@@ -1062,6 +1092,19 @@ export default function ConnectPageClient() {
       return task;
     },
     [loadOutgoingRequestIds, refreshConnectionsFirstPage, user],
+  );
+
+  // Provider-only changes have no app deletion transaction. Reconcile an
+  // open Connect tab even when a live event was missed or has not been emitted.
+  usePeriodicTask(
+    `connect-account-availability:${userId ?? ""}`,
+    30_000,
+    async () => {
+      if (isNative() && appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+      if (connectionsLoadingMore || connectionsFirstPageRequestRef.current !== null) return;
+      await refreshConnectionsFirstPage({ audience: connectionAudience, background: true });
+    },
+    { enabled: Boolean(userId && surface === "all" && !mutualPersonRef) },
   );
 
   // The same contact sync the One Location agent offers, on the screen whose
@@ -1158,7 +1201,10 @@ export default function ConnectPageClient() {
         suppressNextLocalGraphEventRef.current = false;
         return;
       }
-      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+      // A prior read can still be in flight against a worker with a warm
+      // account-status cache. Reject it and recheck provider authority.
+      ++connectionsRequestRef.current;
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true, verifyAccounts: true });
     });
     const directoryIsDueForPassiveRefresh = () =>
       Date.now() - lastDirectoryReadAtRef.current >=

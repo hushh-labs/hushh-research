@@ -4402,9 +4402,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
             users=[
                 SimpleNamespace(uid="disabled", disabled=True),
                 SimpleNamespace(uid="enabled", disabled=False),
-            ]
+            ],
+            not_found={entry for entry in identifiers if entry.uid == "missing"},
         )
 
+    notifications = []
+    monkeypatch.setattr(
+        directory, "publish_connection_account_visibility_changes", notifications.append
+    )
     monkeypatch.setattr(directory.auth, "get_users", get_users)
 
     assert directory.active_directory_user_ids(["missing", "enabled", "disabled", "x" * 129]) == {
@@ -4415,9 +4420,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
     assert all(isinstance(entry[1], bool) for entry in directory._STATUS_CACHE.values())
     assert directory.active_directory_user_ids(["enabled", "disabled"]) == {"enabled"}
     assert len(calls) == 1
+    assert notifications == [{"missing", "disabled"}]
+    assert directory.active_directory_user_ids(["enabled", "disabled"], use_cache=False) == {
+        "enabled"
+    }
+    assert notifications == [{"missing", "disabled"}]
     app.project_id = "production"
     assert directory.active_directory_user_ids(["enabled"]) == {"enabled"}
-    assert len(calls) == 2
+    assert len(calls) == 3
     clock[0] = 61.0
     monkeypatch.setattr(
         directory.auth,
@@ -4427,6 +4437,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
 
     with pytest.raises(DirectoryIdentityUnavailableError):
         directory.active_directory_user_ids(["enabled"])
+    assert notifications == [{"missing", "disabled"}]
+
+    monkeypatch.setattr(directory.auth, "get_users", get_users)
+    assert (
+        directory.active_directory_user_ids(["missing"], use_cache=False, notify_connections=False)
+        == set()
+    )
+    assert notifications == [{"missing", "disabled"}]
 
 
 def test_directory_replacement_owner_projection_never_uses_external_uid_as_application_key(
@@ -4458,7 +4476,7 @@ def test_directory_replacement_owner_projection_never_uses_external_uid_as_appli
 
     def lookup(identifiers, **kwargs):
         calls.append([entry.uid for entry in identifiers])
-        return SimpleNamespace(users=[record])
+        return SimpleNamespace(users=[record], not_found=set())
 
     monkeypatch.setattr(directory.auth, "get_users", lookup)
     assert directory.active_directory_user_ids([owner, retired]) == {owner}
