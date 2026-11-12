@@ -47,7 +47,14 @@ async def _close_client(client: Any) -> None:
 async def close_owned_adk_model(model: Any) -> None:
     from google.adk.models import Gemini
 
-    # api_client is the pinned SDK's cached_property. Do not instantiate an
-    # unused client during teardown, or reach into a shared model's cache.
-    if isinstance(model, Gemini) and "api_client" in model.__dict__:
-        await close_owned_model_client(model.__dict__.pop("api_client"))
+    if not isinstance(model, Gemini):
+        return
+    # Read only existing storage: evaluating api_client would open an unused
+    # client. ADK 2.14's pinned descriptor caches by event loop and provides no
+    # eviction API. Remove only this invocation's loop, never another loop.
+    client = model.__dict__.pop("api_client", None)
+    if client is None and (cache := model.__dict__.get("_per_loop_api_client")) is not None:
+        with cache._lock:
+            client = cache._values.pop(asyncio.get_running_loop(), None)
+    if client is not None:
+        await close_owned_model_client(client)
