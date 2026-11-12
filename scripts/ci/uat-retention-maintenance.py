@@ -29,6 +29,7 @@ import production_phone_receipt
 import production_phone_lease
 import production_phone_nonproducer
 import production_retention_context
+import retention_admission
 import retention_pass_diagnostics as pass_diagnostics
 
 retention = importlib.import_module("cloudrun-retention")
@@ -1546,7 +1547,17 @@ def production_maintenance_due(repository: str, directory: Path) -> bool:
     return maintenance_due(repository, directory, environment="production")
 
 
-def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
+class DriveWorkerCleanupDeferred(Exception):
+    """The accepted worker is serving while a newer worker candidate failed."""
+
+
+def live_release_matches(
+    release: dict,
+    *,
+    environment: str = "uat",
+    worker_release_run_id: int | None = None,
+    cleanup_worker: bool = False,
+) -> bool:
     if environment == "production" and "_maintenance_backend_identity" in release:
         production_retention_context.backend_identity(sys.modules[__name__], release["_maintenance_backend_identity"])
     if environment == "production" and "_maintenance_pending_retirement" in release:
@@ -1638,17 +1649,22 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
                 )
             ):
                 return False
-    state = retention.service_state("consent-protocol-drive-worker", project, REGION)
-    if not any(
+    state = retention.service_state(retention_admission.UAT_DRIVE_WORKER, project, REGION)
+    traffic = retention.traffic_state(state)
+    serving = [name for name, percent, _ in traffic if percent]
+    if len(serving) != 1:
+        raise retention.UnsafeState("Drive worker serving state is ambiguous")
+    if any(
         c.get("type") == "Ready" and c.get("status") == "True"
         for c in state.get("status", {}).get("conditions", [])
     ):
-        raise retention.UnsafeState("Drive worker is not ready")
-    if (
-        len([name for name, percent, _ in retention.traffic_state(state) if percent])
-        != 1
+        return True
+    if not retention_admission.accepted_worker_with_failed_candidate(
+        retention, state, traffic, serving[0], release, worker_release_run_id
     ):
-        raise retention.UnsafeState("Drive worker serving state is ambiguous")
+        raise retention.UnsafeState("Drive worker is not ready")
+    if cleanup_worker:
+        raise DriveWorkerCleanupDeferred("Drive worker cleanup waits for service readiness")
     return True
 
 
@@ -1892,6 +1908,7 @@ def maintenance_pass() -> int:
         return 0
     run_id, release = found
     observation, service_settings, pending = args.preflight
+    worker_run_id = retention_admission.uat_worker_release_run_id(args, run_id)
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"
@@ -1931,7 +1948,12 @@ def maintenance_pass() -> int:
         try:
             # The workflow holds the environment's deployment lock for this short pass.
             # Recheck the release before each service as defense against external changes.
-            if not live_release_matches(release, environment=args.environment):
+            if not live_release_matches(
+                release,
+                environment=args.environment,
+                worker_release_run_id=worker_run_id,
+                cleanup_worker=service == retention_admission.UAT_DRIVE_WORKER,
+            ):
                 raise retention.UnsafeState("live release changed during maintenance")
             flags = []
             lane = {"consent-protocol": "backend", "hushh-webapp": "frontend"}.get(
@@ -1970,6 +1992,9 @@ def maintenance_pass() -> int:
                     lane_config["project"],
                 ],
             )
+        except DriveWorkerCleanupDeferred as exc:
+            print(str(exc))
+            continue
         except (retention.BudgetExpired, retention.MutationUncertain) as exc:
             if not args.apply:
                 raise
@@ -2029,8 +2054,8 @@ def maintenance_pass() -> int:
                 )
     if args.apply:
         pass_diagnostics.CURRENT_STAGE.set("completion_checkpoint")
-        checkpoint(args, run_id, observation, [], "complete")
-        record_uat_cleanup_outcome(args, "applied")
+        checkpoint(args, run_id, observation, pending, "deferred" if pending else "complete")
+        record_uat_cleanup_outcome(args, "deferred" if pending else "applied")
     elif os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write("cleanup_outcome=dry_run\n")

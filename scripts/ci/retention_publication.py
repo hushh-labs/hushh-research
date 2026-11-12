@@ -9,6 +9,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 import retention_preflight_evidence as evidence
+from retention_admission import uat_worker_release_run_id
 from retention_publication_source import read_source as _source
 
 WORKFLOW = ".github/workflows/capacity-maintenance.yml"
@@ -688,7 +689,11 @@ def preflight(owner, args, repository):
     publication = importlib.import_module("retention_publication")
     if not getattr(args, "_restored_checkpoint_ready", False):
         args.preflight = publication.begin(owner, args, repository, run_id)
-    if not owner.live_release_matches(release, environment=args.environment):
+    if not owner.live_release_matches(
+        release,
+        environment=args.environment,
+        worker_release_run_id=uat_worker_release_run_id(args, run_id),
+    ):
         print(
             f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
         )
