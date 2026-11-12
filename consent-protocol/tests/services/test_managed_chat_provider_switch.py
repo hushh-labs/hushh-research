@@ -248,7 +248,7 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 
     vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
     assert vertex.primary_provider == "vertex"
-    assert vertex.model == native.model == "gemini-4-carbon" and vertex.allow_fallback is False
+    assert vertex.model == native.model == "gemini-3.8-flash" and vertex.allow_fallback is False
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="provider_switch", user_id="synthetic", session_id="conversation"
