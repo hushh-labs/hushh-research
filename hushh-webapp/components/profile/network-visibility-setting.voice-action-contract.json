@@ -14,8 +14,8 @@
   "actions": [
     {
       "action_id": "profile.network_visibility.choose",
-      "label": "Share my connection list",
-      "meaning": "The owner explicitly chooses whether active direct connections may browse their connection list and shared edges may contribute anonymous extended-network degree labels. Private contacts and information grants are unaffected. Existing users start private.",
+      "label": "Extended network discovery",
+      "meaning": "The owner explicitly chooses whether their connections may contribute anonymous third-degree discovery. Accepted active direct connections can view their eligible connection list regardless of this setting. Private contact details and information grants are unaffected. Extended discovery starts off.",
       "aliases": [],
       "search_keywords": [
         "network",
@@ -43,7 +43,7 @@
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
-        "reason": "The owner chooses network sharing using the visible switch after reviewing the disclosure.",
+        "reason": "The owner chooses extended network discovery using the visible switch after reviewing the disclosure.",
         "intended_handler": "NetworkVisibilitySetting"
       },
       "control_ids": [
