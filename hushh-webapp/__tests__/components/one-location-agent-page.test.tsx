@@ -1811,6 +1811,111 @@ describe("OneLocationAgentPage", () => {
     }
   });
 
+  it.each(["complete", "outage", "overlap"])("reconciles retained Share recipients only after a complete directory read (%s)", async (mode) => {
+    const complete = mode !== "outage";
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const setInterval = window.setInterval.bind(window);
+    let repair: (() => void) | undefined;
+    const interval = vi.spyOn(window, "setInterval").mockImplementation((handler, delay, ...args) => {
+      if (delay === 60_000 && typeof handler === "function") { repair = handler as () => void; return 0; }
+      return setInterval(handler, delay, ...args);
+    });
+    try {
+      mockLocationSearchParams("action=share");
+      const initial = locationState();
+      mockGetState.mockResolvedValue(initial);
+      render(<OneLocationAgentPage />);
+      await act(async () => { await skipLocationEntryFlow({ expectMain: false }); });
+      const deleted = /Select Investor D for private sharing/i;
+      fireEvent.click(await screen.findByRole("button", { name: deleted }));
+      const latest = initial.recipients.filter((person) => person.userId !== "user_d");
+      let finishOldScan: ((value: { items: typeof latest; page: number; hasMore: boolean; totalCount: number }) => void) | undefined;
+      mockGetState.mockRejectedValue(new Error("workspace unavailable"));
+      mockListRecipientsPage.mockImplementation(async ({ limit }) => {
+        if (limit !== 100 || !complete) throw new Error("recipient page unavailable");
+        if (mode === "overlap" && !finishOldScan) {
+          return new Promise((resolve) => { finishOldScan = resolve; });
+        }
+        return { items: latest, page: 1, hasMore: false, totalCount: latest.length };
+      });
+      mockGetSmsContacts.mockClear();
+      if (mode === "overlap") {
+        act(() => dispatchConnectionGraphChanged("user_a"));
+        await waitFor(() => expect(finishOldScan).toBeTypeOf("function"));
+      }
+      await act(async () => { repair?.(); });
+      await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
+      if (mode === "overlap") {
+        await act(async () => { finishOldScan?.({ items: initial.recipients, page: 1, hasMore: false, totalCount: initial.recipients.length }); });
+      }
+      if (complete) {
+        await waitFor(() => expect(screen.queryByRole("button", { name: deleted })).toBeNull());
+        expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+      } else {
+        expect(screen.getByRole("button", { name: deleted })).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+      }
+      expect(screen.getByRole("button", { name: "View Trusted B\'s profile" })).toBeEnabled();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+    } finally { interval.mockRestore(); visibility.mockRestore(); }
+  });
+
+  it.each([false, true])("keeps an active Circle-only peer and rejects stale Circle replies after account repair (late=%s)", async (late) => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const setInterval = window.setInterval.bind(window);
+    let repair: (() => void) | undefined;
+    const interval = vi.spyOn(window, "setInterval").mockImplementation((handler, delay, ...args) => {
+      if (delay === 60_000 && typeof handler === "function") { repair = handler as () => void; return 0; }
+      return setInterval(handler, delay, ...args);
+    });
+    try {
+      mockLocationSearchParams("action=share");
+      const peers = locationState().recipients.filter((row) => ["user_b", "user_d"].includes(row.userId));
+      const circle = {
+        id: "circle-retirement", name: "Family", kind: "family" as const, role: "owner" as const,
+        memberCount: 3, memberLimit: 100,
+        members: [
+          { userId: "user_a", displayName: "Test User", role: "owner" as const, phoneVerified: true, canReceiveLocation: true },
+          ...peers.map((row) => ({ ...row, role: "member" as const, phoneVerified: true, canReceiveLocation: true })),
+        ],
+      };
+      mockGetState.mockResolvedValue({ ...locationState(), recipients: [], ownerGrants: [], circles: [circle] });
+      mockListCircles.mockResolvedValue([circle]);
+      mockListCircleMembersPage.mockResolvedValue({ items: circle.members, page: 1, hasMore: false, totalCount: 3 });
+      let finishCircle: ((value: typeof circle) => void) | undefined;
+      mockGetCircle.mockImplementation(() => late
+        ? new Promise<typeof circle>((resolve) => { finishCircle = resolve; })
+        : Promise.resolve(circle));
+      mockListRecipientsPage.mockResolvedValue({ items: peers, page: 1, hasMore: false, totalCount: peers.length });
+      render(<OneLocationAgentPage />);
+      await act(async () => { await skipLocationEntryFlow({ expectMain: false }); });
+      fireEvent.click(await screen.findByRole("button", { name: "Select the Family Circle, 3 members" }));
+      if (!late) await screen.findByRole("button", { name: "Deselect the Family Circle, 3 members" });
+      else await waitFor(() => expect(finishCircle).toBeTypeOf("function"));
+      const latest = peers.filter((row) => row.userId !== "user_d");
+      mockGetState.mockRejectedValue(new Error("workspace unavailable"));
+      mockListRecipientsPage.mockImplementation(async ({ limit }) => {
+        if (limit !== 100) throw new Error("page unavailable");
+        return { items: latest, page: 1, hasMore: false, totalCount: latest.length };
+      });
+      mockGetSmsContacts.mockClear();
+      await act(async () => { repair?.(); });
+      await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
+      if (late) {
+        await act(async () => { finishCircle?.(circle); });
+        expect(screen.queryByRole("button", { name: "Adding Circle…" })).toBeNull();
+        expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+      } else {
+        expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+        await screen.findByRole("heading", { name: "Ready to share?" });
+        expect(screen.getByText("Trusted B")).toBeTruthy();
+        expect(screen.queryByText("Investor D")).toBeNull();
+      }
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+    } finally { interval.mockRestore(); visibility.mockRestore(); }
+  });
+
   it("refreshes the full workspace once when foreground signals arrive in a burst", async () => {
     const visibility = vi
       .spyOn(document, "visibilityState", "get")

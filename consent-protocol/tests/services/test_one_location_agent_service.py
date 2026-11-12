@@ -37,6 +37,16 @@ from hushh_mcp.services.requester_identity import (
 
 from .one_location_workflow_contract_cases import run_four_user_location_workflow_contract
 
+
+@pytest.fixture(autouse=True)
+def _active_accounts_for_in_memory_location_workflows(monkeypatch):
+    # These SQL/workflow doubles model active accounts. Lifecycle filtering is
+    # exercised through the production helper on real PostgreSQL separately.
+    monkeypatch.setattr(
+        OneLocationAgentService, "_live_location_account_ids", lambda self, ids: set(ids)
+    )
+
+
 PUBLIC_LOCATION_SNAPSHOT = {
     "latitude": 28.6139,
     "longitude": 77.209,
@@ -1846,6 +1856,9 @@ def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> 
 
 
 class FourUserMemoryService(OneLocationAgentService):
+    def _live_location_account_ids(self, user_ids) -> set[str]:
+        return set(user_ids) & self.identities.keys()
+
     def __init__(self) -> None:
         self.identities = {
             "user_a": {
@@ -2297,6 +2310,10 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
         params = params or {}
+        if "account_user_ids" in params:
+            return [
+                {"user_id": uid} for uid in params["account_user_ids"] if uid in self.identities
+            ]
         if "FROM one_location_sms_contacts sms" in sql:
             owner = params.get("owner_user_id") or params.get("user_id")
             active_connected_ids = {
@@ -9419,3 +9436,85 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     assert received[sos["id"]]["recipientClearedAt"] == cleared_at.isoformat()
     assert "recipientClearedAt" not in owned[sos["id"]]
     assert all("recipientClearedAt" not in grant for grant in owned.values())
+
+
+@pytest.mark.parametrize("operation", ["share", "atomic_share", "request"])
+@pytest.mark.parametrize("missing", ["owner", "recipient"])
+def test_location_mutations_reject_retired_accounts_before_any_write(
+    monkeypatch, operation, missing
+):
+    service = OneLocationAgentService()
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {missing})
+
+    def no_write(*args, **kwargs):
+        pytest.fail("A retired account reached a domain write or key lookup")
+
+    monkeypatch.setattr(service, "_execute_one", no_write)
+    monkeypatch.setattr(service, "_recipient_key_row", no_write)
+    with pytest.raises(OneLocationAgentError) as failure:
+        if operation == "request":
+            service.request_access(requester_user_id="recipient", owner_user_id="owner")
+        elif operation == "share":
+            service.create_grant(
+                owner_user_id="owner",
+                recipient_user_id="recipient",
+                recipient_key_id="key",
+                duration_hours=1,
+            )
+        else:
+            service.create_grant_with_initial_envelope(
+                owner_user_id="owner",
+                recipient_user_id="recipient",
+                recipient_key_id="key",
+                duration_hours=1,
+                client_operation_id="operation",
+                confirmed_at=datetime.now(timezone.utc),
+                envelope={},
+            )
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    assert failure.value.status_code == 409
+
+
+def test_location_account_verification_outage_is_retryable(monkeypatch):
+    service = OneLocationAgentService()
+
+    def unavailable(ids):
+        raise DirectoryIdentityUnavailableError()
+
+    monkeypatch.setattr(service, "_live_location_account_ids", unavailable)
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.request_access(requester_user_id="recipient", owner_user_id="owner")
+    assert failure.value.status_code == 503
+
+
+def test_retired_requester_cannot_be_approved_from_a_stale_request(monkeypatch):
+    service = FourUserMemoryService()
+    request = service.request_access(requester_user_id="user_b", owner_user_id="user_a")
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=1,
+            approval_mode="manual",
+        )
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_public_link_rejects_retired_owner_but_treats_retired_phone_match_as_a_visitor(monkeypatch):
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    submitted = service.submit_public_invite_request(
+        public_token=created["publicToken"],
+        visitor_display_name="Visitor",
+        phone_number="+15550100002",
+    )
+    assert submitted["submission"]["status"] == "pending_identity"
+    assert not service.requests
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_a"})
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.resolve_public_invite(public_token=created["publicToken"])
+    assert failure.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"

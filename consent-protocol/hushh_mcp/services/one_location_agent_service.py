@@ -52,6 +52,7 @@ from hushh_mcp.services.directory_identity_service import (
     DirectoryIdentityUnavailableError,
     active_directory_user_ids,
     directory_auth_profiles,
+    exclude_retired_account_ids,
 )
 from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
@@ -4392,6 +4393,33 @@ class OneLocationAgentService:
         # shows their name.
         return self._recipient_payload(row, allow_email_handle=True) or {}
 
+    def _live_location_account_ids(self, user_ids: Sequence[str]) -> set[str]:
+        try:
+            active = self._active_directory_user_ids(list(dict.fromkeys(user_ids)))
+        except DirectoryIdentityUnavailableError:
+            raise OneLocationAgentError(
+                "DIRECTORY_IDENTITY_UNAVAILABLE",
+                "Could not verify these accounts. Try again.",
+                status_code=503,
+            ) from None
+        return exclude_retired_account_ids(sorted(active), self._execute_many)
+
+    def _assert_location_accounts_active(self, *user_ids: str) -> None:
+        try:
+            active = self._live_location_account_ids(user_ids)
+        except DirectoryIdentityUnavailableError:
+            raise OneLocationAgentError(
+                "DIRECTORY_IDENTITY_UNAVAILABLE",
+                "Could not verify these accounts. Try again.",
+                status_code=503,
+            ) from None
+        if set(user_ids) - active:
+            raise OneLocationAgentError(
+                "LOCATION_PEER_UNAVAILABLE",
+                "This account is no longer available.",
+                status_code=409,
+            )
+
     def list_verified_recipients(
         self,
         *,
@@ -4426,8 +4454,7 @@ class OneLocationAgentService:
         # a non-`named_circle` origin here too: a pair whose only provenance is
         # a Circle qualifies through the Circle branch, and stops qualifying
         # the moment that Circle membership ends.
-        rows = self._execute_many(
-            f"""
+        statement = f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               profile.public_person_ref,
@@ -4536,12 +4563,20 @@ class OneLocationAgentService:
               {id_filter}
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
-            """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL and id_filter are static/param-only.
-            {
-                "owner_user_id": owner_user_id,
-                "limit": max(1, min(int(limit), 100)),
-                **id_params,
-            },
+            """  # nosec B608 # Static fragments only; all inputs remain bound.
+        params = {"owner_user_id": owner_user_id, "limit": None, **id_params}
+        candidates = self._execute_many(statement, params)
+        active_ids = self._live_location_account_ids(
+            [str(row["user_id"]) for row in candidates if row.get("user_id")]
+        )
+        params.update(limit=max(1, min(int(limit), 100)), active_user_ids=sorted(active_ids))
+        rows = self._execute_many(
+            statement.replace(
+                "ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id",
+                "AND a.user_id = ANY(CAST(:active_user_ids AS TEXT[])) "
+                "ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id",
+            ),
+            params,
         )
 
         # Relationship-scoped: the statement above admits a person only on an
@@ -4576,8 +4611,7 @@ class OneLocationAgentService:
         normalized_limit = max(1, min(int(limit or 50), 100))
         normalized_query = str(query or "").strip().lower()
         offset = (normalized_page - 1) * normalized_limit
-        rows = self._execute_many(
-            f"""
+        statement = f"""
             WITH eligible AS (
               SELECT
                 identity.user_id, identity.display_name, identity.email,
@@ -4709,16 +4743,30 @@ class OneLocationAgentService:
             ) recipient_key ON TRUE
             ORDER BY page_rows.match_rank, page_rows.normalized_name,
                      page_rows.user_id
-            """,  # nosec B608 # directory SQL fragments are static; values are bound.
-            {
-                "owner_user_id": owner_user_id,
-                "query": normalized_query,
-                "finance_verified_statuses": finance_directory.finance_advisor_statuses(),
-                **people_query_match_params(normalized_query),
-                "offset": offset,
-                "limit": normalized_limit,
-            },
+            """  # nosec B608 # Static fragments only; all inputs remain bound.
+        params = {
+            "owner_user_id": owner_user_id,
+            "query": normalized_query,
+            "finance_verified_statuses": finance_directory.finance_advisor_statuses(),
+            **people_query_match_params(normalized_query),
+            "offset": offset,
+            "limit": normalized_limit,
+        }
+        eligible_sql, remainder = statement.split("), matched AS (", 1)
+        candidates = self._execute_many(eligible_sql + ") SELECT user_id FROM eligible", params)  # nosec B608 # Static CTE suffix.
+        active_ids = self._live_location_account_ids(
+            [str(row["user_id"]) for row in candidates if row.get("user_id")]
         )
+        # Re-run local eligibility after the provider read, before ranking/counts.
+        statement = "".join(
+            (
+                eligible_sql,
+                "), live_eligible AS (SELECT * FROM eligible ",
+                "WHERE user_id = ANY(CAST(:active_user_ids AS TEXT[]))), matched AS (",
+                remainder.replace("FROM eligible", "FROM live_eligible", 1),
+            )
+        )
+        rows = self._execute_many(statement, {**params, "active_user_ids": sorted(active_ids)})
         total_count = int((rows[0] if rows else {}).get("total_count") or 0)
         recipients = [
             payload
@@ -5561,11 +5609,9 @@ class OneLocationAgentService:
             """,
             {"owner_user_id": owner_user_id},
         )
-        return [
-            str(row.get("contact_user_id") or "")
-            for row in rows
-            if str(row.get("contact_user_id") or "").strip()
-        ]
+        ids = [str(row["contact_user_id"]) for row in rows if row.get("contact_user_id")]
+        active_ids = self._live_location_account_ids(ids)
+        return [user_id for user_id in ids if user_id in active_ids]
 
     def _add_sms_contact_with_locked_eligibility(
         self,
@@ -6251,6 +6297,7 @@ class OneLocationAgentService:
                 status_code=422,
             )
         if not _key_writer_guarded:
+            self._assert_location_accounts_active(owner_user_id, recipient_user_id)
             _assert_sharing_not_off(
                 self._execute_one,
                 owner_user_id=owner_user_id,
@@ -6537,6 +6584,7 @@ class OneLocationAgentService:
                 "Choose a different verified recipient.",
                 status_code=422,
             )
+        self._assert_location_accounts_active(owner_user_id, recipient_user_id)
         key_id = str(recipient_key_id or "").strip()
         if not key_id:
             raise OneLocationAgentError(
@@ -7975,6 +8023,10 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id, "retention_seconds": retention_seconds},
         )
+        active_owners = self._live_location_account_ids(
+            [str(row["owner_user_id"]) for row in rows if row.get("owner_user_id")]
+        )
+        rows = [row for row in rows if row.get("owner_user_id") in active_owners]
         markers: list[dict[str, Any]] = []
         for row in rows:
             grant = self._grant_payload(row)
@@ -8459,7 +8511,9 @@ class OneLocationAgentService:
         # position log nobody reads.
         return {"invite": invite}
 
-    def _public_invite_row_for_token(self, *, public_token: str) -> dict[str, Any]:
+    def _public_invite_row_for_token(
+        self, *, public_token: str, _verified_owner: str | None = None
+    ) -> dict[str, Any]:
         """The live row behind a public token, or a refusal the recipient can read.
 
         Both messages below are rendered verbatim on the recipient's page --
@@ -8492,6 +8546,17 @@ class OneLocationAgentService:
                 "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
                 "This live location link is no longer active.",
                 status_code=410 if row else 404,
+            )
+        owner = str(row.get("owner_user_id") or "")
+        if _verified_owner is None:
+            active = self._live_location_account_ids([owner])
+        else:
+            active = exclude_retired_account_ids([owner], self._execute_many)
+        if owner not in active or (_verified_owner is not None and owner != _verified_owner):
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This live location link is no longer active.",
+                status_code=410,
             )
         return row
 
@@ -8620,8 +8685,18 @@ class OneLocationAgentService:
             )
         visitor_phone_hash = _hash_public_value(phone_digits)
         message_value = (message or "").strip()[:500] or None
+        verified_invite = self._public_invite_row_for_token(public_token=public_token)
+        verified_owner = str(verified_invite["owner_user_id"])
+        matched_identity = self._identity_row_by_phone_digits(phone_digits)
+        matched_user_id = str((matched_identity or {}).get("user_id") or "") or None
+        if matched_user_id and matched_user_id not in self._live_location_account_ids(
+            [matched_user_id]
+        ):
+            matched_user_id = None
         with self._event_bound_writer():
-            invite_row = self._public_invite_row_for_token(public_token=public_token)
+            invite_row = self._public_invite_row_for_token(
+                public_token=public_token, _verified_owner=verified_owner
+            )
             invite_id = str(invite_row.get("id") or "")
             # The token-wide and phone-wide limits are predicates over rows,
             # not a database constraint. Serialize the check with the insert
@@ -8663,10 +8738,6 @@ class OneLocationAgentService:
                 submitter_fingerprint_hash=submitter_fingerprint_hash,
             )
             owner_user_id = invite["ownerUserId"]
-            matched_identity = self._identity_row_by_phone_digits(phone_digits)
-            matched_user_id = (
-                str(matched_identity.get("user_id") or "") if matched_identity else None
-            )
             status_value = "approved" if has_public_location else "pending_identity"
             request: dict[str, Any] | None = None
             if matched_user_id == owner_user_id:
@@ -8680,6 +8751,7 @@ class OneLocationAgentService:
                         notify_owner=False,
                         require_requester_key_material=True,
                         _expires_after_hours=None,
+                        _accounts_verified=True,
                     )
                     status_value = "matched_request_pending"
                 except OneLocationAgentError as exc:
@@ -9513,6 +9585,39 @@ class OneLocationAgentService:
         network_connections = _sections.get("network_connections", [])
         sms_contacts = _sections.get("sms_contacts", [])
         public_submissions = _sections.get("public_submissions", [])
+        # Retained grants, requests and SMS rows are not account lifecycle authority.
+        if not consent_only:
+            peer_sections = [
+                (owner_grants, "recipient_user_id"),
+                (received_grants, "owner_user_id"),
+                (requests, "owner_user_id"),
+                (requests, "requester_user_id"),
+                (network_connections, "trusted_user_id"),
+                (sms_contacts, "contact_user_id"),
+            ]
+            peer_ids = {
+                str(row[key])
+                for rows, key in peer_sections
+                for row in rows
+                if row.get(key) and row[key] != user_id
+            }
+            active_ids = self._live_location_account_ids(sorted(peer_ids)) | {user_id}
+            owner_grants = [
+                row for row in owner_grants if row.get("recipient_user_id") in active_ids
+            ]
+            received_grants = [
+                row for row in received_grants if row.get("owner_user_id") in active_ids
+            ]
+            requests = [
+                row
+                for row in requests
+                if row.get("owner_user_id") in active_ids
+                and row.get("requester_user_id") in active_ids
+            ]
+            network_connections = [
+                row for row in network_connections if row.get("trusted_user_id") in active_ids
+            ]
+            sms_contacts = [row for row in sms_contacts if row.get("contact_user_id") in active_ids]
         my_recipient_key_rows = _sections.get("my_recipient_key", [])
         my_recipient_key = None
         if my_recipient_key_rows:
@@ -10389,6 +10494,7 @@ class OneLocationAgentService:
         command_operation_id: str | None = None,
         command_directive_id: str | None = None,
         _notification_outbox: list[_MetadataNotification] | None = None,
+        _accounts_verified: bool = False,
         _expires_after_hours: float | None = LOCATION_REQUEST_EXPIRY_HOURS,
     ) -> dict[str, Any]:
         """Ask an owner for location access -- optionally for a named duration.
@@ -10409,6 +10515,17 @@ class OneLocationAgentService:
         if requester_user_id == owner_user_id:
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_SELF", "Request a different person's location.", status_code=422
+            )
+        if not _accounts_verified:
+            self._assert_location_accounts_active(requester_user_id, owner_user_id)
+        elif set((requester_user_id, owner_user_id)) - exclude_retired_account_ids(
+            [requester_user_id, owner_user_id],
+            self._execute_many,
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_PEER_UNAVAILABLE",
+                "This account is no longer available.",
+                status_code=409,
             )
         if require_requester_key_material:
             self._recipient_key_row(
@@ -10944,6 +11061,7 @@ class OneLocationAgentService:
                 status_code=404,
             )
         expected_requester_user_id = str(request_identity.get("requester_user_id") or "")
+        self._assert_location_accounts_active(owner_user_id, expected_requester_user_id)
 
         with self._key_bound_writer_guard(
             owner_user_id=owner_user_id,

@@ -3,11 +3,23 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
+import pytest
+
 from api.routes.one import connections as connection_routes
 from api.routes.one import location as location_routes
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+
+@pytest.fixture(autouse=True)
+def _active_accounts_for_pagination_doubles(monkeypatch):
+    monkeypatch.setattr(
+        OneLocationCircleService, "_live_circle_account_ids", lambda self, uid, **kwargs: []
+    )
+    monkeypatch.setattr(
+        OneLocationAgentService, "_live_location_account_ids", lambda self, ids: set(ids)
+    )
 
 
 def test_connections_page_is_bounded_stable_and_page_local_for_5000_rows(monkeypatch):
