@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  Bank, Bed, Briefcase, Buildings, Church, Coffee, FirstAid,
-  ForkKnife, GraduationCap, House, MapPin, ShoppingBag, Train, Tree,
-  type Icon,
-} from "@phosphor-icons/react";
+  Landmark as Bank, Bed, Briefcase, Building2 as Buildings, Church, Coffee, FirstAid,
+  ForkKnife, GraduationCap, Home as House, MapPin, ShoppingBag, Train, Tree,
+  type LucideIcon as Icon,
+} from "@/components/icons";
 import type { SavedLocation } from "@/lib/one-location/saved-locations";
 import { normalizeCheckedInPlaceCategory, type CheckedInPlaceCategory } from "@/lib/one-location/nearby-places";
 import { cn } from "@/lib/utils";
