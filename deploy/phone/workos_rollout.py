@@ -490,10 +490,10 @@ def qualify(project: str, restoration_sha: str | None = None) -> dict:
         ]
     )
     from restoration_workos_observation import receipt_provenance, review
-    from workos_recovery_bridge import completion_filter
+    from workos_recovery_bridge import completion_filter, needs_completion_history
 
     reviewer = review_history
-    if project == "hushh-pda":
+    if project == "hushh-pda" and needs_completion_history(events, before):
         completions = _document(
             [
                 "gcloud",

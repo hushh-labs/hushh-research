@@ -107,6 +107,16 @@ def _check_template(document, bridge, *, redacted):
         _require(spec == exact)
 
 
+def needs_completion_history(events, inventory):
+    bridge = contract()
+    names = {bridge["REVISION"], bridge["DISPLACED"]}
+    return bool(names.intersection(inventory)) or any(
+        _template(part).get("metadata", {}).get("name") in names
+        for event in events
+        for part in _parts(event)[1:]
+    )
+
+
 def completion_filter(until):
     bridge = contract()
     return (
