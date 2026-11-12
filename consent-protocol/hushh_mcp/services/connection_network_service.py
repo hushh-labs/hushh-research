@@ -1,8 +1,8 @@
 """Permission-aware, bounded discovery over the canonical active graph.
 
 Never return graph paths, internal identities, or another owner's contacts.
-Mutuals retain their existing viewer-relative contract. Wider lists require
-both an active direct relationship and the list owner's explicit opt-in.
+Mutuals retain their existing viewer-relative contract. Accepted direct
+connections may browse eligible connections; third-degree discovery remains opt-in.
 """
 
 from __future__ import annotations
@@ -188,7 +188,6 @@ class ConnectionNetworkService:
             self.connections._execute_one(
                 """SELECT 1 FROM actor_profiles p
                WHERE p.user_id = :target AND p.public_profile_status = 'active'
-                 AND p.connection_list_shared = TRUE
                  AND EXISTS (SELECT 1 FROM connections c WHERE c.status = 'active'
                    AND ((c.user_a_id = :viewer AND c.user_b_id = :target)
                      OR (c.user_b_id = :viewer AND c.user_a_id = :target)))
@@ -337,11 +336,9 @@ class ConnectionNetworkService:
             degree = self.degrees(viewer).get(uid)
         else:
             self._admitted = [viewer, uid, *preview_ids]
-        visible_peers = (
-            self._visible_shared_peer_ids(viewer, uid) if direct and target["shared"] else None
-        )
+        visible_peers = self._visible_shared_peer_ids(viewer, uid) if direct else None
         # All slow identity reads have completed. Settle the target, path,
-        # mutual preview, visible count and sharing authority in one database snapshot.
+        # mutual preview, visible count and direct relationship in one database snapshot.
         final = self.connections._execute_one(
             QUALIFIED_SUMMARY_SQL,
             {
@@ -373,7 +370,7 @@ class ConnectionNetworkService:
             or int(final["previews_active"]) < len(preview)
         ):
             raise self.unavailable()
-        can_browse = degree == 1 and bool(final["connection_list_shared"])
+        can_browse = degree == 1
         visible_count = final["visible_connection_count"] if can_browse else None
         # A partial scan that drops below the display limit can no longer give an exact count.
         if (

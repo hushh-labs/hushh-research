@@ -13,6 +13,38 @@
   "deprecations": [
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:people.profile.browse_network",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.network_visibility.choose",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:people.profile.browse_network",
+      "from_revision": "2c5d9153b75c8104",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.network_visibility.choose",
+      "from_revision": "2c5d9153b75c8104",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "workflows:workflow.setup.connections",
       "from_revision": "1d87fc7992adee9c",
       "from_version": 1,

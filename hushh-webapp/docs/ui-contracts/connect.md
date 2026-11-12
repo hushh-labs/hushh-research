@@ -917,11 +917,11 @@ connection graph changes retire the affected reads before displaying new
 results.
 
 Signed-in profiles show network details under the hero's contact details. The
-connection count opens the paginated shared list after the server confirms that
-the profile owner opted in and the viewer is an active direct connection. It
+connection count opens the paginated list after the server confirms that
+the viewer is an accepted active direct connection, without a separate owner opt-in. It
 uses **500+ connections** above 500. Rows show **Connected**, **Connect**, or
-the applicable pending state for the viewer. **Share my connection list** starts
-off, discloses anonymous extended-network degree contribution, and confirms only
+the applicable pending state for the viewer. **Extended network discovery** starts
+off, controls anonymous third-degree discovery rather than direct list visibility, and confirms only
 server-acknowledged changes. It grants no access to private contacts or information.
 Anonymous public profile projections do not fetch network information.
 

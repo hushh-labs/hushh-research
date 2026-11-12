@@ -725,7 +725,7 @@ def test_extended_network_shortest_degrees_require_shared_paths_and_live_account
     directory._active_directory_user_ids = lambda ids: set(ids) - {"disabled"}
     network._directory = directory
     assert network.preference(OWNER) == {"shareConnectionList": False}
-    # Mutual existence is retained even when full lists are private.
+    # Third-degree discovery remains opt-in even though direct lists are automatic.
     assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2}
     for uid in ("bob", "carol"):
         network.set_preference(uid, True)
@@ -836,6 +836,48 @@ def test_network_directory_filter_applies_before_pagination(connection):
     )
 
 
+@pytest.mark.parametrize("relationship", ["none", "pending", "revoked", "blocked"])
+def test_connection_list_requires_an_accepted_unblocked_relationship(connection, relationship):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "target", "peer"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    _network_edge(connection, "target", "peer")
+    if relationship == "pending":
+        _requested(connection, OWNER, "target")
+    elif relationship == "revoked":
+        _network_edge(connection, OWNER, "target", "revoked")
+    elif relationship == "blocked":
+        _network_edge(connection, OWNER, "target")
+        connection.execute(
+            text("""INSERT INTO connection_requests VALUES
+              (:viewer, 'target', 'rejected', '{"blocked_by":"viewer"}')"""),
+            {"viewer": OWNER},
+        )
+
+    assert network.can_browse(OWNER, "target") is False
+    with pytest.raises(ConnectionsError) as caught:
+        network.browse(OWNER, person_ref=target_ref)
+    assert caught.value.status_code == 404
+    if relationship != "blocked":
+        summary = network.summary(OWNER, target_ref)
+        assert summary["canBrowseConnections"] is False
+        assert summary["visibleConnectionCount"] is None
+
+
 @pytest.mark.parametrize(
     "change", ["opt_out", "disconnect", "block", "peer_disconnect", "peer_block"]
 )
@@ -866,11 +908,8 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
     _network_edge(connection, OWNER, "target")
     _network_edge(connection, "target", "peer")
     assert network.preference("target") == {"shareConnectionList": False}
-    with pytest.raises(ConnectionsError) as private:
-        network.browse(OWNER, person_ref=target_ref)
-    assert private.value.status_code == 404
-    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] is None
-    network.set_preference("target", True)
+    # Accepted connections see the count and list with the default-false preference.
+    assert network.summary(OWNER, target_ref)["canBrowseConnections"] is True
     page = network.browse(OWNER, person_ref=target_ref)
     assert len(page["items"]) == 1
     assert page["items"][0]["networkDegree"] == 2
@@ -885,6 +924,7 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
         "mutualConnectionPreview",
         "mutualConnectionPreviews",
     }
+    network.set_preference("target", True)
     original = network.directory().search_directory_candidates
 
     def read_then_revoke(**kwargs):
@@ -911,10 +951,19 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
         return result
 
     network.directory().search_directory_candidates = read_then_revoke
-    if operation == "summary" and change in ("opt_out", "peer_disconnect", "peer_block"):
+    if change == "opt_out":
+        if operation == "summary":
+            summary = network.summary(OWNER, target_ref)
+            assert summary["canBrowseConnections"] is True
+            assert summary["visibleConnectionCount"] == 1
+        else:
+            assert len(network.browse(OWNER, person_ref=target_ref)["items"]) == 1
+        return
+
+    if operation == "summary" and change in ("peer_disconnect", "peer_block"):
         summary = network.summary(OWNER, target_ref)
-        assert summary["canBrowseConnections"] is (change != "opt_out")
-        assert summary["visibleConnectionCount"] == (None if change == "opt_out" else 0)
+        assert summary["canBrowseConnections"] is True
+        assert summary["visibleConnectionCount"] == 0
         return
 
     with pytest.raises(ConnectionsError) as caught:

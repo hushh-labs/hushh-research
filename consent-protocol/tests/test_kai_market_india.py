@@ -247,6 +247,41 @@ async def test_index_cards_draw_the_last_session_and_never_a_month_line_beside_a
     assert len(quotes["^CNXAUTO"]["sparkline_points"]) == 22  # sector returns still use the month
 
 
+@pytest.mark.asyncio
+async def test_a_failed_movers_refresh_keeps_serving_the_last_good_list(monkeypatch):
+    good = {"gainers": [{"symbol": "TCS", "change_pct": 5.0}], "losers": [], "active": []}
+    calls = {"count": 0}
+
+    async def flaky() -> dict:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return good
+        raise RuntimeError("india_movers_rate_limited")
+
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "INDIA_MOVERS_FRESH_TTL_SECONDS", 0)
+    monkeypatch.setattr(india_market, "fetch_india_movers", flaky)
+
+    async def read() -> dict:
+        value, *_ = await market_insights._get_or_refresh_public_module(
+            key="india_movers:v1",
+            fresh_ttl_seconds=market_insights.INDIA_MOVERS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=market_insights.INDIA_MOVERS_STALE_TTL_SECONDS,
+            fetcher=lambda: india_market.fetch_india_movers(),
+        )
+        return value
+
+    assert (await read())["gainers"] == good["gainers"]
+    # The refresh now fails, and the stale list is still what a reader gets.
+    assert (await read())["gainers"] == good["gainers"]
+    # Negative control: with nothing cached, a failing fetch surfaces instead of faking data.
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    with pytest.raises(RuntimeError, match="rate_limited"):
+        await read()
+
+
 def _fx_chart(price: float = 88.4, stamp: int = 1_762_905_600) -> dict:
     return {"meta": {"regularMarketPrice": price, "regularMarketTime": stamp}}
 
