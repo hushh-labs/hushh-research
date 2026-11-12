@@ -2485,15 +2485,19 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testOwnedProfileContentPlaneRetainsBaseButRejectsCoveredAndStaleActions() throws {
+        let shield = HushhSessionPrivacyShield()
+        shield.markAppActive()
+        XCTAssertTrue(shield.snapshot().appIsActive)
+        XCTAssertFalse(shield.snapshot().shielded)
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers, privacyShield: shield)
         container.frame = web.frame
         let base = UIButton(frame: CGRect(x: 16, y: 60, width: 44, height: 44))
         container.install(base, id: "base", group: nil)
         container.setAdmission("base", admitted: true)
         let retainedHost = try XCTUnwrap(base.superview)
         let identity = NativeContentPaneIdentity(document: "synthetic", ownerEpoch: "owner", generation: 1,
-            privacyGeneration: HushhSessionPrivacyShield.shared.snapshot().generation)
+            privacyGeneration: shield.snapshot().generation)
         XCTAssertFalse(container.acquireContentPane(identity, viewport: CGSize(width: 400, height: 844)))
         container.isolateForOwnedDrawer(true)
         XCTAssertTrue(container.acquireContentPane(identity, viewport: container.bounds.size),
@@ -2534,6 +2538,12 @@ final class NativeSupportTests: XCTestCase {
         container.setAdmission("base", admitted: true)
         XCTAssertFalse(base.isUserInteractionEnabled)
         XCTAssertTrue(container.releaseContentPane(next))
+        shield.protectForAppInactive()
+        XCTAssertFalse(shield.snapshot().appIsActive)
+        container.isolateForOwnedDrawer(true)
+        container.isolateForOwnedDrawer(false)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Uncovering cannot bypass an inactive privacy gate")
+        XCTAssertTrue(web.accessibilityElementsHidden)
     }
 
     @MainActor
