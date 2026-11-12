@@ -69,16 +69,25 @@ def hushh_tool_error_callback(
 
 
 class _CallBudget(BasePlugin):
-    def __init__(self, limit: int):
+    def __init__(self, limit: int, agent: LlmAgent, history: list[types.Content]):
         super().__init__(name="hushh_specialist_call_budget")
         self.limit = limit
         self.calls = 0
         self.last_progress: float | None = None
         self.tool_calls: list[types.FunctionCall] = []
         self.tool_results: list[types.FunctionResponse] = []
+        self.task_agent_name = (
+            agent.name if agent.mode == "task" and agent.include_contents == "default" else None
+        )
+        self.history = history
 
     async def before_model_callback(self, *, callback_context: Any, llm_request: Any):
         validate_tool_result_history(callback_context, llm_request)
+        if self.history and callback_context.agent_name == self.task_agent_name:
+            # ADK 2.14 isolates task inputs from unscoped stored history.
+            # Restore only this root's consented text; isolated child agents
+            # receive their own task input, never the parent's history.
+            llm_request.contents[:0] = copy.deepcopy(self.history)
         # AgentTool defaults to sharing the parent's plugins. This same instance
         # therefore counts nested calls too, unlike per-invocation RunConfig.
         if self.calls >= self.limit:
@@ -162,7 +171,7 @@ async def run_specialist_adk_turn(
     completed tool may have external side effects. Credentials remain solely
     in HushhContext; callers supply only consented model-visible state/history.
     AgentTool children must retain include_plugins=True for shared call limits.
-    ADK 2.9 Runner requires root mode chat or task; callers author that mode.
+    Pinned ADK requires root mode chat or task; callers author that mode.
     Failed turns expose completed results on SpecialistAdkTurnError.partial_turn.
     """
     if not app_name.strip() or not user_id.strip():
@@ -189,9 +198,11 @@ async def run_specialist_adk_turn(
         session_id=f"turn_{uuid.uuid4().hex}",
         state=copy.deepcopy(dict(state or {})),
     )
+    prior_contents = []
     for index, prior in enumerate(history[-_MAX_HISTORY:]):
         content = _history_content(prior)
         if content is not None:
+            prior_contents.append(content)
             await store.append_event(
                 session,
                 Event(
@@ -200,7 +211,7 @@ async def run_specialist_adk_turn(
                     content=content,
                 ),
             )
-    budget = _CallBudget(max_llm_calls)
+    budget = _CallBudget(max_llm_calls, agent, prior_contents)
     runner = Runner(
         app=App(name=app_name, root_agent=agent, plugins=[budget, *product_activity_plugins()]),
         session_service=store,

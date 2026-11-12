@@ -100,6 +100,11 @@ the original approved goal through `RunConfig.model_input_context`, without
 another persisted turn or uncertain-call replay. The existing Gemini toolset
 omits the provider-rejected exclusion field while retaining local action refusal.
 
+Fresh isolated research tasks use default scoped contents so ADK retains their
+own input and completed receipts. The no-history current-turn selector cannot
+find their transient task input. Explicit bounded specialist history is projected
+only at its root callback; never inherit it into isolated child agents.
+
 ### Azure response schemas with dynamic fields
 
 Memory's structure gene returns dynamic payload, summary and sensitivity maps.
