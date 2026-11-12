@@ -385,7 +385,12 @@ export function OneMarketIndexStrip({
   );
 }
 
-export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
+export function OneMarketMovers({ groups, linkable = true, note }: {
+  groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]>;
+  /** False for markets whose stocks have no analysis screen (India). */
+  linkable?: boolean;
+  note?: string;
+}) {
   const id = useId();
   const columns = [
     { key: "gain", title: "Gainers", rows: groups.gain.slice(0, 3) },
@@ -410,21 +415,31 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                 if (!row) return <p key={rank} data-market-mover-empty
                   aria-label={title + " " + (rank + 1) + ": Quote unavailable"}
                   className="ui-text-row-description flex min-h-12 items-center border-t border-border/50 px-2 py-2 text-muted-foreground">Quote unavailable</p>;
-                return (
-                  <button key={rank} type="button" data-market-mover-rank={rank} aria-describedby={id + "-" + key}
-                    onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
-                    className={cn(financeStyles.interactiveRow, "relative isolate flex min-h-12 min-w-0 w-full flex-col items-stretch gap-0.5 overflow-hidden rounded-lg border-t border-border/50 px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary")}>
+                const body = (
+                  <>
                     <span className="flex min-w-0 items-baseline justify-between gap-2">
                       <span className="ui-text-row-label-emphasized min-w-0 truncate text-foreground">{row.symbol}</span>
                       <span className={cn("ui-text-row-label-emphasized shrink-0 text-right tabular-nums", marketBriefingStyles.moverAccent)}>{formatOneMarketPercent(row.changePct)}</span>
                     </span>
                     <span className={cn("ui-text-row-description flex min-w-0 items-center gap-1", marketBriefingStyles.moverCompany)}>
-                      <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="size-4 shrink-0 rounded-full [&_img]:size-4" />
+                      <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" logo={linkable} className="size-4 shrink-0 rounded-full [&_img]:size-4" />
                       <span className="truncate" title={row.companyName}>{row.companyName}</span>
                     </span>
                     {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="ui-text-row-description text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
+                  </>
+                );
+                return linkable ? (
+                  <button key={rank} type="button" data-market-mover-rank={rank} aria-describedby={id + "-" + key}
+                    onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
+                    className={cn(financeStyles.interactiveRow, "relative isolate flex min-h-12 min-w-0 w-full flex-col items-stretch gap-0.5 overflow-hidden rounded-lg border-t border-border/50 px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary")}>
+                    {body}
                     <MaterialRipple variant="none" effect="fade" disableHover className="z-10" />
                   </button>
+                ) : (
+                  <div key={rank} data-market-mover-rank={rank} aria-describedby={id + "-" + key}
+                    className="relative isolate flex min-h-12 min-w-0 w-full flex-col items-stretch gap-0.5 overflow-hidden rounded-lg border-t border-border/50 px-2 py-2 text-left">
+                    {body}
+                  </div>
                 );
               })}
             </section>
@@ -432,7 +447,7 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
         })}
       </div>
       {sharedTime && commonAsOf && Number.isFinite(Date.parse(commonAsOf)) ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
-        <time dateTime={commonAsOf}>{formatOverviewAsOf(commonAsOf)}</time>
+        {note ? `${note} · ` : null}<time dateTime={commonAsOf}>{formatOverviewAsOf(commonAsOf)}</time>
       </p> : null}
     </div>
   );
@@ -1215,14 +1230,13 @@ export function KaiMarketPreviewView() {
                     </SurfaceCardContent></SurfaceCard>
                   </section>
                 ) : null}
-                {inIndia ? null : (
                 <section className="min-w-0" aria-label="Market movers">
                   <OneMarketSectionHeader title="Market movers" />
                   <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
-                  <OneMarketMovers groups={moverGroups} />
+                  <OneMarketMovers groups={moverGroups} linkable={!inIndia}
+                    note={inIndia && effectivePayload?.movers?.universe_size ? `Among ${effectivePayload.movers.universe_size} large NSE stocks` : undefined} />
                   </SurfaceCardContent></SurfaceCard>
                 </section>
-                )}
               </div>
 
               {showConnectPortfolio ? (

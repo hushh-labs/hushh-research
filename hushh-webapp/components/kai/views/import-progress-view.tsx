@@ -6,6 +6,8 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { FileChartColumn, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
+import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
+import { ImportReviewPlaceholder } from "./import-review-placeholder";
 import { cn } from "@/lib/utils";
 
 const stageLabels = {
@@ -59,9 +61,19 @@ function useImportProgress(stage: keyof typeof stageLabels) {
   return { percent, slow: !failed && (now - began) / 1000 >= STILL_WORKING_AFTER_SECONDS };
 }
 
+function fileSizeLabel(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 interface ImportProgressViewProps {
   stage: keyof typeof stageLabels;
   errorMessage?: string;
+  /** The statement being read, shown at once so the card says what is happening to what. */
+  fileName?: string;
+  fileSize?: number;
+  /** Holdings the server has confirmed so far; they fill the placeholder list as they arrive. */
+  liveHoldings?: readonly LiveHoldingPreview[];
+  holdingsTotal?: number;
   onCancel?: () => void;
   onRetry?: () => void;
 }
@@ -69,6 +81,10 @@ interface ImportProgressViewProps {
 export function ImportProgressView({
   stage,
   errorMessage,
+  fileName,
+  fileSize,
+  liveHoldings,
+  holdingsTotal,
   onCancel,
   onRetry,
 }: ImportProgressViewProps) {
@@ -88,6 +104,11 @@ export function ImportProgressView({
             <h1 id="statement-import-title" className="ui-text-section-label">
               {stageLabels[stage]}
             </h1>
+            {!failed && fileName ? (
+              <p className="ui-text-row-description truncate text-muted-foreground">
+                {fileName}{typeof fileSize === "number" && fileSize > 0 ? ` · ${fileSizeLabel(fileSize)}` : ""}
+              </p>
+            ) : null}
             {failed ? (
               <p className="ui-text-row-description text-muted-foreground">
                 {errorMessage || "Try again or choose a different statement."}
@@ -121,6 +142,11 @@ export function ImportProgressView({
           </div>
         ) : null}
       </section>
+      {failed ? null : (
+        <div className="mx-auto mt-3 w-full max-w-lg">
+          <ImportReviewPlaceholder rows={liveHoldings} total={holdingsTotal} />
+        </div>
+      )}
     </AppPageContentRegion>
   );
 }

@@ -76,14 +76,18 @@ export function SymbolAvatar({
   isCash = false,
   size = "md",
   className,
+  logo = true,
 }: {
   symbol: string;
   name?: string | null;
   isCash?: boolean;
   size?: keyof typeof SIZE_CLASSES;
   className?: string;
+  /** False for symbols the US logo lookup does not cover, so a bare NSE ticker can never
+   * pick up a different US company's logo. */
+  logo?: boolean;
 }) {
-  const logoUrl = getCompanyLogoUrl({ symbol, name, isCash });
+  const logoUrl = logo ? getCompanyLogoUrl({ symbol, name, isCash }) : null;
   const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {

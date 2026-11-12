@@ -21,6 +21,31 @@ import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { withStableOverviewFromCache } from "@/lib/kai/kai-market-home-resource";
 import type { KaiHomeInsightsV2, KaiHomeNewsItem } from "@/lib/services/api-service";
 
+describe("India movers", () => {
+  const row = (symbol: string, companyName: string, changePct: number) => ({
+    symbol, companyName, price: 100, changePct, volume: 1, sparkline: null, degraded: false, asOf: "2026-11-12T10:01:00Z",
+  });
+  const groups = {
+    gain: [row("TATASTEEL", "Tata Steel Limited", 3.1)],
+    lose: [row("WIPRO", "Wipro Limited", -1.4)],
+    active: [],
+  };
+
+  it("shows India movers without opening US stock analysis and says what they are ranked from", () => {
+    render(createElement(OneMarketMovers, { groups, linkable: false, note: "Among 50 large NSE stocks" }));
+    expect(screen.getByText("TATASTEEL")).toBeTruthy();
+    expect(screen.getByText(/Among 50 large NSE stocks/)).toBeTruthy();
+    // No row is a button, so nothing can route an NSE symbol into the US-only analysis screen.
+    expect(document.querySelectorAll("button[data-market-mover-rank]")).toHaveLength(0);
+    expect(document.querySelectorAll("div[data-market-mover-rank]").length).toBeGreaterThan(0);
+  });
+
+  it("keeps US movers as buttons that open analysis", () => {
+    render(createElement(OneMarketMovers, { groups }));
+    expect(document.querySelectorAll("button[data-market-mover-rank]").length).toBeGreaterThan(0);
+  });
+});
+
 describe("India market strip", () => {
   const row = (label: string, symbol: string, value: number) => ({
     id: symbol.toLowerCase(), label, symbol, value, delta_pct: 0.4, as_of: "2026-11-12T10:00:00Z",
