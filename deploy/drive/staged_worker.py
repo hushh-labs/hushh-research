@@ -122,16 +122,23 @@ def acknowledge(path: Path, variable: str) -> str:
     return digest
 
 
-def service() -> dict:
+class PendingWorkerReadback(ValueError):
+    """The provider has not yet reconciled an otherwise admitted observation."""
+
+
+def service(*, expected_uid=None) -> dict:
     value = gcloud("run", "services", "describe", SERVICE, f"--region={REGION}")
     metadata = value.get("metadata", {}) if isinstance(value, dict) else {}
     if (
         not metadata.get("uid")
         or not metadata.get("resourceVersion")
         or metadata.get("generation") is None
-        or value.get("status", {}).get("observedGeneration") != metadata["generation"]
     ):
         raise ValueError("worker_existing_service_uid_missing")
+    if expected_uid is not None and metadata["uid"] != expected_uid:
+        raise ValueError("worker_existing_service_uid_changed")
+    if value.get("status", {}).get("observedGeneration") != metadata["generation"]:
+        raise PendingWorkerReadback("worker_service_generation_unreconciled")
     return value
 
 
@@ -301,50 +308,63 @@ def worker_startup_state(value, receipt, scheduler_hash):
             raise ValueError("worker_startup_route_changed")
         found.append(bool(owned))
         normalized[lane]["traffic"] = [row for row in rows if row not in owned]
-    if found[0] != found[1]:
-        raise ValueError("worker_startup_route_unreconciled")
     continuity(normalized, receipt, scheduler_hash, allow_retirement=False)
+    if found[0] != found[1]:
+        raise PendingWorkerReadback("worker_startup_route_unreconciled")
     return found[0]
 
 
 def finish_recovery_startup(receipt, template, scheduler_hash):
-    after = service()
-    actual = revision(receipt["candidate"])
-    if (
-        after["spec"]["template"].get("metadata", {}).get("name") != receipt["candidate"]
-        or not VERIFIER["same_worker_spec"](template["spec"], after["spec"]["template"]["spec"])
-        or not VERIFIER["same_worker_spec"](template["spec"], actual["spec"])
-        or not actual["metadata"].get("uid")
-    ):
-        raise ValueError("worker_submitted_template_readback_mismatch")
-    if worker_startup_state(after, receipt, scheduler_hash):
-        try:
-            for _ in range(6):
-                if startup_verified(after, actual, receipt):
-                    break
-                time.sleep(3)
-                after = service()
-                if not worker_startup_state(after, receipt, scheduler_hash):
-                    raise ValueError("worker_startup_route_unreconciled")
-                refreshed = revision(receipt["candidate"])
-                if refreshed["metadata"].get("uid") != actual["metadata"]["uid"]:
+    candidate_uid = None
+
+    def observe(*, started=False, untagged=False):
+        nonlocal candidate_uid
+        for attempt in range(7):
+            try:
+                after = service(expected_uid=receipt["baseline"]["uid"])
+                if (candidate_uid is None
+                        and fingerprint(after["spec"]["template"]) == receipt["baseline_template"]):
+                    continuity(after, receipt, scheduler_hash, allow_retirement=False)
+                    raise PendingWorkerReadback("worker_submitted_template_unobserved")
+                actual = revision(receipt["candidate"])
+                if (
+                    after["spec"]["template"].get("metadata", {}).get("name") != receipt["candidate"]
+                    or not VERIFIER["same_worker_spec"](template["spec"], after["spec"]["template"]["spec"])
+                    or not VERIFIER["same_worker_spec"](template["spec"], actual["spec"])
+                    or not actual["metadata"].get("uid")
+                ):
+                    raise ValueError("worker_submitted_template_readback_mismatch")
+                observed_uid = actual["metadata"]["uid"]
+                if candidate_uid is not None and observed_uid != candidate_uid:
                     raise ValueError("worker_staged_revision_changed")
-                actual = refreshed
-        finally:
-            # Remove only the exact private tag, even when startup failed.
-            after = service()
-            if worker_startup_state(after, receipt, scheduler_hash):
-                try:
-                    submit(after, after["spec"]["template"], targets=receipt["baseline"]["traffic"])
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                    pass  # Resolve the provider result before publishing proof.
-        after = service()
-        if worker_startup_state(after, receipt, scheduler_hash):
-            raise ValueError("worker_startup_tag_removal_unresolved")
-        refreshed = revision(receipt["candidate"])
-        if refreshed["metadata"].get("uid") != actual["metadata"]["uid"]:
-            raise ValueError("worker_staged_revision_changed")
-        actual = refreshed
+                candidate_uid = observed_uid
+                tagged = worker_startup_state(after, receipt, scheduler_hash)
+                if started and not startup_verified(after, actual, receipt):
+                    raise PendingWorkerReadback("worker_provider_startup_unqualified")
+                if untagged and tagged:
+                    raise PendingWorkerReadback("worker_startup_tag_removal_unresolved_repair_required")
+                return after, actual, tagged
+            except (PendingWorkerReadback, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                if attempt == 6:
+                    outcome = "worker_provider_startup_unqualified" if (
+                        isinstance(error, PendingWorkerReadback)
+                        and str(error) == "worker_provider_startup_unqualified"
+                    ) else "worker_provider_readback_unresolved_repair_required"
+                    raise ValueError(outcome) from error
+                time.sleep(3)
+
+    # Protect the first readback too: a timed-out replace can still be settling.
+    # Unknown cross-process outcomes retain the prepared intent and remain fenced.
+    try:
+        after, actual, _ = observe(started=True)
+    finally:
+        after, actual, tagged = observe()
+        if tagged:
+            try:
+                submit(after, after["spec"]["template"], targets=receipt["baseline"]["traffic"])
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                pass  # One removal only; reconcile its result without replaying it.
+            after, actual, _ = observe(untagged=True)
     if not startup_verified(after, actual, receipt):
         raise ValueError("worker_provider_startup_unqualified")
     return after, actual
