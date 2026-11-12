@@ -1695,7 +1695,15 @@ async def test_paid_delivery_preflight_checks_source_without_reclassifying_exist
 
 
 @pytest.mark.parametrize("status", ["queued", "failed", "running"])
-@pytest.mark.parametrize("source", ["legacy_unbound", "previously_migrated_azure"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "legacy_unbound",
+        "previously_migrated_azure",
+        "previously_migrated_flash",
+        "other_flash_binding",
+    ],
+)
 async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effects(
     request_bulk, sharing, monkeypatch, status, source
 ):
@@ -1741,7 +1749,7 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
     job = _search(request_bulk, request_id=request_id, count=1, selection=cp)
     store = DriveOwnerSearchStore(db=sharing.db)
     previous = None
-    if source == "previously_migrated_azure":
+    if source != "legacy_unbound":
         # Build the historical first receipt using its real transaction and fences.
         with sharing.db.engine.begin() as connection:
             connection.execute(
@@ -1761,6 +1769,32 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
                 )
                 previous = store._checkpoint(row)["processor_migration"]
             assert previous["to_binding"]["provider"] == "azure_openai"
+    if source in {"previously_migrated_flash", "other_flash_binding"}:
+        # Preserve a request that already crossed Azure and the original UAT Vertex binding.
+        carbon_policy = managed_text.load_drive_text_policy()
+        with monkeypatch.context() as historical:
+            historical.setattr(
+                managed_text,
+                "load_drive_text_policy",
+                lambda: {
+                    **carbon_policy,
+                    "version": "drive-vertex-flash-v2"
+                    if source == "previously_migrated_flash"
+                    else "another-drive-vertex-flash-binding",
+                    "model": "gemini-3.8-flash",
+                },
+            )
+            assert await store.migrate_request_processor(user_id="owner", request_id=request_id)
+        with sharing.db.engine.connect() as connection:
+            row = store._row(
+                connection,
+                "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job",
+                {"job": job},
+            )
+            flash_migration = store._checkpoint(row)["processor_migration"]
+        assert flash_migration["previous_migration"] == previous
+        assert flash_migration["to_binding"]["deployment"] == "gemini-3.8-flash"
+        previous = flash_migration
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
@@ -1801,6 +1835,23 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
                 ),
                 {"job": job},
             )
+    if source == "other_flash_binding":
+        with pytest.raises(DriveReadError, match="search_superseded"):
+            await store.migrate_request_processor(user_id="owner", request_id=request_id)
+        return
+    if source == "previously_migrated_flash":
+        with monkeypatch.context() as unadmitted:
+            unadmitted.setattr(
+                managed_text,
+                "load_drive_text_policy",
+                lambda: {
+                    **carbon_policy,
+                    "version": "unadmitted-processor-transition",
+                    "model": "gemini-3.7-flash",
+                },
+            )
+            with pytest.raises(DriveReadError, match="search_superseded"):
+                await store.migrate_request_processor(user_id="owner", request_id=request_id)
     assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is True
     assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is False
     with sharing.db.engine.begin() as connection:

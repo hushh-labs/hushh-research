@@ -433,24 +433,42 @@ async def probe_managed_text_model(
     }
 
 
+def _scoped_vertex_text_binding(scoped: dict, generation: str) -> dict:
+    from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+
+    binding = ManagedGeminiRuntimeBinding.from_environment()
+    return {
+        "provider": "gemini",
+        "deployment": scoped["model"],
+        "config_fingerprint": profile_hash(
+            {"policy": scoped, "project": binding.project, "locations": binding.locations}
+        ),
+        "approval_generation": generation,
+        "authorization_basis": "uat_policy",
+    }
+
+
+def matches_previous_uat_drive_flash_binding(binding: dict) -> bool:
+    """Recognize the exact prior scoped processor on this Vertex project and location."""
+    previous = {
+        "version": "drive-vertex-flash-v2",
+        "provider": "vertex",
+        "model": "gemini-3.8-flash",
+        "thinking_level": "low",
+        "max_output_tokens": 16384,
+        "allow_cross_provider_fallback": False,
+    }
+    generation = text_policy_generation(load_private_drive_text_policy(), "vertex", previous)
+    return binding == _scoped_vertex_text_binding(previous, generation)
+
+
 def managed_text_binding(*, scope: str = "drive_document_requests") -> dict:
     policy = managed_text_policy(scope=scope)
     if policy is None:
         raise ValueError("Managed text binding is UAT only")
     scoped = _scoped_policy(scope)
     if scoped is not None:
-        from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
-
-        binding = ManagedGeminiRuntimeBinding.from_environment()
-        return {
-            "provider": "gemini",
-            "deployment": scoped["model"],
-            "config_fingerprint": profile_hash(
-                {"policy": scoped, "project": binding.project, "locations": binding.locations}
-            ),
-            "approval_generation": policy["generation"],
-            "authorization_basis": "uat_policy",
-        }
+        return _scoped_vertex_text_binding(scoped, policy["generation"])
     config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
     provider = policy["selected_provider"]
     deployment = config["primary_deployment"]

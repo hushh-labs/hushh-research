@@ -807,6 +807,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         from hushh_mcp.runtime_providers.managed_text import (
             managed_text_binding,
             managed_text_policy,
+            matches_previous_uat_drive_flash_binding,
         )
         from hushh_mcp.services.drive_owner_allowed import semantic_search_request
         from hushh_mcp.services.drive_request_package_service import assessment_policy_version
@@ -924,17 +925,25 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     raise DriveReadError("search_in_progress")
             previous_migration = private.get("processor_migration")
             if previous_migration:
-                # Permit this exact second transition, retaining the original receipt.
-                # All existing owner, connector, expiry and lease fences above still apply.
+                # Retain the receipt chain for the admitted UAT processor transitions.
                 if not (
                     isinstance(previous_migration, dict)
                     and previous_migration.get("version") == 1
+                    and previous_migration.get("basis") == "administrator_rollout"
                     and previous_migration.get("to_binding") == old_binding
                     and isinstance(old_binding, dict)
-                    and old_binding.get("provider") == "azure_openai"
                     and target["provider"] == "gemini"
                     and target.get("authorization_basis") == "uat_policy"
-                    and "previous_migration" not in previous_migration
+                    and (
+                        (
+                            old_binding.get("provider") == "azure_openai"
+                            and "previous_migration" not in previous_migration
+                        )
+                        or (
+                            target.get("deployment") == "gemini-4-carbon"
+                            and matches_previous_uat_drive_flash_binding(old_binding)
+                        )
+                    )
                 ):
                     raise DriveReadError("search_superseded")
             record = {
