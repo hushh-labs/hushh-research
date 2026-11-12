@@ -48,6 +48,14 @@ ROOT = Path(__file__).resolve().parents[1]
 POSTGRES_URL = str(os.getenv("CONTACT_SYNC_POSTGRES_TEST_URL") or "").strip()
 
 
+@pytest.fixture(autouse=True)
+def stub_connection_account_status(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service.active_directory_user_ids",
+        lambda ids, **_: set(ids),
+    )
+
+
 def _lookup(lookup_id: str, phone: str) -> dict[str, str]:
     digits = "".join(character for character in phone if character.isdigit())
     e164 = f"+{digits}"
@@ -203,6 +211,81 @@ async def _drop_schema(schema: str) -> None:
         await connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
     finally:
         await connection.close()
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not POSTGRES_URL, reason="requires disposable PostgreSQL")
+@pytest.mark.parametrize("provider_only", [False, True])
+def test_contact_sync_does_not_reconnect_a_retired_account(monkeypatch, provider_only):
+    from hushh_mcp.services import connections_service
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
+    schema = f"contact_retired_{uuid.uuid4().hex}"
+    engine = create_engine(
+        make_url(POSTGRES_URL).set(drivername="postgresql+psycopg2"),
+        connect_args={"options": f"-csearch_path={schema},public"},
+    )
+    try:
+        asyncio.run(_prepare_schema(schema))
+        with engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM connections WHERE user_a_id = 'manish' AND user_b_id = 'owner'")
+            )
+            connection.execute(
+                text("""
+                    INSERT INTO connections
+                      (user_a_id, user_b_id, status, source, revoked_at, revoked_by_side, revoked_by_at)
+                    VALUES ('kushal', 'owner', 'revoked', 'request',
+                            now() - interval '1 hour', 'b', now() - interval '1 hour')
+                """)
+            )
+            sync_started_at = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if not provider_only:
+                connection.execute(
+                    text("INSERT INTO account_deletion_tombstones VALUES (:hash, 'full_account')"),
+                    {"hash": account_deletion_user_hash("kushal")},
+                )
+
+        provider_reads = []
+
+        def active_accounts(ids, *, use_cache):
+            provider_reads.append((ids, use_cache))
+            return set(ids) - ({"kushal"} if provider_only else set())
+
+        monkeypatch.setattr(connections_service, "active_directory_user_ids", active_accounts)
+        monkeypatch.setattr(connections_service, "get_db", lambda: SimpleNamespace(engine=engine))
+        monkeypatch.setattr(
+            connections_service, "_notify_connection_graph_changed", lambda **_: None
+        )
+        result = ConnectionsService().sync_contact_matches(
+            "owner",
+            sync_started_at=sync_started_at,
+            phone_lookups=[
+                _lookup("kushal", "+919876500003"),
+                _lookup("manish", "+919876500001"),
+            ],
+            matches=[
+                {"lookup_id": "kushal", "user_id": "kushal"},
+                {"lookup_id": "manish", "user_id": "manish"},
+            ],
+        )
+
+        assert provider_reads == [(["kushal", "manish"], False)]
+        assert result["matchedCount"] == 1
+        assert result["autoConnectedCount"] == 1
+        assert [item["userId"] for item in result["items"]] == ["manish"]
+        with engine.connect() as connection:
+            edges = connection.execute(
+                text("""
+                    SELECT user_a_id, status FROM connections
+                    WHERE user_b_id = 'owner' AND user_a_id IN ('kushal', 'manish')
+                    ORDER BY user_a_id
+                """)
+            ).all()
+        assert edges == [("kushal", "revoked"), ("manish", "active")]
+    finally:
+        engine.dispose()
+        asyncio.run(_drop_schema(schema))
 
 
 @pytest.mark.db

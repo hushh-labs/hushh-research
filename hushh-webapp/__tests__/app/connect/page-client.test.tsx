@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   listMutualConnections: vi.fn(),
   listConnections: vi.fn(),
   listConnectionsPage: vi.fn(),
+  periodicTask: vi.fn(),
   listRequests: vi.fn(),
   sendRequest: vi.fn(),
   cancel: vi.fn(),
@@ -65,6 +66,11 @@ vi.mock("@/lib/capacitor", () => ({
     }),
     openAppSettings: async () => ({ opened: false }),
   },
+}));
+
+vi.mock("@/lib/perf/use-periodic-task", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/perf/use-periodic-task")>()),
+  usePeriodicTask: mocks.periodicTask,
 }));
 
 vi.mock("@/lib/capacitor/platform", () => ({
@@ -572,6 +578,73 @@ describe("P0 connection reconciliation", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
   });
 
+  it.each(["live event", "foreground check"])(
+    "removes a retired connection and updates the count through a %s",
+    async (trigger) => {
+      const retired = {
+        connectionId: "connection-retired",
+        userId: "retired",
+        displayName: "Retired Friend",
+      };
+      const active = {
+        connectionId: "connection-active",
+        userId: "active",
+        displayName: "Active Friend",
+      };
+      let items = [retired, active];
+      mocks.listConnectionsPage.mockImplementation(async ({ accountCheck }) => ({
+        items: accountCheck ? items : [retired, active],
+        page: 1, hasMore: false, totalCount: accountCheck ? items.length : 2, audience: "all",
+      }));
+      render(<ConnectPageClient />);
+      fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+      await screen.findByText("Retired Friend");
+      expect(screen.getByRole("tab", { name: /My connections 2/ })).toBeInTheDocument();
+
+      items = [active];
+      if (trigger === "live event") {
+        act(() => dispatchConnectionGraphChanged("me", { broadcast: false }));
+      } else {
+        const availability = mocks.periodicTask.mock.calls.findLast(
+          ([id]) => id === "connect-account-availability:me",
+        );
+        expect(availability?.[3]).toEqual({ enabled: true });
+        await act(async () => { await availability?.[2](); });
+      }
+
+      await screen.findByRole("tab", { name: /My connections 1/ });
+      expect(screen.queryByText("Retired Friend")).toBeNull();
+      expect(screen.getByText("Active Friend")).toBeVisible();
+      expect(mocks.listConnectionsPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ accountCheck: trigger === "live event" ? "reconcile" : "observe" }),
+      );
+    },
+  );
+
+  it("keeps loaded connection pages when the foreground account check finds no change", async () => {
+    mocks.listConnectionsPage.mockImplementation(async ({ page }) => ({
+      items: [{
+        connectionId: `connection-${page}`,
+        userId: `person-${page}`,
+        displayName: `Friend on page ${page}`,
+      }],
+      page, hasMore: page === 1, totalCount: 2, audience: "all",
+    }));
+    render(<ConnectPageClient />);
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("button", { name: "Load more connections" }));
+    await screen.findByText("Friend on page 2");
+
+    const availability = mocks.periodicTask.mock.calls.findLast(
+      ([id]) => id === "connect-account-availability:me",
+    );
+    expect(availability?.[3]).toEqual({ enabled: true });
+    await act(async () => { await availability?.[2](); });
+
+    expect(screen.getByText("Friend on page 2")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more connections" })).toBeNull();
+  });
+
   it("keeps directory cards visible during a background graph refresh", async () => {
     const refreshed = deferred<{ items: ReturnType<typeof person>[]; hasMore: boolean }>();
     mocks.searchDirectory.mockResolvedValueOnce({
@@ -983,6 +1056,31 @@ describe("Connect — People", () => {
     page.rerender(<ConnectPageClient />);
     await waitFor(() => expect(screen.getByLabelText("Search my connections by name, email or phone")).toHaveValue("Changed"));
     expect(screen.getByRole("tab", { name: /My RIAs/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows a safe label for a contact-synced connection whose name is an SSO account ID", async () => {
+    const ssoAccountId = "sso_0123456789abcdef0123456789abcdef";
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-sso",
+        userId: ssoAccountId,
+        publicPersonRef: "person-ref-sso",
+        displayName: ssoAccountId,
+        photoUrl: null,
+        createdAt: null,
+        connectedFromContacts: true,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+
+    const list = await screen.findByTestId("connect-my-connections-group");
+    const openProfile = await within(list).findByRole("button", { name: "Open Hussh member's profile" });
+    expect(within(list).queryByText(ssoAccountId)).toBeNull();
+    fireEvent.click(openProfile);
+    const profileHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
+    expect(new URL(profileHref, "https://app.invalid").pathname).toBe("/people/person-ref-sso");
   });
 
   it("opens a connection's person profile from My connections", async () => {

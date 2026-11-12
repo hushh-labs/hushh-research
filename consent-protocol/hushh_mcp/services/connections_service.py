@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -45,6 +45,7 @@ from hushh_mcp.services.contact_sync_contract import (
     contact_sync_preference_state,
     resolve_revoked_contact_match,
 )
+from hushh_mcp.services.directory_identity_service import active_directory_user_ids
 from hushh_mcp.services.people_search_sql import (
     directory_search_rank,
     mask_directory_phone,
@@ -299,6 +300,7 @@ def _notify_connection_graph_changed(
     *,
     user_ids: set[str],
     connection_id: str = "",
+    publish_live: bool = True,
 ) -> None:
     """Post-commit, silent graph reconciliation for remote devices."""
 
@@ -315,6 +317,7 @@ def _notify_connection_graph_changed(
                 user_id,
                 transition_id=transition_id,
                 connection_id=connection_id,
+                publish_live=publish_live,
             )
         except Exception:  # noqa: BLE001 - one failed device must not fail the mutation
             logger.warning("connection.graph_sync_failed", exc_info=True)
@@ -3538,10 +3541,34 @@ class ConnectionsService:
 
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
+        candidates_sql = """
+            WITH candidates AS (
+              SELECT c.id, c.created_at,
+                     CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id
+              FROM connections c
+              WHERE c.status = 'active'
+                AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
+                AND NOT EXISTS (
+                  SELECT 1 FROM account_deletion_tombstones deletion
+                  WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END,
+                    'UTF8'
+                  )), 'hex')
+                )
+            )
+        """
+        candidates = self._execute_many(
+            f"{candidates_sql} SELECT user_id FROM candidates",  # nosec B608
+            {"user_id": user_id},
+        )
+        active_ids = active_directory_user_ids([str(row["user_id"]) for row in candidates])
+        if not active_ids:
+            return []
+
         rows = self._execute_many(
-            """
-            SELECT c.id AS connection_id,
-                   CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
+            f"""
+            {candidates_sql}
+            SELECT c.id AS connection_id, c.user_id,
                    a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, a.email_verified, c.created_at,
                    EXISTS (
                      SELECT 1
@@ -3551,21 +3578,12 @@ class ConnectionsService:
                        AND contact_origin.origin_kind = 'contact_sync'
                        AND contact_origin.source_ref = :user_id
                    ) AS connected_from_contacts
-            FROM connections c
-            LEFT JOIN actor_identity_cache a
-              ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
-            WHERE c.status = 'active'
-              AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
-              AND NOT EXISTS (
-                SELECT 1 FROM account_deletion_tombstones deletion
-                WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
-                  CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END,
-                  'UTF8'
-                )), 'hex')
-              )
+            FROM candidates c
+            LEFT JOIN actor_identity_cache a ON a.user_id = c.user_id
+            WHERE c.user_id = ANY(CAST(:active_user_ids AS TEXT[]))
             ORDER BY c.created_at DESC
-            """,
-            {"user_id": user_id},
+            """,  # nosec B608
+            {"user_id": user_id, "active_user_ids": sorted(active_ids)},
         )
         # Match search_directory's RIA annotation with one batched lookup for
         # existing connections; an empty list does not need a lookup.
@@ -3576,7 +3594,7 @@ class ConnectionsService:
                 "connectionId": str(r.get("connection_id") or ""),
                 "userId": str(r.get("user_id") or ""),
                 "publicPersonRef": public_person_refs.get(str(r.get("user_id") or "")),
-                "displayName": r.get("display_name"),
+                "displayName": label_from_identity_row(r, allow_email_handle=False) or None,
                 "photoUrl": r.get("photo_url"),
                 "email": r.get("email"),
                 "emailVerified": r.get("email_verified") is True,
@@ -3595,6 +3613,7 @@ class ConnectionsService:
         page: int = 1,
         limit: int = 50,
         audience: str = DIRECTORY_AUDIENCE_ALL,
+        account_check: Literal["observe", "reconcile"] | None = None,
     ) -> dict[str, Any]:
         """Return a stable bounded connection page without truncating legacy reads."""
 
@@ -3607,8 +3626,7 @@ class ConnectionsService:
             normalized_audience = DIRECTORY_AUDIENCE_ALL
         offset = (normalized_page - 1) * normalized_limit
 
-        rows = self._execute_many(
-            f"""
+        candidates_sql = f"""
             WITH filtered AS (
               SELECT
                 connection.id AS connection_id,
@@ -3669,7 +3687,28 @@ class ConnectionsService:
                       AND {_RIA_VERIFIED_STATUS_SQL}
                   )
                 )
-            ),
+            )
+        """  # nosec B608 # the RIA predicate is a static module constant.
+        candidate_params = {
+            "user_id": viewer_id,
+            "query": normalized_query,
+            "audience": normalized_audience,
+        }
+        candidates = self._execute_many(
+            f"{candidates_sql} SELECT user_id FROM filtered",  # nosec B608
+            candidate_params,
+        )
+        # Verify the matched owner IDs in provider batches before ranking or
+        # counting, so retired rows cannot shift the visible page boundary.
+        # A reader responding to a live hint must not emit the same hint again.
+        active_ids = active_directory_user_ids(
+            [str(row["user_id"]) for row in candidates],
+            use_cache=account_check is None,
+            notify_connections=account_check != "reconcile",
+        )
+        rows = self._execute_many(
+            f"""
+            {candidates_sql},
             matched AS (
               -- One rule for every people search; see people_search_sql.py.
               SELECT *,
@@ -3680,6 +3719,7 @@ class ConnectionsService:
                   ELSE 2
                 END AS match_rank
               FROM filtered
+              WHERE user_id = ANY(CAST(:active_user_ids AS TEXT[]))
             ),
             narrowed AS (
               SELECT * FROM matched
@@ -3724,10 +3764,9 @@ class ConnectionsService:
                      page_rows.user_id, page_rows.connection_id
             """,  # nosec B608 # the RIA predicate is a static module constant.
             {
-                "user_id": viewer_id,
-                "query": normalized_query,
+                **candidate_params,
                 **people_query_match_params(normalized_query),
-                "audience": normalized_audience,
+                "active_user_ids": sorted(active_ids),
                 "offset": offset,
                 "limit": normalized_limit,
             },
@@ -3742,7 +3781,7 @@ class ConnectionsService:
                 "connectionId": str(row.get("connection_id") or ""),
                 "userId": str(row.get("user_id") or ""),
                 "publicPersonRef": public_person_refs.get(str(row.get("user_id") or "")),
-                "displayName": row.get("display_name"),
+                "displayName": label_from_identity_row(row, allow_email_handle=False) or None,
                 "photoUrl": row.get("photo_url"),
                 "email": row.get("email"),
                 "createdAt": row.get("created_at"),
@@ -3836,6 +3875,18 @@ class ConnectionsService:
                 continue
             seen_lookup_ids.add(lookup_id)
             normalized_matches.append({**match, "lookup_id": lookup_id, "user_id": target_user_id})
+
+        # Contact proof binds a phone to the cached row. It does not prove
+        # the account still exists. Check matched owners before graph locks;
+        # the transaction below still fences concurrent app-side deletion.
+        if normalized_matches:
+            active_ids = active_directory_user_ids(
+                sorted({str(match["user_id"]) for match in normalized_matches}),
+                use_cache=False,
+            )
+            normalized_matches = [
+                match for match in normalized_matches if match["user_id"] in active_ids
+            ]
 
         if not normalized_matches:
             return {
@@ -3934,6 +3985,12 @@ class ConnectionsService:
                        photo_url, custom_photo_url
                 FROM actor_identity_cache
                 WHERE user_id = ANY(CAST(:identity_user_ids AS TEXT[]))
+                  AND NOT EXISTS (
+                    SELECT 1 FROM account_deletion_tombstones deletion
+                    WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                        actor_identity_cache.user_id, 'UTF8'
+                    )), 'hex')
+                  )
                 ORDER BY user_id
                 """,
                 {"identity_user_ids": sorted({requester_id, *candidate_user_ids})},

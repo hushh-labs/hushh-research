@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
@@ -17,56 +18,113 @@ from hushh_mcp.services.command_checkpoints import CommandCheckpointConflict, Co
 from tests.helpers.chat_keys import static_chat_cipher
 
 
+@pytest.fixture(autouse=True)
+def active_location_provider_accounts(monkeypatch):
+    # SQL fixtures own synthetic active identities, not a live Firebase project.
+    # Replace only the provider port: local tombstones, real lifecycle locks,
+    # relationship authorization, mutations and rollback remain production SQL.
+    from hushh_mcp.services import one_location_agent_service, one_location_circle_service
+
+    def active_accounts(user_ids, **_):
+        return set(user_ids)
+
+    monkeypatch.setattr(one_location_agent_service, "active_directory_user_ids", active_accounts)
+    monkeypatch.setattr(one_location_circle_service, "active_directory_user_ids", active_accounts)
+
+
 @pytest.fixture
 def db():
-    url = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
-    if not url:
+    supplied = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not supplied:
         pytest.skip("An isolated PostgreSQL database is required.")
-    engine = create_engine(url)
-    schema = f"command_test_{uuid4().hex}"
-    with engine.begin() as conn:
-        conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-    scoped = create_engine(url, connect_args={"options": f"-csearch_path={schema},public"})
+    url = make_url(supplied).set(drivername="postgresql+psycopg2")
+    if (
+        url.host not in {"127.0.0.1", "localhost"}
+        or url.database != "command_test"
+        or url.username != "command_test"
+        or url.query
+    ):
+        pytest.fail("Location command tests refuse a non-isolated PostgreSQL target")
+
+    # The deletion migration owns public-schema guards and a database-wide DDL
+    # trigger. Install it in a disposable database while keeping the command
+    # fixtures in their original isolated schema.
+    suffix = uuid4().hex
+    name = f"location_command_test_{suffix}"
+    schema = f"command_test_{suffix}"
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    admin = create_engine(url, isolation_level="AUTOCOMMIT", hide_parameters=True)
+    scoped = None
+    created = False
 
     class Database:
-        engine = scoped
+        def __init__(self, engine):
+            self.engine = engine
 
         def execute_raw(self, sql, params=None):
-            with scoped.begin() as conn:
+            with self.engine.begin() as conn:
                 result = conn.execute(text(sql), params or {})
                 return SimpleNamespace(
                     data=[dict(row) for row in result.mappings()] if result.returns_rows else []
                 )
 
-    database = Database()
-    database.execute_raw(
-        "CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY); INSERT INTO actor_profiles VALUES('owner'),('other'); CREATE TABLE agent_chat_conversations(id UUID PRIMARY KEY)"
-    )
-    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
-    for name in (
-        "114_one_action_directive_ledger.sql",
-        "184_encrypted_one_adk_sessions.sql",
-        "212_location_command_runtime.sql",
-        "212_location_command_runtime.sql",
-        "213_location_command_workflow_binding.sql",
-        "213_location_command_workflow_binding.sql",
-        "215_location_command_resource_receipt.sql",
-        "215_location_command_resource_receipt.sql",
-        "216_location_command_membership_receipts.sql",
-        "217_location_command_effect_receipts.sql",
-        "218_location_command_audience_receipts.sql",
-        "216_location_command_membership_receipts.sql",
-        "217_location_command_effect_receipts.sql",
-        "218_location_command_audience_receipts.sql",
-        # The ledger store writes adk_app_name; keep the fixture at the real schema.
-        "248_adk_chat_action_authority.sql",
-    ):
-        database.execute_raw((migrations / name).read_text())
-    yield database
-    scoped.dispose()
-    with engine.begin() as conn:
-        conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-    engine.dispose()
+    try:
+        with admin.connect() as conn:
+            conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
+        created = True
+        scoped = create_engine(
+            url.set(database=name),
+            hide_parameters=True,
+            connect_args={"options": f"-csearch_path={schema},public"},
+        )
+        with scoped.begin() as conn:
+            conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+            conn.exec_driver_sql("SET LOCAL search_path TO public")
+            conn.exec_driver_sql("""
+                CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY);
+                CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY);
+            """)
+            conn.exec_driver_sql(
+                (migrations / "201_account_deletion_tombstones.sql").read_text(encoding="utf-8"),
+                execution_options={"no_parameters": True},
+            )
+        database = Database(scoped)
+        database.execute_raw("""
+            CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY);
+            INSERT INTO actor_profiles VALUES('owner'),('other');
+            CREATE TABLE agent_chat_conversations(id UUID PRIMARY KEY);
+        """)
+        for migration in (
+            "114_one_action_directive_ledger.sql",
+            "184_encrypted_one_adk_sessions.sql",
+            "212_location_command_runtime.sql",
+            "212_location_command_runtime.sql",
+            "213_location_command_workflow_binding.sql",
+            "213_location_command_workflow_binding.sql",
+            "215_location_command_resource_receipt.sql",
+            "215_location_command_resource_receipt.sql",
+            "216_location_command_membership_receipts.sql",
+            "217_location_command_effect_receipts.sql",
+            "218_location_command_audience_receipts.sql",
+            "216_location_command_membership_receipts.sql",
+            "217_location_command_effect_receipts.sql",
+            "218_location_command_audience_receipts.sql",
+            # The ledger store writes adk_app_name; keep the fixture at the real schema.
+            "248_adk_chat_action_authority.sql",
+        ):
+            with scoped.begin() as conn:
+                conn.exec_driver_sql(
+                    (migrations / migration).read_text(encoding="utf-8"),
+                    execution_options={"no_parameters": True},
+                )
+        yield database
+    finally:
+        if scoped is not None:
+            scoped.dispose()
+        if created:
+            with admin.connect() as conn:
+                conn.exec_driver_sql(f'DROP DATABASE "{name}" WITH (FORCE)')
+        admin.dispose()
 
 
 async def ready(db, confirmation=True):
@@ -719,10 +777,13 @@ def test_request_receipt_survives_approval_and_rolls_back_with_effect(db):
             row = self.connection.execute(text(sql), params or {}).mappings().first()
             return dict(row) if row else None
 
+        def _execute_many(self, sql, params=None):
+            return db.execute_raw(sql, params).data
+
         def _active_grant_between(self, **kwargs):
             return None
 
-        def _repair_legacy_direct_request_deadlines(self, _owner):
+        def _repair_legacy_direct_request_deadlines(self, _owner, *, requester_user_id=None):
             pass
 
         def _identity_row(self, _user):

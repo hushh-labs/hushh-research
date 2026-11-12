@@ -43,6 +43,16 @@ def test_legacy_profile_hides_technical_label_and_rejects_retired_identity(monke
         service.get_public_profile(person_ref)
 
 
+def _profile_db(rows):
+    profile_rows = next(rows)
+
+    def execute_raw(sql, _params):
+        data = profile_rows if "WHERE profile.public_person_ref =" in sql else next(rows)
+        return SimpleNamespace(data=data)
+
+    return SimpleNamespace(execute_raw=execute_raw)
+
+
 class _Connections:
     def get_information_scope_catalog(self, *_args, **_kwargs):
         return {
@@ -333,7 +343,7 @@ async def test_viewer_profile_exposes_opaque_scope_metadata_without_raw_scope() 
             [],
         ]
     )
-    db = SimpleNamespace(execute_raw=lambda *_args, **_kwargs: SimpleNamespace(data=next(rows)))
+    db = _profile_db(rows)
     service = PersonProfileService(connections=_Connections(), consent_db=_Consent())
     with patch("hushh_mcp.services.person_profile_service.get_db", lambda: db):
         payload = await service.get_viewer_profile(
@@ -365,7 +375,7 @@ async def test_viewer_profile_exposes_export_revision_as_metadata_for_grants() -
             [],
         ]
     )
-    db = SimpleNamespace(execute_raw=lambda *_args, **_kwargs: SimpleNamespace(data=next(rows)))
+    db = _profile_db(rows)
     service = PersonProfileService(connections=_Connections(), consent_db=_ConsentWithGrant())
     with patch("hushh_mcp.services.person_profile_service.get_db", lambda: db):
         payload = await service.get_viewer_profile(
@@ -441,7 +451,7 @@ async def test_viewer_profile_batches_request_status_reads() -> None:
             [],
         ]
     )
-    db = SimpleNamespace(execute_raw=lambda *_args, **_kwargs: SimpleNamespace(data=next(rows)))
+    db = _profile_db(rows)
     consent = _ConsentWithBatchedHistory({"request-1": "REQUESTED", "request-2": "CONSENT_DENIED"})
     service = PersonProfileService(connections=_Connections(), consent_db=consent)
     with patch("hushh_mcp.services.person_profile_service.get_db", lambda: db):
@@ -483,7 +493,7 @@ async def test_viewer_request_history_reports_a_withdrawn_request_as_cancelled()
             [],
         ]
     )
-    db = SimpleNamespace(execute_raw=lambda *_args, **_kwargs: SimpleNamespace(data=next(rows)))
+    db = _profile_db(rows)
     consent = _ConsentWithHistory(
         {
             "req-cancelled": "CANCELLED",

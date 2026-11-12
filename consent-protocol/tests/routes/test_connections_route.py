@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -229,6 +229,27 @@ def test_directory_identity_outage_returns_retryable_503():
     }
 
 
+def test_contact_sync_reports_provider_outage_as_retryable():
+    with (
+        patch("api.routes.one.connections.ConnectionsService") as service,
+        patch("api.routes.one.connections.ActorIdentityService") as identity,
+        patch("api.routes.one.connections.RIAIAMService") as directory,
+    ):
+        identity.return_value.sync_contact_sync_requester_from_firebase = AsyncMock(
+            return_value=None
+        )
+        directory.return_value.match_one_network_contact_lookups_exact = AsyncMock(
+            return_value=[{"lookup_id": "contact1", "user_id": "peer"}]
+        )
+        service.return_value.sync_contact_matches.side_effect = DirectoryIdentityUnavailableError()
+        response = _client().post(
+            "/api/one/connections/contact-sync",
+            json={"lookups": [{"lookup_id": "contact1", "hash": "a" * 64, "last4": "1234"}]},
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "DIRECTORY_IDENTITY_UNAVAILABLE"
+
+
 def test_connections_no_params_preserves_legacy_complete_shape():
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
@@ -241,7 +262,8 @@ def test_connections_no_params_preserves_legacy_complete_shape():
     svc_cls.return_value.list_connections_page.assert_not_called()
 
 
-def test_connections_paging_filters_ria_before_returning_a_bounded_page():
+@pytest.mark.parametrize("account_check", [None, "observe", "reconcile"])
+def test_connections_paging_filters_ria_before_returning_a_bounded_page(account_check):
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
         svc_cls.return_value.list_connections_page.return_value = {
@@ -251,12 +273,20 @@ def test_connections_paging_filters_ria_before_returning_a_bounded_page():
             "totalCount": 5000,
             "audience": "ria",
         }
-        resp = client.get("/api/one/connections?page=2&limit=100&query=alex&audience=ria")
+        params = {"page": 2, "limit": 100, "query": "alex", "audience": "ria"}
+        if account_check:
+            params["account_check"] = account_check
+        resp = client.get("/api/one/connections", params=params)
     assert resp.status_code == 200
     assert resp.json()["totalCount"] == 5000
     assert resp.headers["cache-control"] == "private, no-store"
     svc_cls.return_value.list_connections_page.assert_called_once_with(
-        "user-a", page=2, limit=100, query="alex", audience="ria"
+        "user-a",
+        page=2,
+        limit=100,
+        query="alex",
+        audience="ria",
+        **({"account_check": account_check} if account_check else {}),
     )
 
 
