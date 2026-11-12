@@ -292,9 +292,9 @@ describe("toMoverGroups", () => {
     expect(container.querySelector("time")).toBeNull();
     expect(container.textContent).not.toMatch(/time unavailable/i);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
-    expect(within(screen.getByRole("region", { name: "Gainers" })).getAllByText("Quote unavailable")).toHaveLength(3);
-    expect(within(screen.getByRole("region", { name: "Losers" })).getAllByText("Quote unavailable")).toHaveLength(3);
+    // No text at all: six placeholders shaped like movers.
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);
+    expect(screen.queryByText(/unavailable|updating/i)).not.toBeInTheDocument();
     expect(container.querySelectorAll("button")).toHaveLength(0);
     expect(container.textContent).not.toMatch(/cached|[+-]\d/);
   });

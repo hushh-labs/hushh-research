@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
@@ -412,9 +413,13 @@ export function OneMarketMovers({ groups, linkable = true, note }: {
               </h3>
               {Array.from({ length: 3 }, (_, rank) => {
                 const row = rows[rank];
-                if (!row) return <p key={rank} data-market-mover-empty
-                  aria-label={title + " " + (rank + 1) + ": Quote unavailable"}
-                  className="ui-text-row-description flex min-h-12 items-center border-t border-border/50 px-2 py-2 text-muted-foreground">Quote unavailable</p>;
+                // A slot with no row yet is a placeholder shaped like a mover, not text.
+                if (!row) return <div key={rank} data-market-mover-empty aria-busy="true"
+                  aria-label={title + " " + (rank + 1) + ": loading"}
+                  className="flex min-h-12 min-w-0 flex-col justify-center gap-1.5 border-t border-border/50 px-2 py-2">
+                  <span className="flex justify-between gap-6"><Skeleton className="h-3.5 w-16" /><Skeleton className="h-3.5 w-12" /></span>
+                  <Skeleton className="h-3 w-28" />
+                </div>;
                 const body = (
                   <>
                     <span className="flex min-w-0 items-baseline justify-between gap-2">

@@ -113,7 +113,7 @@ export function BiggestMoversCard({ positions, onOpenHolding }: { positions: rea
           </div>
         </SurfaceCardContent>
       </SurfaceCard>
-      <KaiControlSurface open={open} onOpenChange={setOpen} title="Biggest gains and losses" presentation="sheet" surfaceClassName={financeStyles.detail}>
+      <KaiControlSurface open={open} onOpenChange={setOpen} title="Biggest gains and losses" presentation="sheet" surfaceClassName={cn(financeStyles.detail, financeStyles.sheetFrame)}>
         {gains.length ? <p className={cn(styles.sheetSection, styles.positive)}>Gains</p> : null}
         {gains.map((position) => <MoverRow key={position.id} position={position} className={styles.sheetRow} onOpen={() => choose(position.id)} />)}
         {losses.length ? <p className={cn(styles.sheetSection, styles.negative)}>Losses</p> : null}

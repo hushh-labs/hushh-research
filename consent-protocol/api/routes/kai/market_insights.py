@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from hushh_mcp.market_data import india_market
 from hushh_mcp.market_data.india_market import assemble_india_payload, load_india_home
 from hushh_mcp.market_data.movers import (
     MIN_MOVERS,
@@ -3142,17 +3143,32 @@ async def get_market_company_facts(
 
 INDIA_HOME_FRESH_TTL_SECONDS = 300
 INDIA_HOME_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
+# Movers have their own cache entry so a rate-limited refresh never overwrites the last good
+# list: the stale copy is served until a refresh succeeds.
+INDIA_MOVERS_FRESH_TTL_SECONDS = 300
+INDIA_MOVERS_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
 async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, Any]:
     """India market view. Its cache key is outside every US-gated prefix on purpose:
     NSE hours never overlap the US session, so a US-closed pause would freeze it."""
 
+    async def movers() -> dict[str, Any]:
+        value, *_ = await _get_or_refresh_public_module(
+            key="india_movers:v1",
+            fresh_ttl_seconds=INDIA_MOVERS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=INDIA_MOVERS_STALE_TTL_SECONDS,
+            fetcher=lambda: india_market.fetch_india_movers(),
+            warm_source="india_market",
+        )
+        return dict(value)
+
     async def build() -> dict[str, Any]:
         loaded = await load_india_home(
             days_back,
             lambda: _fetch_market_status_for_exchange("NS"),
             lambda: _scheduled_market_status_fallback("NS"),
+            movers,
         )
         base = _empty_market_home_payload(
             user_id=user_id,
