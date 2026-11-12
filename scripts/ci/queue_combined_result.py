@@ -36,7 +36,13 @@ def git(*args):
 
 
 def api(path):
-    return json.loads(subprocess.check_output(["gh", "api", path], text=True, timeout=30))
+    from github_team_authority import cli_read
+    from github_security_authority import Refused as AuthorityRefused
+
+    try:
+        return cli_read(path)
+    except AuthorityRefused as error:
+        raise Refused(str(error)) from None
 
 
 def event_context():

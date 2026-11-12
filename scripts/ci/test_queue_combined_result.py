@@ -15,6 +15,36 @@ from repo_governance_plan import MAX_CHANGED_BYTES, MAX_CHANGED_PATHS
 BASE, FIRST, SECOND, HEAD1, HEAD2 = (letter * 40 for letter in "abcde")
 
 
+def test_queue_read_recovers_502_but_latest_failed_attempt_still_refuses():
+    import subprocess
+
+    state = {"repository": "hushh-labs/hushh-research", "members": [{"head": HEAD1, "number": 1}]}
+    run = {"id": 7, "path": ".github/workflows/ci.yml", "name": "PR Validation",
+           "event": "pull_request", "head_sha": HEAD1, "status": "completed",
+           "conclusion": "failure", "run_attempt": 2, "run_started_at": "2026-11-12T12:00:00Z",
+           "updated_at": "2026-11-12T12:01:00Z"}
+    responses = [subprocess.CompletedProcess([], 1, "", "private body (HTTP 502)"),
+                 subprocess.CompletedProcess([], 0, json.dumps({"total_count": 1, "workflow_runs": [run]}), ""),
+                 subprocess.CompletedProcess([], 0, json.dumps({"total_count": 1, "jobs": [
+                     {"name": "CI Status Gate", "conclusion": "failure"}]}), "")]
+    owner = queue._module("verify-queue-entry-reuses-pr-validation.py", "retry_queue_attempt_owner")
+    with patch.object(subprocess, "run", side_effect=responses) as read, patch("time.sleep") as sleep, \
+         patch.object(queue, "_module", return_value=owner):
+        with pytest.raises(owner.QueueEntryRejected, match="concluded failure"):
+            queue.current_validations(state)
+        assert read.call_count == 3
+        sleep.assert_called_once_with(1)
+        assert all(call.args[0][:2] == ["gh", "api"] for call in read.call_args_list)
+
+
+def test_queue_api_preserves_existing_refusal_for_unavailable_readback():
+    from github_team_authority import UnavailableRead
+
+    with patch("github_team_authority.cli_read", side_effect=UnavailableRead(503)):
+        with pytest.raises(queue.Refused, match="HTTP 503"):
+            queue.api("repos/hushh-labs/hushh-research/pulls/1")
+
+
 def entry(number, head, requester="kushaltrivedi5"):
     return {"id": f"entry-{number}", "position": number, "enqueuer": {"login": requester},
             "pullRequest": {"number": number, "headRefOid": head, "baseRefName": "main",
@@ -536,14 +566,16 @@ def test_owner_admin_records_confirmed_unqualified_landing_before_refusal(tmp_pa
                 "tree": commit["tree"]["sha"], "parents": [p["sha"] for p in commit["parents"]]}
 
 
-def test_owner_admin_never_replays_unconfirmed_merge(tmp_path):
+@pytest.mark.parametrize("readback", [{"merged": False}, queue.Refused("GitHub authority read unavailable (HTTP 503)")])
+def test_owner_admin_never_replays_unconfirmed_merge(tmp_path, readback):
     from types import SimpleNamespace
     proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "main", "base": BASE, "tree": FIRST}}
     with patch.object(queue, "owner_admin_snapshot", return_value=proof), \
          patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=1)) as write, \
-         patch.object(queue, "api", return_value={"merged": False}):
+         patch.object(queue, "api", side_effect=[readback]):
         receipt = tmp_path / "receipt.json"
-        with pytest.raises(queue.Refused, match="not confirmed"):
+        reason = "not confirmed" if isinstance(readback, dict) else "outcome uncertain"
+        with pytest.raises(queue.Refused, match=reason):
             queue.owner_admin_merge(8825, HEAD1, receipt, apply=True)
         write.assert_called_once()
         assert json.loads(receipt.read_text())["outcome"] == "not_confirmed"
