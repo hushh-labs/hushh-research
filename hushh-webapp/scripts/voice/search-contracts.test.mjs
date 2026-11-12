@@ -115,7 +115,10 @@ test('independent UI source snapshots compose without blocking combined structur
 
 test('optional source snapshots stay immutable and checks never create evidence', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-receipt-'));
+  const previousEnv = { CI: process.env.CI, GITHUB_ACTIONS: process.env.GITHUB_ACTIONS };
   try {
+    process.env.CI = 'false';
+    process.env.GITHUB_ACTIONS = 'false';
     const revision = 'a'.repeat(64);
     for (const kind of ['back','search']) {
       await assert.doesNotReject(syncReviewReceipt(root,kind,revision,{source_module_count:2},true));
@@ -130,9 +133,23 @@ test('optional source snapshots stay immutable and checks never create evidence'
       await assert.rejects(syncReviewReceipt(root,kind,revision,{source_module_count:3},true), /Invalid immutable/);
       await assert.rejects(syncReviewReceipt(root,kind,revision,{source_module_count:3}), /Invalid immutable/);
       await assert.doesNotReject(syncReviewReceipt(root,kind,'b'.repeat(64),{source_module_count:2},true));
+      // Hosted checks ignore local cache contents and never create or alter evidence.
+      process.env.CI = 'true';
+      process.env.GITHUB_ACTIONS = 'true';
+      const cached = await fs.readFile(receipt, 'utf8');
+      await assert.doesNotReject(syncReviewReceipt(root,kind,revision,{source_module_count:3},true));
+      assert.equal(await fs.readFile(receipt, 'utf8'), cached);
+      process.env.CI = 'false';
+      process.env.GITHUB_ACTIONS = 'false';
     }
     await assert.rejects(syncReviewReceipt(root,'back','../invalid',{}), /Invalid UI/);
-  } finally { await fs.rm(root,{recursive:true,force:true}); }
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await fs.rm(root,{recursive:true,force:true});
+  }
 });
 
 test('source snapshots stay optional across changed, untracked and unrelated histories', async () => {
