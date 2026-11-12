@@ -132,6 +132,12 @@ const allowedAndroidPermissions = new Set([
   "android.permission.FOREGROUND_SERVICE_LOCATION",
   // One SMS alarm service owns audible playback and CPU wakefulness until ACK.
   "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+  // Telecom owns self-managed calls. The microphone service type starts on an explicit answer or a foreground start.
+  "android.permission.MANAGE_OWN_CALLS",
+  "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+  "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+  // Optional lock-screen presentation for SMS – Save my Soul.
+  "android.permission.USE_FULL_SCREEN_INTENT",
   "android.permission.WAKE_LOCK",
   "android.permission.POST_NOTIFICATIONS",
   "android.permission.READ_CONTACTS",
@@ -171,7 +177,16 @@ const backgroundService = androidManifest.match(/<service\b[^>]*android:name="\.
 if (!backgroundService?.includes('android:exported="false"') || !backgroundService.includes('android:foregroundServiceType="location"')) {
   fail("Background location sharing requires a non-exported location foreground service.");
 }
-for (const permission of ["FOREGROUND_SERVICE_MEDIA_PLAYBACK", "WAKE_LOCK"]) {
+const callingService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhCalling\.CallingService"[^>]*\/>/s)?.[0];
+if (!callingService?.includes('android:exported="false"') || !callingService.includes('android:foregroundServiceType="phoneCall|microphone"')) {
+  fail("Android calling requires a non-exported Telecom foreground service.");
+}
+for (const permission of ["MANAGE_OWN_CALLS", "FOREGROUND_SERVICE_PHONE_CALL", "FOREGROUND_SERVICE_MICROPHONE"]) {
+  if (!androidPermissions.includes(`android.permission.${permission}`)) {
+    fail(`Android Telecom requires android.permission.${permission}.`);
+  }
+}
+for (const permission of ["FOREGROUND_SERVICE_MEDIA_PLAYBACK", "WAKE_LOCK", "USE_FULL_SCREEN_INTENT"]) {
   if (!androidPermissions.includes(`android.permission.${permission}`)) {
     fail(`SMS alarms require android.permission.${permission}.`);
   }
@@ -180,10 +195,14 @@ const smsAlarmService = androidManifest.match(/<service\b[^>]*android:name="\.pl
 if (!smsAlarmService?.includes('android:exported="false"') || !smsAlarmService.includes('android:foregroundServiceType="mediaPlayback"')) {
   fail("SMS alarms require a non-exported mediaPlayback foreground service.");
 }
-// One Voice's privacy contract forbids background audio. iOS SMS alarms ring
-// through AlarmKit on iOS 26+ and through notification sound otherwise.
+const smsAlarmActivity = androidManifest.match(/<activity\b[^>]*android:name="\.plugins\.HushhNotifications\.EmergencySmsAlarmActivity"[^>]*\/>/s)?.[0];
+if (!smsAlarmActivity?.includes('android:exported="false"')) {
+  fail("The SMS lock-screen activity must be non-exported.");
+}
+// One Voice's privacy contract forbids background audio. iOS uses the
+// notification sound for SMS – Save my Soul alerts received in the background.
 if (infoPlist.includes("<string>audio</string>")) {
-  fail("UIBackgroundModes must not include audio; SMS alarms use AlarmKit or notification sound.");
+  fail("UIBackgroundModes must not include audio; SMS alarms use notification sound.");
 }
 const androidContactsPlugin = read(androidContactsPluginPath);
 const androidDeviceRegion = androidContactsPlugin.match(

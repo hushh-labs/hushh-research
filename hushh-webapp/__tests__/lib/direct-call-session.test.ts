@@ -1,0 +1,160 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DirectCallSession } from "@/lib/direct-messages/call-session";
+import { ApiError } from "@/lib/services/api-client";
+import type { DirectCall, DirectCallsService } from "@/lib/services/direct-calls-service";
+import type { CallMedia } from "@/lib/direct-messages/call-media";
+
+vi.mock("@/lib/direct-messages/call-crypto", () => ({
+  digest: async () => "synthetic-code", callSignalContext: () => "synthetic-context",
+  verifyCallProof: async () => undefined, openCallSignal: async () => ({ type: "offer", sdp: "synthetic" }),
+  sealCallSignal: async () => ({ synthetic: true }),
+}));
+
+const base: DirectCall = { id: "call", conversationId: "conversation", state: "ringing", revision: 1,
+  expiresAt: 9999999999, isCaller: false, callerDeviceId: "caller", calleeDeviceId: null };
+function fixture(incoming = false, verifyPeer: () => Promise<boolean> = async () => false) {
+  const call = { ...base, isCaller: !incoming };
+  const service = { identity: { deviceId: incoming ? "callee" : "caller" }, userId: incoming ? "bob" : "alice",
+    capabilities: vi.fn(async () => ({ available: true })), initialize: vi.fn(async () => undefined),
+    inbox: vi.fn(async () => ({ items: [call] })), create: vi.fn(async () => call),
+    heartbeat: vi.fn(async () => call),
+    devices: vi.fn(async () => ({ items: [
+      { deviceId: "caller", userId: "alice" }, { deviceId: "callee", userId: "bob" },
+    ] })), relay: vi.fn(async () => ({})), offer: vi.fn(async () => call),
+    read: vi.fn(async () => ({ ...call, offers: [{ synthetic: true }],
+      offerProof: { payload: { callId: call.id, offers: [{ synthetic: true }] }, proof: {} }, signals: [] })),
+    action: vi.fn(async (_call: DirectCall, action: string) => ({ ...call,
+      state: action === "accept" ? "connecting" as const : "ended" as const, calleeDeviceId: "callee", revision: 2 })),
+  };
+  let connected!: () => void;
+  const media = { open: vi.fn(async (_config: unknown, onConnected: () => void) => { connected = onConnected; }),
+    description: vi.fn(async () => ({ type: "offer", sdp: "synthetic" })), stop: vi.fn(), remote: vi.fn() };
+  const publish = vi.fn();
+  const session = new DirectCallSession(service as unknown as DirectCallsService, publish, verifyPeer, media as unknown as CallMedia);
+  return { service, media, publish, session, connected: () => connected() };
+}
+afterEach(() => { vi.useRealTimers(); });
+
+describe("call session concurrency", () => {
+  it("keeps a new incoming call available when the concurrent outgoing attempt fails", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const incoming = { ...base, id: "incoming-call" };
+    f.service.inbox.mockResolvedValue({ items: [incoming] });
+    let rejectCreate!: (error: ApiError) => void;
+    f.service.create.mockImplementationOnce(() => new Promise((_, reject) => { rejectCreate = reject; }));
+    await f.session.initialize();
+    const outgoing = f.session.start("conversation");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.service.inbox).not.toHaveBeenCalled();
+    rejectCreate(new ApiError("Call busy", 409, { code: "CALL_BUSY" }));
+    expect(await outgoing).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.service.action).not.toHaveBeenCalled();
+    expect(f.publish.mock.lastCall?.[0].call?.id).toBe(incoming.id);
+    f.session.dispose();
+  });
+
+  it("does not create a call after cancellation while device initialization is pending", async () => {
+    const f = fixture();
+    Object.assign(f.service, { identity: null });
+    let ready!: () => void;
+    f.service.initialize.mockImplementationOnce(() => new Promise<undefined>(resolve => { ready = () => resolve(undefined); }));
+    const starting = f.session.start("conversation");
+    f.session.dispose();
+    ready(); await starting;
+    expect(f.service.create).not.toHaveBeenCalled();
+    expect(f.media.open).not.toHaveBeenCalled();
+    expect(f.service.action).not.toHaveBeenCalled();
+  });
+  it("renews while verification is pending and stops media if authentication never settles", async () => {
+    vi.useFakeTimers();
+    let verify!: (value: boolean) => void;
+    const f = fixture(true, () => new Promise(done => { verify = done; }));
+    await f.session.initialize(); await vi.advanceTimersByTimeAsync(2000);
+    const answer = f.session.answer();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(f.service.heartbeat).toHaveBeenCalledOnce();
+    expect(f.media.open).not.toHaveBeenCalled();
+    f.service.heartbeat.mockImplementationOnce(() => new Promise(() => {}));
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(f.media.stop).toHaveBeenCalled();
+    expect(f.publish.mock.lastCall?.[0].call).toBeNull();
+    verify(false); await answer;
+    f.session.dispose();
+  });
+
+  it("fences an in-flight heartbeat across re-adoption and cancels every lease timer", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    let offered!: (value: DirectCall) => void;
+    let renewed!: (value: DirectCall) => void;
+    f.service.offer.mockImplementationOnce(() => new Promise(done => { offered = done; }));
+    f.service.heartbeat.mockImplementationOnce(() => new Promise(done => { renewed = done; }));
+    const starting = f.session.start("conversation");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(f.service.heartbeat).toHaveBeenCalledOnce();
+    const call = { ...base, isCaller: true };
+    offered(call); await starting;
+    renewed({ ...call, revision: 50 });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(f.service.heartbeat).toHaveBeenCalledTimes(2);
+    expect(f.publish.mock.lastCall?.[0].call?.revision).toBe(1);
+    f.session.dispose();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.service.heartbeat).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ignores an old rendered call's Answer, End and Mute intents", async () => {
+    vi.useFakeTimers();
+    const f = fixture(true);
+    await f.session.initialize(); await vi.advanceTimersByTimeAsync(2000);
+    f.media.stop.mockClear();
+    const reads = f.service.read.mock.calls.length;
+    await f.session.answer("old-call");
+    await f.session.end(true, "old-call");
+    f.session.mute("old-call");
+    expect(f.service.read).toHaveBeenCalledTimes(reads);
+    expect(f.service.action).not.toHaveBeenCalled();
+    expect(f.media.stop).not.toHaveBeenCalled();
+    expect(f.publish.mock.lastCall?.[0].muted).toBe(false);
+    f.session.dispose();
+  });
+  it("accepts at most once when Answer is activated twice during a deferred read", async () => {
+    vi.useFakeTimers();
+    const f = fixture(true);
+    await f.session.initialize(); await vi.advanceTimersByTimeAsync(2000);
+    const remote = await f.service.read();
+    let resolve!: (value: typeof remote) => void;
+    f.service.read.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    const first = f.session.answer(); await Promise.resolve();
+    await f.session.answer();
+    resolve(remote); await first;
+    expect(f.service.action.mock.calls.filter(([, action]) => action === "accept")).toHaveLength(1);
+    // Rejected human verification never admits the microphone.
+    expect(f.media.open).not.toHaveBeenCalled(); f.session.dispose();
+  });
+
+  it("does not accept after cancellation while the offer read is pending", async () => {
+    vi.useFakeTimers();
+    const f = fixture(true);
+    await f.session.initialize(); await vi.advanceTimersByTimeAsync(2000);
+    const remote = await f.service.read();
+    let resolve!: (value: typeof remote) => void;
+    f.service.read.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    const answering = f.session.answer(); await Promise.resolve();
+    await f.session.end(); resolve(remote); await answering;
+    expect(f.service.action.mock.calls.some(([, action]) => action === "accept")).toBe(false);
+    expect(f.media.open).not.toHaveBeenCalled(); f.session.dispose();
+  });
+
+  it("retries the simultaneous connected CAS once without ending healthy media", async () => {
+    const f = fixture(); await f.session.start("conversation");
+    f.service.action.mockRejectedValueOnce(new ApiError("Call changed", 409, { code: "CALL_CHANGED" }));
+    f.connected();
+    await vi.waitFor(() => expect(f.service.action).toHaveBeenCalledTimes(2));
+    expect(f.service.action.mock.calls.every(([, action]) => action === "connected")).toBe(true);
+    expect(f.media.stop).not.toHaveBeenCalled(); f.session.dispose();
+  });
+});

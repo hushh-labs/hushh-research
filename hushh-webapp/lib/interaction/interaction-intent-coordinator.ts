@@ -411,8 +411,10 @@ export class InteractionIntentCoordinator {
   acquireVoiceLease(input: {
     owner: string;
     onRevoked: (reason: string) => void;
+    preserveExisting?: boolean;
   }): VoiceSessionLease {
     const previous = this.activeVoiceLease;
+    if (previous && input.preserveExisting) throw new Error("Another voice session is active.");
     if (previous) {
       this.activeVoiceLease = null;
       this.finish(previous.intentId, "superseded", "superseded_by_newer_voice_session");

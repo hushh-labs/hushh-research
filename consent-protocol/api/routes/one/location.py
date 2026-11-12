@@ -16,6 +16,7 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     Path,
@@ -27,7 +28,11 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import (
+    require_firebase_auth,
+    require_firebase_auth_read_only,
+    require_vault_owner_token,
+)
 from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.operons.location.policy import (
     LOCATION_PEER_UNAVAILABLE,
@@ -79,6 +84,7 @@ from hushh_mcp.services.scheduler_identity import (
 )
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
+sms_alert_router = APIRouter(prefix="/api/one", tags=["One Location SMS Alerts"])
 # Invitation presentation is not a protected Location workflow capability.
 # Mount it separately in the One API, like the existing public People router.
 public_router = APIRouter(prefix="/api/one", tags=["One Location Invitations"])
@@ -824,6 +830,97 @@ def get_recent_received_sms_alerts(
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
+
+
+# Device notification receipts are consumed by the signed-in app shell.
+class QueueSmsIncidentRequest(_CamelModel):
+    incident_id: UUID = Field(alias="incidentId")
+    note: str | None = Field(default=None, max_length=140)
+    call_device_id: str | None = Field(
+        default=None, alias="callDeviceId", min_length=8, max_length=128
+    )
+    call_recipient_user_id: str | None = Field(
+        default=None, alias="callRecipientUserId", min_length=1, max_length=128
+    )
+
+    @model_validator(mode="after")
+    def paired_call_fields(self):
+        if bool(self.call_device_id) != bool(self.call_recipient_user_id):
+            raise ValueError("Choose a calling device and an SMS Circle contact.")
+        return self
+
+
+@sms_alert_router.post("/location/sms-alerts/incidents")
+def queue_sms_incident(
+    payload: QueueSmsIncidentRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _set_private_no_store(response)
+    if os.getenv("ONE_LOCATION_SMS_ALERT_FIRST_ENABLED") != "1":
+        raise HTTPException(status_code=503, detail={"code": "SMS_ALERT_FIRST_DISABLED"})
+    try:
+        return _service().queue_sms_incident(
+            owner_user_id=_user_id(token_data),
+            incident_id=str(payload.incident_id),
+            note=(payload.note or "").strip() or None,
+            call_device_id=payload.call_device_id,
+            call_recipient_user_id=payload.call_recipient_user_id,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@sms_alert_router.get("/location/sms-alerts/acknowledgements")
+def get_sms_alert_acknowledgements(
+    response: Response,
+    grant_id: Annotated[list[UUID], Query(max_length=32)],
+    owner_id: str = Depends(require_firebase_auth_read_only),
+):
+    _set_private_no_store(response)
+    try:
+        return {
+            "acknowledgedGrantIds": _service().list_received_sms_acknowledgements(
+                recipient_user_id=owner_id, grant_ids=[str(value) for value in grant_id]
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@sms_alert_router.put("/location/sms-alerts/{grant_id}/acknowledgement")
+def acknowledge_sms_alert(
+    grant_id: UUID,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    owner_id: str = Depends(require_firebase_auth_read_only),
+):
+    _set_private_no_store(response)
+    try:
+        acknowledged = _service().acknowledge_received_sms_alert(
+            recipient_user_id=owner_id, grant_id=str(grant_id)
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    if acknowledged == "missing":
+        raise HTTPException(status_code=404, detail={"code": "SMS_ALERT_NOT_FOUND"})
+    if acknowledged == "recorded":
+        from hushh_mcp.services.push_notifications import send_user_data_push
+
+        background_tasks.add_task(
+            send_user_data_push,
+            owner_id,
+            notification_type="location_sms_acknowledged",
+            title="",
+            body="",
+            deep_link="/one/location",
+            notification_tag=f"sms-ack:{grant_id}",
+            notification_category="ONE_LOCATION_SMS_EMERGENCY",
+            data={"grant_id": str(grant_id)},
+            show_alert=False,
+            platforms=frozenset({"ios", "android"}),
+        )
+    return {"acknowledged": True}
 
 
 @router.post("/location/sms-contacts", dependencies=[Depends(_sms_add_identity_ready)])

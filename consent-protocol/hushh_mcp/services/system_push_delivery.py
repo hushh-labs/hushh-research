@@ -112,7 +112,9 @@ def _source(conn, event: dict) -> dict | None:
             AND recipient_user_id=:user AND status='active'
             AND (expires_at IS NULL OR expires_at>now())
             AND (COALESCE(NULLIF(BTRIM(metadata->>'share_kind'),''),CASE WHEN metadata->>'reason'='sos_panic' THEN 'sos' ELSE 'share' END)<>'sos'
-              OR (latest_envelope_id IS NOT NULL AND EXISTS (SELECT 1 FROM one_location_recipient_keys k
+              OR (sms_acknowledged_at IS NULL
+                AND (latest_envelope_id IS NOT NULL OR metadata ? 'sms_incident_id')
+                AND EXISTS (SELECT 1 FROM one_location_recipient_keys k
                 WHERE k.user_id=s.recipient_user_id AND k.key_id=s.recipient_key_id AND k.status='active')))
             FOR SHARE OF s"""
     elif kind == "location_request":
@@ -209,6 +211,30 @@ def _notification(conn, event: dict, source: dict) -> dict:
 
     user = event["recipient_user_id"]
     kind = event["source_kind"]
+    if kind == "share" and (source.get("metadata") or {}).get("sms_incident_id"):
+        grant_id = str(source["id"])
+        return {
+            "user_id": user,
+            "notification_type": "location_share_created",
+            "title": "SMS – Save my Soul",
+            "body": "An emergency alert needs your attention.",
+            "notification_tag": f"one-location-share:{grant_id}",
+            "request_url": "/one/location?"
+            + urlencode(
+                {"grantId": grant_id, "locationNotification": "opened", "section": "shared"}
+            ),
+            "data": {
+                "message_id": str(event["id"]),
+                "user_id": user,
+                "grant_id": grant_id,
+                "share_kind": "sos",
+                "notification_profile": "one_location_sms_emergency",
+                "notification_category": "ONE_LOCATION_SMS_EMERGENCY",
+                "location_pending": str(source.get("latest_envelope_id") is None).lower(),
+                "expires_at": event["expires_at"].isoformat(),
+            },
+            "show_alert": True,
+        }
     counterpart = source.get("requester_user_id") or source.get("owner_user_id")
     if kind == "circle_member" and source.get("system_kind") != "sms":
         counterpart = (source.get("metadata") or {}).get("addedBy")

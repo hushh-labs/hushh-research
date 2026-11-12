@@ -1048,6 +1048,22 @@
       "primary_access_path": "developer app registration, token issuance, and MCP/developer API access"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "direct_communication_keys",
+        "direct_calls",
+        "direct_call_slots",
+        "direct_call_commands",
+        "direct_call_signals",
+        "direct_call_voip_tokens",
+        "direct_call_voip_outbox"
+      ],
+      "id": "direct_call_control",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Signed, active-device and conversation-participant commands through /api/one/messages/calls; governed direct_call_retention maintenance entrypoint. Release admission remains disabled until encrypted-history and native qualification."
+    },
+    {
       "data_class": "personal_encrypted",
       "exact_tables": [
         "messages",
@@ -7326,7 +7342,7 @@
     "action_gateway": "72e3e740b34d9fd368a11f159ef35b57e6a624b07905af665ba16ae71dcccca8",
     "agent_registry": "169f9cfa137bcc7efa723e60c58dafa478697aeeb23f8df17072fce2aadbcee7",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "acfadba537b60dbe3d86a3ab4f60fba090f0f7c3b5b557ef715f5118b5d4707f",
+    "data_plane": "61611e3b61491b228f29748bc02622a3cd4aade8c8d054a0992de813b76475cf",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ee3a87017fc16dde5f853a4b95e828491237fefd05db4c1b751c4079538ed965",
     "route_index": "7c4dfebdfcdd35570d46da6f1c638406ade36146d8fd634ae56da20be253c708",
@@ -7345,6 +7361,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 144
+    "table_families": 145
   }
 }

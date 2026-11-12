@@ -71,6 +71,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         HushhFirebaseIdentity.configureSharedIdentity()
         AppLifecycleHandlers.install()
+        if FirebaseApp.allApps?.isEmpty == false {
+            Task { @MainActor in CallingCoordinator.shared.launch() }
+        }
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
         requestVoiceDeviceTestMicrophonePermissionIfNeeded()
 
@@ -118,6 +121,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
            let user = userInfo["user_id"] as? String, let grant = userInfo["grant_id"] as? String,
            ChatPreviewKeys.recipientKey(userInfo) != nil {
             try? SmsAlarmLedger.markEnded(user: user, grant: grant)
+        }
+        if userInfo["type"] as? String == "location_sms_acknowledged" {
+            if let user = userInfo["user_id"] as? String, let grant = userInfo["grant_id"] as? String,
+               ChatPreviewKeys.recipientKey(userInfo) != nil {
+                try? SmsAlarmLedger.acknowledge(user: user, grant: grant)
+                let center = UNUserNotificationCenter.current()
+                center.getDeliveredNotifications { notifications in
+                    let ids = notifications.compactMap { notification -> String? in
+                        let info = notification.request.content.userInfo
+                        guard info["type"] as? String == "location_share_created",
+                              info["share_kind"] as? String == "sos",
+                              info["user_id"] as? String == user,
+                              info["grant_id"] as? String == grant else { return nil }
+                        return notification.request.identifier
+                    }
+                    center.removeDeliveredNotifications(withIdentifiers: ids)
+                }
+                if #available(iOS 26.0, *) {
+                    Task { @MainActor in EmergencySmsSystemAlarm.cancel(user: user, grant: grant) }
+                }
+                if SmsAlarmLedger.pending(user: user).isEmpty {
+                    EmergencySmsCueHandoff.cancel()
+                }
+            }
+            completionHandler(.newData)
+            return
         }
         if ["direct_message_read", "location_circle_chat_read"].contains(userInfo["type"] as? String ?? "") {
             let bridgeCompletion: (UIBackgroundFetchResult) -> Void = { _ in }
@@ -210,9 +239,14 @@ private extension AppDelegate {
             title: "Open live location",
             options: [.foreground]
         )
+        let emergencyAcknowledgeAction = UNNotificationAction(
+            identifier: "ONE_LOCATION_SMS_ACKNOWLEDGE",
+            title: "Acknowledge",
+            options: [.authenticationRequired]
+        )
         let emergencyCategory = UNNotificationCategory(
             identifier: Self.emergencySmsNotificationCategory,
-            actions: [emergencyOpenAction],
+            actions: [emergencyOpenAction, emergencyAcknowledgeAction],
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
@@ -226,9 +260,11 @@ private extension AppDelegate {
     }
 
     func prepareEmergencySmsSound() {
-        // The short file is the APNs alert sound. The longer siren is used only by
-        // the background hand-off notifications; iOS plays at most 30 s of either.
-        writeEmergencySiren(named: Self.emergencySmsSound, duration: 0.94)
+        // Let the bundled sound supersede the generated short tone on upgrade.
+        if Bundle.main.url(forResource: Self.emergencySmsSound, withExtension: nil) != nil,
+           let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(at: library.appendingPathComponent("Sounds/\(Self.emergencySmsSound)"))
+        }
         writeEmergencySiren(named: EmergencySmsCueHandoff.sound, duration: EmergencySmsCueHandoff.soundSeconds)
     }
 
@@ -250,11 +286,12 @@ private extension AppDelegate {
                 withIntermediateDirectories: true
             )
             let soundURL = soundsDirectory.appendingPathComponent(name)
-            if fileManager.fileExists(atPath: soundURL.path) {
+            let sampleRate = 44_100.0
+            let expectedFrames = AVAudioFrameCount(sampleRate * duration)
+            if let existing = try? AVAudioFile(forReading: soundURL),
+               existing.length == AVAudioFramePosition(expectedFrames) {
                 return
             }
-
-            let sampleRate = 44_100.0
             guard
                 let format = AVAudioFormat(
                     commonFormat: .pcmFormatInt16,
@@ -264,7 +301,7 @@ private extension AppDelegate {
                 ),
                 let buffer = AVAudioPCMBuffer(
                     pcmFormat: format,
-                    frameCapacity: AVAudioFrameCount(sampleRate * duration)
+                    frameCapacity: expectedFrames
                 ),
                 let samples = buffer.int16ChannelData?[0]
             else {
@@ -287,13 +324,22 @@ private extension AppDelegate {
                 )
             }
 
-            let audioFile = try AVAudioFile(
-                forWriting: soundURL,
-                settings: format.settings,
-                commonFormat: .pcmFormatInt16,
-                interleaved: false
-            )
-            try audioFile.write(from: buffer)
+            let temporaryURL = soundsDirectory.appendingPathComponent("\(UUID().uuidString).wav")
+            defer { try? fileManager.removeItem(at: temporaryURL) }
+            do {
+                let audioFile = try AVAudioFile(
+                    forWriting: temporaryURL,
+                    settings: format.settings,
+                    commonFormat: .pcmFormatInt16,
+                    interleaved: false
+                )
+                try audioFile.write(from: buffer)
+            }
+            if fileManager.fileExists(atPath: soundURL.path) {
+                _ = try fileManager.replaceItemAt(soundURL, withItemAt: temporaryURL)
+            } else {
+                try fileManager.moveItem(at: temporaryURL, to: soundURL)
+            }
             print("✅ [AppDelegate] Emergency SMS notification sound ready: \(name)")
         } catch {
             print("⚠️ [AppDelegate] Emergency SMS sound setup failed: \(error.localizedDescription)")

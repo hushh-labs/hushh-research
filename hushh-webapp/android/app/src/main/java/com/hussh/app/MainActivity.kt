@@ -42,6 +42,7 @@ import com.hussh.app.plugins.HushhCardCapture.HushhCardCapturePlugin
 import com.hussh.app.plugins.HushhContacts.HushhContactsPlugin
 import com.hussh.app.plugins.HushhInvitations.HushhInvitationsPlugin
 import com.hussh.app.plugins.HushhNotifications.HushhNotificationsPlugin
+import com.hussh.app.plugins.HushhCalling.HushhCallingPlugin
 import com.hussh.app.plugins.HushhSessionPrivacy.HushhSessionPrivacyPlugin
 import com.hussh.app.plugins.Kai.KaiPlugin
 import com.hussh.app.plugins.PersonalKnowledgeModel.PersonalKnowledgeModelPlugin
@@ -256,6 +257,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhSettingsPlugin::class.java)
         registerPlugin(HushhKeystorePlugin::class.java)
         registerPlugin(HushhNotificationsPlugin::class.java)
+        registerPlugin(HushhCallingPlugin::class.java)
         registerPlugin(KaiPlugin::class.java) // Agent Kai plugin
         registerPlugin(PersonalKnowledgeModelPlugin::class.java) // PKM plugin
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)

@@ -49,7 +49,7 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
   "Come get me",
 ];
 
-export type SosDispatchStatus = "sending" | "sent" | "email-only" | "failed" | "unconfirmed";
+export type SosDispatchStatus = "sending" | "sent" | "email-only" | "failed" | "unconfirmed" | "queued" | "location-pending";
 
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
@@ -144,6 +144,8 @@ export function SosPanel({
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
   const activeStatus = dispatchStatus === "sending" ? "Sending alert…"
+    : dispatchStatus === "location-pending" ? "Alert queued · Live location pending"
+    : dispatchStatus === "queued" ? "Alert queued"
     : dispatchStatus === "failed" ? "Alert could not be sent"
     : dispatchStatus === "unconfirmed" ? "Delivery not confirmed"
     : dispatchStatus === "email-only" ? "Alert sent by email"

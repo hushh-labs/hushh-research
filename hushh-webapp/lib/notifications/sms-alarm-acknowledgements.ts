@@ -1,6 +1,5 @@
 import { Capacitor } from "@capacitor/core";
 import { isOneLocationSmsEmergencyAlert, markOneLocationGrantOpened } from "@/lib/one-location/notifications";
-import { acknowledgeSmsAlarm } from "@/lib/one-location/sms-alarm-state";
 
 let pending: Array<Record<string, unknown>> = [];
 
@@ -14,7 +13,6 @@ export const smsAlarmAcknowledgements = {
     if (data.user_id && data.user_id !== userId) return;
     const grantId = typeof data.grant_id === "string" ? data.grant_id.trim() : "";
     if (!grantId) return;
-    acknowledgeSmsAlarm(userId, grantId);
     markOneLocationGrantOpened(userId, grantId);
     if (Capacitor.isNativePlatform()) {
       void import("@/lib/capacitor").then(({ HushhNotifications }) =>
@@ -22,7 +20,7 @@ export const smsAlarmAcknowledgements = {
     }
   },
   flush(userId?: string | null) {
-    // Taps acknowledge independently of push permission, startup or network.
+    // Notification taps open the alert without recording an acknowledgement.
     const queued = pending;
     pending = [];
     for (const data of queued) this.acknowledge(data, userId);

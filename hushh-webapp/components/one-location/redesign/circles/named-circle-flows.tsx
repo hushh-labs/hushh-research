@@ -2,7 +2,8 @@
 
 import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { getSmsCallContact, setSmsCallContact, smsCallingAvailable, subscribeSmsCalling } from "@/lib/direct-messages/sms-call-escalation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/observability/client";
@@ -1582,6 +1583,39 @@ function normalizeCircleName(value: string): string {
   return value.split(/[\p{White_Space}\u001c-\u001f]+/u).filter(Boolean).join(" ");
 }
 
+function SmsCallSettings({ ownerId, contacts }: {
+  ownerId: string;
+  contacts: ReadonlyArray<{ userId: string; displayName: string }>;
+}) {
+  const available = useSyncExternalStore(subscribeSmsCalling, () => smsCallingAvailable(ownerId), () => false);
+  const contact = useSyncExternalStore(subscribeSmsCalling, () => getSmsCallContact(ownerId), () => "");
+  const [failed, setFailed] = useState(false);
+  if (!available) return null;
+  return (
+    <label className="block space-y-2 rounded-2xl border border-border p-4 text-sm">
+      <span className="block font-medium">Automatic SMS call</span>
+      <span className="block text-muted-foreground">
+        If nobody acknowledges within 10 seconds, this device can call one contact when it is active and has microphone access.
+      </span>
+      <select
+        className="block min-h-11 w-full rounded-xl border border-border bg-background px-3"
+        value={contact}
+        onChange={(event) => {
+          try { setSmsCallContact(ownerId, event.currentTarget.value); setFailed(false); }
+          catch { setFailed(true); }
+        }}
+      >
+        <option value="">Off</option>
+        {contact && !contacts.some((row) => row.userId === contact) ? (
+          <option value={contact} disabled>Previously selected contact</option>
+        ) : null}
+        {contacts.map((row) => <option key={row.userId} value={row.userId}>{row.displayName}</option>)}
+      </select>
+      {failed ? <span role="status">Could not save the calling preference on this device.</span> : null}
+    </label>
+  );
+}
+
 export function CircleDetailFlow({
   circleId,
   initialCircleSummary,
@@ -2559,6 +2593,11 @@ export function CircleDetailFlow({
               </Button>
             ) : null}
           </div>
+          {isSmsCircle && isOwner && currentUserId ? (
+            <SmsCallSettings key={currentUserId} ownerId={currentUserId} contacts={members.filter((member) =>
+              member.userId !== currentUserId && member.relationship === "connected" && member.secureLocationReady === true,
+            )} />
+          ) : null}
 
           {hasChat ? <>
             <TabsList variant="line" aria-label="Circle views" className="min-h-11 w-fit justify-start border-b border-border/70">

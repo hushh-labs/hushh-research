@@ -26,11 +26,13 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { hasReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import { acknowledgeSmsAlarm, isSmsAlarmAcknowledged, SMS_ALARM_ACKNOWLEDGED_EVENT } from "@/lib/one-location/sms-alarm-state";
 import {
   captureProductAttempt,
   type ProductAttempt,
@@ -2530,6 +2532,32 @@ function LocationMenuListIcon({ name }: { name: LocationMenuGlyphName }) {
   );
 }
 
+function subscribeSmsAcknowledgement(refresh: () => void) {
+  window.addEventListener(SMS_ALARM_ACKNOWLEDGED_EVENT, refresh);
+  window.addEventListener("storage", refresh);
+  return () => {
+    window.removeEventListener(SMS_ALARM_ACKNOWLEDGED_EVENT, refresh);
+    window.removeEventListener("storage", refresh);
+  };
+}
+
+function ReceivedSmsAcknowledgement({ userId, grantId }: { userId: string; grantId: string }) {
+  const acknowledged = useSyncExternalStore(
+    subscribeSmsAcknowledgement,
+    () => isSmsAlarmAcknowledged(userId, grantId),
+    () => false,
+  );
+  return (
+    <Button
+      variant="outline"
+      disabled={acknowledged}
+      onClick={() => acknowledgeSmsAlarm(userId, grantId)}
+    >
+      {acknowledged ? "Acknowledged" : "Acknowledge"}
+    </Button>
+  );
+}
+
 /** Focused detail surfaces replace the former mixed inbox tab. */
 function LocationDetailFlow({
   kind,
@@ -2795,7 +2823,9 @@ function LocationDetailFlow({
                     name={ownerName}
                     photoUrl={grant.ownerPhotoUrl}
                     statusLine={
-                      multiLane ? (
+                      group.smsGrant && !group.smsGrant.latestEnvelopeId ? (
+                        "Live location pending"
+                      ) : multiLane ? (
                         `${group.grants.length} live shares`
                       ) : (
                         <ActiveShareMetadata
@@ -2873,6 +2903,9 @@ function LocationDetailFlow({
                     }
                     onAskReshare={() => vm.onAskReshare(grant)}
                     askReshareBusy={vm.busy === "request"}
+                    smsAcknowledgement={group.smsGrant && vm.userId ? (
+                      <ReceivedSmsAcknowledgement userId={vm.userId} grantId={group.smsGrant.id} />
+                    ) : null}
                   >
                     {expanded && point
                       ? vm.renderMapPreview(

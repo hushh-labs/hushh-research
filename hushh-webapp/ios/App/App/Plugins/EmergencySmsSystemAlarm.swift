@@ -62,11 +62,17 @@ enum SmsAlarmLedger {
         guard let item = try? query(account: account(user: user, grant: grant, suffix: "ack")) else { return false }
         return SecItemCopyMatching(item as CFDictionary, nil) == errSecSuccess
     }
-    static func acknowledge(user: String, grant: String) throws {
+    static func acknowledge(user: String, grant: String, fromDeviceAction: Bool = false) throws {
         // Separate monotonic tombstone; a racing app/extension admission cannot overwrite it.
         try add(account: account(user: user, grant: grant, suffix: "ack"), data: Data([1]))
+        if fromDeviceAction {
+            let receipt = try JSONSerialization.data(withJSONObject: [
+                "userId": user, "grantId": grant, "at": String(Date().timeIntervalSince1970)
+            ])
+            try add(account: account(user: user, grant: grant, suffix: "sync"), data: receipt)
+        }
         NotificationCenter.default.post(name: Notification.Name("HushhSmsAlarmAcknowledged"), object: nil,
-            userInfo: ["userId": user, "grantId": grant])
+            userInfo: ["userId": user, "grantId": grant, "explicit": fromDeviceAction])
     }
     static func remember(user: String, grant: String) throws {
         guard try firstEvent(user: user, grant: grant, claiming: "admitted") == "admitted" else { throw LedgerError.ended }
@@ -97,7 +103,7 @@ enum SmsAlarmLedger {
               let data = result as? Data, let stored = String(data: data, encoding: .utf8) else { throw LedgerError.unavailable }
         return stored
     }
-    private static func records() -> [[String: String]] {
+    private static func records(suffix: String = ".pending") -> [[String: String]] {
         guard var item = try? query() else { return [] }
         item[kSecMatchLimit as String] = kSecMatchLimitAll
         item[kSecReturnAttributes as String] = true
@@ -106,13 +112,18 @@ enum SmsAlarmLedger {
         guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess,
               let rows = result as? [[String: Any]] else { return [] }
         return rows.compactMap { row in
-            guard (row[kSecAttrAccount as String] as? String)?.hasSuffix(".pending") == true,
+            guard (row[kSecAttrAccount as String] as? String)?.hasSuffix(suffix) == true,
                   let data = row[kSecValueData as String] as? Data,
                   let receipt = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return nil }
             return receipt
         }
     }
     static func owners() -> [String] { Array(Set(records().compactMap { $0["userId"] })) }
+    static func recentDeviceAcknowledgements(user: String) -> [String] {
+        records(suffix: ".sync").filter { $0["userId"] == user }
+            .sorted { (Double($0["at"] ?? "") ?? 0) > (Double($1["at"] ?? "") ?? 0) }
+            .prefix(32).compactMap { $0["grantId"] }
+    }
     static func forget(user: String) throws {
         var fence = try deletionQuery(owner: ownerPrefix(user))
         fence[kSecValueData as String] = Data([1])
@@ -157,7 +168,7 @@ struct DismissSmsAlarmIntent: LiveActivityIntent {
         guard !userId.isEmpty, !grantId.isEmpty else { return .result() }
         // System Stop may already have removed the alarm. Receipt comes first.
         defer { try? AlarmManager.shared.cancel(id: SmsAlarmLedger.id(user: userId, grant: grantId)) }
-        try SmsAlarmLedger.acknowledge(user: userId, grant: grantId)
+        try SmsAlarmLedger.acknowledge(user: userId, grant: grantId, fromDeviceAction: true)
         return .result()
     }
 }

@@ -65,6 +65,7 @@ def _is_user_state_event_type(event_type: str) -> bool:
             "answer_request_changed",
             "bank_payout_changed",
             "location_settings_changed",
+            "location_sms_acknowledged",
             "location_pkm_changed",
             "connection_request",
             "connection_request_cancelled",

@@ -7,7 +7,7 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
 
-Package count: 1296
+Package count: 1298
 
 ### License summary
 
@@ -18,7 +18,7 @@ Package count: 1296
 - `Apache-2.0`: 196
 - `Apache-2.0 AND LGPL-3.0-or-later`: 3
 - `Apache-2.0 AND LGPL-3.0-or-later AND MIT`: 1
-- `BlueOak-1.0.0`: 11
+- `BlueOak-1.0.0`: 12
 - `BSD-2-Clause`: 12
 - `BSD-3-Clause`: 26
 - `CC-BY-4.0`: 1
@@ -26,14 +26,13 @@ Package count: 1296
 - `EPL-2.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 928
+- `MIT`: 931
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
 - `MPL-2.0`: 13
 - `Python-2.0`: 1
 - `Standard 'no charge' license: https://gsap.com/standard-license.`: 1
-- `UNKNOWN`: 2
 - `Unlicense`: 2
 
 ### Package inventory
@@ -223,6 +222,8 @@ Package count: 1296
 - `@grpc/grpc-js` `1.14.5` — Apache-2.0
 - `@grpc/grpc-js/@grpc/proto-loader` `0.8.1` — Apache-2.0
 - `@grpc/proto-loader` `0.7.15` — Apache-2.0
+- `@hpke/common` `1.10.1` — MIT
+- `@hpke/core` `1.9.0` — MIT
 - `@humanfs/core` `0.19.2` — Apache-2.0
 - `@humanfs/node` `0.16.8` — Apache-2.0
 - `@humanfs/types` `0.15.0` — Apache-2.0
@@ -267,6 +268,7 @@ Package count: 1296
 - `@ionic/utils-subprocess` `3.0.1` — MIT
 - `@ionic/utils-terminal` `2.3.5` — MIT
 - `@isaacs/fs-minipass` `4.0.1` — ISC
+- `@isaacs/nonrecursive-glob-match` `1.1.0` — BlueOak-1.0.0
 - `@jridgewell/gen-mapping` `0.3.13` — MIT
 - `@jridgewell/remapping` `2.3.5` — MIT
 - `@jridgewell/resolve-uri` `3.1.2` — MIT
@@ -300,7 +302,7 @@ Package count: 1296
 - `@next/swc-linux-x64-musl` `16.4.2` — MIT
 - `@next/swc-win32-arm64-msvc` `16.4.2` — MIT
 - `@next/swc-win32-x64-msvc` `16.4.2` — MIT
-- `@nodable/entities` `3.0.0` — MIT
+- `@nodable/entities` `3.1.0` — MIT
 - `@nodelib/fs.scandir` `2.1.5` — MIT
 - `@nodelib/fs.stat` `2.0.5` — MIT
 - `@nodelib/fs.walk` `1.2.8` — MIT
@@ -527,8 +529,7 @@ Package count: 1296
 - `@typescript-eslint/type-utils` `8.57.0` — MIT
 - `@typescript-eslint/types` `8.57.0` — MIT
 - `@typescript-eslint/typescript-estree` `8.57.0` — MIT
-- `@typescript-eslint/typescript-estree/brace-expansion` `5.0.12` — MIT
-- `@typescript-eslint/typescript-estree/minimatch` `10.2.4` — BlueOak-1.0.0
+- `@typescript-eslint/typescript-estree/minimatch` `11.0.7` — BlueOak-1.0.0
 - `@typescript-eslint/utils` `8.57.0` — MIT
 - `@typescript-eslint/visitor-keys` `8.57.0` — MIT
 - `@typescript-eslint/visitor-keys/eslint-visitor-keys` `5.0.1` — Apache-2.0
@@ -601,6 +602,7 @@ Package count: 1296
 - `bignumber.js` `9.3.1` — MIT
 - `bmp-js` `0.1.0` — MIT
 - `bplist-parser` `0.3.2` — MIT
+- `brace-expansion` `5.0.12` — MIT
 - `braces` `3.0.3` — MIT
 - `browserslist` `4.28.7` — MIT
 - `buffer-crc32` `0.2.13` — MIT
@@ -782,8 +784,8 @@ Package count: 1296
 - `fast-json-stable-stringify` `2.1.0` — MIT
 - `fast-levenshtein` `2.0.6` — MIT
 - `fast-png` `6.4.0` — MIT
-- `fast-xml-builder` `1.3.0` — MIT
-- `fast-xml-parser` `5.10.1` — MIT
+- `fast-xml-builder` `1.3.1` — MIT
+- `fast-xml-parser` `5.12.0` — MIT
 - `fastq` `1.20.3` — ISC
 - `faye-websocket` `0.11.4` — Apache-2.0
 - `fetch-blob` `3.2.0` — MIT
@@ -826,7 +828,9 @@ Package count: 1296
 - `get-proto` `1.0.1` — MIT
 - `get-symbol-description` `1.1.0` — MIT
 - `get-tsconfig` `4.13.0` — MIT
+- `glob` `14.0.4` — BlueOak-1.0.0
 - `glob-parent` `6.0.2` — ISC
+- `glob/minimatch` `11.0.7` — BlueOak-1.0.0
 - `globals` `16.4.0` — MIT
 - `globalthis` `1.0.4` — MIT
 - `google-auth-library` `10.9.1` — Apache-2.0
@@ -906,7 +910,7 @@ Package count: 1296
 - `is-string` `1.1.1` — MIT
 - `is-symbol` `1.1.1` — MIT
 - `is-typed-array` `1.1.15` — MIT
-- `is-unsafe` `2.0.0` — MIT
+- `is-unsafe` `2.0.3` — MIT
 - `is-url` `1.2.4` — MIT
 - `is-weakmap` `2.0.2` — MIT
 - `is-weakref` `1.1.1` — MIT
@@ -941,7 +945,7 @@ Package count: 1296
 - `katex/commander` `15.0.0` — MIT
 - `kdbush` `4.1.0` — ISC
 - `keyv` `4.5.4` — MIT
-- `khroma` `2.1.0` — UNKNOWN
+- `khroma` `2.1.0` — MIT
 - `kleur` `4.1.5` — MIT
 - `language-subtag-registry` `0.3.23` — CC0-1.0
 - `language-tags` `1.0.9` — MIT
@@ -960,7 +964,7 @@ Package count: 1296
 - `lightningcss-linux-x64-musl` `1.32.0` — MPL-2.0
 - `lightningcss-win32-arm64-msvc` `1.32.0` — MPL-2.0
 - `lightningcss-win32-x64-msvc` `1.32.0` — MPL-2.0
-- `limiter` `1.1.5` — UNKNOWN
+- `limiter` `1.1.5` — MIT
 - `lit` `3.3.2` — BSD-3-Clause
 - `lit-element` `4.2.2` — BSD-3-Clause
 - `lit-html` `3.3.2` — BSD-3-Clause
@@ -1087,8 +1091,8 @@ Package count: 1296
 - `path-expression-matcher` `1.6.2` — MIT
 - `path-key` `3.1.1` — MIT
 - `path-parse` `1.0.7` — MIT
-- `path-scurry` `2.0.2` — BlueOak-1.0.0
-- `path-scurry/lru-cache` `11.2.4` — BlueOak-1.0.0
+- `path-scurry` `3.0.0` — BlueOak-1.0.0
+- `path-scurry/lru-cache` `11.5.3` — BlueOak-1.0.0
 - `pathe` `2.0.3` — MIT
 - `pdf-lib` `1.17.1` — MIT
 - `pdf-lib/pako` `1.0.11` — (MIT AND Zlib)
@@ -1156,10 +1160,7 @@ Package count: 1296
 - `retry-request` `8.0.2` — MIT
 - `reusify` `1.1.0` — MIT
 - `rgbcolor` `1.0.1` — MIT OR SEE LICENSE IN FEEL-FREE.md
-- `rimraf` `6.1.2` — BlueOak-1.0.0
-- `rimraf/brace-expansion` `5.0.12` — MIT
-- `rimraf/glob` `13.0.6` — BlueOak-1.0.0
-- `rimraf/minimatch` `10.2.4` — BlueOak-1.0.0
+- `rimraf` `6.1.4` — BlueOak-1.0.0
 - `robust-predicates` `3.0.3` — Unlicense
 - `rolldown` `1.1.5` — MIT
 - `rolldown/@rolldown/pluginutils` `1.0.1` — MIT
@@ -1216,7 +1217,7 @@ Package count: 1296
 - `strip-bom` `3.0.0` — MIT
 - `strip-indent` `3.0.0` — MIT
 - `strip-json-comments` `3.1.1` — MIT
-- `strnum` `2.4.1` — MIT
+- `strnum` `2.5.1` — MIT
 - `stubs` `3.0.0` — MIT
 - `style-to-js` `1.1.21` — MIT
 - `style-to-object` `1.0.14` — MIT

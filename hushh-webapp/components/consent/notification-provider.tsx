@@ -1,6 +1,6 @@
 "use client";
 
-import { isSmsAlarmAcknowledged } from "@/lib/one-location/sms-alarm-state";
+import { isSmsAlarmAcknowledged, isSmsAlarmSilenced } from "@/lib/one-location/sms-alarm-state";
 import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
 import { chatAlertIsVisible } from "@/lib/notifications/chat-alert-visibility";
 import { ChatSystemNotifications } from "@/lib/notifications/chat-system-notifications";
@@ -785,11 +785,12 @@ export function ConsentNotificationProvider({
     [getVaultOwnerToken, isNativePlatform, applicationOwnerId],
   );
 
-  const { startEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(
+  const { startEmergencySms, dismissEmergencySms, acknowledgeEmergencySms } = useEmergencySmsAlarm(
     applicationOwnerId ?? undefined,
     isNativePlatform,
     isNativePlatform ? fcmInitStatus : null,
     isNativePlatform ? deliveryDetail : null,
+    user ? () => user.getIdToken() : undefined,
   );
 
   const showOneLocationShareNotification = useCallback(
@@ -836,6 +837,7 @@ export function ConsentNotificationProvider({
       // popup retained here is the safety-critical Save My Soul alarm.
       if (options.present === false || !isEmergencySms ||
           isSmsAlarmAcknowledged(applicationOwnerId, grantId) ||
+          isSmsAlarmSilenced(applicationOwnerId, grantId) ||
           isOneLocationGrantOpened(applicationOwnerId, grantId) ||
           isOneLocationGrantUnwatched(applicationOwnerId, grantId)) return true;
       // Feed reconciliation is silent and must not consume the live alarm.
@@ -858,12 +860,14 @@ export function ConsentNotificationProvider({
         shareKind: data.share_kind,
         shareMessage: data.share_message,
       });
-      const title =
+      const title = data.location_pending === "true" ? "Live location pending" :
         String(data.notification_title || "").trim() || generatedCopy.title;
-      const description = privacySafeOneLocationNotificationBody(
+      const description = data.location_pending === "true" && !data.notification_body
+        ? "An emergency alert needs your attention."
+        : privacySafeOneLocationNotificationBody(
         data.notification_body,
         generatedCopy.description,
-      );
+        );
       // Forward-compatible last-known location for the emergency toast. The
       // share point is end-to-end encrypted, so these are only present when a
       // coarse locality is explicitly attached to the alert; when absent the
@@ -890,7 +894,8 @@ export function ConsentNotificationProvider({
           description={description}
           address={emergencyAddress}
           coordinatesFallback={emergencyCoordinatesFallback}
-          onDismiss={() => dismissEmergencySms(grantId)}
+          onDismiss={() => acknowledgeEmergencySms(grantId)}
+          locationPending={data.location_pending === "true"}
           onOpen={() => {
             markOneLocationGrantOpened(applicationOwnerId, grantId);
             dismissEmergencySms(grantId);
@@ -908,7 +913,7 @@ export function ConsentNotificationProvider({
       );
       return sounded;
     },
-    [dismissEmergencySms, router, startEmergencySms, applicationOwnerId],
+    [acknowledgeEmergencySms, dismissEmergencySms, router, startEmergencySms, applicationOwnerId],
   );
 
   const showOneLocationWorkflowNotification = useCallback(

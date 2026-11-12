@@ -335,13 +335,16 @@ import {
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
 import {
+  attachQueuedSmsLocation,
   isSosShareReadyRecipient,
+  queueConfirmedSms,
   runSosPanic,
   selectSmsRecipients,
   selectShareReadyRecipients,
   sosRecipientReadinessMessage,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
+import { suppressScheduledSmsCall } from "@/lib/direct-messages/sms-call-escalation";
 import {
   emergencyInfoForCountryCode,
   isCachedEmergencyInfoUsableAt,
@@ -2447,7 +2450,7 @@ export function OneLocationAgentPageContent({
   const sosIncidentRef = useRef<SosIncident | null>(null);
   const [sosDispatch, setSosDispatch] = useState<{
     owner: string;
-    status: "sending" | "sent" | "email-only" | "failed" | "unconfirmed";
+    status: "sending" | "sent" | "email-only" | "failed" | "unconfirmed" | "queued" | "location-pending";
     incidentStartedAt?: string;
   } | null>(null);
   const sosOwnerRef = useRef(auth.userId);
@@ -5944,10 +5947,54 @@ export function OneLocationAgentPageContent({
         ++smsRosterRevision.current;
         // Refresh the exact roster and its verified identities at send time.
         // A cached directory page is neither membership nor readiness authority.
-        const [roster, location] = await Promise.all([
-          OneLocationService.getSmsRecipientRoster(vaultOwnerToken),
-          resolveSosLocation({ sending: true }),
-        ]);
+        const rosterPromise = OneLocationService.getSmsRecipientRoster(vaultOwnerToken);
+        void rosterPromise.catch(() => undefined);
+        let locationPromise: Promise<SosLocationResolution> | undefined;
+        const resolveLocation = () => locationPromise ??= resolveSosLocation({ sending: true });
+        const queued = await queueConfirmedSms({
+          vaultOwnerToken, ownerUserId: owner, note, isStale,
+          resolvePoint: async () => (await resolveLocation()).point,
+        });
+        if (queued) {
+          if (isStale()) return;
+          const { incident, grants, skippedCount } = queued;
+          setSosIncident(incident);
+          setSosDispatch({ owner, incidentStartedAt: incident.startedAt, status: "location-pending" });
+          if (sosOperations.current.finish(owner, operation)) {
+            setBusy((current) => current === "sos" ? null : current);
+          }
+          const currentIncident = () => !isStale() && sosIncidentRef.current?.startedAt === incident.startedAt &&
+            !readOneLocationControlState(owner).paused;
+          toast.success("Alert queued. Live location pending.");
+          if (skippedCount) toast.warning("Some Circle contacts could not receive this alert.");
+          const [roster, location] = await Promise.all([rosterPromise, resolveLocation()]);
+          if (!currentIncident()) return;
+          if (!location.point) {
+            toast.warning("Live location is still unavailable.");
+            return;
+          }
+          const point = location.point;
+          const outcomes = await attachQueuedSmsLocation(
+            grants, roster.recipients.filter(isSosShareReadyRecipient), point,
+            (grant, recipient, sample) => publishEnvelopeWithRetry(grant, recipient, "manual", sample, () => !currentIncident()),
+            () => !currentIncident(),
+          );
+          if (!currentIncident()) return;
+          if (outcomes.some((outcome) => !outcome.failed)) {
+            setSosDispatch({ owner, incidentStartedAt: incident.startedAt, status: "queued" });
+            if (location.lastKnown) toast.info("Last known location attached.");
+          }
+          if (outcomes.some((outcome) => outcome.failed)) toast.warning("Location could not be attached for some contacts.");
+          await OneLocationService.sendSosEmails({
+            vaultOwnerToken, grantIds: incident.grantIds,
+            latitude: point.latitude, longitude: point.longitude,
+            accuracyM: point.accuracyM ?? null, capturedAt: point.capturedAt,
+            note, emergencyNumber: sosEmergency?.number ?? null,
+          }).catch(() => null);
+          void refresh().catch(() => null);
+          return;
+        }
+        const [roster, location] = await Promise.all([rosterPromise, resolveLocation()]);
         const { point, failure, lastKnown } = location;
         if (isStale()) return;
         totalSelected = roster.smsContactUserIds.length;
@@ -6084,7 +6131,7 @@ export function OneLocationAgentPageContent({
           dispatchMs: dispatchElapsed(),
           note,
         });
-        setSosDispatch((current) => current?.owner === owner && current.status === "sent"
+        setSosDispatch((current) => current?.owner === owner && ["sent", "queued", "location-pending"].includes(current.status)
           ? current : { owner, status: "failed" });
         toast.error(
           error instanceof Error ? error.message : "Could not send SMS alert.", { className: connectTypography.toast }
@@ -7491,6 +7538,7 @@ export function OneLocationAgentPageContent({
     if (!owner) throw new Error("Sign in to review the active SMS.");
     const operation = sosOperations.current.begin(owner);
     if (!operation) throw new Error("An SMS operation is still finishing. Review its result first.");
+    suppressScheduledSmsCall(owner);
     setBusy("sos");
     try {
       const result = await stopSosShares({ grantIds, signal,

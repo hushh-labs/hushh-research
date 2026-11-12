@@ -1690,3 +1690,10 @@ tests/test_uat_paused_drive_maintenance.py
 tests/services/test_calendar_email_followup_temporal_postgres.py
 tests/test_secret_metadata_inventory.py
 tests/test_managed_provider_collection.py
+
+# Device-authorized calls, route-key custody and PostgreSQL endpoint races.
+tests/services/test_direct_call_policy.py
+tests/test_direct_calls_postgres.py
+tests/test_direct_calls_routes.py
+tests/test_direct_calls_voip.py
+tests/services/test_direct_message_route_cipher.py

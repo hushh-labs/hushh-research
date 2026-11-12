@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   native: false,
+  platform: "ios",
   deliveryMode: "inbox_only",
   deliveryDetail: null as string | null,
   retry: vi.fn(),
@@ -11,7 +12,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => state.native },
+  Capacitor: { isNativePlatform: () => state.native, getPlatform: () => state.platform },
 }));
 
 vi.mock("@/components/consent/notification-provider", () => ({
@@ -46,6 +47,7 @@ function setPermission(permission: NotificationPermission) {
 describe("FeedPushPrompt", () => {
   beforeEach(() => {
     state.native = false;
+    state.platform = "ios";
     state.deliveryMode = "inbox_only";
     state.deliveryDetail = null;
     state.retry.mockReset();
@@ -119,6 +121,21 @@ describe("FeedPushPrompt", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Allow alarms" }));
     await waitFor(() => expect(state.requestAlarm).toHaveBeenCalledOnce());
     expect(state.retry).toHaveBeenCalledOnce();
+  });
+
+  it("asks for Android full-screen access only from Location and keeps the action available after denial", async () => {
+    state.native = true;
+    state.platform = "android";
+    state.deliveryMode = "push_active";
+    state.deliveryDetail = "native_emergency_alarm_not_authorized";
+    state.requestAlarm.mockResolvedValue({ supported: true, authorized: false });
+    const { rerender } = render(<FeedPushPrompt />);
+    expect(screen.queryByRole("button")).toBeNull();
+    rerender(<FeedPushPrompt context="location" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Allow full-screen alerts" }));
+    await waitFor(() => expect(state.retry).toHaveBeenCalledOnce());
+    expect(state.requestAlarm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Allow full-screen alerts" })).toBeEnabled();
   });
 
   it.each(["native_chat_alerts_disabled", "native_chat_sound_disabled"])(

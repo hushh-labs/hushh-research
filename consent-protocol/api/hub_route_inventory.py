@@ -307,6 +307,9 @@ POST /api/one/location/requests/{request_id}/deny
 POST /api/one/location/requests/{request_id}/withdraw
 POST /api/one/location/retention/purge
 GET /api/one/location/sms-alerts/recent
+GET /api/one/location/sms-alerts/acknowledgements
+POST /api/one/location/sms-alerts/incidents
+PUT /api/one/location/sms-alerts/{grant_id}/acknowledgement
 GET,POST /api/one/location/sms-contacts
 DELETE /api/one/location/sms-contacts/{recipient_user_id}
 POST /api/one/location/sos-email-recipients
@@ -324,6 +327,8 @@ POST /api/one/marketplace/requests/{request_id}/approve
 POST /api/one/marketplace/requests/{request_id}/deny
 GET /api/one/marketplace/requests/{request_id}/recipient-key
 POST /api/one/marketplace/requests/{request_id}/revoke
+GET /api/one/messages/calls/capabilities
+POST /api/one/messages/calls/{operation}
 POST /api/one/messages
 POST /api/one/messages/route-token
 DELETE,POST /api/one/messages/blocks

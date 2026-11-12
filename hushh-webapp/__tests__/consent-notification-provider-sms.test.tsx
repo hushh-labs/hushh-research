@@ -9,6 +9,30 @@ import * as locationNotifications from "@/lib/one-location/notifications";
 import { acknowledgeSmsAlarm, dispatchSmsAlertsChanged, forgetSmsAlarms, isSmsAlarmAcknowledged, pendingSmsAlarms, rememberSmsAlarm } from "@/lib/one-location/sms-alarm-state";
 
 describe("foreground SMS alarm presentation and cancellation", () => {
+  it("retries a recipient acknowledgement after reconnect and retires an alarm acknowledged on another device", async () => {
+    const localGrant = "23623b5a-f61c-41cc-af36-3bddba018246";
+    const remoteGrant = "e9501e7b-99b3-4be9-98f1-df10c0731dd1";
+    await renderReady();
+    mocks.acknowledgeSmsAlert.mockRejectedValueOnce(new Error("Offline"));
+    await act(async () => acknowledgeSmsAlarm("recipient-user", localGrant));
+    expect(mocks.acknowledgeSmsAlert).toHaveBeenCalledOnce();
+    await act(async () => window.dispatchEvent(new Event("online")));
+    expect(mocks.acknowledgeSmsAlert).toHaveBeenCalledTimes(2);
+    expect(mocks.acknowledgeSmsAlert).toHaveBeenLastCalledWith(
+      expect.any(String), localGrant, expect.any(AbortSignal),
+    );
+    await act(async () => {
+      dispatchLocation({ type: "location_share_created", grant_id: remoteGrant, share_kind: "sos" });
+    });
+    mocks.getSmsAcknowledgements.mockResolvedValue([remoteGrant]);
+    await act(async () => dispatchSmsAlertsChanged("another-user"));
+    expect(mocks.getSmsAcknowledgements).not.toHaveBeenCalled();
+    await act(async () => dispatchSmsAlertsChanged("recipient-user"));
+    expect(isSmsAlarmAcknowledged("recipient-user", remoteGrant)).toBe(true);
+    expect(pendingSmsAlarms("recipient-user")).not.toContain(remoteGrant);
+    expect(mocks.acknowledgeSmsAlert).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ["web", false],
     ["ios", false],
@@ -239,7 +263,7 @@ describe("foreground SMS alarm presentation and cancellation", () => {
     expect(screen.getByRole("alert")).toHaveAttribute(
       "data-one-location-emergency-sms-alert",
     );
-    expect(screen.getByText("Emergency SMS")).toBeInTheDocument();
+    expect(screen.getByText("SMS – Save my Soul")).toBeInTheDocument();
     expect(mocks.startTask).toHaveBeenCalledWith(
       expect.objectContaining({
         taskId: "one_location_share:grant-sms-emergency-1",
@@ -258,7 +282,7 @@ describe("foreground SMS alarm presentation and cancellation", () => {
     expect(options.dismissible).toBe(false);
     if (dismissal === "button") {
       render(<>{popup}</>);
-      fireEvent.click(screen.getByRole("button", { name: "Dismiss alarm" }));
+      fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
       expect(mocks.routerPush).not.toHaveBeenCalled();
     } else if (dismissal === "open") {
       locationNotifications.markOneLocationGrantOpened("recipient-user", data.grant_id);
@@ -267,7 +291,7 @@ describe("foreground SMS alarm presentation and cancellation", () => {
     }
     expect(mocks.stopEmergencySmsCue).toHaveBeenCalledExactlyOnceWith({ userId: "recipient-user", grantId: data.grant_id });
     expect(mocks.toast.dismiss).toHaveBeenCalledWith(`one-location-share:${data.grant_id}`);
-    expect(isSmsAlarmAcknowledged("recipient-user", data.grant_id)).toBe(true);
+    expect(isSmsAlarmAcknowledged("recipient-user", data.grant_id)).toBe(dismissal === "button");
     dispatchLocation(data);
     expect(mocks.playEmergencySmsCue).toHaveBeenCalledTimes(1);
   });
@@ -329,13 +353,13 @@ describe("foreground SMS alarm presentation and cancellation", () => {
     renderProvider();
     await waitFor(() => expect(mocks.playEmergencySmsCue).toHaveBeenCalledWith(expect.objectContaining({ grantId: "offline-alarm" })));
     expect(mocks.playEmergencySmsCue).not.toHaveBeenCalledWith(expect.objectContaining({ grantId: "system-dismissed" }));
-    expect(isSmsAlarmAcknowledged("recipient-user", "system-dismissed")).toBe(true);
+    expect(isSmsAlarmAcknowledged("recipient-user", "system-dismissed")).toBe(false);
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Unacknowledged SMS alert", expect.objectContaining({ id: "one-location-share:offline-alarm" })));
     expect(mocks.toast.mock.calls.filter(([, options]) => options.id === "one-location-share:offline-alarm")).toHaveLength(1);
     const callback = mocks.addNotificationListener.mock.calls[0][1];
     callback({ userId: "someone-else", grantId: "offline-alarm" });
     expect(isSmsAlarmAcknowledged("recipient-user", "offline-alarm")).toBe(false);
-    callback({ userId: "recipient-user", grantId: "offline-alarm" });
+    callback({ userId: "recipient-user", grantId: "offline-alarm", explicit: true });
     expect(isSmsAlarmAcknowledged("recipient-user", "offline-alarm")).toBe(true);
   });
 

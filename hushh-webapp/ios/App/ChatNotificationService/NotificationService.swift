@@ -7,7 +7,6 @@ final class NotificationService: UNNotificationServiceExtension {
     private var best: UNNotificationContent?
     private var expectedKey: String?
     private var donationDeadline: DispatchWorkItem?
-    private var alarmTask: Task<Void, Never>?
     private let completionLock = NSLock()
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -86,6 +85,7 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let user = info["user_id"] as? String, let grant = info["grant_id"] as? String,
               !grant.isEmpty, ChatPreviewKeys.recipientKey(info) != nil else {
             content.title = "SMS alert unavailable"; content.body = "Open Hussh to review your alerts"; content.sound = nil
+            content.interruptionLevel = .passive
             completionLock.lock(); best = content; completionLock.unlock(); finish(); return
         }
         if let raw = info["expires_at"] as? String, !raw.isEmpty {
@@ -95,31 +95,16 @@ final class NotificationService: UNNotificationServiceExtension {
             formatter.formatOptions = [.withInternetDateTime]
             guard let expiry = precise ?? formatter.date(from: raw), expiry > Date() else {
                 content.sound = nil
+                content.interruptionLevel = .passive
                 completionLock.lock(); best = content; completionLock.unlock(); finish(); return
             }
         }
         if SmsAlarmLedger.acknowledged(user: user, grant: grant) || SmsAlarmLedger.endedBeforeAdmission(user: user, grant: grant) {
             content.sound = nil
+            content.interruptionLevel = .passive
             completionLock.lock(); best = content; completionLock.unlock(); finish(); return
         }
-        guard #available(iOS 26.0, *) else { finish(); return }
-        // Never prompt from an extension. Keep the ordinary APNs alert as the
-        // fallback if AlarmKit is unavailable, denied, slow or refused.
-        let deadline = DispatchWorkItem { [weak self] in
-            self?.alarmTask?.cancel()
-            self?.finish()
-        }
-        completionLock.lock(); donationDeadline = deadline; completionLock.unlock()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: deadline)
-        alarmTask = Task { @MainActor [weak self] in
-            let scheduled = await EmergencySmsSystemAlarm.schedule(user: user, grant: grant)
-            guard !Task.isCancelled, let self else { return }
-            if scheduled || SmsAlarmLedger.acknowledged(user: user, grant: grant) { content.sound = nil }
-            self.completionLock.lock()
-            if self.handler != nil { self.best = content }
-            self.completionLock.unlock()
-            self.finish()
-        }
+        completionLock.lock(); best = content; completionLock.unlock(); finish()
     }
     private func avatar(_ source: String?, name: String) -> Data {
         if let source = source, source.hasPrefix("data:image/jpeg;base64,"), source.count <= 1023,
@@ -157,5 +142,5 @@ final class NotificationService: UNNotificationServiceExtension {
         completionLock.unlock()
         callback(content)
     }
-    override func serviceExtensionTimeWillExpire() { alarmTask?.cancel(); finish() }
+    override func serviceExtensionTimeWillExpire() { finish() }
 }

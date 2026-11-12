@@ -1,5 +1,7 @@
 package com.hussh.app.plugins.HushhVoiceInvocation
 
+import com.hussh.app.AndroidMicrophoneOwnership
+
 import android.Manifest
 import android.content.Intent
 import android.content.Context
@@ -141,6 +143,16 @@ private class CommandRecording(val id: String, private val durationMs: Int, priv
 
     @Suppress("MissingPermission")
     fun start() {
+        check(AndroidMicrophoneOwnership.claim(this)) { "The microphone is already in use." }
+        try { begin() }
+        catch (error: Exception) {
+            AndroidMicrophoneOwnership.release(this)
+            throw error
+        }
+    }
+
+    @Suppress("MissingPermission")
+    private fun begin() {
         val minimum = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         check(minimum > 0) { "Audio format unavailable" }
         val size = maxOf(4096, minimum)
@@ -181,6 +193,7 @@ private class CommandRecording(val id: String, private val durationMs: Int, priv
                 running = false
                 try { input.stop() } catch (_: Exception) { }
                 input.release()
+                AndroidMicrophoneOwnership.release(this)
                 if (cancelled) pcm.reset()
                 done.countDown()
             }
