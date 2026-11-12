@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import uuid4
 
 from google.adk.agents import LlmAgent
@@ -33,7 +33,7 @@ class _NativeTask:
     sessions: InMemorySessionService
     session_id: str
     runner: Runner
-    goal: str
+    goal: str = field(repr=False)
     calls: int = 0
     segments: int = 0
 

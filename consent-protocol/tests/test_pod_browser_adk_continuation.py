@@ -91,6 +91,7 @@ async def test_native_handback_retains_session_without_repeating_goal_or_pending
         result = await native.run(control=runtime, processing=process, goal=process.task_goal)
         assert result.outcome == "needs_owner"
         context = native._tasks[runtime.binding.task_id]
+        assert process.task_goal not in repr(context)
         original_session = context.session_id
         session = await context.sessions.get_session(
             app_name="pod_browser", user_id=runtime.binding.owner_id, session_id=original_session
