@@ -19,7 +19,7 @@ export type PrivateGoogleStatus = {
   connectorId: GoogleConnector;
   status: 'connected' | 'needs_reauth' | 'absent';
   accessLevel: 'read' | 'manage' | null;
-  capabilities: { read: boolean; manage: boolean };
+  capabilities: { read: boolean; manage: boolean; readOther?: boolean; calendarList?: boolean };
 };
 
 /** Display only grants confirmed by the owner-authenticated pod response. */
@@ -33,7 +33,12 @@ export async function privateGoogleStatus(connector: GoogleConnector): Promise<P
   return {
     connectorId: connector, status: value.status!,
     accessLevel: connected && (value.accessLevel === 'read' || value.accessLevel === 'manage') ? value.accessLevel : null,
-    capabilities: { read: connected && value.capabilities?.read === true, manage: connected && value.capabilities?.manage === true },
+    capabilities: {
+      read: connected && value.capabilities?.read === true,
+      manage: connected && value.capabilities?.manage === true,
+      ...(connector === 'contacts' && { readOther: connected && value.capabilities?.readOther === true }),
+      ...(connector === 'calendar' && { calendarList: connected && value.capabilities?.calendarList === true }),
+    },
   };
 }
 
@@ -51,4 +56,18 @@ export async function confirmPrivateGoogleAction(proposalId: string, kind: 'cale
   if (value.proposalId !== proposalId || value.kind !== kind || !value.result || typeof value.result !== 'object' || Array.isArray(value.result))
     throw new Error('Your private agent could not confirm the outcome. Check the provider before trying again.');
   return value.result as Record<string, unknown>;
+}
+
+export async function readPrivateCalendarReplyStatus(proposalId: string): Promise<{
+  calendar: 'created' | 'prepared' | 'expired' | 'outcome_unknown';
+  gmail: 'sent' | 'not_sent' | 'outcome_unknown';
+}> {
+  if (!/^gcal_[A-Za-z0-9_-]{16,64}$/.test(proposalId)) throw new Error('Invalid Calendar review');
+  const response = await ApiService.ownerPodRequest(`actions/${proposalId}/status`, { method: 'GET' });
+  if (!response.ok) throw new Error('The Calendar review could not be checked.');
+  const value = await response.json();
+  if (value?.proposalId !== proposalId || value?.kind !== 'calendar' ||
+    !['created', 'prepared', 'expired', 'outcome_unknown'].includes(value.calendar) ||
+    !['sent', 'not_sent', 'outcome_unknown'].includes(value.gmail)) throw new Error('Invalid Calendar outcome');
+  return { calendar: value.calendar, gmail: value.gmail };
 }

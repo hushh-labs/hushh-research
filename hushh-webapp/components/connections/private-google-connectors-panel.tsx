@@ -37,6 +37,7 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
   const [statuses, setStatuses] = useState<Partial<Record<GoogleConnector, Status>>>({});
   const [readable, setReadable] = useState<Partial<Record<GoogleConnector, boolean>>>({});
   const [managed, setManaged] = useState<Partial<Record<GoogleConnector, boolean>>>({});
+  const [readsOtherContacts, setReadsOtherContacts] = useState(false);
   const [busy, setBusy] = useState<GoogleConnector | null>(null);
   const [message, setMessage] = useState('');
   const [handoff, setHandoff] = useState<PhoneHandoff | null>(null);
@@ -47,20 +48,21 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
     const rows = await Promise.all(GOOGLE_CONNECTORS.map(async (connector) => {
       try {
         const result = await privateGoogleStatus(connector);
-        return [connector, result.status, result.capabilities.manage, result.capabilities.read] as const;
-      } catch { return [connector, 'unavailable', false, false] as const; }
+        return [connector, result.status, result.capabilities.manage, result.capabilities.read, result.capabilities.readOther] as const;
+      } catch { return [connector, 'unavailable', false, false, false] as const; }
     }));
     if (isCurrent() && reads.current === sequence) {
       setStatuses(Object.fromEntries(rows.map(([connector, status]) => [connector, status])));
       setManaged(Object.fromEntries(rows.map(([connector, , manage]) => [connector, manage])));
       setReadable(Object.fromEntries(rows.map(([connector, , , read]) => [connector, read])));
+      setReadsOtherContacts(rows.find(([connector]) => connector === 'contacts')?.[4] === true);
     }
   }, [enabled, isCurrent]);
-  useLayoutEffect(() => { setStatuses({}); setManaged({}); setReadable({}); setBusy(null); setMessage(''); setHandoff(null); }, [visit]);
+  useLayoutEffect(() => { setStatuses({}); setManaged({}); setReadable({}); setReadsOtherContacts(false); setBusy(null); setMessage(''); setHandoff(null); }, [visit]);
   useEffect(() => { if (!open) cancelTransition(); }, [open, cancelTransition]);
   useEffect(() => () => cancelTransition(), [visit, cancelTransition]);
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
-  const run = async (connector: GoogleConnector, disconnect: boolean) => {
+  const run = async (connector: GoogleConnector, disconnect: boolean, includeOtherContacts = false) => {
     if (!enabled || !isCurrent() || pending.current) return;
     const operation = {}; pending.current = operation;
     const current = isCurrent;
@@ -70,7 +72,7 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
         const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'DELETE' });
         if (!response.ok) throw new Error('AGENT_UNREACHABLE');
       } else {
-        const outcome = await connectGoogleConnector(connector, { vaultOwnerCapability: vaultOwnerToken,
+        const outcome = await connectGoogleConnector(connector, { vaultOwnerCapability: vaultOwnerToken, includeOtherContacts,
           confirmLegacyTransition: terms => current() ? confirmTransition(terms, connector === 'calendar' ? 'calendar' : undefined) : Promise.resolve(false), isCurrent: current });
         if (!current()) return;
         if (!outcome.ok) {
@@ -88,7 +90,8 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
     const status = statuses[connector] === 'connected' ? ((connector === 'gmail' || connector === 'calendar') ? managed[connector] ? 'Connected · changes allowed after your confirmation' : readable[connector] ? 'Connected · reading only' : 'Connected · permissions need verification' : 'Connected to Agent One') :
       statuses[connector] === 'needs_reauth' ? 'Sign in again' : statuses[connector] === 'unavailable' ? 'Your agent could not verify this connection' : statuses[connector] ? 'Not connected' : 'Checking connection…';
     return { connector, label: LABELS[connector], status, purpose: connectorAccessPurpose(connector), connected: statuses[connector] === 'connected',
-      allowChanges: statuses[connector] === 'connected' && (connector === 'gmail' || connector === 'calendar') && !managed[connector] };
+      allowChanges: statuses[connector] === 'connected' && (connector === 'gmail' || connector === 'calendar') && !managed[connector],
+      allowOtherContacts: statuses[connector] === 'connected' && connector === 'contacts' && !readsOtherContacts };
   });
   return { open, enabled, entries, busy, message, handoff, refresh, run, transition, isCurrent };
 }
@@ -112,11 +115,12 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
     <p className="text-sm text-muted-foreground">Connect Google directly to Agent One. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
     <SettingsGroup>
-      {entries.map(({ connector, status, connected, allowChanges }) => {
+      {entries.map(({ connector, status, connected, allowChanges, allowOtherContacts }) => {
         return <SettingsRow key={connector} title={LABELS[connector]}
         description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
         trailing={<div className="flex gap-2">
           {allowChanges && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
+          {allowOtherContacts && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false, true)}>Allow Other Contacts</Button>}
           <Button variant="outline" disabled={!enabled || busy !== null}
           onClick={() => void run(connector, connected)}>
           {busy === connector ? 'Working…' : connected ? 'Disconnect' : 'Connect'}

@@ -15,6 +15,7 @@ import calendarPresentation from "@/components/calendar/calendar-presentation.mo
 import { calendarTimeZoneOffset, calendarTimeZoneOffsetRange } from "@/lib/calendar/calendar-time-zone";
 
 export type CalendarProposalAction = "create" | "reschedule" | "cancel";
+export type CalendarGmailReplyPreview = { to: string[]; subject: string; body: string };
 
 export type CalendarProposalConflict = {
   title: string | null;
@@ -36,6 +37,8 @@ export type AgentCalendarProposalCardProps = {
   description?: string | null;
   sendUpdates: boolean;
   googleMeet?: boolean;
+  gmailReply?: CalendarGmailReplyPreview;
+  calendarLabel?: string;
   conflicts: CalendarProposalConflict[];
   confirmLabel: string;
   busy?: boolean;
@@ -115,6 +118,8 @@ export function AgentCalendarProposalCard({
   description,
   sendUpdates,
   googleMeet = false,
+  gmailReply,
+  calendarLabel,
   conflicts,
   confirmLabel,
   busy,
@@ -211,6 +216,15 @@ export function AgentCalendarProposalCard({
           </div>
         ) : null}
         {description ? <div className="space-y-1"><p className={calendarPresentation.sectionLabel}>Description</p><p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground">{description}</p></div> : null}
+        {calendarLabel ? <p className="break-words text-muted-foreground">Calendar · {calendarLabel}</p> : null}
+        {gmailReply ? (
+          <div className="space-y-1 border-t border-[color:var(--app-separator)] pt-3">
+            <p className={calendarPresentation.sectionLabel}>Threaded Gmail reply</p>
+            <p className="[overflow-wrap:anywhere] text-muted-foreground">To {gmailReply.to.join(", ")}</p>
+            <p className="[overflow-wrap:anywhere]">{gmailReply.subject}</p>
+            <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground">{gmailReply.body}</p>
+          </div>
+        ) : null}
         {!attendeeText ? (
           <p className="text-muted-foreground">
             {sendUpdates

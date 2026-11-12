@@ -4,7 +4,9 @@ export function calendarProposalReviewError(payload: Record<string, unknown>): s
   const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
   if (payload.type !== "calendar.execute_proposal" || !text(payload.proposalId) ||
       !["create", "reschedule", "cancel"].includes(String(payload.action)) ||
-      !text(payload.title) || !text(payload.accountId) || payload.calendarId !== "primary" ||
+      !text(payload.title) || !text(payload.accountId) || !text(payload.calendarId) ||
+      (payload.action === "create" && payload.calendarId !== "primary") ||
+      (payload.calendarId !== "primary" && !text(payload.calendarLabel)) ||
       !text(payload.timeZone) || typeof payload.sendUpdates !== "boolean" ||
       !Array.isArray(payload.attendees) || payload.attendees.some(value => !text(value) || !value.includes("@")) ||
       !Array.isArray(payload.conflicts) || !text(payload.expiresAt) ||
@@ -52,6 +54,7 @@ export function legacyCalendarProposalPayload(result: Record<string, unknown>, a
   return {
     type: "calendar.execute_proposal", proposalId: result.proposal_id, action,
     accountId: plan.account_id, calendarId: plan.calendar_id, eventId: plan.event_id,
+    calendarLabel: plan.calendar_label,
     recurringEventId: plan.recurring_event_id, originalStartTime: plan.original_start_time,
     title: action === "cancel" ? current.title : plan.title ?? current.title,
     startAt: action === "cancel" ? flat(current.start) : plan.start_date ?? flat(plan.start_at),

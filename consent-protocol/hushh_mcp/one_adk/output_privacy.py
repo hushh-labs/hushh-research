@@ -89,6 +89,8 @@ _PRIVATE_STATE_KEYS = frozenset(
         "hussh:email_page",
         "hussh:email_selection",
         "hussh:email_memory_pending",
+        "hussh:contact_attendee_offer",
+        "temp:one_contact_calendar_read",
         "hussh:calendar_event_read_offer",
         "hussh:calendar_invitation_read_offer",
         "hussh:calendar_list_read_offer",
@@ -97,6 +99,8 @@ _PRIVATE_STATE_KEYS = frozenset(
         "temp:hussh:calendar_guest_recovery",
         "temp:hussh:calendar_request_scope",
         "temp:hussh:turn_started_at",
+        "hussh:calendar_events_page",
+        "hussh:calendar_event_attendees",
     }
 )
 

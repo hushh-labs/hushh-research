@@ -14,14 +14,6 @@
     "description": "",
     "location": "",
     "conference_request_id": "meet_local_review",
-    "connection_binding": [
-      "owner",
-      "calendar",
-      "subject",
-      "connected",
-      "connection-rev",
-      "grant-rev"
-    ],
     "availability_calendar_ids": [
       "calendar-1",
       "calendar-2",

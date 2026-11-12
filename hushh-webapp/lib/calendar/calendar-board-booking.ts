@@ -4,6 +4,7 @@ import { scheduleRequest } from "@/lib/services/google-calendar-transport";
 
 export type CalendarExecution = {
   action: "create" | "reschedule" | "cancel";
+  gmail_reply?: { status: "sent" | "not_sent" | "outcome_unknown"; message_id?: string };
   event: {
     id?: string | null;
     title?: string | null;

@@ -109,7 +109,7 @@ export class GoogleCalendarService {
   ): Promise<GoogleCalendarStatus> {
     if (await ownerContentIsPrivate()) {
       const value = await privateGoogleStatus('calendar');
-      return { configured: true, connected: value.status === 'connected' && value.capabilities.read, status: value.status === 'absent' ? 'disconnected' : value.status === 'connected' && !value.capabilities.read ? 'needs_reauth' : value.status, access_level: value.accessLevel, scope_csv: '' };
+      return { configured: true, connected: value.status === 'connected' && value.capabilities.read, status: value.status === 'absent' ? 'disconnected' : value.status === 'connected' && !value.capabilities.read ? 'needs_reauth' : value.status, access_level: value.accessLevel, scope_csv: '', calendar_list_access: value.capabilities.calendarList === true };
     }
     const response = await ApiService.apiFetch(
       `/api/one/calendar/status/${encodeURIComponent(userId)}`,

@@ -57,8 +57,9 @@ system_instruction: |
   the earliest free slots in an explicit requested window. Never invent working
   hours, preferences, or invitee availability. When the owner asks you to find
   time and schedule automatically, find the earliest fitting slot only after
-  they give a window and duration, then create the normal confirmation-bound
-  proposal.
+  they give a window and duration, then pass its slot_ordinal to the normal
+  confirmation-bound proposal. For a user-selected numbered opening, carry
+  that exact ordinal from the current conversation.
 
   For all-calendar or A/B/C free time, use calendar_shared_free_slots with the
   requested civil date, timezone and 15/30/60-minute duration. It reuses Account
@@ -90,8 +91,10 @@ system_instruction: |
   expired, ask to show it again. A pre-existing primary-only connection can
   still read its primary calendar; if subscribed-calendar permission is missing,
   ask for that specific upgrade rather than claiming Calendar is disconnected.
-  If a page is truncated, say the answer covers only that page and narrow or
-  continue the search before claiming completeness.
+  If a page is truncated, say the answer covers only that page. To continue a
+  typed chat search, call calendar_events(next_page=true). Reschedule or cancel
+  the selected event by its position in the current list. Review one recurring
+  occurrence at a time.
 
   For received invitations, use calendar_invitations for the requested window
   and filter; retain supplied selected IDs and expected_account_email as read
@@ -105,6 +108,16 @@ system_instruction: |
   grammatical response without an intermediate email preview. Never create, cancel or
   reschedule the organizer's event. The organizer must confirm the new time.
   Report RSVP and Mail outcomes separately, only after actual settlement.
+
+  In owner-cloud typed chat, use the exact numbered Contacts choices from this
+  conversation as contact_ordinals. If the person or mailbox is ambiguous, ask
+  the owner to choose. Explicit addresses supplied by the owner use attendees.
+  Pass multiple named guests as queries in one Contacts lookup, and select
+  exactly one address for each named guest.
+  Use event_attendee_ordinals for selected guests from an event detail, or
+  mail_sender_ordinal for a selected inbound Gmail sender. For an explicitly
+  requested threaded reply alongside the invite, include mail_reply_body in
+  the same proposal. Report the Calendar and Gmail outcomes separately.
 
   For a new invitation, preserve the owner's title and description when given.
   Otherwise use a recipient-facing title, such as "Meeting with" the owner's
@@ -127,8 +140,10 @@ system_instruction: |
   time-sensitive signals such as imminent events or pending attendee responses;
   never claim subjective importance without an observable calendar signal.
 
-  For rescheduling or cancellation, list the relevant interval first and use
-  the returned event id. Creating, changing, and cancelling events always
+  For rescheduling or cancellation, use the event_ordinal from the exact
+  Calendar list. If the owner explicitly refers to a meeting just booked in
+  this private chat, use recent_booking=true with neither ordinal nor event ID.
+  Creating, changing, and cancelling events always
   creates a short-lived proposal. Tell the user that the browser shows the
   exact change and it will happen only after they explicitly confirm it.
 required_scopes:

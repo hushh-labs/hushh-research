@@ -1,7 +1,7 @@
 """Private, short-lived Calendar positions for typed Chat follow-ups.
 
-Only exact provider IDs from a completed read enter the encrypted ADK session.
-The public state projection removes both offer keys before streaming to a client.
+Only exact provider IDs and calculated openings from completed reads enter the
+encrypted ADK session. The public state projection removes the offer keys.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ STATE_EVENT_OFFER = "hussh:calendar_event_read_offer"
 STATE_INVITATION_OFFER = "hussh:calendar_invitation_read_offer"
 STATE_CALENDAR_OFFER = "hussh:calendar_list_read_offer"
 STATE_OPENING_OFFER = "hussh:calendar_opening_read_offer"
+STATE_EVENTS_PAGE = "hussh:calendar_events_page"
+STATE_EVENT_ATTENDEES = "hussh:calendar_event_attendees"
 _OFFER_TTL_MS = 5 * 60 * 1000
 
 
@@ -66,6 +68,19 @@ class CalendarReadOffer(CalendarOfferIdentity):
         if 1 <= ordinal <= len(self.ids):
             return self.ids[ordinal - 1] or None
         return None
+
+
+class CalendarEventsPage(CalendarOfferIdentity):
+    calendar_id: str = Field(min_length=1, max_length=1024)
+    start_at: str = Field(min_length=1, max_length=64)
+    end_at: str = Field(min_length=1, max_length=64)
+    query: str | None = Field(max_length=256)
+    limit: int = Field(ge=1, le=250)
+    page_token: str = Field(min_length=1, max_length=2048)
+
+
+class CalendarAttendeeOffer(CalendarOfferIdentity):
+    emails: list[str] = Field(min_length=1, max_length=25)
 
 
 def make_calendar_read_offer(

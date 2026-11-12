@@ -5481,6 +5481,16 @@ contacts Google, dispatches an action or falls back to the hub. Executing or fai
 settlement remains uncertain; only durable executed settlement proves delivery.
 Unknown, foreign and non-send proposals are unavailable.
 
+An owner-cloud Calendar proposal can contain a reviewed Gmail reply to the
+selected source message. The normal Calendar confirm endpoint executes the
+exact reviewed effects under one claim. After Calendar acknowledges creation,
+the private agent records that receipt before dispatching Gmail. The result
+adds `gmail_reply.status` with `sent`, `not_sent`, or `outcome_unknown`.
+`GET /api/one/pod/actions/{gcal_id}/status` uses the same held owner app
+authority and returns the Calendar state, confirmed event ID when available,
+and Gmail state for linked proposals. Ordinary Calendar proposals have no
+linked status. The status read does not call Google or retry either effect.
+
 ## Referral dashboard reads
 
 `/one/referrals` uses the existing web proxy and native `ApiService` transport.

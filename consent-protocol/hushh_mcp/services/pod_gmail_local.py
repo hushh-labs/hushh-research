@@ -65,6 +65,12 @@ logger = logging.getLogger(__name__)
 class PodLocalMetadataReader(GmailMetadataReader):
     """An authorized read can settle matching notification IDs, never mark mail read."""
 
+    def calendar_source_credential_id(self) -> str | None:
+        if self._observation is None:
+            return None
+        identifier = self._observation.get("observed_credential_id")
+        return identifier if isinstance(identifier, str) else None
+
     async def read(self, operation: Any, arguments: dict[str, Any]) -> dict[str, Any]:
         from hushh_mcp.services.pod_gmail_doorbell import pod_gmail_doorbell
 
@@ -352,6 +358,39 @@ def email_read_port(
         session = owner_session_turn(turn_token, verifier)
         return PodLocalEmailReadPort(owner_user_id, owner_session=session)
     return PodEmailReadPort(owner_user_id, scope_token)
+
+
+def current_calendar_mail_grant(owner_id: str, credential_id: str, account: str) -> bool:
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+
+    if not owner_cloud_agent() or not owner_id or owner_id != pod_owner_user_id():
+        return False
+    held = _held()
+    return bool(
+        held
+        and held.credential_id == credential_id
+        and held.account_subject == account
+        and held.status == store.STATUS_CONNECTED
+        and _satisfies(held, "read")
+    )
+
+
+async def calendar_mail_source(
+    *, owner_id: str, credential_id: str, account: str, message_id: str, require_access: Any
+) -> tuple[dict[str, Any], str]:
+    async def authorized() -> None:
+        await require_access()
+        if not current_calendar_mail_grant(owner_id, credential_id, account):
+            raise GmailMetadataError("connection_changed")
+
+    await authorized()
+    port = PodLocalEmailReadPort(owner_id, owner_session=True)
+    reader = port.metadata_reader(
+        gmail=port, user_id=owner_id, require_access=authorized, expect_account=account
+    )
+    message = await reader.reply_source(message_id)
+    await authorized()
+    return message, port._connection._email
 
 
 __all__ = [

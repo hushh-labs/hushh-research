@@ -295,7 +295,7 @@ async def run_connector_get(
     return {
         "connectorId": connector_id,
         "status": held.status if held else store.STATUS_ABSENT,
-        **store.connector_permissions(held),
+        **store.connector_permissions(held, connector_id=connector_id),
     }
 
 

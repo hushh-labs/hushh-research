@@ -633,6 +633,31 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("shows the invite and threaded reply together and confirms once", async () => {
+    const proposal = structuredClone(result);
+    Object.assign(proposal.directive.payload, {
+      confirmLabel: "Schedule and send reply",
+      gmailReply: { to: ["reply@example.com"], subject: "Re: Planning", body: "I sent the invitation." },
+    });
+    vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", proposal));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal").mockResolvedValue({
+      action: "create", event: { id: "local-event", title: "Call" }, gmail_reply: { status: "not_sent" },
+    });
+    workspace();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "Book the meeting and reply to the email." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    const confirm = await screen.findByRole("button", { name: "Schedule and send reply" });
+    const card = screen.getByTestId("agent-calendar-proposal-card");
+    expect(card).toHaveTextContent("guest@example.com");
+    expect(card).toHaveTextContent("reply@example.com");
+    expect(card).toHaveTextContent("Re: Planning");
+    expect(card).toHaveTextContent("I sent the invitation.");
+    expect(execute).not.toHaveBeenCalled();
+    fireEvent.click(confirm); fireEvent.click(confirm);
+    await waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Schedule and send reply" })).toBeNull());
+  });
+
   it("denied consent retains one actionable authorization card without continuing or executing", async () => {
     const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool", {
       status: "connection_required", directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {
