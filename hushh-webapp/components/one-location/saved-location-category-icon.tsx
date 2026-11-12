@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  Bank, Bed, Briefcase, Buildings, Church, Coffee, FirstAid,
-  ForkKnife, GraduationCap, House, MapPin, ShoppingBag, Train, Tree,
-  type Icon,
-} from "@phosphor-icons/react";
+  Landmark as Bank, Bed, Briefcase, Building2 as Buildings, Church, Coffee, FirstAid,
+  ForkKnife, GraduationCap, Home as House, MapPin, ShoppingBag, Train, Tree,
+  type LucideIcon as Icon,
+} from "@/components/icons";
 import type { SavedLocation } from "@/lib/one-location/saved-locations";
 import { normalizeCheckedInPlaceCategory, type CheckedInPlaceCategory } from "@/lib/one-location/nearby-places";
 import { cn } from "@/lib/utils";
@@ -18,24 +18,24 @@ const CHECK_IN_CATEGORIES: Record<CheckedInPlaceCategory, CategoryPresentation> 
   shopping_services: { Icon: ShoppingBag, background: "var(--app-warning)", symbol: "bag", color: "#ff9500" },
   hotels_stays: { Icon: Bed, background: "#af52de", symbol: "bed.double", color: "#af52de" },
   other_stays: { Icon: Buildings, background: "#5856d6", symbol: "building.2", color: "#5856d6" },
-  education: { Icon: GraduationCap, background: "var(--app-accent)", symbol: "graduationcap", color: "#007aff" },
+  education: { Icon: GraduationCap, background: "var(--app-accent)", symbol: "graduationcap", color: "var(--app-accent)" },
   outdoors_landmarks: { Icon: Tree, background: "var(--app-success)", symbol: "tree", color: "#34c759" },
-  transit: { Icon: Train, background: "var(--app-accent)", symbol: "tram", color: "#007aff" },
+  transit: { Icon: Train, background: "var(--app-accent)", symbol: "tram", color: "var(--app-accent)" },
   worship: { Icon: Church, background: "#af52de", symbol: "building.columns", color: "#af52de" },
   civic: { Icon: Bank, background: "#636366", symbol: "building.columns", color: "#636366" },
-  other: { Icon: MapPin, background: "var(--app-accent)", symbol: "mappin", color: "#007aff" },
+  other: { Icon: MapPin, background: "var(--app-accent)", symbol: "mappin", color: "var(--app-accent)" },
 };
 
 export function savedLocationCategoryPresentation(location: Pick<SavedLocation, "category" | "placeCategory" | "savedFrom">) {
   if (location.category === "home") {
-    return { Icon: House, background: "var(--app-accent)", symbol: "house", color: "#007aff" };
+    return { Icon: House, background: "var(--app-accent)", symbol: "house", color: "var(--app-accent)" };
   }
   if (location.category === "work") {
     return { Icon: Briefcase, background: "var(--app-warning)", symbol: "briefcase", color: "#ff9500" };
   }
   const placeCategory = normalizeCheckedInPlaceCategory(location.placeCategory);
   if (placeCategory || location.savedFrom === "check_in") return CHECK_IN_CATEGORIES[placeCategory ?? "other"];
-  return { Icon: MapPin, background: "transparent", symbol: "mappin", color: "#007aff" };
+  return { Icon: MapPin, background: "transparent", symbol: "mappin", color: "var(--app-accent)" };
 }
 
 export function SavedLocationCategoryIcon({ location }: { location: Pick<SavedLocation, "category" | "placeCategory" | "savedFrom"> }) {
