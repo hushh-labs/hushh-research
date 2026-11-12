@@ -17,10 +17,12 @@ export function PortfolioBriefing({
   review,
   onOpen,
   needsAction = false,
+  missing,
 }: {
   review?: Pick<PortfolioReviewResponse, "score" | "next_step">;
   onOpen: () => void;
   needsAction?: boolean;
+  missing?: string;
 }) {
   const score = review?.score ?? null;
   return (
@@ -33,7 +35,7 @@ export function PortfolioBriefing({
         <dl className="flex items-baseline justify-between gap-3">
           <dt className="ui-text-row-description">Portfolio score</dt>
           <dd className="shrink-0 ui-text-row-description tabular-nums">
-            {score === null ? "Unavailable" : (
+            {score === null ? (missing ? "Complete your persona" : "Unavailable") : (
               <><strong className="ui-text-row-label-emphasized">{score}</strong> / 100</>
             )}
           </dd>
@@ -66,6 +68,7 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
     key: typeof key;
     review?: PortfolioReviewResponse;
     sourceFence: string;
+    missing?: string;
     isCurrent: () => boolean;
   } | null>(null);
 
@@ -88,9 +91,13 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
       void (async () => {
         const stored = await readSavedPortfolioReview(context);
         if (disposed || !context.isCurrent()) return;
-        const { digest, sourceFence } = await readPortfolioReviewInput(context, key.source);
+        const { digest, sourceFence, payload } = await readPortfolioReviewInput(context, key.source);
         if (!disposed && context.isCurrent()) {
-          setSaved({ key, sourceFence, review: digest === stored?.digest ? stored.review : undefined, isCurrent: context.isCurrent });
+          const missing = [
+            payload?.horizon === null ? "withdrawal timing" : null,
+            payload?.loss_capacity === null ? "ability to absorb losses" : null,
+          ].filter(Boolean).join(" and ");
+          setSaved({ key, sourceFence, missing: missing || undefined, review: digest === stored?.digest ? stored.review : undefined, isCurrent: context.isCurrent });
         }
       })().catch(() => { /* Leave the score unavailable if the saved review cannot be opened. */ });
     }
@@ -104,7 +111,7 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
 
   const current = saved?.key === key && saved.isCurrent() ? saved : null;
   const approved = activeReview?.approval.scope === session && activeReview.approval.sourceFence === current?.sourceFence;
-  return <PortfolioBriefing review={current?.review} needsAction={Boolean(current && !current.review && !approved)} onOpen={onOpen} />;
+  return <PortfolioBriefing review={current?.review} missing={current?.missing} needsAction={Boolean(current && !current.review && !approved)} onOpen={onOpen} />;
 }
 
 /** Charts use saved holdings and balance history, never model estimates. */

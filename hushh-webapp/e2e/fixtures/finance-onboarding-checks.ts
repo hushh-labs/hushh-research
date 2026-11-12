@@ -1,12 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function answerPersona(page: Page) {
-  const answers = page.getByRole("radio", { name: "I’m not sure yet" });
-  await expect(answers).toHaveCount(3);
-  for (const answer of await answers.all()) {
-    await answer.check();
-  }
-  await page.getByRole("button", { name: "Save persona" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
 }
 
 // A paused CSS animation freezes on the next style recalculation. Two matching
@@ -264,26 +259,12 @@ export function registerFinanceOnboardingChecks(
         const a = (await bank.boundingBox())!;
         const b = (await statement.boundingBox())!;
         const c = (await sample.boundingBox())!;
-        if (width >= 768) {
-          expect(a.x + a.width).toBeLessThan(b.x);
-          expect(c.x).toBe(b.x);
-          const connect = (await page
-            .getByRole("button", { name: "Connect account", exact: true })
-            .boundingBox())!;
-          const skip = (await page
-            .getByRole("button", { name: "Skip for now", exact: true })
-            .boundingBox())!;
-          const center = (a.x + b.x + b.width) / 2;
-          expect(
-            Math.abs(connect.x + connect.width / 2 - center),
-          ).toBeLessThanOrEqual(1);
-          expect(
-            Math.abs(skip.x + skip.width / 2 - center),
-          ).toBeLessThanOrEqual(1);
-        } else {
-          expect(a.y + a.height).toBeLessThan(b.y);
-          expect(c.y).toBe(b.y);
-        }
+        expect(a.y + a.height).toBeLessThan(b.y);
+        expect(b.y + b.height).toBeLessThan(c.y);
+        expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(b.width - c.width)).toBeLessThanOrEqual(1);
+        await expect(page.getByText("Recommended")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Connect account", exact: true })).toHaveCount(0);
         expect(
           await page.evaluate(
             () => document.documentElement.scrollWidth <= innerWidth,
@@ -295,10 +276,6 @@ export function registerFinanceOnboardingChecks(
           path: pickerPath,
           contentType: "image/png",
         });
-        await sample.click();
-        expect(
-          await page.evaluate(() => document.body.dataset.sourceAction),
-        ).toBeUndefined();
         await page
           .getByRole("button", { name: "Skip for now", exact: true })
           .click();
@@ -423,9 +400,6 @@ export function registerFinanceOnboardingChecks(
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await answerPersona(page);
     await page.getByRole("button", { name: /Try a sample/ }).click();
-    await page
-      .getByRole("button", { name: "Try sample", exact: true })
-      .click();
     expect(await page.evaluate(() => document.body.dataset.sourceAction)).toBe(
       "sample",
     );

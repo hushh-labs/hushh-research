@@ -322,7 +322,7 @@ class KaiAnalyzeRunManager:
                 user_id=run.user_id,
                 source_domain="kai",
                 event_type="kai_analysis_completed",
-                actor_label="Kai",
+                actor_label="Finance",
                 metadata={"ticker": run.ticker, "run_id": run.run_id},
                 source_row_id=run.run_id,
             )
@@ -343,7 +343,7 @@ class KaiAnalyzeRunManager:
                 user_id=run.user_id,
                 source_domain="kai",
                 event_type=f"kai_analysis_{run.status}",
-                actor_label="Kai",
+                actor_label="Finance",
                 metadata={"ticker": run.ticker},
                 source_row_id=run.run_id,
             )
