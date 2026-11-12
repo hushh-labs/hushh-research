@@ -21,6 +21,28 @@ import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { withStableOverviewFromCache } from "@/lib/kai/kai-market-home-resource";
 import type { KaiHomeInsightsV2, KaiHomeNewsItem } from "@/lib/services/api-service";
 
+describe("India market strip", () => {
+  const row = (label: string, symbol: string, value: number) => ({
+    id: symbol.toLowerCase(), label, symbol, value, delta_pct: 0.4, as_of: "2026-11-12T10:00:00Z",
+    source: "Yahoo Chart (Batch)", degraded: false,
+  });
+  const payload = {
+    market_overview: [
+      row("NIFTY 50", "^NSEI", 25299.35), row("SENSEX", "^BSESN", 81911.01),
+      row("NIFTY Bank", "^NSEBANK", 61518.5), row("NIFTY IT", "^CNXIT", 32163.55),
+      row("S&P 500", "^GSPC", 7618.28),
+    ],
+  } as unknown as KaiHomeInsightsV2;
+
+  it("shows the four NSE/BSE indices for India and keeps the US strip as the default", () => {
+    expect(toIndexStripItems(payload, "IN").map((item) => item.label)).toEqual(["NIFTY 50", "SENSEX", "NIFTY Bank", "NIFTY IT"]);
+    expect(toIndexStripItems(payload, "IN")[0]?.detailPanel?.summary).toBe("India equity index · points");
+    // Without a region the strip is still the US one, so existing callers are unchanged.
+    expect(toIndexStripItems(payload).map((item) => item.label)).toEqual(["S&P 500", "NASDAQ Composite", "Dow Jones", "Russell 2000"]);
+    expect(toIndexStripItems(payload)[0]?.detailPanel?.summary).toBe("US equity index · points");
+  });
+});
+
 describe("market period and image evidence", () => {
   it("switches to actual weekly values and exposes the observed period", async () => {
     const rows = [{ sector: "Technology", change_pct: 1, change_1w_pct: -2,

@@ -12,7 +12,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from time import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from hushh_mcp.market_data.india_market import assemble_india_payload, load_india_home
 from hushh_mcp.market_data.movers import (
     MIN_MOVERS,
     assemble_movers,
@@ -3139,13 +3140,74 @@ async def get_market_company_facts(
     return {"facts": dict(await asyncio.gather(*(load(symbol) for symbol in requested)))}
 
 
+INDIA_HOME_FRESH_TTL_SECONDS = 300
+INDIA_HOME_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, Any]:
+    """India market view. Its cache key is outside every US-gated prefix on purpose:
+    NSE hours never overlap the US session, so a US-closed pause would freeze it."""
+
+    async def build() -> dict[str, Any]:
+        loaded = await load_india_home(
+            days_back,
+            lambda: _fetch_market_status_for_exchange("NS"),
+            lambda: _scheduled_market_status_fallback("NS"),
+        )
+        base = _empty_market_home_payload(
+            user_id=user_id,
+            requested_watchlist_symbols=[],
+            filtered_symbols=[],
+            stale_reason="india_home",
+            market_mode="baseline",
+        )
+        return jsonable_encoder(assemble_india_payload(base, loaded))
+
+    try:
+        value, stale, age_seconds, cache_tier, cache_hit = await _get_or_refresh_public_module(
+            key=f"india_home:v1:{days_back}",
+            fresh_ttl_seconds=INDIA_HOME_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=INDIA_HOME_STALE_TTL_SECONDS,
+            fetcher=build,
+            warm_source="india_market",
+        )
+    except Exception as exc:
+        logger.exception("[Kai Market] India home failed: %s", type(exc).__name__)
+        empty = _empty_market_home_payload(
+            user_id=user_id,
+            requested_watchlist_symbols=[],
+            filtered_symbols=[],
+            stale_reason="india_home_failed",
+            provider_status={"india_home": _provider_status_from_exception(exc)},
+            market_mode="baseline",
+        )
+        empty["market"] = "IN"
+        empty["market_overview"] = [_scheduled_market_status_fallback("NS")]
+        return empty
+    result = dict(value)
+    result["stale"] = bool(result.get("stale")) or stale
+    result["meta"] = {
+        **result.get("meta", {}),
+        "stale": result["stale"],
+        "cache_age_seconds": age_seconds,
+        "cache_tier": cache_tier,
+        "cache_hit": cache_hit,
+    }
+    return result
+
+
 @router.get("/market/insights/baseline/{user_id}")
 async def get_market_insights_baseline(
     user_id: _UserId,
     days_back: int = Query(default=7, ge=1, le=14),
+    market: Literal["US", "IN"] = Query(
+        default="US", description="Market view. IN is the India view (NIFTY, SENSEX)."
+    ),
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     verify_user_id_match(firebase_uid, user_id)
+    if market == "IN":
+        return await _get_india_market_payload(user_id, days_back)
 
     requested_watchlist_symbols = list(DEFAULT_SYMBOLS)
     filtered_symbols: list[dict[str, Any]] = []

@@ -311,6 +311,8 @@ export const CACHE_KEYS = {
   KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
   KAI_MARKET_HOME_BASELINE: (userId: string, daysBack: number) =>
     `kai_market_home_${userId}_baseline_v5_${daysBack}`,
+  KAI_MARKET_HOME_INDIA: (userId: string, daysBack: number) =>
+    `kai_market_home_${userId}_india_v1_${daysBack}`,
   KAI_MARKET_NEWS: (
     userId: string,
     scope: string,
