@@ -47,6 +47,42 @@ describe("ImportProgressView", () => {
   });
 });
 
+describe("ImportProgressView placeholders", () => {
+  it("shows the review layout as placeholders with the file name while the statement is read", () => {
+    render(<ImportProgressView stage="extracting" fileName="statement.pdf" fileSize={1_258_291} onCancel={vi.fn()} />);
+    expect(screen.getByText("statement.pdf · 1.2 MB")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Review holdings" })).toBeVisible();
+    expect(screen.getByText("Portfolio value")).toBeVisible();
+    // Nothing is known yet, so no holding is shown and the rows are placeholders.
+    expect(screen.queryByRole("list", { name: "Holdings found so far" })).toBeNull();
+  });
+
+  it("replaces placeholder rows with confirmed holdings and the position count as they arrive", () => {
+    render(
+      <ImportProgressView
+        stage="normalizing"
+        holdingsTotal={40}
+        liveHoldings={[
+          { symbol: "AAPL", name: "Apple Inc.", quantity: 10, market_value: 24310 },
+          { symbol: "MSFT", name: "Microsoft Corp.", quantity: null, market_value: 18942.5 },
+        ]}
+        onCancel={vi.fn()}
+      />,
+    );
+    const found = screen.getByRole("list", { name: "Holdings found so far" });
+    expect(found).toHaveTextContent("AAPL");
+    expect(found).toHaveTextContent("Microsoft Corp.");
+    expect(found).toHaveTextContent("$24,310.00");
+    expect(screen.getByText("Positions").nextElementSibling).toHaveTextContent("40");
+  });
+
+  it("shows no placeholder after a failed import", () => {
+    render(<ImportProgressView stage="error" fileName="statement.pdf" onCancel={vi.fn()} onRetry={vi.fn()} />);
+    expect(screen.queryByRole("heading", { name: "Review holdings" })).toBeNull();
+    expect(screen.queryByText("statement.pdf")).toBeNull();
+  });
+});
+
 describe("replaceLiveHoldingPreviewRows", () => {
   it("treats incoming preview rows as the latest snapshot instead of a delta", () => {
     const next = replaceLiveHoldingPreviewRows(

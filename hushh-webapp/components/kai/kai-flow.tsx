@@ -28,6 +28,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
 import { PortfolioDashboardEmpty } from "./views/portfolio-dashboard-empty";
 import { ImportProgressView, ImportStage } from "./views/import-progress-view";
+import { ImportReviewPlaceholder } from "./views/import-review-placeholder";
 import type { PortfolioData as ReviewPortfolioData } from "./views/portfolio-review-view";
 import type { PortfolioData } from "./types/portfolio";
 import {
@@ -116,9 +117,12 @@ const PortfolioReviewView = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex min-h-[360px] w-full items-center justify-center">
-        <HushhLoader variant="inline" label="Preparing your review..." />
-      </div>
+      <AppPageContentRegion>
+        <div className="mx-auto w-full max-w-lg">
+          <p className="sr-only" role="status">Preparing your review</p>
+          <ImportReviewPlaceholder />
+        </div>
+      </AppPageContentRegion>
     ),
   },
 );
@@ -3889,6 +3893,10 @@ export function KaiFlow({
         <ImportProgressView
           stage={streaming.stage === "complete" ? "validating" : streaming.stage}
           errorMessage={streaming.errorMessage}
+          fileName={lastImportFileRef.current?.name}
+          fileSize={lastImportFileRef.current?.size}
+          liveHoldings={streaming.liveHoldings}
+          holdingsTotal={streaming.holdingsTotal}
           onRetry={streaming.stage === "error" ? handleRetryImport : undefined}
           onCancel={handleCancelImport}
         />
@@ -3925,19 +3933,19 @@ export function KaiFlow({
       )}
 
       {state === "reviewing" && !flowData.parsedPortfolio && (
-        <div className="flex min-h-[360px] w-full flex-col items-center justify-center gap-3 px-6 text-center">
-          <HushhLoader variant="inline" label="Preparing your review..." />
-          <p className="text-sm text-muted-foreground">
-            Sample data loaded, but the review sheet is not ready yet.
-          </p>
-          <button
-            type="button"
-            onClick={() => setState("import_required")}
-            className="text-sm font-semibold text-primary underline underline-offset-4"
-          >
-            Back to import
-          </button>
-        </div>
+        <AppPageContentRegion>
+          <div className="mx-auto w-full max-w-lg space-y-3">
+            <p className="sr-only" role="status">Preparing your review</p>
+            <ImportReviewPlaceholder />
+            <button
+              type="button"
+              onClick={() => setState("import_required")}
+              className="text-sm font-semibold text-primary underline underline-offset-4"
+            >
+              Back to import
+            </button>
+          </div>
+        </AppPageContentRegion>
       )}
 
       {isDashboardMode &&
