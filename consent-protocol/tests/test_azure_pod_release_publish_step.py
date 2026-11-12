@@ -85,7 +85,8 @@ def publication_capacity(monkeypatch, tmp_path):
     monkeypatch.setattr(writer, "api", lambda *a, **k: deepcopy(service))
     calls = []
 
-    def command(*args):
+    def command(*args, timeout=60):
+        assert timeout == 300  # Native full inventory measured 172 seconds.
         with monkeypatch.context() as local:
             local.setattr(writer.sys, "argv", list(args[1:]))
             parsed = capacity._cli.parse_args(
