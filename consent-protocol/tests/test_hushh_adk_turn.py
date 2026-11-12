@@ -135,6 +135,42 @@ async def test_history_bounds_and_new_session_each_turn():
 
 
 @pytest.mark.asyncio
+async def test_task_history_stays_with_its_root_not_an_isolated_child():
+    class Report(BaseModel):
+        value: str
+
+    child_model = ScriptedLlm([response(text="Public result")])
+    child = LlmAgent(name="child", model=child_model)
+    model = ScriptedLlm(
+        [
+            response(call="child"),
+            LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name="finish_task", args={"value": "done"}
+                            )
+                        )
+                    ],
+                )
+            ),
+        ]
+    )
+    result = await run(
+        agent(model, mode="task", output_schema=Report, tools=[AgentTool(agent=child)]),
+        history=[{"role": "user", "content": "PRIVATE_ROOT_HISTORY"}],
+    )
+    assert result.structured_output == {"value": "done"}
+    assert len(child_model._requests) == 1
+    assert all("PRIVATE_ROOT_HISTORY" in str(request.contents) for request in model._requests)
+    assert all(
+        "PRIVATE_ROOT_HISTORY" not in str(request.contents) for request in child_model._requests
+    )
+
+
+@pytest.mark.asyncio
 async def test_scoped_async_tool_and_expected_error_callback(monkeypatch):
     checks = []
 

@@ -12,6 +12,7 @@ import {
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { HttpAgent } from "@ag-ui/client";
+import { publicAgentOutput } from "@/lib/services/agent-output-privacy";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { Check, Copy, Loader2, Send, StopSquare } from "@/components/icons";
 
@@ -310,7 +311,7 @@ export function HermesChatPanel({
         initialMessages: [
           { id: crypto.randomUUID(), role: "user", content: message },
         ],
-      });
+      }).use(publicAgentOutput());
       agentRef.current = agent;
       await agent.runAgent(
         { forwardedProps: { sessionId: sessionRef.current, onDevice } },

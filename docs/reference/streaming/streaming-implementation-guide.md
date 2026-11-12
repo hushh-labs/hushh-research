@@ -453,6 +453,10 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
   The owner-bound encrypted ADK session may retain provider summaries for model
   continuation. Intro Chat does not request or display them. A model may emit
   no summaries; Activity and Response must still work normally.
+  One, Intro and Puppy apply the public-output middleware before AG-UI 1.x
+  validates events. It keeps legacy summary-only streams compatible, forwards
+  only tagged bounded summaries to authenticated Chat, and excludes reasoning
+  from SDK state. A cancelled terminal outcome never reports successful completion.
 - Cards do not suppress assistant clarification or warnings. Avoid duplicate prose through the authored instruction, not text stripping. Discovery history projects allowlisted metadata in invocation order, deduplicates repeated invocation IDs, and excludes provider thought parts from answer text. Restoring a descriptor never executes its original action; current eligibility must be checked again before a consent mutation.
 - Ambiguous person discovery uses `one.person_selection.v1`. The browser sends its opaque selection handle separately from visible message text. The server validates its owner, thread and expiry before profile access, rejects a mismatched profile subject, and requires a new explicit choice when changing an already-selected recipient. Selection handles are not grants and must not become persistent browser state or visible labels.
 - Marketplace recommendations and other proactive cards should be preloaded by the workspace/session owner, then passed into the stream surface. Do not start durable fetches from a render-only accordion path when the workspace can load them at access or turn start.

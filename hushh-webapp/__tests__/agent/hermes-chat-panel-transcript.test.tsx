@@ -40,6 +40,7 @@ vi.mock("@/components/agent/puppy-model-picker", () => ({
 
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
+    use() { return this; }
     abortRun() { mocks.abortRun(); }
     runAgent(
       params: unknown,

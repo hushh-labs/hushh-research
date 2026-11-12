@@ -14,6 +14,7 @@ from google.adk.tools.computer_use.base_computer import ComputerState
 from google.adk.tools.computer_use.computer_use_tool import ComputerUseTool
 from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
 from google.adk.tools.tool_context import ToolContext
+from google.genai import types
 
 from .adk_computer import PodComputer
 from .contracts import BrowserRefused
@@ -65,6 +66,12 @@ class GeminiBrowserToolset(ComputerUseToolset):
         self, *, tool_context: ToolContext, llm_request: LlmRequest
     ) -> None:
         await super().process_llm_request(tool_context=tool_context, llm_request=llm_request)
+        # ADK 2.14 adds exclusions for unimplemented modern verbs. The qualified
+        # endpoint rejects this field; local discovery and action authorization
+        # still refuse unsupported verbs before execution.
+        for tool in llm_request.config.tools or ():
+            if isinstance(tool, types.Tool) and tool.computer_use is not None:
+                tool.computer_use.excluded_predefined_functions = None
         if self._native is None:
             self._native = self._native_tools(await self._port.screen_size())
         llm_request.tools_dict.update(self._native)
