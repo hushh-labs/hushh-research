@@ -54,7 +54,7 @@ export function ImportReviewPlaceholder({ rows = [], total = null }: { rows?: re
         </div>
         <ul aria-label={shown.length ? "Holdings found so far" : undefined}>
           {shown.map((row, index) => (
-            <li key={`${row.symbol ?? "row"}-${index}`} className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3 border-t border-border/50 py-2 first:border-t-0">
+            <li key={`${row.symbol ?? "row"}-${index}`} className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3 border-t border-border/50 py-2 first:border-t-0 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200">
               <span className="min-w-0">
                 <span className="block truncate ui-text-row-label-emphasized">{row.symbol || row.name || "Holding"}</span>
                 {row.symbol && row.name ? <span className="block truncate ui-text-row-description text-muted-foreground">{row.name}</span> : null}
