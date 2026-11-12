@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type FormEvent } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { createPortal } from "react-dom";
 import {
   ProfilePaneAccountIcon,
@@ -228,8 +228,7 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
   };
 
   const [saveError, setSaveError] = useState<string>();
-  const submit = async (native = false): Promise<boolean> => {
-    if (saving.current || scanning || networkLoading || !draftVisible) return false;
+  const draftValidation = (() => {
     const match = expiry.trim().match(/^(\d{1,2})\s*\/\s*(\d{2}|\d{4})$/);
     const rawYear = Number(match?.[2] ?? 0);
     const card: WalletCardInput = {
@@ -245,11 +244,15 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
     };
     const result = validateCardForRegion({ ...card, brand: network || brand });
     if (!network && brand === "other") result.errors.push("brand_required");
-    result.valid = result.errors.length === 0;
-    if (!result.valid) {
-      setErrors(result.errors);
+    return { card, errors: result.errors, valid: result.errors.length === 0 };
+  })();
+  const submit = async (native = false): Promise<boolean> => {
+    if (saving.current || scanning || networkLoading || !draftVisible) return false;
+    if (!draftValidation.valid) {
+      setErrors(draftValidation.errors);
       return false;
     }
+    const { card } = draftValidation;
     saving.current = true;
     setSaveError(undefined);
     setErrors([]);
@@ -292,7 +295,7 @@ export function useSecureCardFormOwner({ onSubmit, onCancel, backRoute, getNetwo
     setScanReading(null); setErrors([]); setSaveError(undefined); setScanning(false);
     edited.current = { pan: false, expiry: false, cardholderName: false }; setEditedFields({ ...edited.current }); draftId.current = walletOperationId();
   };
-  return { markFieldsEdited: () => { edited.current = { pan: true, expiry: true, cardholderName: true }; setEditedFields({ ...edited.current }); }, id, errorsRef, cardholderName, setCardholderName, securityCode, setSecurityCode, pan, setPan, network, setNetwork, scanReading, expiry, setExpiry, issuingRegion, setIssuingRegion, errors, submitting, scanning, setScanning, editedFields, changeCardholderName, changeEntry, ownerKey, draftVisible, digits, brand, networkHint, networkLoading, supportedNetworks, catalogFailed, setCatalogRevision, fieldErrors, submit, readScan, saveError, resetDraft, draftLifetime };
+  return { markFieldsEdited: () => { edited.current = { pan: true, expiry: true, cardholderName: true }; setEditedFields({ ...edited.current }); }, id, errorsRef, cardholderName, setCardholderName, securityCode, setSecurityCode, pan, setPan, network, setNetwork, scanReading, expiry, setExpiry, issuingRegion, setIssuingRegion, errors, submitting, scanning, setScanning, editedFields, changeCardholderName, changeEntry, ownerKey, draftVisible, digits, brand, networkHint, networkLoading, supportedNetworks, catalogFailed, setCatalogRevision, fieldErrors, submit, draftValid: draftValidation.valid, readScan, saveError, resetDraft, draftLifetime };
 }
 
 export type SecureCardFormOwner = ReturnType<typeof useSecureCardFormOwner>;

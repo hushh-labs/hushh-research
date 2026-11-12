@@ -31,6 +31,7 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/lib/services/native-sse-fetch", () => ({ nativeStreamFetch: state.streamFetch }));
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
+    use() { return this; }
     constructor(config: { url: string }) {
       state.agents.push(config);
     }

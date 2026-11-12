@@ -60,6 +60,29 @@ struct HushhNativeNavigationScrollState {
     }
 }
 
+/// Applies the already-authorized scroll projection to whichever native
+/// navigation host is active. The optional presentation container moves the
+/// retained dock and tab bar together; ordinary Capacitor Release hosts move
+/// only their retained UITabBar while React moves its own dock in the same
+/// progress transaction.
+enum HushhNativeNavigationScrollSurface {
+    @discardableResult
+    static func apply(offset: CGFloat, navigationOffset: CGFloat,
+                      compositor: NativePresentationContainer?, tabBar: UITabBar?) -> Bool {
+        guard offset.isFinite, (0...160).contains(offset),
+              navigationOffset.isFinite, (0...160).contains(navigationOffset) else { return false }
+        if let compositor {
+            compositor.setBottomChromeScrollOffset(offset, navigationOffset: navigationOffset)
+            return true
+        }
+        guard let tabBar else { return false }
+        UIView.performWithoutAnimation {
+            tabBar.transform = CGAffineTransform(translationX: 0, y: navigationOffset)
+        }
+        return true
+    }
+}
+
 /// Native-scroller counterpart of kai-bottom-chrome-visibility's authored
 /// displacement policy. Only the active renderer supplies scroll samples.
 struct HushhNativeContentScrollState {
@@ -71,11 +94,12 @@ struct HushhNativeContentScrollState {
     mutating func apply(y: CGFloat, fromPerson: Bool) -> CGFloat? {
         guard y.isFinite else { return nil }
         let next = max(0, y)
-        guard let previous = lastY else { lastY = next; return progress }
+        let previous = lastY
         lastY = next
-        if !fromPerson && next > 10 { return nil }
-        let delta = next - previous
         if next <= 10 { direction = -1; distance = 0; progress = 0; return 0 }
+        guard let previous else { return progress }
+        if !fromPerson { return nil }
+        let delta = next - previous
         guard abs(delta) >= 1.5 else { return nil }
         let nextDirection: CGFloat = delta > 0 ? 1 : -1
         if nextDirection != direction { direction = nextDirection; distance = 0 }
@@ -138,7 +162,7 @@ struct HushhNativeNavigationColumn {
 }
 
 @objc(HushhNativeNavigationPlugin)
-final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
+final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate, UIGestureRecognizerDelegate {
     let identifier = "HushhNativeNavigationPlugin"
     let jsName = "HushhNativeNavigation"
     let pluginMethods: [CAPPluginMethod] = [
@@ -152,10 +176,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var contentScrollState = HushhNativeContentScrollState()
     private var scrollFollowing = false
     private var scrollPressHeld = false
+    private var lastScrollOffset: CGFloat = 0
     private var pendingScrollSnap = false
     private var admissionRegionRevision: Int?
     private var admissionPrivacyGeneration: Int?
     private var tabBar: UITabBar?
+    private var bottomChromePressObserver: NativeBottomChromePressObserver?
     private var observers = [NSObjectProtocol]()
     private(set) var keyboardVisible = false
     private var keyboardHidePending = false
@@ -209,6 +235,11 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion,
+                              "supported": false, "contentHeight": 0, "bottomInset": 0])
+                return
+            }
             if #available(iOS 26.0, *) {
                 call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "columnLayout": true, "interactionIsolation": true,
                               "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
@@ -216,7 +247,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                               "reservedPresentationRegions": self.compositor?.legacyRegionPresentation == true,
                               "fullWindowOverlays": self.compositor?.legacyRegionPresentation == true,
                               "wholeNativeDrawers": self.compositor?.wholeNativeDrawers == true,
-                              "synchronizedBottomScroll": self.compositor?.wholeNativeDrawers == true && UIDevice.current.userInterfaceIdiom == .phone,
+                              "synchronizedBottomScroll": UIDevice.current.userInterfaceIdiom == .phone,
                               "supported": self.navigationItems != nil,
                               "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
@@ -228,6 +259,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func setState(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                self.state.retireDocument()
+                self.updatePresentation()
+                call.resolve(["supported": false, "contentHeight": 0, "bottomInset": 0])
+                return
+            }
             guard #available(iOS 26.0, *) else {
                 call.resolve(["supported": false, "contentHeight": 0, "bottomInset": 0]); return
             }
@@ -259,8 +296,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             self.admissionPrivacyGeneration = call.getInt("privacyGeneration")
             self.column = column
             self.scrollState.invalidate()
-            self.scrollFollowing = call.getBool("scrollFollowing") == true && self.compositor?.wholeNativeDrawers == true &&
-                UIDevice.current.userInterfaceIdiom == .phone
+            self.scrollFollowing = call.getBool("scrollFollowing") == true && UIDevice.current.userInterfaceIdiom == .phone
             if !self.scrollFollowing { self.reconcileScrollSnap(requested: true) }
             self.installIfNeeded()
             if let feed = self.tabBar?.items?.first(where: { $0.tag == 3 }) {
@@ -281,9 +317,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func setScroll(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { call.resolve(["applied": false]); return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                call.resolve(["applied": false]); return
+            }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             guard Set(call.options.keys).isSubset(of: ["documentId", "revision", "interactionEpoch", "privacyGeneration", "scrollGeneration", "sequence", "progress", "travel"]),
-                  self.scrollActive, let container = self.compositor, container.workspaceScrollOwner == nil,
+                  self.scrollActive, self.compositor?.workspaceScrollOwner == nil,
                   call.getString("documentId") == self.state.documentId,
                   call.getInt("revision") == self.state.revision,
                   call.getInt("interactionEpoch") == self.state.interactionEpoch,
@@ -293,7 +332,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                   let offset = self.scrollState.apply(generation: generation, sequence: sequence, progress: progress, travel: travel) else {
                 call.resolve(["applied": false]); return
             }
-            self.applyScroll(offset: offset, progress: CGFloat(progress), in: container)
+            self.applyScroll(offset: offset, progress: CGFloat(progress))
             self.publishPresentationProbe()
             call.resolve(["applied": true])
         }
@@ -301,28 +340,35 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
 
     private var scrollActive: Bool {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
-        return compositor?.wholeNativeDrawers == true && compositor?.interactionIsolated == false && compositor?.contentPane == nil &&
+        let presentationAllowsScroll = compositor.map { !$0.interactionIsolated && $0.contentPane == nil } ?? true
+        return NativeDrawerQualificationPolicy.coherentPresentationEnabled && presentationAllowsScroll &&
             scrollFollowing && !scrollPressHeld && state.visible && state.interactionEnabled && privacy.appIsActive && !privacy.shielded && !keyboardVisible
     }
-    private func applyScroll(offset: CGFloat, progress: CGFloat, in container: NativePresentationContainer) {
+    private func applyScroll(offset: CGFloat, progress: CGFloat) {
         let reduced = UIAccessibility.isReduceMotionEnabled
-        container.setBottomChromeScrollOffset(reduced ? 0 : offset,
-            navigationOffset: reduced ? 0 : min(160, offset + bottomInset * progress))
+        let appliedOffset = reduced ? 0 : offset
+        let navigationOffset = reduced ? 0 : min(160, offset + bottomInset * progress)
+        guard HushhNativeNavigationScrollSurface.apply(offset: appliedOffset, navigationOffset: navigationOffset,
+            compositor: compositor, tabBar: tabBar) else { return }
+        lastScrollOffset = appliedOffset
     }
     @discardableResult private func reconcileScrollSnap(requested: Bool) -> Bool {
         pendingScrollSnap = pendingScrollSnap || requested
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
-        guard pendingScrollSnap, !scrollPressHeld, compositor?.interactionIsolated == false,
-              compositor?.contentPane == nil, privacy.appIsActive, !privacy.shielded else { return false }
+        let presentationAllowsSnap = compositor.map { !$0.interactionIsolated && $0.contentPane == nil } ?? true
+        guard pendingScrollSnap, !scrollPressHeld, presentationAllowsSnap,
+              privacy.appIsActive, !privacy.shielded else { return false }
+        guard HushhNativeNavigationScrollSurface.apply(offset: 0, navigationOffset: 0,
+            compositor: compositor, tabBar: tabBar) else { return false }
         pendingScrollSnap = false
-        compositor?.setBottomChromeScrollOffset(0)
+        lastScrollOffset = 0
         return true
     }
     private func invalidateScroll(snap: Bool) {
         scrollState.invalidate()
         let snapped = reconcileScrollSnap(requested: snap)
         let travel = ceil(contentHeight) + 6
-        contentScrollState.reset(progress: snap || snapped ? 0 : (compositor?.bottomChromeScrollOffset ?? 0) / max(1, travel))
+        contentScrollState.reset(progress: snap || snapped ? 0 : lastScrollOffset / max(1, travel))
         guard let document = state.documentId else { return }
         notifyListeners("scrollResetRequested", data: ["documentId": document, "revision": state.revision,
             "interactionEpoch": state.interactionEpoch, "privacyGeneration": HushhSessionPrivacyShield.shared.snapshot().generation,
@@ -332,6 +378,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func confirmSelection(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+                call.resolve(["valid": false]); return
+            }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let sequence = call.getInt("sequence") ?? -1
             let tab = call.getString("tab") ?? ""
@@ -349,7 +398,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
 
     @available(iOS 26.0, *)
     private func installIfNeeded() {
-        guard tabBar == nil, let host = bridge?.viewController?.view, let items = navigationItems else { return }
+        guard NativeDrawerQualificationPolicy.coherentPresentationEnabled,
+              tabBar == nil, let host = bridge?.viewController?.view, let items = navigationItems else { return }
         let bar = UITabBar()
         bar.accessibilityIdentifier = "one-native-navigation"
         bar.isHidden = true
@@ -358,6 +408,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         bar.unselectedItemTintColor = .label
         bar.itemPositioning = .fill
         bar.items = items
+        tabBar = bar
         // A shield installed before the bridge call must remain above native controls.
         if let compositor {
             compositor.install(bar, id: "bottom-navigation", group: nil)
@@ -374,15 +425,16 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 guard compositor.workspaceScrollOwner == identity, self.state.documentId == identity.documentId, self.scrollActive,
                       let progress = self.contentScrollState.apply(y: y, fromPerson: fromPerson) else { return }
                 let travel = ceil(self.contentHeight) + 6
-                self.applyScroll(offset: min(160, progress * travel), progress: progress, in: compositor)
+                self.applyScroll(offset: min(160, progress * travel), progress: progress)
                 self.publishPresentationProbe()
             }
         } else if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
             host.insertSubview(bar, belowSubview: shield)
+            installPressObserver(on: host)
         } else {
             host.addSubview(bar)
+            installPressObserver(on: host)
         }
-        tabBar = bar
         #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") {
             let probe = NativeTestStatusLabel(frame: CGRect(x: 0, y: host.safeAreaInsets.top, width: 1, height: 1), showOverlay: false)
@@ -399,6 +451,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     }
 
     func layoutTabBar() {
+        guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
+            tabBar?.isHidden = true
+            tabBar?.isUserInteractionEnabled = false
+            tabBar?.accessibilityElementsHidden = true
+            return
+        }
         guard let bar = tabBar, let column, let restingFrame = currentColumnFrame else {
             tabBar?.isHidden = true; tabBar?.isUserInteractionEnabled = false; return
         }
@@ -423,9 +481,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             state.retireDocument()
             retiredRestartGeneration = privacy.generation
         }
-        let show = currentColumnFrame != nil && state.isPresented(appIsActive: privacy.appIsActive,
+        let show = NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil && state.isPresented(appIsActive: privacy.appIsActive,
                                      shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
-        let interactive = currentColumnFrame != nil && compositor?.interactionIsolated != true && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
+        let interactive = NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil && compositor?.interactionIsolated != true && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
                                           shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
         tabBar?.isHidden = !show
         tabBar?.isUserInteractionEnabled = interactive
@@ -460,7 +518,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         var fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,
                                     "scrollFollowing": scrollFollowing, "scrollActive": scrollActive,
                                     "scrollPressHeld": scrollPressHeld, "keyboardVisible": keyboardVisible,
-                                    "scrollOffset": compositor?.bottomChromeScrollOffset ?? 0,
+                                    "scrollOffset": compositor?.bottomChromeScrollOffset ?? lastScrollOffset,
                                     "scrollSequence": scrollState.sequence,
                                     "accessibilityHidden": bar.accessibilityElementsHidden,
                                     "underlay": compositor.map { bar.superview === $0.underlay && $0.underlay.layer.zPosition < $0.webView.layer.zPosition } ?? false,
@@ -478,7 +536,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     }
 
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-        guard HushhNativeNavigationState.tabs.indices.contains(item.tag) else { return }
+        guard NativeDrawerQualificationPolicy.coherentPresentationEnabled,
+              HushhNativeNavigationState.tabs.indices.contains(item.tag) else { return }
         let tab = HushhNativeNavigationState.tabs[item.tag]
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         updatePresentation() // Do not commit a selection before React's existing guard accepts it.
@@ -492,5 +551,30 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                                                     "interactionEpoch": state.interactionEpoch,
                                                     "privacyGeneration": privacy.generation,
                                                     "documentId": state.documentId ?? ""])
+    }
+
+    private func installPressObserver(on host: UIView) {
+        let observer = NativeBottomChromePressObserver { [weak self] held in
+            guard let self else { return }
+            self.scrollPressHeld = held
+            self.invalidateScroll(snap: false)
+        }
+        observer.cancelsTouchesInView = false
+        observer.delaysTouchesBegan = false
+        observer.delaysTouchesEnded = false
+        observer.delegate = self
+        host.addGestureRecognizer(observer)
+        bottomChromePressObserver = observer
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === bottomChromePressObserver else { return true }
+        guard let tabBar, let touched = touch.view else { return false }
+        return !tabBar.isHidden && (touched === tabBar || touched.isDescendant(of: tabBar))
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is NativeBottomChromePressObserver || otherGestureRecognizer is NativeBottomChromePressObserver
     }
 }

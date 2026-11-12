@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import {
   CommandPickerField,

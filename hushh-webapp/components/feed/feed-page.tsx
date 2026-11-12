@@ -9,8 +9,9 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { NativeFeedWorkspace } from "./native-feed-workspace";
 import Link from "next/link";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import type { User } from "firebase/auth";
 
 import {
@@ -916,12 +917,13 @@ function FeedPageSession({
       dispatchFeedStateChanged("action");
       void refresh({ force: true });
       const undoEpoch = undoEpochRef.current;
-      const toastId = toast.success("Removed from Feed", {
-        action: { label: "Undo", onClick: () => {
+      const toastId = toast.noticeText("Removed from Feed", {
+        id: `feed-undo-${crypto.randomUUID()}`,
+        action: { token: "undo-feed-removal", label: "Undo", onClick: () => {
           if (undoEpoch !== undoEpochRef.current) return;
           void restoreItem(item.id, dismissalToken);
         } },
-      });
+      }, "success");
       if (typeof toastId === "string" || typeof toastId === "number") {
         undoToastIdsRef.current.add(toastId);
       }
@@ -1060,7 +1062,7 @@ function FeedPageSession({
         ? "loaded"
         : "empty-valid";
 
-  return (
+  const fallback = (
     <AppPageShell
       as="main"
       width="reading"
@@ -1360,6 +1362,30 @@ function FeedPageSession({
       />
     </AppPageShell>
   );
+  return <NativeFeedWorkspace model={{
+    owner: userId, current: isSessionCurrent,
+    records: [
+      ...liveSmsGroups.map(value => ({ key: `live-sms:${value.id}`, lane: "Live", kind: "sms" as const, value })),
+      ...liveActionables.map(value => ({ key: `action:${value.id}`, lane: "Live", kind: "action" as const, value })),
+      ...regularActionables.map(value => ({ key: `action:${value.id}`, lane: "Needs you", kind: "action" as const, value })),
+      ...endedSmsGroups.map(value => ({ key: `ended-sms:${value.id}`, lane: "Recent SMS alerts", kind: "sms" as const, value })),
+      ...upcomingActionables.map(value => ({ key: `upcoming:${value.id}`, lane: "Coming up", kind: "action" as const, value })),
+      ...inProgress.map(value => ({ key: `progress:${value.id}`, lane: "In progress", kind: "progress" as const, value })),
+      ...dayGroups.flatMap(group => group.items.map(value => ({ key: `history:${value.id}`, lane: group.label, kind: "history" as const, value, unread: !value.read || visitUnreadIdsRef.current.has(value.id) }))),
+    ],
+    loading: contentLoading,
+    errors: [
+      ...(actionablesError ? ["Some requests couldn't refresh."] : []),
+      ...(progressError ? ["Some work in progress couldn't refresh."] : []),
+      ...(resourceError ? ["Recent activity couldn't refresh."] : []),
+    ],
+    retry: retryFeed, overflow: progressOverflow, hasNew, showNew,
+    canLoadMore: !!pagination.nextCursor, loadingMore, loadMoreError, loadMore,
+    canClear, clearing, clearArmed,
+    clear: () => { if (!clearArmed) setClearArmed(true); else void handleClearAll(); }, cancelClear: () => setClearArmed(false),
+    removing: removingItemId, openHistory: openItem, removeHistory: removeItem,
+    webChildOpen: !!sharedFiles || documentPricePrompt.open || consentUnlockPrompt.open,
+  }} fallback={fallback} />;
 }
 
 function FeedLaneStatus({ label, loading, error, retry }: { label: string; loading: boolean; error: string | null; retry: () => Promise<unknown> }) {

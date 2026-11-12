@@ -7,9 +7,15 @@ import { ScopeCommerceService, formatCommerceMoney, type CommerceAccount } from 
 
 const hasPendingEarnings = (account: CommerceAccount) => (account.earnings?.pending_cents ?? 0) > 0;
 
+/** One owner can feed either renderer without creating a second subscription. */
+export function useMemoryCommerceSummary(active = true) {
+  return useCommerceRead("memory-earnings", ScopeCommerceService.account, hasPendingEarnings, active);
+}
+export type MemoryCommerceSummaryModel = ReturnType<typeof useMemoryCommerceSummary>;
+
 /** Memory shows canonical earnings; Payments and earnings owns funding, onboarding and transactions. */
-export function MemoryCommerceSummary() {
-  const { user, data, loading, error } = useCommerceRead("memory-earnings", ScopeCommerceService.account, hasPendingEarnings);
+export function MemoryCommerceSummaryView({ model }: { model: MemoryCommerceSummaryModel }) {
+  const { user, data, loading, error } = model;
   if (!user) return null;
   const hasEarnings = Boolean(data?.earnings && (data.earnings.pending_cents !== 0 || data.earnings.available_cents !== 0 || (data.earnings.debt_cents ?? 0) > 0 || (data.earnings.withdrawing_cents ?? 0) > 0));
   const content = (
@@ -25,4 +31,9 @@ export function MemoryCommerceSummary() {
     </div>
   );
   return hasEarnings ? <SettingsGroup title="Memory earnings">{content}</SettingsGroup> : content;
+}
+
+/** Standalone web use retains the same single read owner. */
+export function MemoryCommerceSummary() {
+  return <MemoryCommerceSummaryView model={useMemoryCommerceSummary()} />;
 }

@@ -262,14 +262,21 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   }, [supported]);
 
   useEffect(() => {
-    const shell = dock?.host?.closest<HTMLElement>("[data-agent-bar-shell]");
-    if (!supported || !shell) return;
+    const host = dock?.host;
+    const shell = host?.closest<HTMLElement>("[data-agent-bar-shell]");
+    if (!supported || !host || !shell) return;
     const observer = new ResizeObserver(() => measure(value => value + 1));
     observer.observe(shell);
+    const seat = family === "text" ? activeAgentDockSeat(host) : shell.querySelector<HTMLElement>("[data-agent-dock-surface]");
+    if (seat) observer.observe(seat);
+    // Removing navigation moves an unchanged-size dock. Observe the existing
+    // enclosing seat as well, so its native frame follows that layout commit.
+    const bottomShell = shell.closest<HTMLElement>("[data-app-bottom-shell]");
+    if (bottomShell) observer.observe(bottomShell);
     const resize = () => measure(value => value + 1);
     window.addEventListener("resize", resize);
     return () => { observer.disconnect(); window.removeEventListener("resize", resize); };
-  }, [supported, dock?.host]);
+  }, [enabled, supported, dock?.host, family]);
 
   useLayoutEffect(() => {
     if (!supported || !listenersReady || !ports) return;
@@ -329,7 +336,13 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       if (reservedRegions.current && !await syncNativePresentationRegions()) return;
       // Layout admission is asynchronous too. It cannot authorize a snapshot
       // invalidated by an overlay, owner change or newer draft while waiting.
-      if (!isCurrent()) return;
+      if (!isCurrent() || !seat.isConnected) return;
+      // Concealing the React replica and admitting regions may move the seat
+      // without resizing it. Submit geometry from this layout, not before await.
+      const admittedBounds = nativeDockRestingFrame(seat);
+      if (!admittedBounds || admittedBounds.width < 88 || admittedBounds.height < 44) return;
+      snapshot.frame = admittedBounds;
+      snapshot.viewport = { width: window.innerWidth, height: window.innerHeight };
       admissionStage = 3;
       const ack = await boundedDock(nativeDock.apply({ ...snapshot, ...nativePresentationAdmission(), privacyGeneration: privacy.generation }));
       if (!isCurrent()) return;

@@ -187,6 +187,10 @@ switched. Existing PR #8045 carries the signed commits and hosted check results.
 
 ### Changed files
 
+Generated Back/Search receipt files from this historical pass are no longer
+source dependencies. Current freshness evidence uses ignored local caches and
+commit fingerprints under the [UI contract contributor guide](../architecture/ui-contract-contributor-guide.md).
+
 - `consent-protocol/api/routes/one/referrals.py`
 - `consent-protocol/db/contracts/dev_minimum_schema.json`
 - `consent-protocol/db/contracts/prod_core_schema.json`
@@ -221,8 +225,6 @@ switched. Existing PR #8045 carries the signed commits and hosted check results.
 - `hushh-webapp/components/profile/referrals-panel.tsx`
 - `hushh-webapp/components/referrals/referral-dashboard-page.tsx`
 - `hushh-webapp/components/referrals/referral-journey.tsx`
-- `hushh-webapp/contracts/ui-review/back/4d20066fe65a6c69a29d5b5ea46ead8ebc75614fb2b44f9c7415da34c5e0a0c7.json`
-- `hushh-webapp/contracts/ui-review/search/e502080ade1d9e7e73e86bd0e8e309c117e22ba28d4dbc782461ac967974fd32.json`
 - `hushh-webapp/lib/cache/use-stale-resource.ts`
 - `hushh-webapp/lib/referral/use-daily-app-activity.ts`
 - `hushh-webapp/lib/referral/use-referral-stream.ts`

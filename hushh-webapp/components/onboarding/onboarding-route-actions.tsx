@@ -10,7 +10,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
 import { useCloudRemovalControl } from "@/components/profile/cloud-removal-control";
 import { accountCleanupProvider } from "@/lib/services/account-cloud-cleanup";

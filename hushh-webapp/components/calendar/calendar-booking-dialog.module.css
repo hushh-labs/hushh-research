@@ -1,8 +1,9 @@
 .dialog { width: min(calc(100vw - 1.5rem), 36rem); max-height: min(90dvh, 48rem); gap: .8rem; padding: 1.2rem; font-family: var(--font-app-body); }
 .header { gap: .2rem; padding-right: 1.5rem; text-align: left; }
-.fields { display: grid; gap: .7rem; }
-.fields label { display: grid; gap: .3rem; min-width: 0; font-size: 14px; font-weight: 600; color: var(--app-label); }
-.fields select { width: 100%; min-width: 0; min-height: 44px; padding: .55rem .7rem; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: 14px; font-weight: 400; color: var(--app-label); }
+.fields { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .7rem; }
+.fields > button { white-space: normal; overflow-wrap: anywhere; height: auto; min-height: 44px; }
+.fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: 14px; font-weight: 600; color: var(--app-label); }
+.fields select { width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; min-width: 0; min-height: 44px; padding: .55rem .7rem; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: 14px; font-weight: 400; color: var(--app-label); }
 .fields input { font-weight: 400; }
 .timeGrid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .85fr); gap: .5rem; }
 .guestEntry { display: flex; gap: .4rem; min-width: 0; }

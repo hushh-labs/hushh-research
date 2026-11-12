@@ -480,12 +480,15 @@ try {
     const svg = document.documentElement;
     svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns", "http://www.w3.org/2000/svg");
     const fill = svg.getAttribute("fill");
+    // Roster glyphs preserve authored fixed hues; their token-backed variants
+    // use the live projected tint. Rasterize the exact same outline as React.
+    if (entry.id.startsWith("roster-") && fill?.startsWith("var(")) svg.setAttribute("fill", "#000000");
     const colorHex = svg.hasAttribute("data-trash-icon")
       ? destructiveHex
       : /^#[0-9a-f]{6}$/i.test(fill ?? "") ? fill : null;
     const original = entry.original === true;
     const accentColorHex = svg.querySelector('[fill="var(--app-key-accent)"]') ? keyAccentHex : null;
-    const accentFill = fill === "var(--app-accent)";
+    const accentFill = !entry.id.startsWith("roster-") && fill === "var(--app-accent)";
     // Existing key/reset glyphs paint accent geometry through an SVG pattern.
     // Keep that authored paint server in both masks instead of recolouring or
     // dropping its combined path. Never replace its vector geometry.

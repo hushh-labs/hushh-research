@@ -69,3 +69,9 @@ Default bias:
 3. keep package docs local
 4. keep root docs thin
 5. never classify date-stamped `docs/superpowers/plans/*` or `docs/superpowers/specs/*` as canonical shipped truth
+
+For a living implementation reference, make the outcome, current status,
+remaining work and evidence easy to scan. Keep the contracts an agent needs in
+the maintained guide. Use Git history for prior versions instead of checking in
+stale or duplicate copies. Preserve unique uncommitted work, required evidence,
+source identity and failed or unverified results before removing a copy.

@@ -52,7 +52,11 @@
     ".next-native-uat/types/**/*.ts",
     ".next-native-uat/dev/types/**/*.ts",
     ".next-local-fast/types/**/*.ts",
-    ".next-local-fast/dev/types/**/*.ts"
+    ".next-local-fast/dev/types/**/*.ts",
+    ".next-paid-scope-core-20261007/types/**/*.ts",
+    ".next-paid-scope-core-20261007/dev/types/**/*.ts",
+    ".next-ci-native-profile-20261025/types/**/*.ts",
+    ".next-ci-native-profile-20261025/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

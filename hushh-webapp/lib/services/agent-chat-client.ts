@@ -4,6 +4,7 @@ import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { AGENT_RESPONSE_REFUSAL_MESSAGE } from "./agent-event-boundary";
+import { publicAgentOutput } from "./agent-output-privacy";
 import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
 import { captureProductAttempt, type ProductAttempt } from "@/lib/observability/product-activity-client";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
@@ -1410,6 +1411,13 @@ async function streamAgentChatAttempt(input: {
   let serverEvents = 0;
   let serverTerminal = false;
   let detached = false;
+  agent.use(publicAgentOutput(summary => {
+    if (ownerSessionCurrent() && !input.signal?.aborted && !runTerminal && !streamLost && !failure && !detached && !intentionallyStoppedAtConfirmation) {
+      serverEvents += 1;
+      handlers.onStreamHealth?.({ kind: "activity" });
+      if (summary) handlers.onThinkingSummary?.(summary);
+    }
+  }));
   let stopRequest: Promise<void> | null = null;
   const stopOnServer = () => {
     if (!ownerSessionCurrent()) return Promise.resolve();
@@ -1580,6 +1588,9 @@ async function streamAgentChatAttempt(input: {
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
+      // Local stream shutdown can emit a terminal refusal after detach. It is
+      // not evidence that the server task ended; reconnect must discover it.
+      if (detached || streamLost || input.signal?.aborted) return { stopPropagation: true };
       serverEvents += 1;
       if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
       if (event.type === "TOOL_CALL_END") {
@@ -2003,6 +2014,11 @@ async function streamAgentChatAttempt(input: {
     onRunFinishedEvent: (params) => {
       if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
       runTerminal = true;
+      if (params.outcome === "cancelled") {
+        failure = new DOMException("Agent turn cancelled", "AbortError");
+        finishTerminalRun();
+        return;
+      }
       if (receiptCalls.size) {
         // Native long-running calls are persisted before RUN_FINISHED. The
         // outer loop alone submits their value-free replies and resumes.
@@ -2280,7 +2296,7 @@ export async function streamAgentIntro(input: {
     threadId,
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
     fetch: (_url, init) => liveness.fetch(init),
-  });
+  }).use(publicAgentOutput());
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
@@ -2294,9 +2310,13 @@ export async function streamAgentIntro(input: {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onRunFinishedEvent: () => {
+    onRunFinishedEvent: (params) => {
       if (runTerminal || streamLost || failure) return;
       runTerminal = true;
+      if (params.outcome === "cancelled") {
+        failure = new DOMException("Agent turn cancelled", "AbortError");
+        return;
+      }
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {

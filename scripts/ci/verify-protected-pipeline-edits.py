@@ -162,6 +162,15 @@ def _files_from_event(args: argparse.Namespace) -> list[str]:
             "the governance job and ensure the repo/PR context is present."
         )
     assert pr_number is not None  # narrowed by the `missing` guard above
+    # GitHub's files API stops at 3,000 entries. Inspect the complete authored
+    # delta from pinned objects instead of accepting a truncated API inventory.
+    count = pull_request.get("changed_files")
+    if isinstance(count, int) and count >= 3000:
+        if (str(repo) != payload.get("repository", {}).get("full_name")
+                or str(repo) != pull_request.get("base", {}).get("repo", {}).get("full_name")
+                or int(pr_number) != pull_request.get("number")):
+            raise GuardResolutionError("Large PR inventory requires the event's repository and PR")
+        return authored_pr_files(pull_request)
     return _fetch_pr_files(repo=str(repo), pr_number=int(pr_number), token=str(token))
 
 
@@ -218,6 +227,30 @@ def authored_change_base(target: str, head: str, *, repository_root: Path) -> st
     if len(bases) != 1 or not re.fullmatch(r"[0-9a-f]{40}", bases[0]):
         raise GuardResolutionError("Authored merge base is ambiguous or invalid")
     return bases[0]
+
+
+def authored_pr_files(pull_request: dict) -> list[str]:
+    from process_group import BoundedReadError, bounded_stdout
+    from repo_governance_plan import MAX_CHANGED_BYTES, MAX_CHANGED_PATHS
+
+    count = pull_request.get("changed_files")
+    if type(count) is not int or not 3000 <= count <= MAX_CHANGED_PATHS:
+        raise GuardResolutionError("Large PR inventory exceeded its bound")
+    head = pull_request.get("head", {}).get("sha")
+    base = authored_change_base(pull_request.get("base", {}).get("sha"), head, repository_root=REPO_ROOT)
+    try:
+        raw = bounded_stdout(
+            ["git", "-C", str(REPO_ROOT), "diff", "--no-ext-diff", "--no-textconv",
+             "--no-renames", "--name-only", "-z", base, head, "--"],
+            max_bytes=MAX_CHANGED_BYTES, timeout=30,
+        )
+        files = raw.decode("utf-8").split("\0")
+    except (BoundedReadError, OSError, UnicodeDecodeError) as error:
+        raise GuardResolutionError("Complete authored PR inventory is unavailable") from error
+    if files.pop() != "" or not count <= len(files) <= MAX_CHANGED_PATHS or any(not file for file in files):
+        raise GuardResolutionError("Complete authored PR inventory is malformed or incomplete")
+    # No rename detection: both the retired and replacement path retain review.
+    return files
 
 
 def backend_test_identities(raw: str) -> set[str]:

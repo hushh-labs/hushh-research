@@ -486,6 +486,69 @@ def test_extended_network_shortest_degrees_require_shared_paths_and_live_account
     assert "dave" not in network.degrees(OWNER)
 
 
+def test_extended_network_suggests_eligible_people_without_exposing_contact_or_path(connection):
+    network = _network(connection)
+    for uid, name in (
+        (OWNER, "Viewer"),
+        ("alice", "A First"),
+        ("bob", "A Second"),
+        ("carol", "A Third"),
+        ("advisor", "Z Advisor"),
+        ("blocked", "A Blocked"),
+        ("ordinary", "Z Ordinary"),
+    ):
+        _person(connection, uid, name, email=f"{uid}@example.test")
+    connection.execute(
+        text("UPDATE actor_profiles SET public_person_ref = gen_random_uuid()::text")
+    )
+    connection.execute(
+        text("""
+            INSERT INTO ria_profiles (user_id, verification_status)
+            VALUES ('advisor', 'verified'), ('blocked', 'verified'), ('carol', 'verified')
+        """)
+    )
+    connection.execute(
+        text("""INSERT INTO connection_requests
+                VALUES ('blocked', 'owner', 'rejected', '{"blocked_by":"blocked"}')""")
+    )
+    fresh = network.browse(OWNER, degree=3, include_suggestions=True)
+    assert fresh["items"] == []
+    assert [p["displayName"] for p in fresh["suggestions"]] == ["A Third", "Z Advisor"]
+    assert all(p["suggestionReason"] == "verified_advisor" for p in fresh["suggestions"])
+    for a, b in ((OWNER, "alice"), ("alice", "bob"), ("bob", "carol")):
+        _network_edge(connection, a, b)
+    network.set_preference("alice", True)
+    network.set_preference("bob", True)
+    _requested(connection, OWNER, "advisor")
+    established = network.browse(OWNER, degree=3, include_suggestions=True)
+    assert [(p["displayName"], p["networkDegree"]) for p in established["items"]] == [
+        ("A Third", 3)
+    ]
+    [suggested] = established["suggestions"]
+    assert suggested == {
+        "publicPersonRef": fresh["suggestions"][1]["publicPersonRef"],
+        "displayName": "Z Advisor",
+        "photoUrl": None,
+        "relationship": "pending_outgoing",
+        "suggestionReason": "verified_advisor",
+    }
+    assert "suggestions" not in network.browse(OWNER, degree=3, page=2, include_suggestions=True)
+    assert "suggestions" not in network.browse(OWNER, degree=2, include_suggestions=True)
+    private_search = network.browse(
+        OWNER, degree=3, query="ordinary@example.test", include_suggestions=True
+    )
+    assert private_search["suggestions"] == []
+    [name_match] = network.browse(OWNER, degree=3, query="Ordinary", include_suggestions=True)[
+        "suggestions"
+    ]
+    assert (name_match["displayName"], name_match["suggestionReason"]) == (
+        "Z Ordinary",
+        "name_match",
+    )
+    _network_edge(connection, OWNER, "advisor")
+    assert network.browse(OWNER, degree=3, include_suggestions=True)["suggestions"] == []
+
+
 def test_network_cycles_do_not_extend_degrees_or_include_viewer(connection):
     network = _network(connection)
     for uid in (OWNER, "a", "b", "c", "d"):
@@ -520,7 +583,8 @@ def test_network_directory_filter_applies_before_pagination(connection):
 @pytest.mark.parametrize(
     "change", ["opt_out", "disconnect", "block", "peer_disconnect", "peer_block"]
 )
-def test_shared_network_rechecks_permission_after_directory_work(connection, change):
+@pytest.mark.parametrize("operation", ["browse", "summary"])
+def test_shared_network_rechecks_permission_after_directory_work(connection, change, operation):
     from hushh_mcp.services.connections_service import ConnectionsError
 
     network = _network(connection)
@@ -549,10 +613,12 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
     with pytest.raises(ConnectionsError) as private:
         network.browse(OWNER, person_ref=target_ref)
     assert private.value.status_code == 404
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] is None
     network.set_preference("target", True)
     page = network.browse(OWNER, person_ref=target_ref)
     assert len(page["items"]) == 1
     assert page["items"][0]["networkDegree"] == 2
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == len(page["items"])
     assert set(page["items"][0]) == {
         "publicPersonRef",
         "displayName",
@@ -567,7 +633,7 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
 
     def read_then_revoke(**kwargs):
         result = original(**kwargs)
-        if "network_user_ids" in kwargs:
+        if "network_user_ids" in kwargs or kwargs.get("candidate_user_ids") == ["peer"]:
             if change == "opt_out":
                 network.set_preference("target", False)
             elif change in ("disconnect", "peer_disconnect"):
@@ -589,9 +655,90 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
         return result
 
     network.directory().search_directory_candidates = read_then_revoke
+    if operation == "summary" and change in ("opt_out", "peer_disconnect", "peer_block"):
+        summary = network.summary(OWNER, target_ref)
+        assert summary["canBrowseConnections"] is (change != "opt_out")
+        assert summary["visibleConnectionCount"] == (None if change == "opt_out" else 0)
+        return
+
     with pytest.raises(ConnectionsError) as caught:
-        network.browse(OWNER, person_ref=target_ref)
+        if operation == "summary":
+            network.summary(OWNER, target_ref)
+        else:
+            network.browse(OWNER, person_ref=target_ref)
     assert caught.value.status_code in (404, 503)
+
+
+def test_shared_network_summary_counts_only_browsable_profiles(connection):
+    network = _network(connection)
+    for uid in (OWNER, "target", "visible", "disabled", "hidden", "blocked"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        UPDATE actor_profiles SET public_profile_status = 'disabled' WHERE user_id = 'disabled';
+        UPDATE actor_profiles SET directory_listed = FALSE WHERE user_id = 'hidden';
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    _network_edge(connection, OWNER, "target")
+    for peer in ("visible", "disabled", "hidden", "blocked"):
+        _network_edge(connection, "target", peer)
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES "
+            "(:viewer, 'blocked', 'rejected', '{\"blocked_by\":\"viewer\"}')"
+        ),
+        {"viewer": OWNER},
+    )
+    network.set_preference("target", True)
+
+    page = network.browse(OWNER, person_ref=target_ref)
+    assert [item["displayName"] for item in page["items"]] == ["Person visible"]
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 1
+
+    _network_edge(connection, OWNER, "visible")
+    assert network.browse(OWNER, person_ref=target_ref)["items"][0]["relationship"] == "connected"
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 1
+
+
+def test_shared_network_display_cap_preserves_pagination(connection):
+    network = _network(connection)
+    _person(connection, OWNER, "Viewer")
+    _person(connection, "target", "Target")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        INSERT INTO actor_profiles (user_id, public_person_ref, directory_listed)
+          SELECT 'member-' || n, gen_random_uuid(), TRUE FROM generate_series(1, 502) n;
+        INSERT INTO actor_identity_cache (user_id, display_name)
+          SELECT user_id, 'Member ' || lpad(substr(user_id, 8), 4, '0')
+          FROM actor_profiles WHERE user_id LIKE 'member-%';
+        INSERT INTO connections (user_a_id, user_b_id, status)
+          SELECT user_id, 'target', 'active'
+          FROM actor_profiles WHERE user_id LIKE 'member-%';
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    _network_edge(connection, OWNER, "target")
+    network.set_preference("target", True)
+
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 501
+    page = network.browse(OWNER, person_ref=target_ref, page=11, limit=50)
+    assert [item["displayName"] for item in page["items"]] == ["Member 0501", "Member 0502"]
+    assert page["hasMore"] is False
 
 
 def test_extended_discovery_rechecks_third_hop_opt_out_after_page_read(connection):

@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 import queue_combined_result as queue
+from repo_governance_plan import MAX_CHANGED_BYTES, MAX_CHANGED_PATHS
 
 BASE, FIRST, SECOND, HEAD1, HEAD2 = (letter * 40 for letter in "abcde")
 
@@ -369,6 +370,61 @@ def test_owner_queue_request_refuses_incomplete_review_inventory():
     rows = [{"id": 1, "user": {"login": "reviewer"}, "state": "COMMENTED", "commit_id": HEAD1}] * 100
     with pytest.raises(guard.GuardResolutionError, match="exceeded"):
         guard.require_uncontested_owner_approval("hushh-labs/hushh-research", 1, HEAD1, read=lambda _: rows)
+
+
+def test_large_pr_inventory_keeps_protected_paths_beyond_github_api_limit(tmp_path, monkeypatch):
+    import argparse
+    import process_group
+
+    guard = queue._module("verify-protected-pipeline-edits.py", "large_pr_inventory")
+    repository = "hushh-labs/hushh-research"
+    paths = [f"artifacts/{index}.json" for index in range(3000)] + ["scripts/ci/retired.py", "app/replacement.py"]
+    pr = {"number": 1, "changed_files": 3001,
+          "base": {"sha": BASE, "repo": {"full_name": repository}}, "head": {"sha": HEAD1}}
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"repository": {"full_name": repository}, "pull_request": pr}))
+    for key, value in {"GITHUB_EVENT_PATH": str(event), "GITHUB_EVENT_NAME": "pull_request",
+                       "GITHUB_REPOSITORY": repository, "GH_TOKEN": "fixture"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(guard, "authored_change_base", lambda base, head, **kw: FIRST)
+    args = argparse.Namespace(files=None, event_name=None, pr_number=None, repo=None)
+    with patch.object(process_group, "bounded_stdout", return_value=("\0".join(paths) + "\0").encode()) as read, \
+         patch.object(guard, "_fetch_pr_files", side_effect=AssertionError("API inventory is truncated")):
+        selected = guard._files_from_event(args)
+    assert selected == paths
+    argv = read.call_args.args[0]
+    assert argv[-4:] == ["-z", FIRST, HEAD1, "--"]
+    assert "--no-renames" in argv
+    assert read.call_args.kwargs == {"max_bytes": 1024 * 1024, "timeout": 30}
+    code, _ = guard.evaluate(changed_files=selected, actor="ordinary", allowed_users=["owner"], protected_paths=["scripts/ci/"])
+    assert code == 1
+    for key, value in (("repo", "foreign/repository"), ("pr_number", 2)):
+        setattr(args, key, value)
+        with pytest.raises(guard.GuardResolutionError, match="event's repository and PR"):
+            guard._files_from_event(args)
+        setattr(args, key, None)
+
+
+@pytest.mark.parametrize("case", ["truncated", "unterminated", "over_paths", "over_bytes", "invalid_sha", "over_count"])
+def test_large_pr_inventory_fails_closed(case, monkeypatch):
+    import process_group
+
+    guard = queue._module("verify-protected-pipeline-edits.py", "large_pr_inventory_refusal")
+    pr = {"changed_files": 3000, "base": {"sha": BASE}, "head": {"sha": HEAD1}}
+    if case == "invalid_sha":
+        pr["head"]["sha"] = "--invalid"
+    elif case == "over_count":
+        pr["changed_files"] = 8193
+    else:
+        monkeypatch.setattr(guard, "authored_change_base", lambda *args, **kw: FIRST)
+    size = 8193 if case == "over_paths" else 3000 if case == "unterminated" else 2999
+    raw = ("\0".join(f"artifacts/{i}.json" for i in range(size)) + "\0").encode()
+    if case == "unterminated":
+        raw = raw[:-1]
+    with patch.object(process_group, "bounded_stdout", return_value=raw,
+                      side_effect=process_group.BoundedReadError("limit") if case == "over_bytes" else None):
+        with pytest.raises(guard.GuardResolutionError):
+            guard.authored_pr_files(pr)
 
 
 def receipt_fixture():
@@ -855,7 +911,7 @@ def test_destination_only_paths_do_not_prevent_tested_merge_reuse(tested_pr_merg
     ("QUEUE_SELECTION_FILES", '["wrong.txt"]'),
     ("QUEUE_SELECTION_FILES", '["old.txt", "shared.txt"]'),
     ("QUEUE_SELECTION_FILES", '[null]'), ("QUEUE_SELECTION_FILES", '["line\\nname"]'),
-    ("QUEUE_SELECTION_FILES", '["' + "x" * 500_000 + '"]'),
+    ("QUEUE_SELECTION_FILES", '["' + "x" * MAX_CHANGED_BYTES + '"]'),
     ("QUEUE_AUTH_HEALTH_ONLY", "true"), ("QUEUE_AUTH_HEALTH_ONLY", ""),
 ], ids=("missing", "malformed", "wrong-shape", "empty", "wrong-path", "rename",
         "null-path", "newline", "oversized", "pr-only-profile", "unknown-profile"))
@@ -879,6 +935,29 @@ def test_event_base_must_be_actual_tested_merge_parent(tested_pr_merge, monkeypa
     assert queue.record_receipt()["selection_exact"] is False
 
 
+@pytest.mark.parametrize("count,padding,allowed", [
+    (4899, 80, True), (MAX_CHANGED_PATHS + 1, 0, False),
+    (1, MAX_CHANGED_BYTES, False),
+])
+def test_complete_large_selection_keeps_exact_inventory_and_canonical_bounds(tmp_path, monkeypatch, count, padding, allowed):
+    paths = [f"contracts/{index:04d}-{'a' * padding}.json" for index in range(count)]
+    raw = json.dumps(paths, separators=(",", ":"))
+    selection = tmp_path / "selection.json"
+    selection.write_text(json.dumps(raw))
+    monkeypatch.setenv("QUEUE_SELECTION_FILE", str(selection))
+    monkeypatch.setenv("QUEUE_AUTH_HEALTH_ONLY", "false")
+    monkeypatch.setattr(queue, "git", lambda *args: "\0".join(paths) + "\0")
+    assert queue.exact_selection(BASE) is allowed
+    if allowed:
+        assert len(raw.encode()) > 500_000
+        assert len(raw.encode("utf-16-le")) < 1024 * 1024
+        # Raising capacity must never bless GitHub's truncated API inventory.
+        selection.write_text(json.dumps(json.dumps(paths[:3000])))
+        assert queue.exact_selection(BASE) is False
+        selection.write_text(json.dumps(json.dumps([*paths[:-1], "wrong-tail.json"])))
+        assert queue.exact_selection(BASE) is False
+
+
 def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
     import yaml
 
@@ -886,6 +965,8 @@ def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]
     paths = jobs["paths"]
     selector = next(step for step in paths["steps"] if step.get("id") == "filter")
+    assert selector["with"]["token"] == "${{ (github.event_name != 'pull_request' || github.event.pull_request.changed_files < 3000) && github.token || '' }}"
+    assert "github.event.pull_request.changed_files >= 3000" in paths["steps"][0]["with"]["fetch-depth"]
     assert selector["with"]["list-files"] == "json"
     assert yaml.safe_load(selector["with"]["filters"])["queue_selection"] == ["**"]
     assert paths["outputs"]["queue_selection_files"] == "${{ steps.filter.outputs.queue_selection_files }}"

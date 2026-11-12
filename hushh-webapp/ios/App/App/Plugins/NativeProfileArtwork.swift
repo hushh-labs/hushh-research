@@ -9,7 +9,7 @@ enum NativeProfileArtwork {
         let colorHex: String?
         let accentColorHex: String?
     }
-    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "action-add", "action-join", "action-close", "action-locate", "action-people", "action-find-contacts", "action-invite", "action-manage-connections", "ai-connection", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "referral-link", "referral-join", "referral-agent", "referral-qualified", "referral-success", "referral-people", "referral-progress", "referral-review", "referral-warning", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin"]
+    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "roster-finance", "roster-wallet", "roster-location", "roster-ria", "roster-gmail", "roster-calendar", "roster-email", "roster-pkm", "roster-files", "roster-consent", "roster-marketplace", "roster-connected-systems", "roster-default", "action-add", "action-join", "action-close", "action-locate", "action-people", "action-find-contacts", "action-invite", "action-manage-connections", "ai-connection", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "referral-link", "referral-join", "referral-agent", "referral-qualified", "referral-success", "referral-people", "referral-progress", "referral-review", "referral-warning", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let accentColorHex: String?
@@ -33,6 +33,19 @@ enum NativeProfileArtwork {
         case "privacy": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "terms": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "sign-out": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "roster-finance": colorHex = "#10B981"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-wallet": colorHex = "#F59E0B"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-location": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-ria": colorHex = "#8B5CF6"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-gmail": colorHex = "#E11D48"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-calendar": colorHex = "#0284C7"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-email": colorHex = "#2563EB"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-pkm": colorHex = "#6366F1"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-files": colorHex = "#6366F1"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-consent": colorHex = "#F97316"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-marketplace": colorHex = "#059669"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-connected-systems": colorHex = "#00E5FF"; accentColorHex = nil; hasAccent = false; original = false
+        case "roster-default": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
         case "action-add": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
         case "action-join": colorHex = nil; accentColorHex = "#007aff"; hasAccent = true; original = false
         case "action-close": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false

@@ -12,6 +12,7 @@ import type { NativeProfileStyleScenePort } from "@/lib/capacitor/native-profile
 import type { NativeDrawerActions } from "@/lib/capacitor/native-drawer-presentation";
 import { useCommunicationPreferencesEditor, type CommunicationPreferencesProps } from "./communication-preferences-section";
 import { NativeStyleSheet } from "./native-writing-style-editor";
+import { useExperimentalNativeInterface } from "./experimental-native-interface";
 
 /** A complete settings page projection. Existing theme, Settings and encrypted
  * writing-style writers remain the only operation owners. No native persistence. */
@@ -23,6 +24,7 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
   const [palette, setPalette] = useState(readAccentPalette);
   useLayoutEffect(() => { setPalette(current => current ?? readAccentPalette()); }, []);
   const [settings, updateSettings] = useSettings();
+  const nativeInterface = useExperimentalNativeInterface();
   const [savingHaptics, setSavingHaptics] = useState(false);
   const pendingHaptics = useRef(false);
   const mounted = useRef(true);
@@ -56,6 +58,12 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
           { id: "haptics-on", label: "On", selected: settings?.hapticFeedback === true },
           { id: "haptics-off", label: "Off", selected: settings?.hapticFeedback !== true },
         ] },
+      ...(nativeInterface.available ? [{ id: "preferences-native-interface", label: "Native interface", detail: nativeInterface.description,
+        enabled: nativeInterface.ready && !nativeInterface.saving, pending: nativeInterface.saving, toggle: true, artworkId: "appearance",
+        options: [
+          { id: "native-interface-on", label: "On", selected: nativeInterface.selected },
+          { id: "native-interface-off", label: "Off", selected: !nativeInterface.selected },
+        ] }, ...(nativeInterface.pendingChange ? [{ id: "preferences-native-interface-undo", label: "Keep current interface", detail: "Cancel the pending change.", enabled: !nativeInterface.saving, artworkId: "appearance", chevron: true }] : [])] : []),
     ] },
     { id: "preferences-agent", rows: [
       { id: "preferences-gemini", label: "AI connection", detail: "Cloud connection or your own key.", enabled: true, artworkId: "ai-connection", chevron: true },
@@ -71,6 +79,8 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
     ["theme-light", () => selectTheme("light")], ["theme-dark", () => selectTheme("dark")], ["theme-system", () => selectTheme("system")],
     ["accent-blue", () => { writeAccent("blue"); }], ["accent-gold", () => { writeAccent("gold"); }],
     ["haptics-on", () => changeHaptics(true)], ["haptics-off", () => changeHaptics(false)],
+    ["native-interface-on", () => nativeInterface.change(true)], ["native-interface-off", () => nativeInterface.change(false)],
+    ["preferences-native-interface-undo", () => nativeInterface.change(nativeInterface.active)],
     ["preferences-gemini", onGemini], ["preferences-voice", onVoice], ["preferences-style", () => setStyleOpen(true)],
   ]);
   return { page, rows, formScene: enabled && styleOpen ? "writing-style" as const : null,

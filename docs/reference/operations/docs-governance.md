@@ -215,6 +215,14 @@ Recursive rewrite policy lives in [documentation-recursive-knowledge-model.md](.
 
 All applicable docs gates must pass in CI before merge.
 
+Preserved source snapshots are source evidence, rather than shareable exports. The
+link-hygiene gate may classify an individual source file through the explicit
+`tmp/shareable-source-snapshots.v1.json` receipt only when pinned preservation or
+Git provenance proves its exact current bytes. Snapshot directory names do not
+grant an exception: unlisted or changed files retain the shareable checks, and
+invalid provenance fails closed. The gate's built-in `--self-test` runs before
+the normal check in docs verification.
+
 CI gate policy:
 
 1. Keep a minimal blocking set (secret scan, web, protocol, integration).
@@ -252,3 +260,16 @@ Brand review gate:
 1. Product + platform docs in `docs/`: repository maintainers.
 2. Backend docs in `consent-protocol/docs/`: backend owners.
 3. Frontend/native docs in `hushh-webapp/docs/`: frontend/native owners.
+
+## Generated evidence and source contracts
+
+Keep audit/run reports, UI review caches, benchmark measurements, screenshots,
+traces and evaluation ledgers in ignored local storage or sanitized CI artifacts.
+Do not commit one file per execution. Keep maintained human summaries and authored
+runtime contracts, dependency locks, fixtures and app asset manifests in Git.
+The UI owner checks use bounded local caches plus technical commit fingerprints;
+see the [UI contract guide](../architecture/ui-contract-contributor-guide.md).
+The architecture fitness baseline retains only the exact reviewed key/value
+multiset and budgets used by the ratchet; generated report/history fields belong
+outside the baseline. Compaction must preserve all duplicate allowances and must
+not accept new debt or weaken comparisons.

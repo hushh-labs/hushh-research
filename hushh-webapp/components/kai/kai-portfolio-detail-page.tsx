@@ -6,7 +6,8 @@ import type { PortfolioDashboardSection } from "@/components/kai/views/dashboard
 import { useAuth } from "@/lib/firebase/auth-context";
 import { buildKaiPortfolioSectionRoute } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
-import { useState } from "react";
+import { NativeFinanceRoute } from "./native-finance-workspace";
+import { useRef, useState } from "react";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 
 export function KaiPortfolioDetailPage({
@@ -16,12 +17,13 @@ export function KaiPortfolioDetailPage({
 }) {
   const { user, userId, loading } = useAuth();
   const { vaultOwnerToken } = useVault();
+  const nativeFrame = useRef<HTMLDivElement | null>(null);
   const [flowState, setFlowState] = useState<FlowState>("checking");
 
   if (loading || !user || !userId) return null;
 
   return (
-    <AppPageShell
+    <NativeFinanceRoute frame={nativeFrame} path={buildKaiPortfolioSectionRoute(section)} model={{ owner: userId, view: "portfolio" }}><AppPageShell ref={nativeFrame}
       as="div"
       width="agent"
       className={`relative pb-32 ${financeStyles.workspace}`}
@@ -39,6 +41,6 @@ export function KaiPortfolioDetailPage({
         dashboardSection={section}
         onStateChange={setFlowState}
       />
-    </AppPageShell>
+    </AppPageShell></NativeFinanceRoute>
   );
 }

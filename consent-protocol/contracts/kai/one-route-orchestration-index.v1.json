@@ -2125,7 +2125,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2187,7 +2191,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2249,7 +2257,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2311,7 +2323,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2371,7 +2387,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -7086,7 +7106,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-ria-home"
+      "native_surface_id": "ria-profile-page"
     },
     {
       "route_pattern": "/ria/claim",
@@ -7233,7 +7253,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "consent",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-workspace"
     },
     {
       "route_pattern": "/ria/clients/[userId]/accounts/[accountId]",
@@ -7280,7 +7300,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-account-detail"
     },
     {
       "route_pattern": "/ria/clients/[userId]/requests/[requestId]",
@@ -7327,7 +7347,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-request-detail"
     },
     {
       "route_pattern": "/ria/onboarding",

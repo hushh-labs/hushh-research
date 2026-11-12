@@ -23,6 +23,7 @@ function Select({
     props.open === undefined && props.onOpenChange === undefined && props.defaultOpen !== true && props.dir === undefined &&
     immediateChoices(props.children) !== null)
   const [localValue, setLocalValue] = React.useState(props.defaultValue ?? "")
+  const initialValue = React.useRef(props.defaultValue ?? "")
   const [fallback, setFallback] = React.useState(false)
   const [fallbackOpen, setFallbackOpen] = React.useState(false)
   const [control, setControl] = React.useState<NativeChoiceControl | null>(null)
@@ -41,6 +42,22 @@ function Select({
     onValueChange?.(next)
   }, [authoredValue, value, onValueChange])
   const requestOpen = React.useCallback((open: boolean) => current.current?.requestOpen(open), [])
+  React.useLayoutEffect(() => {
+    if (!native) return
+    const form = props.form ? document.getElementById(props.form) : trigger.current?.form
+    if (!(form instanceof HTMLFormElement)) return
+    let active = true
+    const reset = (event: Event) => {
+      // Other reset handlers can still cancel the event after this listener.
+      queueMicrotask(() => {
+        if (!active || event.defaultPrevented) return
+        current.current?.requestOpen(false)
+        if (authoredValue === undefined) setLocalValue(initialValue.current)
+      })
+    }
+    form.addEventListener("reset", reset)
+    return () => { active = false; form.removeEventListener("reset", reset) }
+  }, [native, props.form, authoredValue])
   const eligible = open === undefined && onOpenChange === undefined && props.dir === undefined
   return <NativeChoiceTriggerContext.Provider value={native && !fallback ? { ...control, presented: control?.presented ?? false,
     blocked: control?.blocked ?? false, committed: control !== null, bindTrigger } : null}>
@@ -98,7 +115,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex w-fit items-center justify-between gap-2 rounded-[var(--app-input-radius)] border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex w-fit items-center justify-between gap-2 rounded-[var(--app-input-radius)] border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=default]:min-h-11 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

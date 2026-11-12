@@ -902,9 +902,24 @@ neighbors shared by the viewer and the target: zero has no control, one opens th
 available profile (resolving a missing preview through one mutual page), and more
 than one opens a list. An unavailable single profile explains that state.
 
-Signed-in profiles show network details beside the profile hero. **View connections**
-appears only after the server confirms that the target opted in and the viewer is
-an active direct connection. The privacy setting **Share my connection list** starts
+**Extended network** shows third-degree connections and up to four suggested
+people in one list. Third-degree rows come first and carry their degree.
+Suggestions use eligible verified advisor profiles or name matches from the
+people directory, with a reason on each row. The tab uses the existing profile
+preview and connection request controls. With no results and no active search,
+**Back to Find people** closes the dialog and restores the source.
+
+Opening the discovery dialog loads each filter's first page and reuses it
+while the dialog and viewer session remain active. A sent request updates
+that person's row in place. Search changes, foreground returns and other
+connection graph changes retire the affected reads before displaying new
+results.
+
+Signed-in profiles show network details under the hero's contact details. The
+connection count opens the paginated shared list after the server confirms that
+the profile owner opted in and the viewer is an active direct connection. It
+uses **500+ connections** above 500. Rows show **Connected**, **Connect**, or
+the applicable pending state for the viewer. **Share my connection list** starts
 off, discloses anonymous extended-network degree contribution, and confirms only
 server-acknowledged changes. It grants no access to private contacts or information.
 Anonymous public profile projections do not fetch network information.
@@ -926,3 +941,11 @@ Behavioral evidence: `person-profile-preview.test.tsx`, `network-people-list.tes
 and `connections-service.test.ts` in the nearest frontend suites. These prove the
 shared callbacks in jsdom; shipped browser/native gesture acceptance remains a
 separate runtime check.
+
+## Experimental native presentation
+
+On supported iPhones with Native interface enabled, the shared workspace maps Connections/Circles, directory selection, independent search, paging, relationship actions, owned/joined groups, optional ideas and Circle creation. The route and services retain queries, capabilities and writes. One Circle creation model owns both renderers, including normalized custom types, saved-ID reuse and the paged people step; a vault-session change clears that model and rejects late results.
+
+Shell Back unwinds a selected person or Circle summary before leaving the route. Rich permission/contact review, nearby directories, grouped invite-code review and the complete Circle roster/chat/editor layer retain explicit React presentations. The native owner confirms retirement before revealing those layers, then readmits the native collection after return. These handoffs preserve their existing validation, permission checks, confirmation, chat privacy and mutation callbacks. Native creation Cancel is a draft-only operation. Renderer-off keeps the existing complete React route.
+
+Runtime qualification and fixture limits are recorded in the adoption plan; implementation alone is not visual acceptance.

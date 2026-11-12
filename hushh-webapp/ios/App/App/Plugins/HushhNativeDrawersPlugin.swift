@@ -76,6 +76,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "confirmWorkspaceChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleWorkspaceChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getWorkspaceState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shareWorkspaceFile", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
@@ -93,6 +94,23 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @MainActor private lazy var walletCard: NativeWalletCardCoordinator = {
         let value = NativeWalletCardCoordinator()
         value.parent = { [weak self] in self?.bridge?.viewController }
+        value.parentLease = { [weak self] formIdentity in
+            guard let self, let root = self.bridge?.viewController else { return nil }
+            guard let workspace = self.workspace else {
+                return (root, { [weak self] in self?.workspace == nil }, { _ in false })
+            }
+            let state = workspace.model.state, identity = state.identity
+            guard identity.documentId == formIdentity.documentId, identity.ownerEpoch == formIdentity.ownerEpoch,
+                  identity.ownerGeneration == formIdentity.ownerGeneration, workspace.permitsWalletForm else { return nil }
+            let selected = state.wallet?.selectedId, visit = state.wallet?.detailVisitId
+            guard let parent = selected == nil ? root : workspace.walletFormParent else { return nil }
+            return (parent, { [weak self, weak workspace, weak parent] in
+                guard let self, let workspace, let parent, self.workspace === workspace, workspace.model.active,
+                      workspace.model.state.identity == identity, workspace.model.state.wallet?.selectedId == selected,
+                      workspace.model.state.wallet?.detailVisitId == visit else { return false }
+                return selected == nil || parent.presentingViewController != nil
+            }, { next in next.identity == identity && next.wallet?.selectedId == selected && next.wallet?.detailVisitId == visit })
+        }
         value.available = { [weak self] in
             guard let self else { return false }
             return self.supported && self.ownedChoices.concealed && self.form == nil && self.retiringForms.isEmpty &&
@@ -124,6 +142,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @MainActor private lazy var feedback: NativeFeedbackPresentation = {
         let presenter = NativeFeedbackPresentation()
         presenter.ended = { [weak self] event in self?.notifyListeners("feedbackEnded", data: event, retainUntilConsumed: false) }
+        presenter.actioned = { [weak self] state in self?.emitFeedbackAction(state) }
         return presenter
     }()
     private var nameScene: NativeProfileNameScene? {
@@ -227,6 +246,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
                 "walletCardForms": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "ownedChoices": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "shellFeedback": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "privateFeedback": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
@@ -266,7 +286,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profilePaymentsScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileSoftwareUpdatePages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileFinancePreferences": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
-                "routeWorkspaces": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? ["referrals", "wallet"] : [],
+                "routeWorkspaces": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? ["referrals", "wallet", "memory", "consent", "tasks", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup"] : [],
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
                 "closeSettlements": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
@@ -292,6 +312,29 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         return form == nil
     }
+    /// Resolve only settled, owned presentations. System sheets and transition
+    /// controllers are not notification hosts and never authorize callbacks.
+    @MainActor private func shellFeedbackPresenter() -> UIViewController? {
+        guard retiringControllers.isEmpty, retiringForms.isEmpty, retiringWorkspaces.isEmpty,
+              ownedChoices.concealed else { return nil }
+        let parent: UIViewController?
+        if !walletCard.concealed { parent = walletCard.feedbackPresenter }
+        else if let form { parent = form.feedbackPresenter }
+        else if let controller = controllers.values.first(where: { $0.coversUnderlyingPresentation }) {
+            parent = controller.presentationLayoutSettled && controller.model.interactionEnabled ? controller.feedbackPresenter : nil
+        } else if let workspace { parent = workspace.feedbackPresenter }
+        else { parent = bridge?.viewController }
+        guard let parent, parent.viewIfLoaded?.window != nil,
+              parent.view.window === bridge?.viewController?.view.window,
+              parent.presentedViewController == nil else { return nil }
+        return parent
+    }
+    @MainActor private func ownsShellFeedback(_ state: NativeFeedbackProjection) -> Bool {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        return privacy.appIsActive && !privacy.shielded && privacy.generation == state.privacyGeneration &&
+            HushhSessionPrivacyShield.shared.acceptsDocument(state.documentId) &&
+            sessionFence.containsOwner(documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration)
+    }
     @objc func applyFeedback(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.supported, NativeDrawerQualificationPolicy.coherentShell,
@@ -303,6 +346,16 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let shield = HushhSessionPrivacyShield.shared
             let privacy = shield.snapshot()
+            if state.family == "shell" {
+                guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration,
+                      shield.acceptsDocument(state.documentId), self.admitRoutePresentationOwner(
+                        NativeOwnedChoiceIdentity(documentId: state.documentId, ownerEpoch: state.ownerEpoch,
+                            ownerGeneration: state.ownerGeneration, visitId: "shell-feedback", revision: state.revision)) else {
+                    call.resolve(["applied": false]); return
+                }
+                guard let parent = self.shellFeedbackPresenter() else { call.resolve(["applied": false, "pending": true]); return }
+                call.resolve(["applied": self.feedback.apply(state, to: parent)]); return
+            }
             guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration,
                   shield.acceptsDocument(state.documentId), self.sessionFence.contains(state.identity),
                   self.leases[state.family]?.identity == state.identity,
@@ -317,30 +370,61 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                     form.sceneName == state.formScene ? form.feedbackPresenter : nil
             } else {
                 parent = state.formScene == nil && controller.presentationLayoutSettled &&
-                    controller.model.interactionEnabled ? controller.host : nil
+                    controller.model.interactionEnabled ? controller.feedbackPresenter : nil
             }
             guard let parent, parent.view.window === self.bridge?.viewController?.view.window,
                   parent.presentedViewController == nil else { call.resolve(["applied": false]); return }
             call.resolve(["applied": self.feedback.apply(state, to: parent)])
         }
     }
+    @MainActor private func emitFeedbackAction(_ state: NativeFeedbackProjection) {
+        guard state.valid, let token = state.actionToken, supported,
+              NativeDrawerQualificationPolicy.coherentShell, UIDevice.current.userInterfaceIdiom == .phone else { return }
+        if state.family == "shell" {
+            guard ownsShellFeedback(state), shellFeedbackPresenter() != nil else { return }
+            var event = state.receipt; event["actionToken"] = token
+            notifyListeners("feedbackAction", data: event, retainUntilConsumed: false); return
+        }
+        let shield = HushhSessionPrivacyShield.shared
+        let privacy = shield.snapshot()
+        guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration,
+              shield.acceptsDocument(state.documentId), sessionFence.contains(state.identity),
+              leases[state.family]?.identity == state.identity,
+              let controller = controllers[state.family], state.belongs(to: controller.model.projection),
+              retiringControllers.isEmpty, retiringForms.isEmpty else { return }
+        let parent: UIViewController?
+        if let form {
+            parent = form.identity.documentId == state.documentId && form.identity.ownerEpoch == state.ownerEpoch &&
+                form.identity.ownerGeneration == state.ownerGeneration && form.identity.family == state.family &&
+                form.identity.revision == state.formRevision && form.sceneName == state.formScene && form.presentationSettled
+                ? form.feedbackPresenter : nil
+        } else {
+            parent = state.formScene == nil && controller.presentationLayoutSettled &&
+                controller.model.interactionEnabled ? controller.feedbackPresenter : nil
+        }
+        guard let parent, parent.view.window === bridge?.viewController?.view.window,
+              parent.presentedViewController == nil else { return }
+        var event = state.receipt
+        event["actionToken"] = token
+        notifyListeners("feedbackAction", data: event, retainUntilConsumed: false)
+    }
     @objc func retireFeedback(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let options = call.options as? [String: Any],
-                  Set(options.keys) == NativeFeedbackProjection.keys.subtracting(["message", "tone", "duration", "dismissible"]),
+                  Set(options.keys) == NativeFeedbackProjection.keys.subtracting(["message", "tone", "duration", "dismissible", "actionToken", "actionLabel"]),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 12000,
-                  let identity = try? JSONDecoder().decode(NativeDrawerIdentity.self, from: bytes), identity.valid,
+                  let identity = try? JSONDecoder().decode(NativeDrawerIdentity.self, from: bytes), NativeFeedbackProjection.validIdentity(identity),
                   let id = options["feedbackId"] as? String, NativeDrawerIdentity.identifier(id) else {
                 call.reject("NATIVE_FEEDBACK_INVALID"); return
             }
             // IDs are opaque and owner-bound. Cleanup never authorizes an action.
-            guard self.sessionFence.contains(identity) else { call.resolve(["retired": false]); return }
+            guard identity.family == "shell" ? self.sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) : self.sessionFence.contains(identity) else { call.resolve(["retired": false]); return }
             guard let sequence = options["feedbackSequence"] as? Int, let revision = options["feedbackRevision"] as? Int,
                   sequence > 0, revision >= 0, sequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
                   revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { call.reject("NATIVE_FEEDBACK_INVALID"); return }
-            self.feedback.retire(id: id, sequence: sequence, revision: revision, owner: identity, context: options)
-            call.resolve(["retired": true])
+            let retired = self.feedback.retire(id: id, sequence: sequence, revision: revision, owner: identity, context: options)
+            call.resolve(["retired": retired])
         }
     }
     @objc func apply(_ call: CAPPluginCall) {
@@ -684,6 +768,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         let workspaceCovered = workspace?.coversPresentation == true || retiringWorkspaces.values.contains { $0.coversPresentation }
         container?.isolateForOwnedDrawer(covered || workspaceCovered)
         workspace?.refresh()
+        feedback.relocateShell(to: shellFeedbackPresenter())
         HushhSessionPrivacyShield.shared.profilePreparationDidChange()
     }
 
@@ -697,14 +782,18 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         self.workspace = nil
         let shield = HushhSessionPrivacyShield.shared
         let privacyRetirement = shield.beginPresentationRetirement()
-        workspace.retire { [weak self] in
+        walletCard.retireWithParent { workspace.retire { [weak self] in
+            // Publish retirement only after the concealment query can observe
+            // the detached workspace's removal and its settled receipt.
+            if let self {
+                self.retiringWorkspaces.removeValue(forKey: identity)
+                if self.workspaceIdentity == identity { self.workspaceRetiredReceipt = state.receipt("retired", settled: true) }
+            }
             shield.completePresentationRetirement(privacyRetirement)
             guard let self else { return }
-            self.retiringWorkspaces.removeValue(forKey: identity)
-            if self.workspaceIdentity == identity { self.workspaceRetiredReceipt = state.receipt("retired", settled: true) }
             let callbacks = self.workspaceRetirementCallbacks.removeValue(forKey: identity) ?? []
             callbacks.forEach { $0() }
-        }
+        } }
     }
     // Public admission stages contain no scene fields or owner identifiers.
     @MainActor static var workspaceAdmissionStage = 0
@@ -737,6 +826,14 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             if let old = self.workspaceIdentity, old != next.identity {
                 let sameOwner = old.documentId == next.documentId && old.ownerEpoch == next.ownerEpoch && old.ownerGeneration == next.ownerGeneration
                 guard old.documentId != next.documentId || sameOwner && next.revision > old.revision || next.ownerGeneration > old.ownerGeneration else { call.reject("NATIVE_WORKSPACE_STALE"); return }
+            }
+            if let presentation = self.workspace, presentation.model.state.identity == next.identity,
+               !presentation.model.acceptsUpdate(next) { call.reject("NATIVE_WORKSPACE_STALE"); return }
+            if !self.walletCard.parentAccepts(next) {
+                guard self.walletCard.retire(completion: { [weak self] in self?.applyWorkspace(call) }) else { call.reject("NATIVE_WORKSPACE_RETIRING"); return }
+                return
+            }
+            if let old = self.workspaceIdentity, old != next.identity {
                 self.retireWorkspacePresentation()
                 guard self.retiringWorkspaces.isEmpty else { call.reject("NATIVE_WORKSPACE_RETIRING"); return }
             }
@@ -792,15 +889,63 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         identity.event.merging(["phase": "retired", "settled": retiringWorkspaces[identity] == nil, "updateSequence": 0,
             "privacyGeneration": HushhSessionPrivacyShield.shared.snapshot().generation, "layoutRevision": 0]) { _, new in new }
     }
+    /// Present only the file prepared for the currently confirmed Wallet detail action.
+    /// The workspace remains the owner while UIKit covers its retained sheet.
+    @objc func shareWorkspaceFile(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let presentation = self.workspace,
+                  let identity = self.decodeWorkspaceIdentity(call), identity == presentation.model.state.identity,
+                  identity.workspace == "wallet", let sequence = call.getInt("sequence"),
+                  let update = call.getInt("updateSequence"), let row = call.getString("rowId"),
+                  let visit = call.getString("detailVisitId"), call.getString("domain") == "wallet-detail",
+                  call.getString("action") == "row", call.getBool("dismissed") != true,
+                  call.getInt("privacyGeneration") == presentation.model.state.privacyGeneration,
+                  let title = call.getString("title"), !title.isEmpty, title.count <= 100,
+                  let raw = call.getString("fileUri"), let url = URL(string: raw), url.isFileURL,
+                  let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+                call.reject("NATIVE_WORKSPACE_SHARE_UNAVAILABLE"); return
+            }
+            let privacy = HushhSessionPrivacyShield.shared.snapshot()
+            let action = NativeWorkspaceAction(sequence: sequence, updateSequence: update, action: "row", row: row,
+                                               domain: "wallet-detail", detailVisitId: visit, dismissed: false)
+            let file = url.standardizedFileURL.resolvingSymlinksInPath()
+            let directory = cache.appendingPathComponent("shared-cards", isDirectory: true).standardizedFileURL.resolvingSymlinksInPath()
+            guard file.path.hasPrefix(directory.path + "/"), FileManager.default.fileExists(atPath: file.path),
+                  privacy.appIsActive, !privacy.shielded, privacy.generation == presentation.model.state.privacyGeneration,
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.documentId),
+                  self.sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration),
+                  presentation.model.state.wallet?.detailVisitId == visit,
+                  presentation.model.isConfirmed(action), let parent = presentation.feedbackPresenter,
+                  parent.viewIfLoaded?.window != nil, parent.presentedViewController == nil else {
+                call.reject("NATIVE_WORKSPACE_SHARE_UNAVAILABLE"); return
+            }
+            let controller = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+            controller.setValue(title, forKey: "subject")
+            controller.completionWithItemsHandler = { _, completed, _, error in
+                if let error { call.reject("Error sharing item", nil, error) }
+                else if completed { call.resolve() }
+                else { call.reject("Share canceled") }
+            }
+            if let popover = controller.popoverPresentationController {
+                popover.sourceView = parent.view
+                popover.sourceRect = CGRect(x: parent.view.bounds.midX, y: parent.view.bounds.midY, width: 1, height: 1)
+                popover.permittedArrowDirections = []
+            }
+            parent.present(controller, animated: true)
+        }
+    }
     @objc func confirmWorkspaceChoice(_ call: CAPPluginCall) { resolveWorkspaceChoice(call, confirm: true) }
     @objc func settleWorkspaceChoice(_ call: CAPPluginCall) { resolveWorkspaceChoice(call, confirm: false) }
     private func resolveWorkspaceChoice(_ call: CAPPluginCall, confirm: Bool) {
         DispatchQueue.main.async { [weak self] in
-            guard Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "privacyGeneration", "updateSequence", "sequence", "action", "rowId", "text", "editRevision", "domain", "detailVisitId", "dismissed"]),
+            guard Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "privacyGeneration", "updateSequence", "sequence", "action", "rowId", "text", "editRevision", "domain", "detailVisitId", "dismissed", "actionToken"]),
                   let self, let presentation = self.workspace, let identity = self.decodeWorkspaceIdentity(call), identity == presentation.model.state.identity,
                   call.getInt("privacyGeneration") == presentation.model.state.privacyGeneration,
                   let sequence = call.getInt("sequence"), let update = call.getInt("updateSequence"), let action = call.getString("action"), sequence > 0 else { call.resolve(["valid": false]); return }
-            let choice = NativeWorkspaceAction(sequence: sequence, updateSequence: update, action: action, row: call.getString("rowId"), text: call.getString("text"), editRevision: call.getInt("editRevision"), domain: call.getString("domain"), detailVisitId: call.getString("detailVisitId"), dismissed: call.getBool("dismissed"))
+            let choice = NativeWorkspaceAction(sequence: sequence, updateSequence: update, action: action,
+                row: call.getString("rowId"), text: call.getString("text"), editRevision: call.getInt("editRevision"),
+                domain: call.getString("domain"), detailVisitId: call.getString("detailVisitId"), dismissed: call.getBool("dismissed"),
+                actionToken: call.getString("actionToken"))
             let valid = confirm ? presentation.model.confirm(choice) : presentation.model.settle(choice)
             if !confirm { self.reconcileIsolation() }
             call.resolve(["valid": valid])

@@ -250,6 +250,96 @@ def test_the_additive_alias_rule_stays_narrow(after: dict[str, Any], reason: str
         generator._require_acknowledged_semantic_changes(semantic_diff)
 
 
+@pytest.mark.parametrize("field", ["search_keywords", "routes", "screens"])
+def test_navigation_discovery_can_append_without_retiring_actions(field: str) -> None:
+    before = _aliased(V1_REVISION, ["open profile"])
+    before["actions"][0].update(
+        {
+            "search_keywords": ["profile"],
+            "execution": {
+                "outcome": "NAVIGATE",
+                "target": {"path": "route", "target": "/one/profile", "status": "wired"},
+            },
+            "side_effect": {"classification": "navigation"},
+            "navigation": {
+                "routes": ["/one/profile"],
+                "screens": ["profile"],
+                "fallback": "/one/profile",
+            },
+        }
+    )
+    after = deepcopy(before)
+    after["revision"] = V2_REVISION
+    node = after["actions"][0]
+    container = node if field == "search_keywords" else node["navigation"]
+    container[field].append("/one/profile/appearance" if field == "routes" else "appearance")
+    diff = generator._semantic_diff(before, after)
+    assert diff["compatible"] == ["actions:X"]
+    assert diff["breaking"] == []
+    generator._require_acknowledged_semantic_changes(diff)
+
+
+@pytest.mark.parametrize(
+    "change", ["remove", "reorder", "fallback", "target", "input", "authorization", "confirmation"]
+)
+def test_added_metadata_never_masks_a_changed_action_boundary(change: str) -> None:
+    before = _aliased(V1_REVISION, ["open profile"])
+    before["actions"][0].update(
+        {
+            "search_keywords": ["profile", "account"],
+            "execution": {
+                "outcome": "NAVIGATE",
+                "target": {"path": "route", "target": "/one/profile", "status": "wired"},
+            },
+            "side_effect": {"classification": "navigation"},
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+            "navigation": {
+                "routes": ["/one/profile"],
+                "screens": ["profile"],
+                "fallback": "/one/profile",
+            },
+        }
+    )
+    after = deepcopy(before)
+    after["revision"] = V2_REVISION
+    node = after["actions"][0]
+    node["search_keywords"].append("appearance")
+    if change == "remove":
+        node["navigation"]["routes"] = ["/one/profile/appearance"]
+    elif change == "reorder":
+        node["search_keywords"] = ["account", "profile", "appearance"]
+    elif change == "fallback":
+        node["navigation"]["fallback"] = "/one/profile/appearance"
+    elif change == "target":
+        node["execution"]["target"]["target"] = "/one/profile/appearance"
+    elif change == "input":
+        node["inputSchema"]["properties"]["record_id"] = {"type": "string"}
+    else:
+        node[change] = {"changed": True}
+    diff = generator._semantic_diff(before, after)
+    assert diff["compatible"] == []
+    assert diff["breaking"] == ["actions:X"]
+    with pytest.raises(RuntimeError, match="unacknowledged breaking changes"):
+        generator._require_acknowledged_semantic_changes(diff)
+
+
+def test_non_navigation_actions_cannot_gain_routes_through_metadata_compatibility() -> None:
+    before = _aliased(V1_REVISION, ["save record"])
+    before["actions"][0].update(
+        {
+            "execution": {"outcome": "EXECUTE", "target": {"path": "local_handler"}},
+            "side_effect": {"classification": "write"},
+            "navigation": {"routes": [], "screens": [], "fallback": None},
+        }
+    )
+    after = deepcopy(before)
+    after["revision"] = V2_REVISION
+    after["actions"][0]["navigation"]["routes"].append("/one/profile")
+    diff = generator._semantic_diff(before, after)
+    assert diff["compatible"] == []
+    assert diff["breaking"] == ["actions:X"]
+
+
 def test_exact_revision_deprecation_acknowledges_the_change(
     repo: Repo, monkeypatch: pytest.MonkeyPatch
 ) -> None:

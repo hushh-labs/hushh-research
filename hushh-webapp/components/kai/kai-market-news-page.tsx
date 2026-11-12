@@ -1,5 +1,7 @@
 "use client";
 
+import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Loader2, Newspaper, RefreshCcw } from "@/components/icons";
 
@@ -183,7 +185,9 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
  */
 export function KaiMarketNewsPage() {
   const { user, userId: ownerId, loading: authLoading } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, isVaultUnlocked } = useVault();
+  const nativeFrame = useRef<HTMLDivElement | null>(null);
+  const [nativeWindow, setNativeWindow] = useState({ key: "", page: 0 });
   const userId = ownerId ?? "";
   const trackedSymbols = useMemo(
     () => (userId ? KaiMarketHomeResourceService.resolveTrackedSymbols(userId).slice(0, 3) : []),
@@ -290,8 +294,8 @@ export function KaiMarketNewsPage() {
 
   if (authLoading || !user) return null;
 
-  return (
-    <AppPageShell
+  const content = (
+    <AppPageShell ref={nativeFrame}
       width="reading"
       className="pb-32"
       nativeTest={{
@@ -386,4 +390,27 @@ export function KaiMarketNewsPage() {
       </AppPageContentRegion>
     </AppPageShell>
   );
+  if (!isVaultUnlocked || !customNativePresentationEnabled()) return content;
+  const page = nativeWindow.key === feedKey ? Math.min(nativeWindow.page, Math.max(0, Math.ceil(rows.length / 40) - 1)) : 0;
+  const description = mode === "personalized" ? "Latest reporting around the holdings currently available in your private workspace." : "A current market briefing. Unlock your vault to tailor this to your holdings.";
+  const sections: NativeWorkspaceSurfaceSection[] = [{ key: "news-controls", rows: [
+    { key: "scope", label: "Market news", detail: description },
+    { key: "refresh", label: "Refresh", pending: firstPageResource.refreshing, enabled: !firstPageResource.refreshing, run: () => firstPageResource.refresh({ force: true }) },
+  ] }];
+  if (firstPageResource.loading && !rows.length) sections.push({ key: "loading", rows: [{ key: "loading", label: "Loading market news", pending: true }] });
+  else if (!rows.length) sections.push({ key: "empty", rows: [{ key: "empty", label: "No market headlines are available yet.", detail: "Try refreshing in a moment." }] });
+  else sections.push({ key: "headlines", title: "Headlines", rows: rows.slice(page * 40, (page + 1) * 40).map(item => {
+    const href = validArticleUrl(item.url), symbols = extractNewsSymbols(item), sentiment = String(item.sentiment_hint || "").toLowerCase();
+    return { key: `article:${item.url}:${item.title}`, label: item.title, symbol: "newspaper", enabled: Boolean(href), web: true,
+      detail: [String(item.source_name || "Market news").trim() || "Market news", formatPublishedAt(item.published_at), sentiment.includes("positive") ? "Positive" : sentiment.includes("negative") ? "Risk" : "", item.summary, symbols.length ? symbols.join(", ") : "Market"].filter(Boolean).join(" · "),
+      run: () => href ? openExternalUrl(href) : undefined };
+  }) });
+  const controls = [];
+  if (page > 0) controls.push({ key: "previous", label: "Previous headlines", run: () => setNativeWindow({ key: feedKey, page: page - 1 }) });
+  if ((page + 1) * 40 < rows.length) controls.push({ key: "next", label: "Next headlines", run: () => setNativeWindow({ key: feedKey, page: page + 1 }) });
+  if (lastPage?.has_more) controls.push({ key: "load-more", label: "Load more", enabled: !loadingMore, pending: loadingMore, run: loadMore });
+  if (controls.length) sections.push({ key: "news-paging", rows: controls });
+  if (resyncMessage) sections.push({ key: "news-resync", rows: [{ key: "resync", label: resyncMessage }] });
+  if ((firstPageResource.error || firstPageResource.data?.stale) && rows.length) sections.push({ key: "news-stale", rows: [{ key: "stale", label: "Showing saved headlines. Refresh for the latest coverage." }] });
+  return <NativeWorkspaceRoute contentPresentation="rich" owner={ownerId} workspace="finance" viewKey={`${feedKey}:${page}`} path={ROUTES.KAI_NEWS} title="Market news" active frame={nativeFrame} sections={sections}>{content}</NativeWorkspaceRoute>;
 }

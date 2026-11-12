@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   TrendingUp,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { cn } from "@/lib/utils";
 

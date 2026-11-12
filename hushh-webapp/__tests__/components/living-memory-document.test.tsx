@@ -294,7 +294,10 @@ describe("native Memory operation boundary", () => {
       const row = hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === label)!;
       act(() => { void hook.result.current.rows.get(row.id)!(); });
     };
-    choose("Synthetic record"); choose("Remove saved entry");
+    choose("Synthetic record");
+    expect(hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "Synthetic record", readOnly: true })]));
+    choose("Remove saved entry");
     const first = projected.length;
     hook.rerender({ value: { ...input, preview: { ...input.preview, presentation: null } } });
     expect(projected.slice(first).every(validNativeMemoryPath)).toBe(true);

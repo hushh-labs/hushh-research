@@ -1,3 +1,4 @@
+import { nativeLocationDurationRows } from "../native-location-workspace";
 import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -345,5 +346,19 @@ describe("compactDurationLabel", () => {
     expect(compactDurationLabel("until_stopped")).toBe("Custom");
     expect(compactDurationLabel("today")).toBe("Custom");
     expect(compactDurationLabel("0")).toBe("Custom");
+  });
+});
+
+// A visible timed choice must never submit the previous indefinite grant.
+describe("native duration consent", () => {
+  it("commits the displayed Custom duration when leaving Until I stop", () => {
+    const change = vi.fn(), custom = vi.fn();
+    const rows = nativeLocationDurationRows("duration", "until_stopped", change, CHANGE_TIME_DURATION_LADDER, false, custom, true);
+    rows[0].choices!.find(choice => choice.key === "custom")!.run();
+    expect(custom).toHaveBeenCalledWith(true);
+    expect(change).toHaveBeenCalledWith("0.25");
+    const timed = nativeLocationDurationRows("duration", "2", change, CHANGE_TIME_DURATION_LADDER, false, custom, true);
+    timed[0].choices!.find(choice => choice.key === "custom")!.run();
+    expect(change).toHaveBeenLastCalledWith("2");
   });
 });

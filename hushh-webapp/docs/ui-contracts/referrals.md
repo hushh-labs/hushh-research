@@ -205,8 +205,8 @@ semantic defaults rather than assigning every heading the same size.
 requires bootstrap contractVersion1, enabled, coherentShell and supported
 whole-presentation referrals capability; otherwise web fallback. Native
 **Individual / Circles** is title-cased;40-row windows **More / Previous**;
-native Circle editor/Back. Native You has Coins/Rank and joined count under
-Invite, not web streak card. Additional literals `Loading standings…`,
+native Circle editor/Cancel. Shared shell Back owns rules and Circle returns. Native You preserves Coins/Rank, referral streak and joined count under
+Invite. Decorative dashboard artwork remains specific to the React presentation. Additional literals `Loading standings…`,
 `Loading Circle rankings…`, `Circle rankings could not refresh.`, `Unable to
 load Circle Wars.`, `Could not load that page. Try again`. Native timer is
 `New round starting` or `{ceil(seconds/60)}m left`. Native geometry/OS fonts

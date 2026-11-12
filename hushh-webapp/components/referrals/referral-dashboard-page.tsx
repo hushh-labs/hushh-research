@@ -11,6 +11,7 @@ import { ReferralJourney } from "./referral-journey";
 import { ReferralInviteActions } from "./referral-invite-actions";
 import { ReferralHeroArtwork, REFERRAL_HERO_ARTWORK_SRC } from "./referral-hero-artwork";
 import { IndividualReferralRankings } from "./individual-referral-rankings";
+import { NativeReferralWorkspace } from "./native-referral-workspace";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import type { User } from "firebase/auth";
 import { Coins, Users, Trophy, Flame } from "@/components/icons";
@@ -298,11 +299,9 @@ export function useReferralDashboardModel() {
 }
 export type ReferralDashboardModel = ReturnType<typeof useReferralDashboardModel>;
 
-/** This rich workspace retains its complete authored dashboard, including on
- * qualified native shells. The settings-row prototype is not visual parity. */
 function ReferralDashboardContent() {
   const model = useReferralDashboardModel();
-  return <ReferralDashboardBody model={model} />;
+  return <NativeReferralWorkspace model={model} fallback={<ReferralDashboardBody model={model} />} />;
 }
 function ReferralDashboardBody({ model }: { model: ReferralDashboardModel }) {
   const { user, userId, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,

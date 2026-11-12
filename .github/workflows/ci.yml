@@ -352,7 +352,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha) && '0' || '1' }}
+          fetch-depth: ${{ (inputs.uat_candidate_sha || inputs.production_recovery_sha || github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 3000) && '0' || '1' }}
           persist-credentials: ${{ inputs.uat_candidate_sha == '' && inputs.production_recovery_sha == '' }}
       - *prepare_isolated
       - *prepare_recovery
@@ -373,6 +373,9 @@ jobs:
           (github.event_name == 'workflow_dispatch' && ((inputs.scope == 'all' && inputs.uat_base_sha != '') ||
           (inputs.scope == 'auto' && github.ref_name != github.event.repository.default_branch)))
         with:
+          # GitHub's PR files API stops at 3,000 entries. Its supported Git
+          # fallback compares the pinned PR base with this tested merge checkout.
+          token: ${{ (github.event_name != 'pull_request' || github.event.pull_request.changed_files < 3000) && github.token || '' }}
           base: ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
           ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.production_recovery_sha || inputs.uat_candidate_sha || github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the

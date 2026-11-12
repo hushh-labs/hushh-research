@@ -13,6 +13,15 @@ for this repository and inherited by every development subagent.
 Package-local instructions refine that contract within their scope. Every coding
 agent uses this same entrypoint and reads the canonical sources directly.
 
+Keep one concise current source for documentation and agent guidance. Do not
+create or retain stale, duplicate, or bloated copies. Preserve unique uncommitted
+work and required evidence before removing a copy; use Git history for prior
+versions instead of checking in historical snapshots.
+
+Generated review/audit evidence belongs in ignored local or CI artifacts, not
+source commits. Preserve runtime contracts and required app assets under the
+canonical [evidence policy](.agents/instructions.md).
+
 All development sources belong in **`.agents/`**:
 
 - [skills](.agents/skills/): reusable procedures and their supporting tools.
@@ -30,8 +39,11 @@ file registers MCP servers or subagents automatically.
 
 Run independent work in bounded parallel lanes under the canonical
 [delegation contract](.agents/skills/agent-orchestration-governance/references/delegation-contract.md).
-After handoff, verify owned-process and temporary-resource cleanup; close child
-sessions when the host supports it. Never claim disposal from completion alone.
+After handoff, verify owned-process and temporary-resource cleanup and close child
+sessions when supported. Permanently remove task-created temporary worktrees,
+including worktrees branched from a base branch, after successful verification and
+handoff under the [local resource and process lifecycle gate](.agents/instructions.md#project-wide-local-resource-and-process-lifecycle-gate);
+completion alone is not proof of cleanup.
 
 Start with [the development-system map](.agents/README.md), then the existing
 `./bin/hushh agents route-task <workflow-id>` command for the owning workflow.

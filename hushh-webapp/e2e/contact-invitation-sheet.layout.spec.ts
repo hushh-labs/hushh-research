@@ -20,6 +20,8 @@ import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 let css: string;
 let script: string;
+let fixtureOutputDir: string | undefined;
+test.afterAll(() => { if (fixtureOutputDir) fs.rmSync(fixtureOutputDir, { recursive: true, force: true }); });
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -28,6 +30,7 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "contact-invite-"));
+  fixtureOutputDir = outDir;
   await build({
     configFile: false,
     logLevel: "error",
@@ -133,6 +136,37 @@ async function mount(page: Page, keyboardPx: number) {
   );
   expect(errors).toEqual([]);
 }
+
+test("coherent native sheets clear retained chrome and keyboard; flag-off keeps the web frame", async ({ page }) => {
+  const { transform } = await import("lightningcss");
+  await page.setViewportSize({ width: 402, height: 874 });
+  await mount(page, 0);
+  // Exercise shipped CSS optimization, not just the authored declarations.
+  await page.locator("head style").first().evaluate((node, optimized) => { node.textContent = optimized; },
+    transform({ filename: "app.css", code: Buffer.from(css), minify: true }).code.toString());
+  const webBottom = (await measure(page)).sheetBottom;
+  expect(webBottom).toBeGreaterThan(706);
+  await page.evaluate(() => {
+    const seat = document.createElement("div");
+    seat.dataset.nativeWorkspaceSeat = "true";
+    document.body.appendChild(seat);
+    document.documentElement.style.setProperty("--app-top-content-offset", "162px");
+    document.documentElement.style.setProperty("--bottom-chrome-stack-height", "168px");
+  });
+  const native = await measure(page);
+  expect(native.sheetTop).toBeGreaterThanOrEqual(161.5);
+  expect(native.sheetBottom).toBeCloseTo(706, 0);
+  expect(native.listHeight).toBeGreaterThan(56);
+  await page.evaluate(() => { document.documentElement.style.setProperty("--kb-height", "336px"); });
+  const keyboard = await measure(page);
+  expect(keyboard.sheetBottom).toBeCloseTo(538, 0);
+  expect(keyboard.sheetTop).toBeGreaterThanOrEqual(161.5);
+  await page.evaluate(() => {
+    document.querySelector("[data-native-workspace-seat]")!.remove();
+    document.documentElement.style.setProperty("--kb-height", "0px");
+  });
+  expect((await measure(page)).sheetBottom).toBeCloseTo(webBottom, 0);
+});
 
 function measure(page: Page) {
   return page.evaluate(() => {

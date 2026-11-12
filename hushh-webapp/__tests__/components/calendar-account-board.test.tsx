@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   onChat: vi.fn(), onMailConnect: vi.fn(),
 }));
 
+vi.mock("next/navigation", async importOriginal => ({
+  ...await importOriginal<typeof import("next/navigation")>(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
 vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
@@ -75,7 +80,7 @@ describe("three-account Calendar board", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(`${date}T08:00:00Z`));
     vi.clearAllMocks();
-    mocks.boardDay.mockResolvedValue(board);
+    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone }));
     mocks.reviewBoardBooking.mockImplementation(async (input: { accountId: string; title: string; startAt: string; endAt: string; timeZone: string; attendees: string[]; meetingType: string }) => ({
       proposal_id: "gcal_reviewed_booking", expires_at: "2999-01-01T00:00:00Z", confirmation_required: true,
       plan: { account_id: input.accountId, title: input.title, start_at: input.startAt, end_at: input.endAt, time_zone: input.timeZone, attendees: input.attendees, meeting_type: input.meetingType, description: "", location: "", board_conflicts: [], board_accounts: status.accounts.map(account => ({ account_id: account.account_id, account_email: account.google_email, binding: [account.account_id], calendar_ids: ["primary"] })) },
@@ -154,10 +159,10 @@ describe("three-account Calendar board", () => {
     const secondPhoto = "data:image/png;base64,c2Vjb25k";
     const thirdPhoto = "data:image/png;base64,dGhpcmQ=";
     const verifiedStatus = { ...status, accounts: status.accounts.map(account => ({ ...account, google_email_verified: true })) };
-    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [], people: {
+    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone, conflicts: [], people: {
       "second@example.com": { userId: "second-user", photoUrl: secondPhoto },
       "third@example.com": { userId: "third-user", photoUrl: thirdPhoto },
-    }, accounts: board.accounts.map(account => ({ ...account, free_windows: board.shared_free_windows })) });
+    }, accounts: board.accounts.map(account => ({ ...account, free_windows: board.shared_free_windows })) }));
     render(page(verifiedStatus, new Map([
       ["default@example.com", { userId: "owner", displayName: null, photoUrl: ownerPhoto }],
       ["second@example.com", { userId: "stale-connection", displayName: null, photoUrl: ownerPhoto }],
@@ -198,7 +203,7 @@ describe("three-account Calendar board", () => {
   });
 
   it("books an account's free time into that account without asking for an account", async () => {
-    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], free_windows: board.shared_free_windows }], conflicts: [] });
+    mocks.boardDay.mockImplementation(async ({ date, timeZone }: { date: string; timeZone: string }) => ({ ...board, date, time_zone: timeZone, accounts: [{ ...board.accounts[0], free_windows: board.shared_free_windows }], conflicts: [] }));
     const husshPhoto = "data:image/png;base64,aGVsbG8=";
     render(page({ ...status, accounts: status.accounts.slice(0, 1) }, new Map([["default@example.com", { userId: "owner", displayName: null, photoUrl: husshPhoto }]])));
     const account = await screen.findByRole("group", { name: "Calendar account default@example.com" });

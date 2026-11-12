@@ -5,7 +5,7 @@ import UIKit
 /// Recovery default. The standard UITabBar and privacy shield are independent.
 /// Legacy Debug flags are not qualification of a complete overlapping family.
 enum HushhNativePresentationPolicy {
-    static var customControlsEnabled: Bool { NativeDrawerQualificationPolicy.coherentShell }
+    static var customControlsEnabled: Bool { NativeDrawerQualificationPolicy.coherentPresentationEnabled }
 }
 
 /// Strict public presentation metadata, shared by UIKit and SwiftUI controls.
@@ -290,7 +290,7 @@ struct HushhChromeConfiguration {
         if kind == "appearance" { return ["light", "dark", "system"].contains(value ?? "") ? result : nil }
         if kind == "accent" {
             guard ["blue", "gold"].contains(value ?? "") else { return nil }
-            result.options = [.init(value: "blue", label: "iOS Blue", disabled: false), .init(value: "gold", label: "Molten Gold", disabled: false)]
+            result.options = [.init(value: "blue", label: "Blue", disabled: false), .init(value: "gold", label: "Molten Gold", disabled: false)]
             if let palette {
                 guard Set(palette.keys) == Set(["blue", "gold"]),
                       let blue = HushhNativeControlAppearance.color(palette["blue"] as? String),
@@ -385,6 +385,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "acquireContentPane", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmContentPanePreparation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "releaseContentPane", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelContentPane", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getContentPaneRetirementState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setCanvasAppearance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepareBackReplacement", returnType: CAPPluginReturnPromise),
@@ -400,6 +402,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "interactionFeedback", returnType: CAPPluginReturnPromise),
     ]
     private var slots = [String: ChromeSlot]()
+    private var paneCancellations = NativeContentPaneCancellationFence()
+    private lazy var retiringPanePresenters: NativeChromePresenterRetirements = {
+        let tracker = NativeChromePresenterRetirements()
+        tracker.onChange = { [weak self] in self?.notifyPaneHandoffChanged() }
+        return tracker
+    }()
     private var document: String?
     private var retiredDocuments = Set<String>()
     private var observers = [NSObjectProtocol]()
@@ -475,8 +483,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                         for slot in self.slots.values { slot.state.invalidateChoices(through: slot.sequence) }
                         // Retain hosts/materials. Isolation only withdraws choices.
                         if self.compositor?.interactionIsolated == false {
-                            self.notifyListeners("readmissionRequested", data: [:], retainUntilConsumed: false)
+                            self.notifyDocumentLifecycle("readmissionRequested")
                         }
+                        self.notifyPaneHandoffChanged()
                         return
                     }
                     if note.name == UIResponder.keyboardWillShowNotification {
@@ -717,6 +726,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "coherentPresentation": self?.compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
                           "ownedContentPane": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
                           "contentPanePreparation": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
+                          "contentPaneRetirementReadback": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
+                          "documentScopedLifecycleEvents": true,
+                          "leaseScopedInvalidationEvents": true,
                           "reservedPresentationRegions": legacyRegions,
                           "fullWindowOverlays": legacyRegions,
                           "drawerClipping": self?.compositor?.drawerClipping == true,
@@ -749,19 +761,55 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
               let generation = call.getInt("generation"), let privacy = call.getInt("privacyGeneration") else { return nil }
         return readContentPane(["documentId": document, "ownerEpoch": owner, "generation": generation, "privacyGeneration": privacy])
     }
+    func mainFrameDocumentDidCommit(_ document: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard isCommittedMainFrameDocument(document) else { return }
+        let shield = HushhSessionPrivacyShield.shared
+        shield.observeDocument(document)
+        guard shield.acceptsDocument(document), acceptDocument(document) else { return }
+        notifyPaneHandoffChanged()
+    }
+    private func isCommittedMainFrameDocument(_ requested: String) -> Bool {
+        guard let host = bridge?.viewController as? MyViewController else { return false }
+        return host.authorizesNativeDocument(requested)
+    }
+    func mainFrameDocumentCommitPendingIdentity() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        interactionGeneration += 1
+        for slot in slots.values {
+            slot.sequence += 1
+            slot.choiceValue = nil
+            slot.state.invalidate()
+            slot.hosting?.view.isUserInteractionEnabled = false
+            slot.hosting?.view.accessibilityElementsHidden = true
+            compositor?.setAdmission(slot.controlId, admitted: false,
+                presentationRegionRevision: slot.presentationRegionRevision, privacyGeneration: slot.privacyGeneration)
+            if let presenter = slot.presenter {
+                trackPanePresenterRetirement(presenter)
+                presenter.retire {}
+            }
+        }
+    }
     @objc func acquireContentPane(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.chatControlsAdmitted,
                   let identity = self.readContentPaneCall(call), let viewport = self.presentationViewport(call),
+                  self.isCommittedMainFrameDocument(identity.document),
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
-                  !self.retiredDocuments.contains(identity.document) else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
+                  !self.retiredDocuments.contains(identity.document), !self.paneCancellations.isCanceled(identity) else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
             let shield = HushhSessionPrivacyShield.shared
             let visit = call.getString("preparationVisitId")
             let preparing = visit.map { shield.canPrepareProfilePane(identity, visit: $0) } == true
             guard self.canMirrorPresentation || preparing else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
-            self.acceptDocument(identity.document)
+            guard self.acceptDocument(identity.document) else { call.reject("NATIVE_CONTENT_PANE_DOCUMENT_STALE"); return }
+            let retained = self.compositor?.contentPane?.sameLifetime(as: identity) == true
+            // Stage the incoming WK plane behind its still-owned native drawer.
+            // Isolation keeps it inert; the pane receipt never transfers the
+            // drawer's separate interaction or presentation ownership.
+            guard retained || !self.paneAcquisitionObstructed else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
             if !preparing { self.compositor?.revealUnderlay() }
-            guard self.compositor?.acquireContentPane(identity, viewport: viewport, preparing: preparing) == true else {
+            guard let compositor = self.compositor,
+                  compositor.acquireContentPane(identity, viewport: viewport, preparing: preparing) else {
                 call.reject("NATIVE_CONTENT_PANE_REFUSED"); return
             }
             if preparing, let visit {
@@ -769,7 +817,16 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     guard let self, let container = self.compositor, let host = self.bridge?.viewController?.view else { return false }
                     return container.contentPaneAdmits(identity) && container.preparationBaseIsConcealed &&
                         container.window != nil && container.window === host.window && container.bounds.size == viewport
-                }) else { call.reject("NATIVE_CONTENT_PANE_PREPARATION_REFUSED"); return }
+                }) else {
+                    if retained {
+                        call.reject("NATIVE_CONTENT_PANE_PREPARATION_REFUSED"); return
+                    }
+                    let rolledBack = self.rollbackUnacknowledgedContentPaneAcquisition(identity, compositor: compositor)
+                    call.reject(rolledBack
+                        ? "NATIVE_CONTENT_PANE_PREPARATION_REFUSED"
+                        : "NATIVE_CONTENT_PANE_ROLLBACK_UNCONFIRMED")
+                    return
+                }
             }
             self.interactionGeneration += 1
             for slot in self.slots.values { slot.state.invalidateChoices(through: slot.sequence) }
@@ -790,24 +847,110 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func releaseContentPane(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.readContentPaneCall(call),
-                  !self.retiredDocuments.contains(identity.document),
-                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
-                  self.compositor?.beginContentPaneRetirement(identity) == true else {
+                  self.acceptContentPaneRetirementDocument(identity.document) else {
+                call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
+            }
+            guard self.compositor?.beginContentPaneRetirement(identity) == true else {
                 call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
             }
             HushhSessionPrivacyShield.shared.retireProfilePanePreparation(identity)
             let dismissal = DispatchGroup()
             for slot in self.slots.values where slot.contentPane?.sameLifetime(as: identity) == true {
                 slot.state.invalidate(); self.removeHosting(slot)
-                if let presenter = slot.presenter { dismissal.enter(); presenter.retire { dismissal.leave() } }
+                if let presenter = slot.presenter { self.trackPanePresenterRetirement(presenter); dismissal.enter(); presenter.retire { dismissal.leave() } }
             }
             dismissal.notify(queue: .main) {
-                guard self.compositor?.releaseContentPane(identity) == true else {
+                guard self.document == identity.document, !self.retiredDocuments.contains(identity.document),
+                      HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                      self.compositor?.releaseContentPane(identity) == true else {
                     call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
                 }
+                self.notifyPaneHandoffChanged()
                 call.resolve(self.paneReceipt(identity, phase: "retired"))
             }
         }
+    }
+
+    /// Cancels one lifetime without disturbing a competing pane. The tombstone
+    /// precedes the receipt, so a delayed acquire cannot resurrect this owner.
+    @objc func cancelContentPane(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys) == ["documentId", "ownerEpoch", "generation", "privacyGeneration"],
+                  let identity = self.readContentPaneCall(call),
+                  self.isCommittedMainFrameDocument(identity.document),
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                  !self.retiredDocuments.contains(identity.document), self.paneCancellations.cancel(identity) else {
+                call.reject("NATIVE_CONTENT_PANE_CANCEL_REFUSED"); return
+            }
+            guard self.document == identity.document,
+                  self.compositor?.contentPane?.sameLifetime(as: identity) == true else {
+                call.resolve(self.paneRetirementState(identity)); return
+            }
+            guard self.compositor?.beginContentPaneRetirement(identity) == true else {
+                call.resolve(self.paneRetirementState(identity)); return
+            }
+            HushhSessionPrivacyShield.shared.retireProfilePanePreparation(identity)
+            let dismissal = DispatchGroup()
+            for slot in self.slots.values where slot.contentPane?.sameLifetime(as: identity) == true {
+                slot.state.invalidate(); self.removeHosting(slot)
+                if let presenter = slot.presenter { self.trackPanePresenterRetirement(presenter); dismissal.enter(); presenter.retire { dismissal.leave() } }
+            }
+            dismissal.notify(queue: .main) {
+                if self.compositor?.contentPane?.sameLifetime(as: identity) == true {
+                    _ = self.compositor?.releaseContentPane(identity)
+                }
+                self.notifyPaneHandoffChanged()
+                call.resolve(self.paneRetirementState(identity))
+            }
+        }
+    }
+
+    @objc func getContentPaneRetirementState(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys) == ["documentId", "ownerEpoch", "generation", "privacyGeneration"],
+                  let identity = self.readContentPaneCall(call),
+                  self.isCommittedMainFrameDocument(identity.document),
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                  !self.retiredDocuments.contains(identity.document) else { call.resolve(["valid": false]); return }
+            call.resolve(self.paneRetirementState(identity))
+        }
+    }
+
+    private func paneRetirementState(_ identity: NativeContentPaneIdentity) -> [String: Any] {
+        let installed = compositor?.contentPane?.sameLifetime(as: identity) == true
+        let canceled = paneCancellations.isCanceled(identity)
+        let retired = canceled && !installed
+        // A restored native drawer is a current owner, not an unretired WK
+        // pane. Requiring its absence here strands the next covered admission.
+        let handoffReady = retired && compositor != nil && compositor?.contentPane == nil && compositor?.contentPaneRetiring == false && !paneAcquisitionObstructed
+        return paneReceipt(identity, phase: retired ? "retired" : installed ? (canceled ? "retiring" : "active") : "unknown")
+            .merging(["settled": retired, "handoffReady": handoffReady]) { _, new in new }
+    }
+
+    private func trackPanePresenterRetirement(_ presenter: HushhNativeChromePresenter) {
+        retiringPanePresenters.retire(presenter)
+    }
+    @discardableResult
+    func rollbackUnacknowledgedContentPaneAcquisition(
+        _ identity: NativeContentPaneIdentity,
+        compositor: NativePresentationContainer
+    ) -> Bool {
+        guard compositor.contentPane == identity, !compositor.contentPaneRetiring else { return false }
+        HushhSessionPrivacyShield.shared.retireProfilePanePreparation(identity)
+        let matchingSlots = slots.filter { $0.value.contentPane?.sameLifetime(as: identity) == true }
+        for (controlId, slot) in matchingSlots {
+            slot.state.invalidate()
+            if let presenter = slot.presenter { trackPanePresenterRetirement(presenter) }
+            removeHosting(slot)
+            slots.removeValue(forKey: controlId)
+        }
+        let rolledBack = compositor.rollbackContentPaneAcquisition(identity)
+        notifyPaneHandoffChanged()
+        return rolledBack
+    }
+    private var paneAcquisitionObstructed: Bool {
+        guard compositor != nil, bridge?.viewController != nil else { return true }
+        return !retiringPanePresenters.isEmpty || slots.values.contains { $0.presenter != nil }
     }
 
     @objc func setPresentationRegions(_ call: CAPPluginCall) {
@@ -819,11 +962,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   let viewport = self.viewport(call), let top = call.getDouble("top"), let bottom = call.getDouble("bottom"),
                   let isolated = call.getBool("isolated") else { call.reject("NATIVE_REGIONS_INVALID"); return }
             let shield = HushhSessionPrivacyShield.shared
+            guard self.isCommittedMainFrameDocument(document) else { call.reject("NATIVE_REGIONS_DOCUMENT_STALE"); return }
             shield.observeDocument(document)
             guard shield.acceptsDocument(document), !self.retiredDocuments.contains(document) else {
                 call.reject("NATIVE_REGIONS_STALE"); return
             }
-            self.acceptDocument(document)
+            guard self.acceptDocument(document) else { call.reject("NATIVE_REGIONS_DOCUMENT_STALE"); return }
             let covered = call.getBool("covered") ?? false
             let drawer = call.getString("drawer")
             let privacyGeneration = call.getInt("privacyGeneration")
@@ -891,6 +1035,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CANVAS_INVALID_STATE"); return
             }
             let shield = HushhSessionPrivacyShield.shared
+            guard self.isCommittedMainFrameDocument(document) else { call.reject("NATIVE_CANVAS_DOCUMENT_STALE"); return }
             let appearance: UIUserInterfaceStyle?
             if self.compositor?.contentBackedPresentation == true {
                 guard let value = call.getString("appearance"), ["light", "dark"].contains(value) else {
@@ -903,7 +1048,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   self.canvasState.prepare(.init(document: document, ownerEpoch: "app-canvas", revision: revision)) else {
                 call.reject("NATIVE_CANVAS_STALE_STATE"); return
             }
-            self.acceptDocument(document)
+            guard self.acceptDocument(document) else { call.reject("NATIVE_CANVAS_DOCUMENT_STALE"); return }
             // Capacitor's bridge root can be the WebView itself. In that case
             // respect the same transparency guard as its backing canvas.
             if let compositor = self.compositor { compositor.setCanvas(color, appearance: appearance) }
@@ -943,7 +1088,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         return AnyView(NativeChromeButton(
             label: kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : label,
             controlId: controlId,
-            value: kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "iOS Blue") : nil,
+            value: kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "Blue") : nil,
             symbol: symbol(kind, expanded: presentation.expanded), theme: theme,
             action: { [weak self] in self?.activateControl(controlId) }, layout: layout,
             focus: focus).disabled(!presentation.enabled))
@@ -974,7 +1119,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   abs(parent.view.bounds.height - bounds.height) < 1 else {
                 call.reject("NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE"); return
             }
-            self.acceptDocument(identity.document)
+            guard self.acceptDocument(identity.document) else { call.reject("NATIVE_CHROME_DOCUMENT_STALE"); return }
             let pane = self.readContentPane(call.getObject("contentPane"))
             guard call.getObject("contentPane") == nil ||
                 (pane?.document == identity.document && pane.map { self.compositor?.contentPaneAdmits($0) == true } == true &&
@@ -1222,7 +1367,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) else {
                 call.reject("NATIVE_CHROME_RETIRE_STALE"); return
             }
-            self.acceptDocument(identity.document)
+            guard self.acceptDocument(identity.document) else { call.reject("NATIVE_CHROME_RETIRE_STALE"); return }
             let slot = self.slot(identity.controlId)
             guard slot.state.retire(identity, targetRevision: call.getInt("targetRevision")) else {
                 call.reject("NATIVE_CHROME_RETIRE_STALE"); return
@@ -1386,13 +1531,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   let offset = call.getDouble("offset"), let opacity = call.getDouble("opacity"),
                   let settled = call.getBool("settled"),
                   self.canMirrorPresentation, HushhSessionPrivacyShield.shared.acceptsDocument(document),
-                  !self.retiredDocuments.contains(document),
+                  !self.retiredDocuments.contains(document), self.isCommittedMainFrameDocument(document),
                   x.isFinite, y.isFinite, width.isFinite, height.isFinite,
                   x >= -1, y >= -1, x + width <= compositor.bounds.width + 1,
                   y + height <= compositor.bounds.height + 1 else {
                 call.reject("NATIVE_PANEL_POSE_REFUSED"); return
             }
-            self.acceptDocument(document)
+            guard self.acceptDocument(document) else { call.reject("NATIVE_PANEL_DOCUMENT_STALE"); return }
             let pose = NativePanelPose(document: document, ownerEpoch: owner, generation: generation,
                 sequence: sequence, privacyGeneration: privacy,
                 frame: CGRect(x: x, y: y, width: width, height: height),
@@ -1463,11 +1608,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private var backAdmitted: Bool {
         guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
-        // Debug pilot only; release and iPad retain accepted controls until
-        // their physical visual/accessibility acceptance has been recorded.
-        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         if #available(iOS 26.0, *) { return NativeDrawerQualificationPolicy.deviceEligible }
-        #endif
         return false
     }
     private var canPresent: Bool {
@@ -1478,12 +1619,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         return privacy.appIsActive && !privacy.shielded
     }
     private var chatControlsAdmitted: Bool {
-        // Explicit Debug rehearsal opt-in; this is not promotion of an audited family.
-        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        // Same launch-latched experimental preference as the host and tabs.
         return backAdmitted && NativeDrawerQualificationPolicy.coherentShell
-        #else
-        return false
-        #endif
     }
     // Capability discovery and preparation share the same stationary admission
     // policy. Moving drawer controls deliberately keep their React renderer.
@@ -1492,6 +1629,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         "map-close": "map-close", "map-locate": "map-locate", "map-check-in": "map-check-in",
         "more": "stationary-more", "add": "stationary-add", "selection": "bounded-selection", "date": "bounded-date"
     ]
+    static func recognizesControlId(_ controlId: String) -> Bool {
+        stationaryChatControlIds.values.contains(controlId) ||
+            ["top-shell-back", "profile-back", "chat-history-close", "profile-close", "profile-appearance", "profile-accent"].contains(controlId)
+    }
     private func admits(_ kind: String, controlId: String) -> Bool {
         if compositor?.contentBackedPresentation == true {
             if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
@@ -1590,27 +1731,43 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         } else if let value = HushhNativeChromePresenter.parseDate(presentation.value), let bounds = slot.dateBounds {
             presenter = .date(parent: parent, title: slot.label, value: value, bounds: bounds, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
         } else { return }
-        presenter.didRetire = { [weak slot, weak presenter] in
+        presenter.didRetire = { [weak self, weak slot, weak presenter] in
             if slot?.presenter === presenter { slot?.presenter = nil }
+            self?.notifyPaneHandoffChanged()
         }
         slot.presenter = presenter
         presenter.present()
     }
-    private func acceptDocument(_ next: String) {
-        guard document != next else { return }
+    // Cleanup may precede the first acquisition, but it cannot replace an
+    // active document merely because the privacy shield has observed both.
+    func acceptContentPaneRetirementDocument(_ requested: String) -> Bool {
+        guard isCommittedMainFrameDocument(requested), !retiredDocuments.contains(requested),
+              HushhSessionPrivacyShield.shared.acceptsDocument(requested),
+              document == nil || document == requested else { return false }
+        return acceptDocument(requested)
+    }
+    @discardableResult
+    private func acceptDocument(_ next: String) -> Bool {
+        guard isCommittedMainFrameDocument(next),
+              HushhSessionPrivacyShield.shared.acceptsDocument(next),
+              !retiredDocuments.contains(next) else { return false }
+        guard document != next else { return true }
         if let document {
             retiredDocuments.insert(document)
             invalidatePresentation()
             slots.removeAll()
+            paneCancellations.forgetRetiredDocument(document)
             compositor?.resetGroups()
-            compositor?.resetContentPane()
+            compositor?.resetContentPane(document: next)
         }
         document = next
+        return true
     }
     private func requestChoice(_ controlId: String, value: String? = nil) {
         guard let slot = slots[controlId], slot.presentation?.enabled == true, canPresent, controlPlaneAllows(slot), geometryIsCurrent(slot), slot.state.phase == "active",
               panelIsSettled(slot),
               let identity = slot.state.identity, document == identity.document,
+              isCommittedMainFrameDocument(identity.document),
               HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) else { return }
         guard admittedValue(value, slot: slot, forUpdate: false) else { return }
         slot.sequence += 1
@@ -1636,18 +1793,36 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         presentationInvalidations += 1
         #endif
         if conceal { compositor?.conceal() }
+        let controls: [[String: Any]] = slots.values.compactMap { slot in
+            guard let identity = slot.state.identity else { return nil }
+            return ["documentId": identity.document, "ownerEpoch": identity.ownerEpoch,
+                    "controlId": identity.controlId, "revision": identity.revision]
+        }
         for slot in slots.values {
             slot.state.invalidate()
             removeHosting(slot)
-            slot.presenter?.retire {}
+            if let presenter = slot.presenter {
+                trackPanePresenterRetirement(presenter)
+                presenter.retire {}
+            }
         }
-        notifyListeners("invalidated", data: [:])
+        notifyDocumentLifecycle("invalidated", controls: controls)
+    }
+    private func notifyDocumentLifecycle(_ name: String, controls: [[String: Any]]? = nil) {
+        guard let document else { return }
+        var event: [String: Any] = ["documentId": document]
+        if let controls { event["controls"] = controls }
+        notifyListeners(name, data: event, retainUntilConsumed: false)
+    }
+    private func notifyPaneHandoffChanged() {
+        guard let document else { return }
+        notifyListeners("contentPaneHandoffChanged", data: ["documentId": document], retainUntilConsumed: false)
     }
     private func reconcileKeyboardInteraction() {
         for (id, slot) in slots {
             let admitted = canPresent && slot.state.phase == "active" && slot.presentation?.enabled == true &&
                 geometryIsCurrent(slot) && panelIsSettled(slot) &&
-                slot.state.identity.map { HushhSessionPrivacyShield.shared.acceptsDocument($0.document) } == true
+                slot.state.identity.map { isCommittedMainFrameDocument($0.document) && HushhSessionPrivacyShield.shared.acceptsDocument($0.document) } == true
             slot.hosting?.view.isUserInteractionEnabled = admitted
             slot.hosting?.view.accessibilityElementsHidden = !admitted
             compositor?.setAdmission(id, admitted: admitted,
@@ -1688,8 +1863,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
         guard let controlId = call.getString("controlId"),
-              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-history-close", "chat-agent-surface", "stationary-more", "stationary-add", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
+              Self.recognizesControlId(controlId),
               let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
+              isCommittedMainFrameDocument(document),
               let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
               let revision = call.getInt("revision"), revision >= 0,
               revision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return nil }

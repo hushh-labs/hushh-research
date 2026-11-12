@@ -1,5 +1,8 @@
 "use client";
 
+import { NativeFinanceLayer, useNativeFinancePaneActive } from "../native-finance-workspace";
+import { useVault } from "@/lib/vault/vault-context";
+import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
@@ -25,7 +28,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
-import { SectorRotationChart, getMarketSectorPeriodVoiceInventory } from "@/components/kai/cards/sector-rotation-chart";
+import { SectorRotationChart, useSectorRotationModel, getMarketSectorPeriodVoiceInventory } from "@/components/kai/cards/sector-rotation-chart";
 export { SectorRotationChart, getMarketSectorPeriodVoiceInventory, sectorRowsForPeriod } from "@/components/kai/cards/sector-rotation-chart";
 import { OneMarketNewsBriefing } from "@/components/kai/cards/market-news-briefing";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -734,6 +737,8 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
 }
 
 export function KaiMarketPreviewView() {
+  const nativeActive = useNativeFinancePaneActive("market");
+  const { vaultOwnerToken } = useVault();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const localPreviewPayload = useMemo(() => {
@@ -1026,7 +1031,8 @@ export function KaiMarketPreviewView() {
     [effectivePayload],
   );
 
-  return (
+  const sectorModel = useSectorRotationModel({ rows: sectorRotationRows, active: marketPaneActive && sectorRotationRows.length > 0, onScopeAvailabilityChange: setSectorScopeAvailable });
+  const content = (
     <div
       className={cn(oneMarketRootClassName, marketBriefingStyles.typography)}
       data-one-market-surface="true"
@@ -1158,7 +1164,7 @@ export function KaiMarketPreviewView() {
                   <section className="min-w-0" aria-label="Sector rotation">
                     <OneMarketSectionHeader title="Sector rotation" />
                     <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
-                    <SectorRotationChart rows={sectorRotationRows} active={marketPaneActive} onScopeAvailabilityChange={setSectorScopeAvailable} />
+                    <SectorRotationChart rows={sectorRotationRows} model={sectorModel} />
                     </SurfaceCardContent></SurfaceCard>
                   </section>
                 ) : null}
@@ -1187,4 +1193,49 @@ export function KaiMarketPreviewView() {
       />
     </div>
   );
+  if (!nativeActive) return content;
+  const sections: NativeWorkspaceSurfaceSection[] = [{ key: "market-controls", title: "US markets", rows: [
+    ...(marketStatus ? [{ key: "status", label: marketStatus.label }] : []),
+    { key: "refresh", label: "Refresh market home", enabled: !displayRefreshing, pending: displayRefreshing, run: () => loadInsights({ manual: true }) },
+  ] }, { key: "indices", title: "Index levels in points", rows: indexStripItems.map(metric => ({
+    key: `index:${metric.id || metric.label}`, label: metric.label,
+    detail: [metric.value, metric.delta, metric.quoteStatus, metric.quotedAt ? formatOverviewAsOf(metric.quotedAt) : "Time unavailable"].filter(Boolean).join(" · "),
+    web: Boolean(metric.detailPanel), run: () => setSelectedOverviewMetricId(metric.id || metric.label),
+  })) }];
+  if (displayLoading && !hasPayload) sections.push({ key: "market-loading", rows: [{ key: "loading", label: "Loading your market view.", pending: true }] });
+  if (displayError) sections.push({ key: "market-error", rows: [
+    { key: "error", label: hasPayload ? "Showing saved data. Couldn't refresh just now." : "Failed to load market home", detail: hasPayload ? undefined : displayError },
+    { key: "retry", label: "Retry", enabled: !displayRefreshing, run: () => loadInsights({ manual: true }) },
+  ] });
+  if (hasPayload) {
+    sections.push({ key: "market-news", title: "Market news", rows: [
+      { key: "all-news", label: "All news", run: () => openOneMarketHref(ROUTES.KAI_NEWS) },
+      ...marketNewsRows.slice(0, 4).map((row, index) => ({ key: `headline:${index}:${row.url}`, label: row.title,
+        detail: [row.source_name || "Market news", row.published_at ? formatOverviewAsOf(row.published_at) : "Recent", row.summary].filter(Boolean).join(" · "),
+        web: true, run: () => openOneMarketHref(row.url),
+      })),
+      ...(!marketNewsRows.length ? [{ key: "news-empty", label: "Headlines will appear here when a market source is available." }] : []),
+    ] });
+    if (sectorRotationRows.length) sections.push({ key: "sectors", title: "Sector rotation", rows: [
+      { key: "sector-range", label: sectorModel.period === "1w" ? "Five trading sessions" : "Daily price change", detail: sectorModel.shortDateRange },
+      ...(["1d", "1w"] as const).map(period => ({ key: `sector-period:${period}`, label: period === "1d" ? "1 day" : "1 week", selected: sectorModel.period === period, run: () => sectorModel.setPeriod(period) })),
+      ...sectorModel.visibleRows.map(row => ({ key: `sector:${row.sector}`, label: row.sector, detail: formatOneMarketPercent(row.changePct) })),
+      ...(!sectorModel.chartRows.length ? [{ key: "sectors-empty", label: `${sectorModel.period === "1w" ? "Weekly" : "Daily"} sector performance is unavailable.` }] : []),
+      ...(sectorModel.canExpand ? [{ key: "sector-scope", label: sectorModel.expanded ? "Show highlights" : "Show all sectors", run: () => sectorModel.setExpanded(value => !value) }] : []),
+    ] });
+    for (const group of [{ key: "gain", title: "Gainers" }, { key: "lose", title: "Losers" }] as const) {
+      const rows = moverGroups[group.key].slice(0, 3);
+      sections.push({ key: `movers:${group.key}`, title: group.title, rows: Array.from({ length: 3 }, (_, index) => {
+        const row = rows[index];
+        return row ? { key: `mover:${group.key}:${row.symbol}`, label: row.symbol, detail: [row.companyName, formatOneMarketPercent(row.changePct), row.asOf ? formatOverviewAsOf(row.asOf) : "Time unavailable"].join(" · "),
+          run: () => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol })) } : { key: `mover-empty:${group.key}:${index}`, label: `${group.title} ${index + 1}: Quote unavailable` };
+      }) });
+    }
+    if (showConnectPortfolio) sections.push({ key: "connect-portfolio", rows: vaultOwnerToken ? [
+      { key: "portfolio-description", label: "See insights tailored to your portfolio", detail: "Unlock personalized analysis and real-time alerts." },
+      { key: "connect-portfolio", label: "Connect Portfolio", run: () => openOneMarketHref(ROUTES.KAI_IMPORT) },
+      { key: "continue-exploring", label: "Or continue exploring", run: () => openOneMarketHref(ROUTES.KAI_HOME) },
+    ] : [{ key: "portfolio-locked", label: "Unlock your vault to see portfolio valuation." }] });
+  }
+  return <NativeFinanceLayer active contentPresentation="rich" title="Market" sections={sections} webChild={Boolean(retainedOverviewMetric?.detailPanel)} fallback={content} />;
 }

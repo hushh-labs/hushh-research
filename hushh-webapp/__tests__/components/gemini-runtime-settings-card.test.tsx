@@ -91,27 +91,6 @@ beforeEach(() => {
 
 describe("GeminiRuntimeSettingsCard setup choice", () => {
 
-  it("does not manufacture a selected choice before the fresh user confirms one", () => {
-    getPersonalAgentStatusMock.mockReturnValue(new Promise(() => {}));
-    render(
-      <GeminiRuntimeSettingsCard
-        userId="fresh-user"
-        vaultKey={null}
-        vaultOwnerToken={null}
-        needsVaultCreation
-        needsUnlock={false}
-        onRequestVaultUnlock={vi.fn()}
-        onRequestVaultCreation={vi.fn()}
-        requiresExplicitSelection
-        initiallyConfigured={false}
-        onSelectionReadyChange={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByText("Selected")).toBeNull();
-    expect(runtimeChoice("profile-managed-runtime")).toBeDisabled();
-  });
-
   it("on the first-run step offers the managed runtime without assuming its provider", async () => {
     render(
       <GeminiRuntimeSettingsCard

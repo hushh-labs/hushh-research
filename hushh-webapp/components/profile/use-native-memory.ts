@@ -303,7 +303,9 @@ export function useNativeMemory(model: NativeMemoryModel) {
       page("memory-section", preview.title || "Saved values", content);
       const entity = previewEntities(preview.presentation).find(item => item.key === local.entity)?.entity;
       if (entity || local.entity) {
-        const content = entity ? entity.fields.flatMap((item, index) => field(`entity-field-${index}`, item.label, item.value)) : read("entity-unavailable", "This saved entry is no longer available.");
+        // An entry's title can be the saved note itself. Navigation titles
+        // truncate; keep the complete value in the readable, scrolling body.
+        const content = entity ? [...(entity.title.length <= 256 ? read("entity-title", entity.title) : []), ...entity.fields.flatMap((item, index) => field(`entity-field-${index}`, item.label, item.value))] : read("entity-unavailable", "This saved entry is no longer available.");
         if (entity?.subtitle) content.unshift(...read("entity-subtitle", entity.subtitle));
         for (const [index, section] of (entity?.sections ?? []).entries()) {
           content.push(...read(`entity-group-${index}`, section.label));

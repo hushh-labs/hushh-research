@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VaultFlow as OwnerVaultFlow } from "@/components/vault/vault-flow";
+import { registerVaultCreateSubmitCases } from "./vault-flow-create-submit-cases";
 
 import { publishValidatedAuthSessionPrincipal, publishValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
@@ -317,7 +318,7 @@ describe("VaultFlow create validation", () => {
       recoveryEncryptedVaultKey: "encrypted-recovery",
       recoverySalt: "recovery-salt",
       recoveryIv: "recovery-iv",
-      recoveryKey: "recovery-key",
+      recoveryKey: "HRK-0001-0203-0405-0607-0809-0A0B-0C0D-0E0F",
     });
     hashVaultKeyMock.mockResolvedValue("vault-key-hash");
     setupVaultStateMock.mockResolvedValue(undefined);
@@ -349,38 +350,7 @@ describe("VaultFlow create validation", () => {
     expect(createButton.disabled).toBe(true);
   });
 
-  it("submits vault creation when Enter is pressed on a valid confirmation", async () => {
-    const onRecoveryKeyDisclosureChange = vi.fn();
-    const view = render(
-      <VaultFlow
-        user={user}
-        onSuccess={vi.fn()}
-        onRecoveryKeyDisclosureChange={onRecoveryKeyDisclosureChange}
-      />,
-    );
-
-    fireEvent.change(await screen.findByLabelText("Password"), {
-      target: { value: "correct horse battery staple" },
-    });
-    const confirmation = screen.getByLabelText("Confirm password");
-    fireEvent.change(confirmation, {
-      target: { value: "correct horse battery staple" },
-    });
-
-    fireEvent.submit(confirmation.closest("form")!);
-
-    await screen.findByRole("heading", { name: /save your recovery key/i });
-    expect(document.querySelector("[data-vault-recovery-key]")).toBeTruthy();
-    expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
-    expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(true);
-    expect(createVaultMock).toHaveBeenCalledTimes(1);
-    expect(createVaultMock).toHaveBeenCalledWith(
-      "correct horse battery staple",
-    );
-
-    view.unmount();
-    expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(false);
-  });
+  registerVaultCreateSubmitCases(VaultFlow, user, createVaultMock);
 
   it("unlocks only the replacement owner's vault while Firebase UID stays unchanged", async () => {
     const ownerId = "acct_" + "a".repeat(32);
@@ -397,6 +367,33 @@ describe("VaultFlow create validation", () => {
     expect(checkVaultMock).toHaveBeenCalledWith(ownerId);
     expect(getOrIssueVaultOwnerTokenMock).toHaveBeenCalledWith(ownerId);
     expect(getOrIssueVaultOwnerTokenMock).not.toHaveBeenCalledWith(user.uid);
+  });
+
+  it("does not submit an unfinished password composition on Enter", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockResolvedValue("verified-fixture-key");
+    getOrIssueVaultOwnerTokenMock.mockResolvedValue({ token: "fixture-token", expiresAt: Date.now() + 60000 });
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+    const password = await screen.findByLabelText("Vault password");
+    fireEvent.keyDown(password, { key: "Enter" });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.change(password, { target: { value: "fixture-passphrase" } });
+    fireEvent.compositionStart(password);
+    expect(screen.getByRole("button", { name: "Unlock", exact: true })).toBeDisabled();
+    fireEvent.keyDown(password, { key: "Enter" });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(password, { key: "Enter", isComposing: true });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(password, { key: "Enter", keyCode: 229 });
+    await act(async () => {});
+    expect(unlockWithMethodMock).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(password);
+    fireEvent.keyDown(password, { key: "Enter", isComposing: false });
+    await waitFor(() => expect(unlockWithMethodMock).toHaveBeenCalledOnce());
   });
 
   it("opens fresh vault creation directly in the canonical credential layout", async () => {
@@ -1021,11 +1018,13 @@ describe("VaultFlow create validation", () => {
     const onSuccess = vi.fn();
     render(<VaultFlow user={{ uid: "face-id-switch" } as typeof user} onSuccess={onSuccess} onSignOut={vi.fn()} />);
     await screen.findByRole("button", { name: /Unlocking with Face ID/ });
+    expect(screen.getByText("Confirm with your device.")).toBeVisible();
     const fallback = screen.getByRole("button", { name: "Password" });
     expect(fallback).toBeEnabled();
     expect(screen.getByTestId("vault-use-recovery-key-escape")).toBeEnabled();
     fireEvent.click(fallback);
     expect(await screen.findByLabelText("Vault password")).toBeVisible();
+    expect(screen.getByText("Enter your password.")).toBeVisible();
     expect(cancelAuthenticationMock).toHaveBeenCalledWith(expect.any(String));
     await act(async () => { resolveBiometric("old-key"); });
     expect(getOrIssueVaultOwnerTokenMock).not.toHaveBeenCalled();

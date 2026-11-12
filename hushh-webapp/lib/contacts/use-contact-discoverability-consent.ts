@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import {
   CONTACT_SYNC_CONSENT_CONTRACT_VERSION,

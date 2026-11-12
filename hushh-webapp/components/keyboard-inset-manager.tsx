@@ -1,5 +1,6 @@
 "use client";
 
+import { setNativePresentationKeyboardInset } from "@/lib/capacitor/native-presentation-regions";
 import { useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 
@@ -58,6 +59,7 @@ function setKeyboardHeight(px: number, open: boolean = px > 0, resizes = false):
   root.style.setProperty("--kb-height", `${clamped}px`);
   root.classList.toggle("kb-open", open);
   root.classList.toggle("kb-resizes", open && resizes);
+  setNativePresentationKeyboardInset(clamped);
 }
 
 // A viewport that shrank by more than this for the keyboard absorbed it.

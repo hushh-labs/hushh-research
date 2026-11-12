@@ -53,6 +53,28 @@ beforeEach(() => {
 });
 
 describe("ai-selection agent client", () => {
+  it("does not change cloud AI after the owning visit retires during the status read", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.status.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    let current = true;
+    const result = verifyAgentCloudAi(() => current);
+    current = false;
+    finish({ ...CAPABLE, deploymentTarget: "user_gcp" });
+    expect(await result).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
+
+  it("does not clear a provider after the owning visit retires during the status read", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.status.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    let current = true;
+    const result = clearAgentAiSelectionFor(null, false, () => current);
+    current = false;
+    finish({ ...CAPABLE, deploymentTarget: "user_gcp" });
+    expect(await result).toBe("failed");
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
+
   it("checks the admitted cloud default when the hub heartbeat advert is missing", async () => {
     mocks.status.mockResolvedValue({ hostingMode: "byoc", state: "active", deploymentTarget: "user_azure", aiSelection: null });
     mocks.pod.mockResolvedValueOnce(json({ status: "cleared", defaultProvider: "azure_openai", defaultModel: "owner-deployment", checkedAtMs: 1 }));

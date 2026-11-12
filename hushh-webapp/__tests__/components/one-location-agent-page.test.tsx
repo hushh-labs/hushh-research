@@ -837,7 +837,7 @@ async function openLocationFeatureStep() {
 }
 
 async function expectLocationInviteStep() {
-  expect(await screen.findByRole("heading", { name: /Your people\./ })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Find your circle", exact: true })).toBeTruthy();
 }
 
 /** The terminal CTA. Its label names the destination, which differs by mode. */
@@ -1869,6 +1869,13 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(mockEnsureSmsSystemCircle).toHaveBeenCalledTimes(Number(!bounded));
+    if (bounded) {
+      expect(mockSyncCurrentUser).not.toHaveBeenCalled();
+      expect(mockBootstrapKey).not.toHaveBeenCalled();
+    } else {
+      expect(mockSyncCurrentUser).toHaveBeenCalled();
+      expect(mockBootstrapKey).toHaveBeenCalled();
+    }
     mockGetSmsContacts.mockClear();
     mockGetSmsContacts.mockResolvedValue(["user_d"]);
     act(() => {
@@ -5257,7 +5264,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockStageSavedLocation).not.toHaveBeenCalled();
   });
 
-  it("defers saving and goes to Your people without a third screen", async () => {
+  it("defers saving and goes to Find your circle without a third screen", async () => {
     mockGetPermissionState.mockResolvedValue({ state: "granted", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();

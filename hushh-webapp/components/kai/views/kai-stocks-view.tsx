@@ -7,6 +7,8 @@ import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
+import { NativeFinanceLayer, useNativeFinancePaneActive } from "@/components/kai/native-finance-workspace";
+import type { NativeWorkspaceSurfaceRow } from "@/lib/capacitor/native-workspace-surface";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
 import { useKaiMarketHome } from "@/components/kai/shared/kai-market-home-context";
 import { marketSurfaceVariablesClassName } from "@/components/kai/shared/market-surface-theme";
@@ -24,6 +26,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
   onHistoryClose?: () => void;
 }) {
   const { userId } = useAuth();
+  const nativeActive = useNativeFinancePaneActive("analysis");
   const searchParams = useSearchParams();
   const active = searchParams.get("tab") === "analysis";
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -46,7 +49,11 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
   }, [userId]);
   const historyButton = history ? <ShellActionSurface variant="pill" className="h-12 text-xs sm:text-xs" onClick={() => setHistoryOpen(true)}><History className="h-4 w-4" />History</ShellActionSurface> : null;
 
-  return <section aria-label="Stocks" className={marketSurfaceVariablesClassName} data-testid="kai-stocks-browser">
+  const nativeStatus: NativeWorkspaceSurfaceRow[] = [
+    ...(busy || error ? [{ key: "stock-status", label: busy ? rows.length ? "Updating stocks…" : "Loading stocks…" : rows.length ? "Some updates are temporarily unavailable." : "Stocks are temporarily unavailable.", pending: busy }] : []),
+    ...(error ? [{ key: "retry", label: "Retry loading stocks", enabled: !busy, run: () => loadInsights({ manual: true }) }] : []),
+  ];
+  const content = <section aria-label="Stocks" className={marketSurfaceVariablesClassName} data-testid="kai-stocks-browser">
     {browseStocks && (busy || error) ? <div className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm text-muted-foreground">
       <p role="status" className="flex min-w-0 flex-1 items-center gap-2">
         {busy ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" /> : null}
@@ -61,6 +68,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
       </ShellActionSurface> : null}
     </div> : null}
     {browseStocks && payload ? <RiaPicksList rows={rows} sources={payload.pick_sources ?? []} news={payload.news_tape ?? []}
+      nativeStatus={nativeStatus} onHistory={history ? () => setHistoryOpen(true) : undefined} historyOpen={isHistoryOpen}
       activeSourceId={activePickSource} onSourceChange={handlePickSourceChange}
       controlMode="adaptive-surface" loadCompanyFacts={active ? loadCompanyFacts : undefined}
       loadHistory={active ? loadHistory : undefined} toolbarActions={historyButton}
@@ -71,4 +79,8 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
       {isHistoryOpen ? history : null}
     </KaiControlSurface>
   </section>;
+  if (!nativeActive || browseStocks && payload) return content;
+  return <NativeFinanceLayer active title="Stocks" sections={[{ key: "stock-status", rows: [...nativeStatus,
+    ...(history ? [{ key: "history", label: "History", web: true, run: () => setHistoryOpen(true) }] : []),
+    ...(!busy && !error ? [{ key: "empty", label: "Stocks are not available in the current list." }] : [])] }]} webChild={isHistoryOpen} fallback={content} />;
 }

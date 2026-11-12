@@ -147,6 +147,14 @@ Every dossier includes:
 
 ## Good Output Standard
 
+For operator-authorized bulk retirement, record the acting identity, exact age and
+inactivity cutoff, head/base guards, batch size and direct links. Closure does
+not accept, merge, retarget or harvest code, or delete branches. Use distinct
+request identities and explicit targets; reject mismatched response IDs. Verify
+closed/unmerged state with independent REST readback. Reconcile partial writes
+before retrying only unchanged pending PRs in a smaller proven batch. Keep the
+receipt ignored; administrative closure requires no application rebuild/test.
+
 The operator should understand what the batch is, why each PR is present, what
 changed, how each PR will be tackled, what will be tested, what would stop
 Codex, how reports refresh, which next train can start while checks run, and

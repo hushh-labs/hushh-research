@@ -452,6 +452,8 @@ export async function createReviewerSessionHarness({
     requireVaultUnlocked = true,
     allowFirstRunSetupRedirect = false,
     onPageCreated,
+    viewport = { width: 1440, height: 900 },
+    isMobile = false,
   } = {}) {
     const maxAttempts = humanAuthenticated || operatorIssued ? 1 : 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
@@ -461,7 +463,7 @@ export async function createReviewerSessionHarness({
       allowQueryMutation, allowFirstRunSetupRedirect, reviewerUid });
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const context = await browser.newContext({ baseURL: normalizedOrigin, viewport: { width: 1440, height: 900 } });
+      const context = await browser.newContext({ baseURL: normalizedOrigin, viewport, isMobile });
       const page = await context.newPage();
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);

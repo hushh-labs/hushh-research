@@ -2,6 +2,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import {
+  hasNativeRouteAuditContract,
+  nativeRouteReportMatches,
+} from "./native-route-status.mjs";
 
 const repoRoot = process.cwd();
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
@@ -27,35 +31,6 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-function normalizeRoute(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed || trimmed === "/") {
-    return trimmed || "/";
-  }
-  try {
-    const url = new URL(trimmed, "https://native-audit.local");
-    let pathname = url.pathname || "/";
-    if (pathname.length > 1 && pathname.endsWith("/")) {
-      pathname = pathname.slice(0, -1);
-    }
-    return `${pathname}${url.search}`;
-  } catch {
-    return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
-  }
-}
-
-function matchesRoute(parsedRoute, route) {
-  if (route.expectedRoute) {
-    return normalizeRoute(parsedRoute) === normalizeRoute(route.expectedRoute);
-  }
-  if (route.expectedRoutePrefix) {
-    return normalizeRoute(parsedRoute).startsWith(
-      normalizeRoute(route.expectedRoutePrefix)
-    );
-  }
-  return true;
-}
-
 function validateReport({ platform, reportPath, requiredRoutes }) {
   const failures = [];
   if (!fs.existsSync(reportPath)) {
@@ -67,6 +42,20 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
   const results = Array.isArray(report.results) ? report.results : [];
   const resultsByRoute = new Map(results.map((result) => [result.route, result]));
 
+  if (report.audit_complete !== true) {
+    fail(failures, platform, "route audit did not complete");
+  }
+  if (report.completed_routes !== report.audited_routes || report.completed_routes !== results.length) {
+    fail(failures, platform, "completed route count does not match the audit and its results");
+  }
+  if (resultsByRoute.size !== results.length) {
+    fail(failures, platform, "route audit contains duplicate results");
+  }
+  for (const result of results) {
+    if (result.skipped === true) {
+      fail(failures, platform, `${result.route} was skipped`);
+    }
+  }
   if (report.audited_routes < requiredRoutes.length) {
     fail(
       failures,
@@ -93,6 +82,10 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
   }
 
   for (const route of requiredRoutes) {
+    if (!hasNativeRouteAuditContract(route)) {
+      fail(failures, platform, `${route.route} has an incomplete auth/data contract`);
+      continue;
+    }
     const result = resultsByRoute.get(route.route);
     if (!result) {
       fail(failures, platform, `missing route result for ${route.route}`);
@@ -121,13 +114,14 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
         `${route.route} marker=${observed.marker || ""}; expected ${route.expectedMarker}`
       );
     }
-    if (!matchesRoute(observed.route || "", route)) {
+    if (!nativeRouteReportMatches(observed, route)) {
       fail(
         failures,
         platform,
-        `${route.route} observed route=${observed.route || ""}; expected ${
-          route.expectedRoute || route.expectedRoutePrefix || "route-compatible"
-        }`
+        `${route.route} failed its native route verdict or sanitized path check ` +
+          `(routeok=${observed.routeok || ""}, observed=${observed.route || ""}, expected=${
+            route.expectedRoute || route.expectedRoutePrefix || "route-compatible"
+          })`
       );
     }
     const allowedAuthStates = route.allowedAuthStates || [route.expectedAuth];

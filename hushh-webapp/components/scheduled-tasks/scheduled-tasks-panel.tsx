@@ -25,7 +25,7 @@ import { firebaseUidForOwner, snapshotValidatedAuthSessionOwner, isValidatedAuth
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { CalendarClock } from "@/components/icons";
 
-const labels: Record<ScheduledTask["state"], string> = {
+export const scheduledTaskLabels: Record<ScheduledTask["state"], string> = {
   pending_delivery: "Scheduling",
   scheduled: "Scheduled",
   running: "Working",
@@ -42,7 +42,7 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   return <OwnerScheduledTasksPanel key={`${ownerId}:${generation}`} ownerId={ownerId} />;
 }
 
-function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
+export function useScheduledTasksModel(ownerId: string) {
   const client = useMemo(() => new PodScheduledTasksClient(ownerId), [ownerId]);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<ScheduledTasksStatus | null>(null);
@@ -164,12 +164,21 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
     }
   };
 
+  const changeOpen = (value: boolean) => { if (!busy) setOpen(value); };
+  return { open, changeOpen, close, status, message, checking, busy, placementMessage, control };
+}
+
+function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
+  return <ScheduledTasksPanelBody model={useScheduledTasksModel(ownerId)} />;
+}
+
+export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof useScheduledTasksModel> }) {
+  const { open, changeOpen, close, status, message, checking, busy, placementMessage, control } = model;
+
   return (
     <Dialog
       open={open}
-      onOpenChange={(value) => {
-        if (!busy) setOpen(value);
-      }}
+      onOpenChange={changeOpen}
     >
       <DialogTrigger asChild>
         <ShellActionSurface
@@ -220,7 +229,7 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
               <div className="min-w-0 flex-1 basis-48">
                 <p className="break-words text-sm font-medium">{task.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  {labels[task.state]} ·{" "}
+                  {scheduledTaskLabels[task.state]} ·{" "}
                   {new Date(task.next_run_at * 1000).toLocaleString()}
                 </p>
                 {task.last_run?.state === "outcome_uncertain" && (

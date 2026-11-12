@@ -191,7 +191,7 @@ interface AuthContextType {
     options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
-  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput) => Promise<User>;
+  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput, isCurrent: () => boolean) => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
     options?: { resendCode?: boolean; transport?: "sms" },
@@ -2048,8 +2048,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     phoneVerificationOwnerRef.current = null;
     return currentUser;
   }, [phoneRecovery, requirePhoneVerificationOwner]);
-  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
+  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput, visitIsCurrent: () => boolean) => {
     const principal = principalRef.current;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const uid = userRef.current?.uid;
+    const epoch = phoneVerificationEpochRef.current;
     const proof = phoneTransferProofRef.current;
     const releaseChallenge = () => {
       phoneRecovery.cancelNativeStart();
@@ -2057,18 +2060,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setPhoneVerificationAttempt(null);
       if (!Capacitor.isNativePlatform()) resetRecaptcha();
     };
-    return confirmLinkedDeletion(input, {
-      user: () => userRef.current,
-      retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
-      requireOwner: requirePhoneVerificationOwner,
-      finalize: (verified) => {
-        releaseChallenge();
-        applyAuthUser(verified, principal);
-        phoneVerificationOwnerRef.current = null;
-      },
-    }).catch((error: unknown) => {
+    const isCurrent = () => {
+      const live = principalRef.current;
+      if (!owner || !principal || !uid || !visitIsCurrent() || !isValidatedAuthSessionOwnerCurrent(owner) ||
+          live?.firebaseUid !== principal.firebaseUid || live.ownerId !== principal.ownerId ||
+          live.accountGeneration !== principal.accountGeneration || userRef.current?.uid !== uid ||
+          (!input.testCode && phoneTransferProofRef.current !== proof)) return false;
+      try { requirePhoneVerificationOwner(uid, epoch); return true; } catch { return false; }
+    };
+    return confirmLinkedDeletion(input, { user: () => userRef.current, retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
+      isCurrent, requireOwner: requirePhoneVerificationOwner, finalize: (verified) => {
+        if (!isCurrent()) throw new Error("Your account changed. Sign in again.");
+        releaseChallenge(); applyAuthUser(verified, principal); phoneVerificationOwnerRef.current = null; } }).catch((error: unknown) => {
       // A spent proof retires its own challenge, never a newer verification.
-      if (linkedDeletionNeedsFreshProof(apiErrorCode(error)) && proof &&
+      if (isCurrent() && linkedDeletionNeedsFreshProof(apiErrorCode(error)) && proof &&
         proof.phone === input.phoneNumber && phoneTransferProofRef.current === proof &&
         userRef.current?.uid === proof.userId && phoneVerificationOwnerRef.current === proof.userId &&
         phoneVerificationEpochRef.current === proof.epoch &&

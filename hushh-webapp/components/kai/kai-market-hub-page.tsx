@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeFinanceRoute } from "./native-finance-workspace";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -40,6 +41,7 @@ export function KaiMarketHubPage() {
   const { registerSteps, completeStep, reset } = useStepProgress();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nativeFrame = useRef<HTMLDivElement | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [flowState, setFlowState] = useState<FlowState>("checking");
 
@@ -127,7 +129,8 @@ export function KaiMarketHubPage() {
   // Finance is a One workspace, not a dashboard canvas. Match Location's
   // agent column and let the shared shell own the only outer gutter.
   return (
-    <AppPageShell
+    <NativeFinanceRoute frame={nativeFrame} model={{ owner: userId, view: visibleTab, navigation: { tabs: FINANCE_TAB_DEFINITION.tabs,
+      select: value => { selectTab(value as PortfolioTab); } } }}><AppPageShell ref={nativeFrame}
       as="div"
       fitContent
       width="agent"
@@ -190,6 +193,6 @@ export function KaiMarketHubPage() {
         </div>
       </SwipeViews>
       </KaiMarketHomeProvider>
-    </AppPageShell>
+    </AppPageShell></NativeFinanceRoute>
   );
 }

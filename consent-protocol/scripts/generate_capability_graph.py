@@ -350,35 +350,51 @@ def _action_change_is_additive(
     graph: dict[str, Any],
     semantic_id: str,
 ) -> bool:
-    """An added spoken alias preserves every older client operation.
+    """Preserve paused actions when discovery and navigation reachability grow.
 
-    An action's contract is its version, endpoint, executor, inputs,
-    authorization, confirmation and results. Aliases are the phrasings the
-    brain matches a request against: adding one lets more sentences reach the
-    SAME contract and cannot invalidate a paused run, so it is not a breaking
-    change and must not be declared a retirement in the evolution ledger,
-    which would reject in-flight runs for a wording edit.
-
-    Deliberately narrow, on the pattern of the additive workflow rule above:
-    every other field stays byte-for-byte equal, the version does not move,
-    and the previous aliases all survive in their previous relative order --
-    so a removal, a rename or a reordering is still breaking.
+    Aliases retain their existing relative order. Search terms may append. Only
+    existing navigation-only actions may append reachable routes/screens. Targets, fallback, input,
+    authorization, confirmation, version and every other field remain exact.
     """
     old = deepcopy(_semantic_node(previous, semantic_id))
     new = deepcopy(_semantic_node(graph, semantic_id))
     if not old or not new or _node_version(old) != _node_version(new):
         return False
-    old_aliases = old.get("aliases")
-    new_aliases = new.get("aliases")
-    if not isinstance(old_aliases, list) or not isinstance(new_aliases, list):
-        return False
-    if len(new_aliases) <= len(old_aliases):
-        return False
-    survivors = iter(new_aliases)
-    if not all(alias in survivors for alias in old_aliases):
-        return False
-    new["aliases"] = old_aliases
-    return new == old
+    navigation_only = (
+        old.get("execution", {}).get("outcome") == "NAVIGATE"
+        and old.get("execution", {}).get("target", {}).get("path") == "route"
+        and old.get("execution", {}).get("target", {}).get("status") == "wired"
+        and old.get("side_effect", {}).get("classification") == "navigation"
+    )
+    added = False
+    for before, after, keys in (
+        (old, new, ("aliases", "search_keywords")),
+        (old.get("navigation", {}), new.get("navigation", {}), ("routes", "screens")),
+    ):
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return False
+        for key in keys:
+            prior, current = before.get(key), after.get(key)
+            if prior == current:
+                continue
+            if key in {"routes", "screens"} and not navigation_only:
+                return False
+            if (
+                not isinstance(prior, list)
+                or not isinstance(current, list)
+                or len(current) <= len(prior)
+                or not all(isinstance(item, str) and item for item in [*prior, *current])
+            ):
+                return False
+            if key == "aliases":
+                survivors = iter(current)
+                if not all(alias in survivors for alias in prior):
+                    return False
+            elif current[: len(prior)] != prior:
+                return False
+            after[key] = prior
+            added = True
+    return added and new == old
 
 
 def _workflow_change_has_migration(
@@ -475,7 +491,7 @@ def _workflow_change_is_additive(
     if "catalog_capability_ids" in new.get("knowledge_package", {}):
         new["knowledge_package"]["catalog_capability_ids"] = old_catalog
     # Discovered endpoints have no executor binding. A new owner-authenticated
-    # DELETE is inventory metadata just like an authenticated GET: the compiler
+    # DELETE or existing-boundary PATCH is metadata just like a GET: the compiler
     # excludes it from the model's selectable capabilities. Preserve every
     # existing endpoint and the complete executable plan exactly; admitting a
     # bound endpoint or changing an existing authority still requires migration.
@@ -498,6 +514,9 @@ def _workflow_change_is_additive(
             and value.get("authorization") in allowed_read_authorities
             or value.get("method") == "DELETE"
             and value.get("authorization") == "vault_owner"
+            or value.get("method") == "PATCH"
+            and value.get("authorization") == "firebase_auth"
+            and "firebase_auth" in existing_read_authorities
         )
         or value.get("binding_status") != "discovered_unbound"
         for value in endpoint_additions
@@ -778,12 +797,20 @@ def _merge_workflow_predecessor(
             raise RuntimeError(f"Workflow predecessor is not compatible: {workflow_id}")
         entry = entries[workflow_id]
         prior = _previous_workflow_compatibility(predecessor, workflow_id)
+        current_rejected = set(_clean_revisions(entry.get("rejected_graph_revisions")))
+        if str(predecessor["revision"]) in current_rejected:
+            raise RuntimeError(f"Workflow predecessor is already rejected: {workflow_id}")
         for field in (
             "compatible_graph_revisions",
             "migration_required_graph_revisions",
             "rejected_graph_revisions",
         ):
-            revisions = set(_clean_revisions(entry.get(field)) + _clean_revisions(prior.get(field)))
+            incoming = set(_clean_revisions(prior.get(field)))
+            if field == "compatible_graph_revisions":
+                # A reviewed target retirement dominates stale ancestral compatibility.
+                # Do not hide existing malformed policy or an incoming rejection.
+                incoming -= current_rejected
+            revisions = set(_clean_revisions(entry.get(field))) | incoming
             if field == "compatible_graph_revisions":
                 revisions.add(str(predecessor["revision"]))
                 revisions.discard(str(graph["revision"]))

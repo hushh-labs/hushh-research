@@ -13,11 +13,14 @@ export type NativeWalletTile = {
   imageData?: string;
   overlayDetails?: boolean;
 };
+export type NativeWalletVisitor = { name: string; headline: string; organisation: string; location: string; summary: string; skills: readonly string[]; portraitData?: string };
 export type NativeWalletCollection = {
   cards: readonly NativeWalletTile[];
   addId: string;
   addEnabled: boolean;
   accessId?: string;
+  sharedTabId?: string;
+  view?: "cards" | "sharing";
   selectedId: string | null;
   detailVisitId: string | null;
   closeId: string;
@@ -25,14 +28,18 @@ export type NativeWalletCollection = {
   detailBusy: boolean;
   detailQrData?: string;
   detailImageData?: string;
+  navigation?: { sectionId: string; allId: string; previousId: string; nextId: string; addId: string; position: number; total: number };
+  visitor?: NativeWalletVisitor;
 };
 const text = (value: unknown, maximum: number, empty = false): value is string =>
   typeof value === "string" && (empty || value.length > 0) && value.length <= maximum;
 const closed = (value: object, keys: readonly string[]) => Object.keys(value).every(key => keys.includes(key));
 export function validNativeWalletCollection(value: NativeWalletCollection): boolean {
-  if (!value || !closed(value, ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "accessId"]) ||
+  if (!value || !closed(value, ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "accessId", "sharedTabId", "view", "navigation", "visitor"]) ||
     !text(value.addId, 128) || !text(value.closeId, 128) || value.addId === value.closeId ||
     typeof value.addEnabled !== "boolean" || typeof value.detailBusy !== "boolean" || !text(value.detailTitle, 256, true) ||
+    value.sharedTabId !== undefined && !text(value.sharedTabId, 128) || value.view !== undefined && !["cards", "sharing"].includes(value.view) ||
+    value.view === "sharing" && (value.selectedId !== null || value.detailVisitId !== null) ||
     !Array.isArray(value.cards) || value.cards.length > 100) return false;
   for (const image of [value.detailQrData, value.detailImageData]) if (image !== undefined && (typeof image !== "string" || image.length > 400_000 || !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(image))) return false;
   const ids = new Set([value.addId, value.closeId]);
@@ -45,6 +52,22 @@ export function validNativeWalletCollection(value: NativeWalletCollection): bool
       card.overlayDetails !== undefined && typeof card.overlayDetails !== "boolean" ||
       !text(card.holder, 120, true) || !text(card.expiry, 7, true) || !/^(?:\d{4})?$/.test(card.last4)) return false;
     ids.add(card.id);
+  }
+  if (value.visitor !== undefined) {
+    const visitor = value.visitor;
+    if (!visitor || !closed(visitor, ["name", "headline", "organisation", "location", "summary", "skills", "portraitData"]) || value.navigation ||
+        !value.cards.some(card => card.id === value.selectedId && (card.kind === "profile" || card.kind === "nws")) ||
+        ![visitor.name, visitor.headline, visitor.organisation, visitor.location].every(item => text(item, 512, true)) || !text(visitor.summary, 4096, true) ||
+        !Array.isArray(visitor.skills) || visitor.skills.length > 64 || !visitor.skills.every((skill: unknown) => text(skill, 256)) ||
+        visitor.portraitData !== undefined && (!text(visitor.portraitData, 100_000) || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(visitor.portraitData))) return false;
+  }
+  if (value.navigation !== undefined) {
+    const nav = value.navigation;
+    if (!nav || !closed(nav, ["sectionId", "allId", "previousId", "nextId", "addId", "position", "total"]) ||
+        !value.selectedId || value.selectedId === value.accessId || value.view === "sharing" ||
+        !Number.isInteger(nav.position) || !Number.isInteger(nav.total) || nav.total !== value.cards.length || nav.position < 1 || nav.position > nav.total) return false;
+    const handles = [nav.sectionId, nav.allId, nav.previousId, nav.nextId, nav.addId];
+    if (new Set(handles).size !== handles.length || handles.some(id => !text(id, 128) || ids.has(id))) return false;
   }
   return value.selectedId === null ? value.detailVisitId === null : text(value.detailVisitId, 128) && (value.selectedId === value.accessId || value.cards.some(card => card.id === value.selectedId));
 }

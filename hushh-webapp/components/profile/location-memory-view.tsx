@@ -8,16 +8,19 @@ import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/morphy";
 import type { LocationMemoryField, LocationMemoryPresentation } from "@/lib/profile/location-memory-presentation";
 
-export function LocationMemoryView({ presentation, loading, error, onRetry, onOpen }: {
+export function LocationMemoryView({ presentation, loading, error, onRetry, onOpen, search }: {
   presentation: LocationMemoryPresentation;
   loading: boolean;
   error: boolean;
   onRetry: () => void;
   onOpen: (field: LocationMemoryField) => void;
+  search?: { query: string; setQuery: (value: string) => void };
 }) {
-  const [query, setQuery] = useState("");
-  const search = query.trim().toLocaleLowerCase();
-  const sections = presentation.sections.filter((section) => !search || `${section.title} ${section.fields.map((field) => `${field.label} ${field.value}`).join(" ")}`.toLocaleLowerCase().includes(search));
+  const [localQuery, setLocalQuery] = useState("");
+  const query = search?.query ?? localQuery;
+  const setQuery = search?.setQuery ?? setLocalQuery;
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const sections = presentation.sections.filter((section) => !normalizedQuery || `${section.title} ${section.fields.map((field) => `${field.label} ${field.value}`).join(" ")}`.toLocaleLowerCase().includes(normalizedQuery));
   return (
     <div className="space-y-5" data-pkm-location-view="true" data-pkm-detail-panel="true">
       <div className="relative">
@@ -26,7 +29,7 @@ export function LocationMemoryView({ presentation, loading, error, onRetry, onOp
       </div>
       {loading ? <SurfaceInset className="p-4 text-sm text-muted-foreground" role="status">Opening Location memory…</SurfaceInset>
         : error ? <SurfaceInset className="space-y-3 p-4"><p>Location memory couldn’t be opened.</p><Button variant="none" effect="fade" size="compact" data-pkm-action="compact" onClick={onRetry}>Try again</Button></SurfaceInset>
-        : sections.length === 0 ? <p className="px-1 text-sm text-muted-foreground">{search ? "No location details match your search." : "No location details saved yet."}</p>
+        : sections.length === 0 ? <p className="px-1 text-sm text-muted-foreground">{normalizedQuery ? "No location details match your search." : "No location details saved yet."}</p>
         : sections.map((section) => (
           <SettingsGroup key={section.key} title={section.title} separatorInset testId={`location-memory-${section.key}`}>
             {section.fields.map((field) => <SettingsRow

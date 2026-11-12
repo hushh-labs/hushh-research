@@ -144,7 +144,7 @@ function pickImageViaFileInput(): Promise<AvatarPickResult> {
  * Center-crop to a square, downscale to AVATAR_SIZE, re-encode as a JPEG
  * data-URL. Enforces the small-payload contract for both native and web images.
  */
-export function normalizeToAvatarDataUrl(sourceDataUrl: string, signal?: AbortSignal): Promise<string> {
+export function normalizeToAvatarDataUrl(sourceDataUrl: string, signal?: AbortSignal, pixels: 128 | 256 = AVATAR_SIZE): Promise<string> {
   return new Promise((resolve, reject) => {
     if (typeof document === "undefined") {
       reject(new Error("Image processing is not available."));
@@ -165,14 +165,14 @@ export function normalizeToAvatarDataUrl(sourceDataUrl: string, signal?: AbortSi
       const sx = (img.naturalWidth - side) / 2;
       const sy = (img.naturalHeight - side) / 2;
       const canvas = document.createElement("canvas");
-      canvas.width = AVATAR_SIZE;
-      canvas.height = AVATAR_SIZE;
+      canvas.width = pixels;
+      canvas.height = pixels;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         fail(new Error("Could not process the image."));
         return;
       }
-      ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, pixels, pixels);
       try {
         const result = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
         settled = true; cleanup(); resolve(result);

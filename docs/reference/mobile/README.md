@@ -36,18 +36,26 @@ each tap is confirmed against native privacy generation and current visibility.
 Presentation-only revisions (selection, theme or badge changes) do not discard
 the final tap. Failed provisional loads do not retire the surviving document.
 
-The recovery wrapper hides native bottom navigation under mounted shared
-overlays and the keyboard. Profile and History remain full-height React
-drawers; custom dock, shell controls and selectors select React before first
-paint. Experimental reserved-region and asynchronous native-clipping paths
-are disabled together, not accepted presentation-continuity mechanisms.
+The device-level **Native interface · Experimental** preference is Off by default.
+On supported iPhones running iOS 26+, the native host snapshots this existing
+Settings/Capacitor Preferences value before the first WebView document. Fully
+close and reopen to apply a change. The common policy selects eligible native
+dock, chrome, bottom navigation, drawers and route workspaces together. Off,
+unsupported wrappers, Android and iPad retain the established React interface;
+intentional rich React handoffs remain complete. Legacy qualification flags no
+longer choose a renderer. This opt-in does not establish physical, accessibility,
+performance or release acceptance.
 See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
-for the current renderer scope, qualification-only native composition study
+for the current renderer scope, experimental native composition
 and separate physical evidence. Session/vault
 gates, keyboard navigation hiding and the full-window privacy shield retain
 their concealment contracts.
-The native bar and web voice slot stay pinned together without per-frame
-bridge traffic. The DOM reservation excludes the native home-indicator inset;
+On supported iPhones, the shared scroll owner now sends bounded, latest-wins
+progress updates to the native bar, including the ordinary Capacitor host. The
+React voice slot keeps its existing CSS scroll owner. This bridge delivery does
+not prove synchronous visual motion; see the adoption inventory for the current
+physical checks and remaining transition evidence. The DOM reservation excludes
+the native home-indicator inset;
 the existing shared bottom shell reserves the reported native inset once, not
 the web fallback's compact inset. Custom persistent Chat history publishes its
 authored open state; default non-modal dialog contents also isolate native tabs.

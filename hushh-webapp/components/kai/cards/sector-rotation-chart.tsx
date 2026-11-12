@@ -55,7 +55,8 @@ export function getMarketSectorPeriodVoiceInventory(visible: boolean, hasMoreSec
   };
 }
 
-export function SectorRotationChart({ rows, active = true, onScopeAvailabilityChange }: { rows: KaiHomeSectorItem[]; active?: boolean; onScopeAvailabilityChange?: (available: boolean) => void }) {
+type SectorProps = { rows: KaiHomeSectorItem[]; active?: boolean; onScopeAvailabilityChange?: (available: boolean) => void };
+export function useSectorRotationModel({ rows, active = true, onScopeAvailabilityChange }: SectorProps) {
   const [period, setPeriod] = useState<"1d" | "1w">("1d");
   const [expanded, setExpanded] = useState(false);
   const chartRows = useMemo(() => sectorRowsForPeriod(rows, period), [rows, period]);
@@ -87,6 +88,16 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
     ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).formatRange(periodStart, periodEnd)
     : "Period dates unavailable";
   const maximumReturn = Math.max(0.01, ...chartRows.map((row) => Math.abs(row.changePct)));
+  return { period, setPeriod, expanded, setExpanded, chartRows, canExpand, visibleRows, dateRange, shortDateRange, maximumReturn };
+}
+export function SectorRotationChart(props: SectorProps & { model?: ReturnType<typeof useSectorRotationModel> }) {
+  return props.model ? <SectorRotationBody model={props.model} /> : <OwnedSectorRotation {...props} />;
+}
+function OwnedSectorRotation(props: SectorProps) {
+  return <SectorRotationBody model={useSectorRotationModel(props)} />;
+}
+function SectorRotationBody({ model }: { model: ReturnType<typeof useSectorRotationModel> }) {
+  const { period, setPeriod, expanded, setExpanded, chartRows, canExpand, visibleRows, dateRange, shortDateRange, maximumReturn } = model;
   return (
     <div className={marketBriefingStyles.sectorContent}>
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">

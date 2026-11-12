@@ -2297,16 +2297,16 @@ for the canonical commands and live-policy activation. Do not ask a self-approvi
 owner for another person just to satisfy GitHub's native self-review restriction.
 Do not grant ordinary contributors broader bypass to solve an owner-only problem.
 
-CODEOWNERS automatically routes protected paths to `pipeline-editors`. Coding
-agents explicitly request the routed Team after PR creation: protected or mixed
-changes use only `pipeline-editors`; ordinary product work uses
-`allowed-maintainers-to-approve` for visible routing. This is a notification, not
-a new mandatory independent review or automatic PR observer. Only the authorized
-maintainer cohort retains governed self-service. Outside
-contributors cannot self-approve: they need an independent authorized review.
-Organization membership alone is not self-approval authority.
-A blank reviewer list does not waive
-required checks, queue admission or protected approval on a mixed PR.
+CODEOWNERS visibly defaults ordinary PRs to `allowed-maintainers-to-approve`
+and overrides protected files with `pipeline-editors`. After PR creation, source
+updates or retargeting, run `./bin/hushh agents review-route --pr <number> --apply`.
+It reconciles mixed and content-based protected changes to **pipeline-editors
+only**, preserving explicit individual requests and completed current-head reviews.
+Native requests can initially show both Teams on mixed PRs; the CLI corrects that
+without adding an Actions run. See the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
+This is notification only: ordinary maintainers retain existing self-service;
+outside contributors still need independent authorized review. Labels never waive
+required checks, combined-result admission or protected approval.
 
 ### Capacity maintenance job labels
 
