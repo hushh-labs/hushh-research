@@ -10,6 +10,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ChevronDown, Search } from "@/components/icons";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
@@ -19,6 +20,16 @@ import { AdvisorWorkspace } from "./advisor-workspace";
 import { AdvisorRequestFlow } from "./advisor-request-flow";
 import { PortfolioAgentReview } from "./portfolio-agent-review";
 import styles from "./advisor-review.module.css";
+
+const requestPaymentLabel = (payment: NonNullable<AdvisorReview["payment"]>) =>
+  payment.status === "paid" ? "Paid" : payment.status === "refunded" ? "Refunded" : "Partly refunded";
+
+/** Both people see the settled payment in the list; before it, the row names the stages. */
+function requestPaymentSummary(row: AdvisorReview) {
+  if (!row.payment) return "introduction and plan";
+  const amount = `$${(row.payment.amountCents / 100).toFixed(2)}`;
+  return row.payment.status === "paid" ? `plan paid ${amount}` : `plan ${requestPaymentLabel(row.payment).toLowerCase()}`;
+}
 
 export function AdvisorReviewHub({
   source,
@@ -112,8 +123,9 @@ export function AdvisorReviewHub({
             title={name}
             leading={<ConnectionPersonAvatar label={name} size="compact" />}
             description={row.status === "accepted"
-              ? "Connected · introduction and plan"
+              ? `Connected · ${requestPaymentSummary(row)}`
               : <span className="capitalize">{row.status}</span>}
+            trailing={row.payment ? <Badge variant="secondary">{requestPaymentLabel(row.payment)}</Badge> : undefined}
             chevron
             textOverflow="truncate"
             ariaLabel={`Open request with ${name}`}
