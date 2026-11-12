@@ -10,7 +10,6 @@ Google News RSS, bounded, and the caller owns caching.
 import asyncio
 import math
 import re
-import time
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -61,9 +60,6 @@ NSE_LARGE_CAPS: tuple[str, ...] = (
 )  # fmt: skip
 INDIA_MOVERS_CONCURRENCY = 5
 INDIA_MOVERS_DEADLINE_SECONDS = 12.0
-INDIA_MOVERS_STALE_SECONDS = 6 * 60 * 60
-# Last list that loaded, kept per process so a rate-limited refresh can still show it.
-_LAST_GOOD_MOVERS: dict[str, Any] = {}
 INDIA_NEWS_QUERY = "NIFTY OR SENSEX OR NSE OR BSE"
 INDIA_NEWS_LIMIT = 20
 
@@ -340,15 +336,10 @@ async def fetch_india_movers() -> dict[str, Any]:
         if row:
             rows.append(row)
     if rows:
-        movers = build_india_movers(rows)
-        _LAST_GOOD_MOVERS.update(at=time.monotonic(), payload=movers)
-        return movers
-    # Nothing came back (usually the provider rate limit). Keep showing the last good list,
-    # marked degraded and stamped with its own session time, instead of a blank card.
+        return build_india_movers(rows)
+    # Nothing came back, usually the provider rate limit. The caller keeps showing the last
+    # good list from the shared cache, so this only has to say why.
     reason = "rate_limited" if throttled.is_set() else "unavailable"
-    last = _LAST_GOOD_MOVERS.get("payload")
-    if last and time.monotonic() - _LAST_GOOD_MOVERS["at"] < INDIA_MOVERS_STALE_SECONDS:
-        return {**last, "degraded": True, "stale_reason": reason}
     raise RuntimeError(f"india_movers_{reason}")
 
 
@@ -360,6 +351,7 @@ async def load_india_home(
     days_back: int,
     fetch_status: Callable[[], Awaitable[dict[str, Any]]],
     fallback_status: Callable[[], dict[str, Any]],
+    fetch_movers: Callable[[], Awaitable[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Fetch the three India modules together and report each one's provider state.
 
@@ -370,7 +362,7 @@ async def load_india_home(
         fetch_india_quotes(),
         fetch_india_news(days_back),
         fetch_status(),
-        fetch_india_movers(),
+        (fetch_movers or fetch_india_movers)(),
         return_exceptions=True,
     )
     if isinstance(quotes_out, BaseException) and isinstance(news_out, BaseException):
@@ -401,8 +393,8 @@ async def load_india_home(
 def assemble_india_payload(base: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
     """Overlay the India modules on the shared v2 home skeleton.
 
-    Movers stay empty and degraded: there is no quota-safe NSE/BSE gainers source, so the
-    client hides that section for India rather than showing a US list.
+    Movers come from the NSE large-cap set. When that list is missing the base skeleton's
+    empty, degraded movers stay, and the client shows placeholders rather than a US list.
     """
     provider_status = loaded["provider_status"]
     # Index quotes and the status row drive the whole strip, so only they mark the payload

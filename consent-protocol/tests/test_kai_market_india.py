@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
 from api.routes.kai import _shared_last_close as shared_last_close
@@ -247,38 +246,36 @@ async def test_index_cards_draw_the_last_session_and_never_a_month_line_beside_a
     assert len(quotes["^CNXAUTO"]["sparkline_points"]) == 22  # sector returns still use the month
 
 
-_REAL_ASYNC_CLIENT = httpx.AsyncClient
-
-
-def _yahoo_client(status: int, body: dict | None = None):
-    return lambda **kwargs: _REAL_ASYNC_CLIENT(
-        transport=httpx.MockTransport(lambda _request: httpx.Response(status, json=body or {})),
-        **kwargs,
-    )
-
-
 @pytest.mark.asyncio
-async def test_rate_limited_india_movers_keep_the_last_good_list_marked_degraded(monkeypatch):
-    chart = {
-        "meta": {"regularMarketPrice": 110.0, "regularMarketTime": 1_762_100_000},
-        "timestamp": [1_762_000_000, 1_762_086_400],
-        "indicators": {"quote": [{"close": [100.0, 105.0]}]},
-    }
-    monkeypatch.setattr(india_market, "NSE_LARGE_CAPS", ("TCS",))
-    monkeypatch.setattr(india_market, "_LAST_GOOD_MOVERS", {})
+async def test_a_failed_movers_refresh_keeps_serving_the_last_good_list(monkeypatch):
+    good = {"gainers": [{"symbol": "TCS", "change_pct": 5.0}], "losers": [], "active": []}
+    calls = {"count": 0}
 
-    monkeypatch.setattr(
-        india_market.httpx, "AsyncClient", _yahoo_client(200, {"chart": {"result": [chart]}})
-    )
-    fresh = await india_market.fetch_india_movers()
-    assert "stale_reason" not in fresh
+    async def flaky() -> dict:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return good
+        raise RuntimeError("india_movers_rate_limited")
 
-    monkeypatch.setattr(india_market.httpx, "AsyncClient", _yahoo_client(429))
-    limited = await india_market.fetch_india_movers()
-    assert limited["degraded"] is True and limited["stale_reason"] == "rate_limited"
-    assert limited["gainers"] == fresh["gainers"]
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "INDIA_MOVERS_FRESH_TTL_SECONDS", 0)
+    monkeypatch.setattr(india_market, "fetch_india_movers", flaky)
 
-    # Negative control: with nothing remembered, a rate limit still raises instead of faking data.
-    monkeypatch.setattr(india_market, "_LAST_GOOD_MOVERS", {})
-    with pytest.raises(RuntimeError, match="india_movers_rate_limited"):
-        await india_market.fetch_india_movers()
+    async def read() -> dict:
+        value, *_ = await market_insights._get_or_refresh_public_module(
+            key="india_movers:v1",
+            fresh_ttl_seconds=market_insights.INDIA_MOVERS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=market_insights.INDIA_MOVERS_STALE_TTL_SECONDS,
+            fetcher=lambda: india_market.fetch_india_movers(),
+        )
+        return value
+
+    assert (await read())["gainers"] == good["gainers"]
+    # The refresh now fails, and the stale list is still what a reader gets.
+    assert (await read())["gainers"] == good["gainers"]
+    # Negative control: with nothing cached, a failing fetch surfaces instead of faking data.
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    with pytest.raises(RuntimeError, match="rate_limited"):
+        await read()
