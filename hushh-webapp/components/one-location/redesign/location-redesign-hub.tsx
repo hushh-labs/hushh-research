@@ -18,6 +18,7 @@
  *   selection, swipes, and deep links cannot drift from the shared top shell.
  */
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   useCallback,
   useEffect,
@@ -1530,7 +1531,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       // said the action was gone while the retired screen stayed on screen.
       params.set(LOCATION_HUB_TAB_PARAM, "now");
       const query = params.toString();
-      toast.message("That's no longer there.");
+      toast.message("That's no longer there.", { className: connectTypography.toast });
       router.replace(query ? `${pathname}?${query}` : pathname, {
         scroll: false,
       });
@@ -1839,9 +1840,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     <div
       data-location-hub
       data-location-type-scale="connect"
-      className="mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]"
+      className="mx-auto w-full max-w-[820px] space-y-4"
     >
-      <div className="flex min-w-0 items-center justify-end" data-testid="one-location-status-row">
+      <div className="contents" data-testid="one-location-status-row">
         <h1 className="sr-only">Location</h1>
         <LocationHeaderActions vm={vm} />
       </div>
@@ -2284,7 +2285,7 @@ function LocationMenuListRow({
         {leading}
         <RowLabel
           as="span"
-          className="min-w-0 underline-offset-4 group-hover:underline"
+          className="min-w-0 group-hover:text-[color:var(--app-accent)]"
         >
           {title}
         </RowLabel>
@@ -3320,13 +3321,13 @@ function LocationSettingsFlow({
               stacked
               separateSecondary={false}
               measure="decision"
-              className="max-w-[244px]"
+              className="w-auto max-w-44"
               primary={
                 <Button
                   type="button"
-                  size="prominent"
+                  size="compact"
                   data-location-action-fit=""
-                  className="h-auto py-3"
+                  className="h-11 px-5"
                   disabled={!draftScope}
                   onClick={commitAutoApproveScope}
                 >
@@ -3336,7 +3337,7 @@ function LocationSettingsFlow({
               secondary={
                 <Button
                   type="button"
-                  variant="link"
+                  variant="text"
                   size="standard"
                   className={QUIET_FLOW_ACTION_CLASSNAME}
                   disableHoverRipple
@@ -3475,7 +3476,7 @@ function ActiveShareMetadata({
       <span>Active</span>
       <span aria-hidden="true">·</span>
       {sms ? (
-        <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[rgba(255,59,48,0.12)] px-1.5 text-[10px] font-semibold leading-none text-[#FF3B30]">
+        <span data-location-type-role="status" className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[rgba(255,59,48,0.12)] px-1.5 text-[10px] font-semibold leading-none text-[#FF3B30]">
           SMS
         </span>
       ) : null}
@@ -3885,7 +3886,7 @@ function CircleInvitationsDialog({
           decision === "accept"
             ? "Could not join this Circle."
             : "Could not decline this invitation.",
-        ),
+        ), { className: connectTypography.toast },
       );
     } finally {
       setRespondingInviteId(null);
@@ -5346,7 +5347,6 @@ function ShareFlow({
         </SectionCard>
 
         <SelectedRecipientsRail
-          title="Can see you"
           ariaLabel="People who can see your location"
           recipients={selectedReady}
           recipientLabel={vm.recipientLabel}
@@ -5355,7 +5355,7 @@ function ShareFlow({
               type="button"
               onClick={backToPeople}
               aria-label="Change who can see you"
-              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+              className="flex min-h-11 min-w-11 shrink-0 items-center rounded-full pe-3 text-sm font-semibold text-[color:var(--app-accent)]"
             >
               Edit
             </button>
@@ -5396,7 +5396,7 @@ function ShareFlow({
             }
             secondary={
               <Button
-                variant="link"
+                variant="text"
                 size="standard"
                 onClick={() => onClose()}
                 className={QUIET_FLOW_ACTION_CLASSNAME}
@@ -5688,7 +5688,7 @@ function LiveShareDurationEditor({
         }
         secondary={
           <Button
-            variant="link"
+            variant="text"
             size="standard"
             className={QUIET_FLOW_ACTION_CLASSNAME}
             disableHoverRipple
@@ -6285,7 +6285,7 @@ function AskFlow({
               }
               secondary={
                 <Button
-                  variant="link"
+                  variant="text"
                   size="standard"
                   onClick={() => onClose()}
                   className={QUIET_FLOW_ACTION_CLASSNAME}
@@ -6493,8 +6493,8 @@ function SelectedRecipientsRail({
   recipientLabel,
   trailing,
 }: {
-  title: string;
-  ariaLabel?: string;
+  title?: string;
+  ariaLabel: string;
   recipients: OneLocationRecipient[];
   recipientLabel: (recipient: OneLocationRecipient) => string;
   trailing?: ReactNode;
@@ -6506,14 +6506,16 @@ function SelectedRecipientsRail({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 px-1">
-        <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
-          {title}
-        </p>
+        {title ? (
+          <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
+            {title}
+          </p>
+        ) : null}
         {trailing}
       </div>
       {compact ? (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
@@ -6546,7 +6548,7 @@ function SelectedRecipientsRail({
         </div>
       ) : (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"

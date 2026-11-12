@@ -135,17 +135,17 @@ export function LivingCirclePanel({
           tabSetId={peopleViewId} options={[{ value: "all", label: "All connections" }, { value: "selected", label: `Selected (${selectedUserIds.size})` }]} />
       </TaskSurfaceToolbar>
       <TaskSurfaceBody role="tabpanel" id={`top-shell-${peopleViewId}-panel-${peopleView}`} aria-labelledby={`top-shell-${peopleViewId}-tab-${peopleView}`}>
-        {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="link" size="compact" onClick={onRetry}>Retry</Button></div> : null}
-        {loading && !candidates.length && peopleView === "all" ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
-          : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
+        {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p data-connect-role="description" className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="text" size="compact" onClick={onRetry}>Retry</Button></div> : null}
+        {loading && !candidates.length && peopleView === "all" ? <p data-connect-role="description" className="py-4 text-sm text-muted-foreground">Loading connections…</p>
+          : remainingCapacity <= 0 ? <p data-connect-role="description" className="py-4 text-sm text-muted-foreground">This circle is full.</p>
           : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
             avatar={<ConnectionPersonAvatar userId={person.userId} size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />}
             name={connectPersonName(person)} detail={<CirclePersonSelectionDetail person={person} />} checked={selectedUserIds.has(person.userId)}
             onCheckedChange={() => onAdd(person.userId)}
             disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
             label={`Add ${connectPersonName(person)} to ${circleName}`} />)
-          : !error ? <p className="py-4 text-sm text-muted-foreground">{peopleView === "selected" ? "No people selected." : searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
-        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="link" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
+          : !error ? <p data-connect-role="description" className="py-4 text-sm text-muted-foreground">{peopleView === "selected" ? "No people selected." : searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
+        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="text" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
       </TaskSurfaceBody>
       <TaskSurfaceFooter>
         <SheetCount>{selectedUserIds.size} selected</SheetCount>
@@ -292,7 +292,7 @@ export function LivingCirclePanel({
             <>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h2 className="ui-text-card-title text-[color:var(--app-primary-label)]">Bring in your connections</h2>
+                  <h2 data-connect-role="section" className="ui-text-card-title text-[color:var(--app-primary-label)]">Bring in your connections</h2>
                   <p data-profile-role="description" className="ui-text-row-description mt-1 text-[color:var(--app-secondary-label)]">
                     Select people, then add them together.
                   </p>
@@ -300,7 +300,7 @@ export function LivingCirclePanel({
                 {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
                   <Button
                     type="button"
-                    variant="link"
+                    variant="text"
                     size="compact"
                     onClick={() => {
                       if (expanded) onSearchChange("");
@@ -349,7 +349,7 @@ export function LivingCirclePanel({
                       <ConnectionPersonAvatar userId={person.userId} size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} fromContacts={person.connectedFromContacts} />
                       <span className="min-w-0 flex-1">
                         <span data-profile-role="name" className="block truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
-                        <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]"><CirclePersonSelectionDetail person={person} /></span>
+                        <span data-connect-role="description" id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]"><CirclePersonSelectionDetail person={person} /></span>
                       </span>
                       <button
                         type="button"

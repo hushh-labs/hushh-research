@@ -1,5 +1,6 @@
 "use client";
 
+import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
 import { createContext, useContext, type ComponentType, type ReactNode } from "react";
 
 const LocationTypographyContext = createContext(false);
@@ -15,14 +16,14 @@ type LocationTypographyContentProps = {
 export function LocationTypographyProvider({ children }: { children: ReactNode }) {
   return (
     <LocationTypographyContext.Provider value={true}>
-      {children}
+      <ConnectTypeScale>{children}</ConnectTypeScale>
     </LocationTypographyContext.Provider>
   );
 }
 
 /**
- * Repeat the scope on the actual portal host. Task frames keep their local
- * typography tokens; explicit Circle content keeps its shared Profile roles.
+ * Repeat Location context on the actual portal host. Connect v14 supplies
+ * typography while Task and Circle components retain their interaction anatomy.
  * Outside Location, the shared component receives its original props.
  */
 export function withLocationTypography<P extends LocationTypographyContentProps>(

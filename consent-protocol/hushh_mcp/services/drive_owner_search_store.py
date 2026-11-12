@@ -114,6 +114,36 @@ def _semantic_binding_current(checkpoint):
     except (ValueError, TypeError, KeyError):
         raise DriveReadError("search_superseded") from None
     binding = checkpoint.get("semantic_model_binding")
+    if checkpoint.get("provider_packet") is True:
+        from hushh_mcp.services.drive_request_discovery import discovery_delivery
+        from hushh_mcp.services.drive_request_package_assessment import (
+            validate_semantic_model_provenance,
+        )
+
+        # Creation checks shape only. _current binds both checkpoint copies to
+        # the current immutable manifest before every provider read and commit.
+        if not (
+            checkpoint.get("authority_mode") == "agent_package"
+            and checkpoint.get("evidence_route") == "packet"
+            and checkpoint.get("semantic_plan") is not None
+            and discovery_delivery(checkpoint)
+            and checkpoint.get("request_origin_id") is not None
+            and type(checkpoint.get("request_revision")) is int
+            and checkpoint["request_revision"] >= 0
+            and isinstance(checkpoint.get("reusable_packet"), dict)
+        ):
+            raise DriveReadError("search_superseded")
+        try:
+            _identity(checkpoint["request_origin_id"])
+            reference = checkpoint["reusable_packet"]
+            _identity(reference["packetId"])
+            if type(reference.get("version")) is not int or reference["version"] < 1:
+                raise ValueError("Invalid packet version")
+            if binding is not None:
+                validate_semantic_model_provenance(binding)
+        except (ValueError, TypeError, KeyError):
+            raise DriveReadError("search_superseded") from None
+        return
     from hushh_mcp.services.drive_owner_allowed import request_planner_processor_supported
 
     if checkpoint.get("discovery_delivery_policy") == "drive_activity_union_v1" and not (
@@ -777,11 +807,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         from hushh_mcp.runtime_providers.managed_text import (
             managed_text_binding,
             managed_text_policy,
+            matches_previous_uat_drive_flash_binding,
         )
         from hushh_mcp.services.drive_owner_allowed import semantic_search_request
         from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 
-        if managed_text_policy() is None:
+        if managed_text_policy(scope="drive_document_requests") is None:
             return False
         target = managed_text_binding()
         if authority_mode not in {"owner", "trusted_auto"}:
@@ -892,9 +923,29 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     {"user": user_id, "job": row["job_id"]},
                 ):
                     raise DriveReadError("search_in_progress")
-            # A bounded one-way migration; policy changes require a new reviewed recovery.
-            if private.get("processor_migration"):
-                raise DriveReadError("search_superseded")
+            previous_migration = private.get("processor_migration")
+            if previous_migration:
+                # Retain the receipt chain for the admitted UAT processor transitions.
+                if not (
+                    isinstance(previous_migration, dict)
+                    and previous_migration.get("version") == 1
+                    and previous_migration.get("basis") == "administrator_rollout"
+                    and previous_migration.get("to_binding") == old_binding
+                    and isinstance(old_binding, dict)
+                    and target["provider"] == "gemini"
+                    and target.get("authorization_basis") == "uat_policy"
+                    and (
+                        (
+                            old_binding.get("provider") == "azure_openai"
+                            and "previous_migration" not in previous_migration
+                        )
+                        or (
+                            target.get("deployment") == "gemini-4-carbon"
+                            and matches_previous_uat_drive_flash_binding(old_binding)
+                        )
+                    )
+                ):
+                    raise DriveReadError("search_superseded")
             record = {
                 "version": 1,
                 "basis": "administrator_rollout",
@@ -909,6 +960,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 if checkpoint
                 else None,
             }
+            if previous_migration:
+                record["previous_migration"] = previous_migration
             private["semantic_model_binding"] = target
             private["processor_migration"] = record
             connection.execute(
@@ -1471,6 +1524,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
     def _current(self, connection, job):
         from hushh_mcp.services.drive_owner_allowed import activity_union_paused
 
+        if job["checkpoint"].get("provider_packet") is True:
+            _semantic_binding_current(job["checkpoint"])
         if (
             job["checkpoint"].get("discovery_delivery_policy") == "drive_activity_union_v1"
             and activity_union_paused()

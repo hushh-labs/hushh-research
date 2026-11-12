@@ -507,16 +507,9 @@ function removeTickerFromHistoryMap(
 
 function EmptyState() {
   return (
-    <div className="flex max-w-xl flex-col items-start justify-center space-y-2 px-1 py-8">
-      <div className="space-y-2 text-left">
-          <h3 className="ui-text-section-label">
-            No analyses yet
-          </h3>
-        <p className="max-w-md ui-text-row-description">
-          Search for a stock ticker below and let Agent One&apos;s multi-agent
-          debate engine give you a data-driven recommendation.
-        </p>
-      </div>
+    <div className="space-y-0.5 px-1 py-1 text-left">
+      <h3 className="ui-text-section-label">No saved analyses</h3>
+      <p className="ui-text-row-description">Analyze a stock to see it here.</p>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { fixture, resetCalendarChatFixture } from "./calendar-chat-workspace-fixture";
 import { clearAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import * as connections from "@/lib/connections/google-connect-in-place";
 import result from "../../../consent-protocol/tests/fixtures/calendar/chat_proposal_result.json";
 import { calendarChatStream as sse } from "../fixtures/calendar-chat-stream";
@@ -180,6 +181,59 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(screen.queryByRole("button", { name: "Review in Settings" })).toBeNull();
   });
 
+  it("shows the audio player's activity independently of the relay phase", async () => {
+    const view = workspace();
+    const voice = useVoiceSessionStore.getState();
+    const expectPose = (pose: string) => waitFor(() => {
+      const layer = view.container.querySelector(
+        '[data-agent-chat-one-profile-trigger] [data-one-presence-layer="current"]',
+      );
+      expect(layer).toBeVisible();
+      expect(layer).toHaveAttribute("data-one-presence-artwork", pose);
+    });
+    try {
+      act(() => voice.dispatch({ type: "connecting", conversationId: "voice-presence" }));
+      await expectPose("connected");
+      // Audio and the relay phase update independently.
+      act(() => voice.dispatch({ type: "speaking", speaking: true }));
+      await expectPose("answering");
+      act(() => voice.dispatch({ type: "speaking", speaking: false }));
+      await expectPose("connected");
+      act(() => voice.dispatch({ type: "speaking", speaking: true }));
+      await expectPose("answering");
+      act(() => voice.dispatch({ type: "closed", code: 1000, reason: "stopped", now: Date.now() }));
+      await expectPose("connected");
+    } finally {
+      act(() => voice.reset());
+    }
+  });
+
+  it("cancels memory preparation before dispatch and ignores its late result", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const memory = await import("@/lib/agent/agent-pkm-memory");
+    let finishPreparation!: () => void;
+    vi.spyOn(memory, "peekAgentPkmContext").mockReturnValue(null);
+    const prepare = vi.spyOn(memory, "loadAgentPkmContext").mockImplementationOnce(() =>
+      new Promise(resolve => { finishPreparation = () => resolve(fixture.memory as never); }));
+    const stream = vi.spyOn(ApiService, "apiFetchStream");
+    const view = workspace();
+    const visiblePose = () => view.container.querySelector(
+      '[data-agent-chat-one-profile-trigger] [data-one-presence-layer="current"]',
+    );
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Explain photosynthesis in a sentence." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(prepare).toHaveBeenCalled());
+    await waitFor(() => expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", "thinking"));
+    expect(stream).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Stop One" }));
+    await waitFor(() => expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", "connected"));
+    await act(async () => finishPreparation());
+    expect(stream).not.toHaveBeenCalled();
+    expect(visiblePose()).toBeVisible();
+    expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", "connected");
+  });
+
   it.each(["result", "error"] as const)("shows working during a tool call and settles after its %s", async outcome => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     let channel!: ReadableStreamDefaultController<Uint8Array>;
@@ -211,6 +265,64 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     }
     act(() => channel.close());
     await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "connected"));
+  });
+
+  it.each(["tool execution", "text streaming"])("settles visible activity when Stop drains %s", async phase => {
+    const channels: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const encoder = new TextEncoder();
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () =>
+      new Response(new ReadableStream<Uint8Array>({ start(controller) { channels.push(controller); } }),
+        { headers: { "Content-Type": "text/event-stream" } }));
+    let acknowledgeStop!: () => void;
+    const chatRequest = vi.mocked(ApiService.agentChatRequest);
+    const request = chatRequest.getMockImplementation()!;
+    chatRequest.mockImplementation((...args) => args[0].endsWith("/stop")
+      ? new Promise(resolve => { acknowledgeStop = () => resolve(Response.json({ stopped: true })); })
+      : request(...args));
+    const view = workspace();
+    const visiblePose = () => view.container.querySelector(
+      '[data-agent-chat-one-profile-trigger] [data-one-presence-layer="current"]',
+    );
+    const expectPose = (pose: string) => waitFor(() => {
+      expect(visiblePose()).toBeVisible();
+      expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", pose);
+    });
+    const push = (event: Record<string, unknown>) => act(() => channels.at(-1)!.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const send = async (prompt: string) => {
+      const composer = await screen.findByRole("textbox", { name: "Message One" });
+      fireEvent.change(composer, { target: { value: prompt } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    };
+    await send("Describe a river.");
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(1));
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "stoppable" });
+    await expectPose("thinking");
+    if (phase === "tool execution") {
+      push({ type: "TOOL_CALL_START", toolCallId: "first-tool", toolCallName: "propose_calendar_event" });
+    } else {
+      push({ type: "TEXT_MESSAGE_START", messageId: "partial", role: "assistant" });
+      push({ type: "TEXT_MESSAGE_CONTENT", messageId: "partial", delta: "A river is" });
+    }
+    await expectPose("working");
+    fireEvent.click(screen.getByRole("button", { name: "Stop One" }));
+    await waitFor(() => expect(acknowledgeStop).toBeTypeOf("function"));
+    await expectPose("connected");
+    push({ type: "TOOL_CALL_START", toolCallId: "late-tool", toolCallName: "propose_calendar_event" });
+    push({ type: "TEXT_MESSAGE_CONTENT", messageId: "partial", delta: "LATE OUTPUT" });
+    await act(async () => {});
+    await expectPose("connected");
+    expect(screen.queryByText("LATE OUTPUT", { exact: false })).not.toBeInTheDocument();
+    await act(async () => acknowledgeStop());
+    push({ type: "RUN_FINISHED", threadId: "same-conversation", runId: "stoppable" });
+    act(() => channels[0].close());
+
+    await send("Describe an ocean.");
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(2));
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "next" });
+    await expectPose("thinking");
+    push({ type: "RUN_ERROR", code: "MODEL_FAILED", message: "Please try again." });
+    act(() => channels[1].close());
+    await expectPose("connected");
   });
 
   it("shows Working for written output in both avatars and recovers after a failed draft", async () => {

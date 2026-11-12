@@ -48,22 +48,31 @@ class Discovery(StrictObject):
 @router.post("/candidates")
 @limiter.limit(RateLimits.ONE_ADVISORS_DIRECTORY_READ)
 async def discover(request: Request, body: Discovery, viewer: str = Depends(identity)):
-    from hushh_mcp.services.advisor_directory_service import AdvisorDirectoryService
+    from hushh_mcp.services.advisor_directory_service import (
+        AdvisorDirectoryError,
+        AdvisorDirectoryService,
+    )
     from hushh_mcp.services.advisor_review_directory import candidates
 
     nearby = body.latitude is not None or body.longitude is not None or body.postalCode is not None
     if body.scope == "nearby" and not nearby:
         raise AdvisorReviewError("ADVISOR_LOCATION_REQUIRED", 422)
     if nearby and body.scope in (None, "nearby"):
-        directory = await AdvisorDirectoryService().search(
-            lat=body.latitude,
-            lng=body.longitude,
-            postal_code=body.postalCode,
-            radius_mi=body.radiusMiles,
-            limit=30,
-            offset=(body.page - 1) * 30,
-            advisor_type="ia",
-        )
+        try:
+            directory = await AdvisorDirectoryService().search(
+                lat=body.latitude,
+                lng=body.longitude,
+                postal_code=body.postalCode,
+                radius_mi=body.radiusMiles,
+                limit=30,
+                offset=(body.page - 1) * 30,
+                advisor_type="ia",
+            )
+        except AdvisorDirectoryError as exc:
+            # Bad input is the person's to fix; anything else is a directory outage.
+            if exc.status_code < 500 and exc.status_code != 429:
+                raise AdvisorReviewError("ADVISOR_LOCATION_INVALID", 422) from exc
+            raise AdvisorReviewError("ADVISOR_DIRECTORY_UNAVAILABLE", 503) from exc
         crds = [
             str(item["crd"])
             for item in directory["items"]

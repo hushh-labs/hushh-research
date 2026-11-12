@@ -109,3 +109,22 @@ it.each([8245, 0])("targets filtered invalid entries and keeps the new stock dra
       expect.objectContaining({ symbol: "AAPL", quantity: 10, price: 100, market_value: 1000 }),
     ]) }));
 });
+
+it("manages the lots of one position from a Manage entries sheet and keeps each acquisition date", async () => {
+  saved.domain = null;
+  render(<PortfolioReviewView userId="synthetic-owner" onSaveComplete={vi.fn()} onReimport={vi.fn()}
+    portfolioData={{ total_value: 242, account_summary: { ending_value: 242 }, holdings: [
+      { symbol: "AAA", name: "Example Alloy", quantity: 11, price: 11, market_value: 121, acquisition_date: "2026-11-04" },
+      { symbol: "AAA", name: "Example Alloy", quantity: 11, price: 11, market_value: 121, acquisition_date: "2026-11-09" },
+    ] }} />);
+  expect(screen.queryByRole("button", { name: /^2 entries/ })).toBeNull();
+  fireEvent.click(screen.getAllByRole("button", { name: "Manage entries for AAA" })[0]!);
+  const sheet = screen.getByRole("dialog");
+  expect(within(sheet).getByText("22 shares across 2 entries")).toBeVisible();
+  expect(within(sheet).getByText("Acquired 2026-11-04")).toBeVisible();
+  expect(within(sheet).getByText("Acquired 2026-11-09")).toBeVisible();
+  fireEvent.click(within(sheet).getByRole("button", { name: "Remove entry 1" }));
+  expect(within(sheet).getByText(/Entry 1 · Pending removal/)).toBeVisible();
+  expect(within(sheet).getByText("Acquired 2026-11-09")).toBeVisible();
+  expect(saved.domain).toBeNull();
+});

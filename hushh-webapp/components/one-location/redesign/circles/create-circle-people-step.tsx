@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { TaskSurfaceHeader, TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter, useTaskSurfacePresentation, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
 import { SheetSearch } from "@/components/app-ui/sheet-parts";
 import { connectPersonName } from "@/lib/connections/person-label";
@@ -94,7 +95,7 @@ export function useCreateCirclePeopleModel({ circleId, active, onLoad, onAdd, on
       if (mountedRef.current) onComplete(circleId);
     } catch {
       if (!mountedRef.current) return;
-      toast.error("Could not add those people. Try again or add people later.");
+      toast.error("Could not add those people. Try again or add people later.", { className: connectTypography.toast });
     } finally {
       inFlight.current = false;
       if (mountedRef.current) {
@@ -202,7 +203,7 @@ export function CreateCirclePeopleBody({
       ) : failed ? (
         <div className="space-y-2">
           <EmptyStateCard message="Could not load your contacts." />
-          <Button type="button" variant="link" onClick={retry}>
+          <Button type="button" variant="text" onClick={retry}>
             Try again
           </Button>
         </div>
@@ -241,7 +242,7 @@ export function CreateCirclePeopleBody({
       {hasMore && !failed ? (
         <Button
           type="button"
-          variant="link"
+          variant="text"
           disabled={loading || saving}
           onClick={more}
         >
@@ -270,7 +271,7 @@ export function CreateCirclePeopleBody({
         <div className="flex items-center justify-between gap-2">
           <Button
             type="button"
-            variant="link"
+            variant="text"
             disabled={saving}
             onClick={onBack}
           >
@@ -278,7 +279,7 @@ export function CreateCirclePeopleBody({
           </Button>
           <Button
             type="button"
-            variant="link"
+            variant="text"
             disabled={saving}
             onClick={() => void finish(false)}
           >

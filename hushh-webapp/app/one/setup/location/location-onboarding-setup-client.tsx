@@ -1,5 +1,7 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+
 import { useEffect, useRef, useState } from "react";
 
 import { OneLocationAgentPage } from "@/app/one/location/page";
@@ -70,7 +72,7 @@ export function LocationOnboardingSetupClient() {
             if (result.status !== "succeeded") throw new Error(result.summary);
             return result;
           }),
-          {
+          { className: connectTypography.toast,
             loading: "Finishing Location setup…",
             success: (result) => result.summary,
             error: "Location setup could not be saved. Please try again.",
@@ -85,7 +87,7 @@ export function LocationOnboardingSetupClient() {
             if (result.status !== "succeeded") throw new Error(result.summary);
             return result;
           }),
-          {
+          { className: connectTypography.toast,
             loading: "Skipping Location setup…",
             success: (result) => result.summary,
             error: "Location setup could not be updated. Please try again.",

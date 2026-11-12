@@ -122,6 +122,32 @@ the same chat head with `include_client_receipt_tools=False`; all non-client
 tools and their authority checks remain in place. Wrapped interactive chat keeps
 the client tools and resolves them for each run.
 
+### Pinned SDK security compatibility
+
+ADK 2.14.0 and the matched OpenTelemetry 1.45.2 family retain private telemetry
+and incoming-context filtering. Validate original session tool results through
+the existing model callbacks before ADK can prune history: IDs, names and
+branches and isolation scopes must match a preceding call; pending calls remain
+valid. Never infer or replay an unmatched result.
+
+Invocation-owned Gemini teardown removes only the current loop's existing
+client. ADK's per-loop descriptor has no eviction API, so this narrow private
+cache seam is tied to the exact pin and qualified by unused-client, continuation
+and other-loop controls. Do not evaluate a client property during cleanup or
+clear another loop's cache. SDK source qualification is separate from installed
+runtime acceptance and does not authorize an owner update.
+
+Native Browser handback keeps the same session and fresh invocation. ADK 2.14
+retains completed tool history but replaces the root task input; project only
+the original approved goal through `RunConfig.model_input_context`, without
+another persisted turn or uncertain-call replay. The existing Gemini toolset
+omits the provider-rejected exclusion field while retaining local action refusal.
+
+Fresh isolated research tasks use default scoped contents so ADK retains their
+own input and completed receipts. The no-history current-turn selector cannot
+find their transient task input. Explicit bounded specialist history is projected
+only at its root callback; never inherit it into isolated child agents.
+
 ### Azure response schemas with dynamic fields
 
 Memory's structure gene returns dynamic payload, summary and sensitivity maps.

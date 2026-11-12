@@ -92,8 +92,8 @@ export function AdvisorPlanPanel({
   const offer = () =>
     run(async () => {
       const cents = Math.round(Number(price) * 100);
-      if (!Number.isSafeInteger(cents) || cents < 100 || cents > 100000)
-        throw new Error("Choose a price between $1 and $1,000.");
+      if (!Number.isSafeInteger(cents) || cents < 50 || cents > 100000)
+        throw new Error("Choose a price between $0.50 and $1,000.");
       await AdvisorReviewService.offer(context, review.id, {
         amountCents: cents,
         currency: "usd",
@@ -191,7 +191,7 @@ export function AdvisorPlanPanel({
             ) : null}
             {billing?.lastPayment ? (
               <p className="ui-text-helper-text">
-                Previous payment · $${(billing.lastPayment.amountCents / 100).toFixed(2)} · {new Date(billing.lastPayment.paidAt).toLocaleDateString()}
+                Previous payment · ${(billing.lastPayment.amountCents / 100).toFixed(2)} · {new Date(billing.lastPayment.paidAt).toLocaleDateString()}
                 {billing.lastPayment.status !== "paid" ? ` · ${billing.lastPayment.status.replaceAll("_", " ")}` : ""}
               </p>
             ) : null}
@@ -212,7 +212,7 @@ export function AdvisorPlanPanel({
             }}>
               <label className={styles.field}>
                 One-time price (USD)
-                <Input required type="number" min="1" max="1000" step="0.01"
+                <Input required type="number" min="0.5" max="1000" step="0.01"
                   value={price} onChange={(event) => setPrice(event.target.value)} />
               </label>
               <label className={styles.field}>

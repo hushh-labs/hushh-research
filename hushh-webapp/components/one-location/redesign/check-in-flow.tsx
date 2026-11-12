@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
 
@@ -235,14 +236,14 @@ export function CheckInFlow({
       setSeeded(true);
       if (!selection.ready.length) {
         toast.error(
-          "No one in this Circle can receive it yet.",
+          "No one in this Circle can receive it yet.", { className: connectTypography.toast },
         );
       }
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not load this Circle.",
+          : "Could not load this Circle.", { className: connectTypography.toast },
       );
     } finally {
       setCircleLoadingId(null);

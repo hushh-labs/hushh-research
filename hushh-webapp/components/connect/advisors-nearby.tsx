@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, UserRound } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { AdvisorDetailSurface } from "@/components/connect/advisor-detail-surface";
 import {
+  DirectoryEmptyState,
   DirectoryAttributionFooter,
   DirectoryLoadingRows,
   ExpandRadiusButton,
@@ -50,8 +51,10 @@ const RADIUS_OPTIONS = ADVISOR_RADIUS_OPTIONS_MI.map((miles) => ({
  */
 export function AdvisorsNearby({
   getIdToken,
+  filters,
 }: {
   getIdToken: () => Promise<string | null>;
+  filters?: ReactNode;
 }) {
   const location = useCurrentLocation();
 
@@ -188,6 +191,7 @@ export function AdvisorsNearby({
 
   if (!anchor) {
     return (
+      <div className="space-y-4">{filters}
       <LocationPrompt
         denied={
           location.status === "denied" || location.status === "unavailable"
@@ -200,6 +204,7 @@ export function AdvisorsNearby({
         useLocationTestId="advisors-use-location"
         postalInputTestId="advisors-postal-input"
       />
+      </div>
     );
   }
 
@@ -212,12 +217,20 @@ export function AdvisorsNearby({
 
   return (
     <div className="space-y-4" data-testid="advisors-nearby">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        {filters}
+        <div className="flex items-center gap-3 md:w-auto">
+          <span data-connect-role="description" className="text-muted-foreground">Within</span>
+          <div className="min-w-0 flex-1 md:w-64">
       <SegmentedTabs
         value={String(radiusMi)}
         onValueChange={(value) => setRadiusMi(Number(value))}
         options={RADIUS_OPTIONS}
         disabled={blockingLoading}
       />
+          </div>
+        </div>
+      </div>
 
       {narrowed ? (
         <p className="type-footnote text-muted-foreground">{narrowed}</p>
@@ -266,24 +279,23 @@ export function AdvisorsNearby({
         // Coordinates can be perfectly good and still match nobody — FINRA is a
         // US register. Offer the one input that can actually help rather than a
         // dead end.
-        <QuietBlock
-          title="Nothing nearby"
-          subtitle="Try a US ZIP, or search a wider radius."
+        <DirectoryEmptyState
+          title={`No advisors within ${radiusMi} mi`}
           testId="advisors-empty"
+          expandAction={
+            <ExpandRadiusButton
+              nextRadiusMi={nextRadiusMi}
+              onExpand={setRadiusMi}
+            />
+          }
         >
-          <div className="flex w-full flex-col items-center gap-4">
             <PostalCodeForm
               busy={loading}
               initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
               onSearch={handlePostalCode}
               testId="advisors-postal-input"
             />
-            <ExpandRadiusButton
-              nextRadiusMi={nextRadiusMi}
-              onExpand={setRadiusMi}
-            />
-          </div>
-        </QuietBlock>
+        </DirectoryEmptyState>
       ) : null}
 
       {!error && !blockingLoading && cards.length > 0 && filteredCards.length === 0 ? (

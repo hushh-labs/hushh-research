@@ -122,6 +122,7 @@ steps:
     entrypoint: "bash"
     env:
       - "PATH=/usr/lib/google-cloud-sdk/bin:/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      - "SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem"
     args:
       - "-c"
       - |
@@ -599,7 +600,7 @@ steps:
         collect_wait=2
         for _attempt in $(seq 1 20); do
           probe_entries="$(gcloud logging read \
-            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND (jsonPayload.azure_pwm_runtime_probe_result:* OR jsonPayload.azure_pwm_runtime_probe_stage=primary_http OR jsonPayload.azure_managed_text_contract:* OR textPayload:azure_managed_text_contract OR textPayload:azure_pwm_runtime_probe_result OR textPayload:primary_http)" \
+            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND (jsonPayload.azure_pwm_runtime_probe_result:* OR jsonPayload.azure_pwm_runtime_probe_stage=primary_http OR jsonPayload.azure_managed_text_contract:* OR textPayload:azure_managed_text_contract OR jsonPayload.managed_text_scopes_contract:* OR textPayload:managed_text_scopes_contract OR textPayload:azure_pwm_runtime_probe_result OR textPayload:primary_http)" \
             --project="$PROJECT_ID" --limit=10 --freshness=1h \
             --format=json 2>/dev/null || true)"
           if PROBE_ENTRIES="${probe_entries}" python3 - <<'PY'
@@ -617,7 +618,8 @@ steps:
                 values.append(payload)
             terminal = any(isinstance(value, dict) and "azure_pwm_runtime_probe_result" in value for value in values)
             primary = any(isinstance(value, dict) and value.get("azure_pwm_runtime_probe_stage") == "primary_http" for value in values)
-            managed = any(isinstance(value, dict) and value.get("azure_managed_text_contract") == "ok" for value in values)
+            markers = ("managed_text_scopes_contract", "azure_managed_text_contract")
+            managed = any(isinstance(value, dict) and any(value.get(marker) == "ok" for marker in markers) for value in values)
             failed = any(isinstance(value, dict) and value.get("azure_pwm_runtime_probe_result") == "failed" for value in values)
             raise SystemExit(0 if failed or terminal and primary and managed else 1)
         except (ValueError, TypeError):
@@ -670,9 +672,13 @@ steps:
             raise SystemExit("Azure primary HTTP200 structured receipt is missing")
         print(json.dumps({"azure_primary_structured_readiness": "ok", "http_status": 200,
             "deployment": primary[0]["deployment"]}))
-        if not any(isinstance(item, dict) and item.get("azure_managed_text_contract") == "ok" and item.get("scopes") == 2 for item in verdicts):
-            raise SystemExit("Shared Azure primary text contract receipt is missing")
-        print(json.dumps({"azure_managed_text_contract": "ok", "scopes": 2}))
+        markers = ("managed_text_scopes_contract", "azure_managed_text_contract")
+        managed = next((marker for marker in markers if any(
+            isinstance(item, dict) and item.get(marker) == "ok" and item.get("scopes") == 2
+            for item in verdicts)), None)
+        if managed is None:
+            raise SystemExit("Managed text scope contract receipt is missing")
+        print(json.dumps({managed: "ok", "scopes": 2}))
         PY
         echo "Azure PWM UAT runtime probe passed."
     allowFailure: true

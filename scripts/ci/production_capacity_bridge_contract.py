@@ -77,6 +77,18 @@ def bridge_revision_names(receipt):
 
 
 def validate_receipt_extension(value, validate_receipt):
+    startup = value.get("startupProbe")
+    attempts = value.get("startupAttempts", 0)
+    if type(attempts) is not int or not 0 <= attempts <= 2 or attempts and startup is None:
+        raise retention.UnsafeState("Invalid recorded bridge startup attempt count")
+    if startup is not None and (
+        value.get("profile") != recorded.PROFILE
+        or not isinstance(startup, str)
+        or startup not in recorded.STARTUP_PHASES
+        or value.get("requested") is not True
+        or (value.get("status") == "verified") != (startup == "complete")
+    ):
+        raise retention.UnsafeState("Invalid recorded bridge startup receipt")
     if value.get("profile") == recorded.PROFILE:
         if (
             value["revision"] != recorded.REVISION
@@ -222,7 +234,7 @@ def verify_recorded_displacement(service, rows):
     ))
     if (
         release.get("status") != "blocked"
-        or release.get("sha") != "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+        or release.get("sha") != recorded.APPLICATION_SHA
         or release.get("candidate", {}).get("backend_revision") != recorded.DISPLACED
         or release.get("final", {}).get("backend_revision") != recorded.SERVING_BACKEND
         or not owner._same_production_run(run, owner.uncached_api(repo, f"runs/{run_id}"))

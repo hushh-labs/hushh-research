@@ -1,5 +1,7 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+
 import { prepareCircleManagement, verifyCircleManagementReceipt, circleManagementResult,
   type CircleManagementAction, type CircleManagementBinding } from "@/lib/one-location/command-circle-management";
 import { OwnerOperationGate, SosOperationGate, stopSosShares } from "@/lib/one-location/command-sos";
@@ -2525,7 +2527,7 @@ export function OneLocationAgentPageContent({
     if (placesBannerKey) {
       try { window.localStorage.setItem(placesBannerKey, "1"); } catch { /* Mounted dismissal still works. */ }
     }
-    if (announce) toast.info("You can save places anytime in Location settings.");
+    if (announce) toast.info("You can save places anytime in Location settings.", { className: connectTypography.toast });
   }, [placesBannerKey]);
   // Saved-place prompt shown once per mounted journey after Location is ready.
   // Active root-setup replay deliberately gets a fresh opportunity.
@@ -3429,7 +3431,7 @@ export function OneLocationAgentPageContent({
     setMapPresenceEnabled(next);
     void setMapPresence(next).catch(() => {
       setMapPresenceEnabled(previous);
-      toast.error("Could not change map visibility.");
+      toast.error("Could not change map visibility.", { className: connectTypography.toast });
     });
   }, [mapPresenceEnabled, setMapPresence]);
 
@@ -3662,7 +3664,7 @@ export function OneLocationAgentPageContent({
           } catch {
             if (cancelled || !readOneLocationControlState(userId).paused) return;
             toast.error(
-              "Location is paused on this device. Nearby checkout did not complete.",
+              "Location is paused on this device. Nearby checkout did not complete.", { className: connectTypography.toast }
             );
             return;
           }
@@ -4497,13 +4499,13 @@ export function OneLocationAgentPageContent({
       toast.info(
         result.opened
           ? "Turn on Location, then return here and refresh."
-          : "Open your phone or browser location settings, then return and refresh.",
+          : "Open your phone or browser location settings, then return and refresh.", { className: connectTypography.toast }
       );
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not open location settings.",
+          : "Could not open location settings.", { className: connectTypography.toast }
       );
     } finally {
       setBusy(null);
@@ -4618,7 +4620,7 @@ export function OneLocationAgentPageContent({
       // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
       const blockReason = locationBlockReason(currentPermission);
       if (blockReason) {
-        if (announce) toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
+        if (announce) toast.error(LOCATION_BLOCK_MESSAGE[blockReason], { className: connectTypography.toast });
         if (shouldOpenSettings && announce) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
@@ -4725,7 +4727,7 @@ export function OneLocationAgentPageContent({
           })
         ) {
           toast.error(
-            failure === "no-fix" ? LOCATION_COPY.noFix : LOCATION_COPY.denied,
+            failure === "no-fix" ? LOCATION_COPY.noFix : LOCATION_COPY.denied, { className: connectTypography.toast }
           );
         }
         // Settings only for something Settings can fix. The old trigger also
@@ -5424,7 +5426,7 @@ export function OneLocationAgentPageContent({
           }
         }
         toast.error(
-          "Cancellation is incomplete. Review the pending share in Active shares.",
+          "Cancellation is incomplete. Review the pending share in Active shares.", { className: connectTypography.toast }
         );
         return false;
       };
@@ -5547,10 +5549,10 @@ export function OneLocationAgentPageContent({
           summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}. ${recipientFailureCount} ${
             recipientFailureCount === 1 ? "person was" : "people were"
           } no longer ready.`;
-          toast.warning(summary);
+          toast.warning(summary, { className: connectTypography.toast });
         } else {
           summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}.`;
-          toast.success(summary);
+          toast.success(summary, { className: connectTypography.toast });
         }
         resetShareComposer();
         // Signal the redesign hub to close the 2-step share flow and return to
@@ -5956,7 +5958,7 @@ export function OneLocationAgentPageContent({
           trackSosTriggered({ selectedCount: totalSelected, reachedCount: 0,
             unreachableCount: totalSelected, dispatchMs: dispatchElapsed(), note });
           setSosDispatch({ owner, status: "failed" });
-          toast.error(sosRecipientReadinessMessage(roster.recipients));
+          toast.error(sosRecipientReadinessMessage(roster.recipients), { className: connectTypography.toast });
           return;
         }
         if (!point) {
@@ -5971,7 +5973,7 @@ export function OneLocationAgentPageContent({
           toast.error(
             failure === "denied" || failure === "blocked"
               ? "Location access is blocked. Check your device or browser settings and try again. Alert not sent."
-              : "Couldn't get a recent location. Try again. Alert not sent.",
+              : "Couldn't get a recent location. Try again. Alert not sent.", { className: connectTypography.toast }
           );
           return;
         }
@@ -6015,12 +6017,12 @@ export function OneLocationAgentPageContent({
         }
         if (shared > 0) {
           if (shared < totalSelected || unreachable.length > 0) {
-            toast.warning("Some contacts may miss this alert.", { classNames: { title: "!line-clamp-1" } });
+            toast.warning("Some contacts may miss this alert.", { className: connectTypography.toast, classNames: { title: "!line-clamp-1" } });
           } else {
             const message = lastKnown
               ? reached > 0 ? "SMS alert sent with your last known location." : "Last known location shared."
               : reached > 0 ? "SMS alert sent." : "SMS location shared.";
-            toast.success(message, { classNames: { title: "!line-clamp-1" } });
+            toast.success(message, { className: connectTypography.toast, classNames: { title: "!line-clamp-1" } });
           }
         }
 
@@ -6060,11 +6062,11 @@ export function OneLocationAgentPageContent({
             : mail.emailed > 0 ? "email-only" : "unconfirmed",
         });
         if (shared === 0 && mail.emailed === 0) {
-          toast.error("Delivery could not be confirmed. Call for help directly.");
+          toast.error("Delivery could not be confirmed. Call for help directly.", { className: connectTypography.toast });
         } else if (reached === 0 && mail.emailed > 0) {
           toast.warning(
             "Alert sent by email. In-app delivery could not be confirmed.",
-            { classNames: { title: "!line-clamp-1" } },
+            { className: connectTypography.toast, classNames: { title: "!line-clamp-1" } },
           );
         }
         void refresh().catch(() => null);
@@ -6085,7 +6087,7 @@ export function OneLocationAgentPageContent({
         setSosDispatch((current) => current?.owner === owner && current.status === "sent"
           ? current : { owner, status: "failed" });
         toast.error(
-          error instanceof Error ? error.message : "Could not send SMS alert.",
+          error instanceof Error ? error.message : "Could not send SMS alert.", { className: connectTypography.toast }
         );
       } finally {
         if (sosOperations.current.finish(owner, operation) && sosOwnerRef.current === owner) setBusy((current) => current === "sos" ? null : current);
@@ -6133,12 +6135,12 @@ export function OneLocationAgentPageContent({
         ) {
           void refresh().catch(() => null);
         }
-        toast.success("SMS contact added.");
+        toast.success("SMS contact added.", { className: connectTypography.toast });
         return true;
       } catch (error) {
         if (sosOwnerRef.current !== owner) return false;
         toast.error(
-          error instanceof Error ? error.message : "Could not add SMS contact.",
+          error instanceof Error ? error.message : "Could not add SMS contact.", { className: connectTypography.toast }
         );
         return false;
       } finally {
@@ -6191,7 +6193,7 @@ export function OneLocationAgentPageContent({
               ? `${selection.circle.name} has no members ready for SMS yet.`
               : requested
                 ? "Those people are already in your SMS contacts."
-                : `${selection.circle.name} is already in your SMS contacts.`,
+                : `${selection.circle.name} is already in your SMS contacts.`, { className: connectTypography.toast }
           );
           return;
         }
@@ -6225,7 +6227,7 @@ export function OneLocationAgentPageContent({
         ).length;
         if (failedCount) {
           toast.error(
-            `Added ${addedUserIds.length} of ${targets.length} Circle members. ${failedCount} could not be added.`,
+            `Added ${addedUserIds.length} of ${targets.length} Circle members. ${failedCount} could not be added.`, { className: connectTypography.toast }
           );
         } else {
           toast.success(
@@ -6233,7 +6235,7 @@ export function OneLocationAgentPageContent({
               unavailableCount
                 ? `; ${unavailableCount} not ready and left out`
                 : ""
-            }.`,
+            }.`, { className: connectTypography.toast }
           );
         }
       } catch (error) {
@@ -6242,7 +6244,7 @@ export function OneLocationAgentPageContent({
           oneLocationErrorMessage(
             error,
             "Could not add this Circle to SMS contacts.",
-          ),
+          ), { className: connectTypography.toast }
         );
       } finally {
         if (smsOperations.current.finish(owner, operation) && sosOwnerRef.current === owner) {
@@ -6280,14 +6282,14 @@ export function OneLocationAgentPageContent({
         ) {
           void refresh().catch(() => null);
         }
-        toast.success("SMS contact removed.");
+        toast.success("SMS contact removed.", { className: connectTypography.toast });
         return true;
       } catch (error) {
         if (sosOwnerRef.current !== owner) return false;
         toast.error(
           error instanceof Error
             ? error.message
-            : "Could not remove SMS contact.",
+            : "Could not remove SMS contact.", { className: connectTypography.toast }
         );
         return false;
       } finally {
@@ -6303,7 +6305,7 @@ export function OneLocationAgentPageContent({
     async (grant: OneLocationGrant) => {
       const recipient = recipientForGrant(grant);
       if (!recipient) {
-        toast.error("Location receiving is unavailable. This share could not start.");
+        toast.error("Location receiving is unavailable. This share could not start.", { className: connectTypography.toast });
         return;
       }
       setBusy("publish");
@@ -6323,11 +6325,11 @@ export function OneLocationAgentPageContent({
           "manual",
           readiness.point,
         );
-        toast.success("Encrypted location update published.");
+        toast.success("Encrypted location update published.", { className: connectTypography.toast });
         void refresh().catch(() => null);
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : "Could not publish update.",
+          error instanceof Error ? error.message : "Could not publish update.", { className: connectTypography.toast }
         );
       } finally {
         setBusy(null);
@@ -6406,7 +6408,7 @@ export function OneLocationAgentPageContent({
                   [grant.id]: { message: waiting, tone: "waiting" },
                 };
           });
-          if (!silent) toast.message(awaitingFirstPublishMessage(), {
+          if (!silent) toast.message(awaitingFirstPublishMessage(), { className: connectTypography.toast,
             classNames: { title: "!line-clamp-1" },
           });
           return "awaiting";
@@ -6492,7 +6494,7 @@ export function OneLocationAgentPageContent({
           // Only nudge with a gentle (non-error) toast on an explicit tap, and
           // never on the background poll, so the page stays quiet while waiting.
           if (!silent) {
-            toast.message(waitingMessage, {
+            toast.message(waitingMessage, { className: connectTypography.toast,
               classNames: { title: "!line-clamp-1" },
             });
           }
@@ -6503,7 +6505,7 @@ export function OneLocationAgentPageContent({
             ? error.message
             : "Could not view this private location update.";
         if (!silent) {
-          toast.error(genericMessage);
+          toast.error(genericMessage, { className: connectTypography.toast });
           // The person tapped View and it failed. A toast disappears, so also
           // leave the reason on the card itself -- otherwise tapping again is
           // the only way to find out anything, which is how a recipient ends
@@ -6553,9 +6555,9 @@ export function OneLocationAgentPageContent({
           ownerUserId,
           message: `Please share your live location again — my secure key was refreshed.`,
         });
-        toast.success(LOCATION_REQUEST_SENT_TOAST);
+        toast.success(LOCATION_REQUEST_SENT_TOAST, { className: connectTypography.toast });
       } catch (error) {
-        toast.error(oneLocationErrorMessage(error, "Could not send request."));
+        toast.error(oneLocationErrorMessage(error, "Could not send request."), { className: connectTypography.toast });
       } finally {
         setBusy(null);
       }
@@ -6593,7 +6595,7 @@ export function OneLocationAgentPageContent({
         return next;
       });
       toast.success(
-        `Stopped watching ${receivedGrantOwnerLabel(grant)}'s location.`,
+        `Stopped watching ${receivedGrantOwnerLabel(grant)}'s location.`, { className: connectTypography.toast }
       );
     },
     [auth.userId, setDecryptedPoints],
@@ -7237,12 +7239,12 @@ export function OneLocationAgentPageContent({
       setRevokingGrantId(grantId);
       try {
         await OneLocationService.revokeGrant({ vaultOwnerToken, grantId });
-        toast.success("Location access revoked.");
+        toast.success("Location access revoked.", { className: connectTypography.toast });
         scheduleOneLocationStateRefresh("location_share_revoked");
         return true;
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : "Could not revoke access.",
+          error instanceof Error ? error.message : "Could not revoke access.", { className: connectTypography.toast }
         );
         return false;
       } finally {
@@ -7272,13 +7274,13 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           requestId,
         });
-        toast.success("Request taken back.");
+        toast.success("Request taken back.", { className: connectTypography.toast });
         scheduleOneLocationStateRefresh(
           "location_access_request_withdrawn",
         );
       } catch (error) {
         toast.error(
-          oneLocationErrorMessage(error, "Could not take back request."),
+          oneLocationErrorMessage(error, "Could not take back request."), { className: connectTypography.toast }
         );
       } finally {
         setWithdrawingRequestId(null);
@@ -7328,14 +7330,14 @@ export function OneLocationAgentPageContent({
             ? `Requesting ${amount} more of your live location.`
             : "Requesting more time.",
         });
-        toast.success(LOCATION_REQUEST_SENT_TOAST);
+        toast.success(LOCATION_REQUEST_SENT_TOAST, { className: connectTypography.toast });
         setEditingGrantId(null);
         scheduleOneLocationStateRefresh("location_access_request_created");
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
-            : `Couldn't ask ${ownerLabel} for more time. Try again.`,
+            : `Couldn't ask ${ownerLabel} for more time. Try again.`, { className: connectTypography.toast }
         );
       } finally {
         setRequestingMoreTimeKey(null);
@@ -7439,14 +7441,14 @@ export function OneLocationAgentPageContent({
         durationMode: untilStopped ? "until_stopped" : "timed",
       });
       reconcileGrantDurationMutation(updatedGrant);
-      toast.success("Time updated.");
+      toast.success("Time updated.", { className: connectTypography.toast });
       setLiveShareDurationEditing(false);
       setLiveShareDurationGrantId(null);
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Couldn't change the time. Try again.",
+          : "Couldn't change the time. Try again.", { className: connectTypography.toast }
       );
     } finally {
       setLiveShareDurationSaving(false);
@@ -7514,11 +7516,11 @@ export function OneLocationAgentPageContent({
         };
         saveSosIncident(remaining);
         setSosIncident(remaining);
-        toast.error(`${result.revoked.length} shares stopped; ${result.unresolved.length} still need review.`);
+        toast.error(`${result.revoked.length} shares stopped; ${result.unresolved.length} still need review.`, { className: connectTypography.toast });
       } else {
         clearSosIncident(); setSosIncident(null);
         setSosDispatch(null);
-        toast.success("SMS alert stopped.");
+        toast.success("SMS alert stopped.", { className: connectTypography.toast });
       }
       scheduleOneLocationStateRefresh("location_share_revoked");
       return result;
@@ -7569,7 +7571,7 @@ export function OneLocationAgentPageContent({
       markAwaitingContactSettings(true);
       // Name the switch and the way back before handing off to the OS.
       toast.info(
-        "Turn on Contacts for Hushh, then come back — we'll pick up where you left off.",
+        "Turn on Contacts for Hushh, then come back — we'll pick up where you left off.", { className: connectTypography.toast }
       );
     },
     [markAwaitingContactSettings],
@@ -7593,7 +7595,7 @@ export function OneLocationAgentPageContent({
     markAwaitingContactSettings(false);
     // Resume the work, not just the permission. The trip was never about the
     // switch -- it was about syncing contacts.
-    toast.success("Contact access is on. Syncing…");
+    toast.success("Contact access is on. Syncing…", { className: connectTypography.toast });
     const resume = contactSettingsResumeRef.current;
     contactSettingsResumeRef.current = null;
     if (resume) resume();
@@ -7678,7 +7680,7 @@ export function OneLocationAgentPageContent({
         read: () => contactGraphReadRef.current(),
       }, fresh);
     } catch {
-      if (isCurrent()) toast.info("Contacts synced. Matches are saved; refresh connections to update.", {
+      if (isCurrent()) toast.info("Contacts synced. Matches are saved; refresh connections to update.", { className: connectTypography.toast,
         id: "contact-sync-refresh",
         action: { label: "Refresh connections", onClick: () => { void reconcileSyncedConnections(owner); } },
       });
@@ -7965,18 +7967,18 @@ export function OneLocationAgentPageContent({
       // No referral link AND no shareable origin — the same condition that
       // hides the Connect invite row entirely rather than offering a link that
       // resolves to nothing.
-      toast.error("Sharing is not available here.");
+      toast.error("Sharing is not available here.", { className: connectTypography.toast });
       return;
     }
 
     try {
       const delivery = await shareLink(share);
       if (delivery === "copied") {
-        toast.success("Invite link copied.");
+        toast.success("Invite link copied.", { className: connectTypography.toast });
       }
     } catch (error) {
       if (isShareCancellationError(error)) return;
-      toast.error("Could not open the share sheet.");
+      toast.error("Could not open the share sheet.", { className: connectTypography.toast });
     }
   }, [contactInvitations.enabled, contactInvitations.candidates.length, setContactSyncResultsOpen, openContactInvitations, prepareContactInvitation]);
 
@@ -7988,7 +7990,7 @@ export function OneLocationAgentPageContent({
         status: "error",
         error: message,
       }));
-      toast.error(message);
+      toast.error(message, { className: connectTypography.toast });
       return;
     }
     if (!requestContactCheck()) return;
@@ -8136,16 +8138,16 @@ export function OneLocationAgentPageContent({
       if (failure === "denied") {
         // The OS will not prompt again, so a retry button would do nothing.
         // Settings is the only route back.
-        toast.error(message, {
+        toast.error(message, { className: connectTypography.toast,
           action: {
             label: "Open Settings",
             onClick: () => void openContactSettingsAndWatch(),
           },
         });
       } else if (failure === "unavailable") {
-        toast.info(message);
+        toast.info(message, { className: connectTypography.toast });
       } else {
-        toast.error(message);
+        toast.error(message, { className: connectTypography.toast });
       }
     } finally {
       contactSyncInFlightRef.current = false;
@@ -8193,7 +8195,7 @@ export function OneLocationAgentPageContent({
         : [...selectedRequestOwnerIds];
       if (!vaultOwnerToken || !selectedOwnerIds.length) return failedResult;
       if (!auth.user || !auth.userId) {
-        toast.error("Refresh your session before sending a location request.");
+        toast.error("Refresh your session before sending a location request.", { className: connectTypography.toast });
         return failedResult;
       }
       const audienceBinding = commandContext?.preparedBinding ?? {
@@ -8221,7 +8223,7 @@ export function OneLocationAgentPageContent({
           oneLocationErrorMessage(
             error,
             "The selected people changed. Review who you want to ask.",
-          ),
+          ), { className: connectTypography.toast }
         );
         return failedResult;
       }
@@ -8298,7 +8300,7 @@ export function OneLocationAgentPageContent({
           has_note: Boolean(requestMessage.trim()),
         });
         resetRequestComposer(sentUserIds);
-        toast.success(LOCATION_REQUEST_SENT_TOAST);
+        toast.success(LOCATION_REQUEST_SENT_TOAST, { className: connectTypography.toast });
         scheduleOneLocationStateRefresh("location_access_request_created");
         return { sent: true, completed: true };
       } catch (error) {
@@ -8315,7 +8317,7 @@ export function OneLocationAgentPageContent({
         scheduleOneLocationStateRefresh(
           "location_access_request_revalidation_failed",
         );
-        toast.error(oneLocationErrorMessage(error, "Could not send request."));
+        toast.error(oneLocationErrorMessage(error, "Could not send request."), { className: connectTypography.toast });
         if (!currentCommand()) return { sent: successCount > 0, completed: false };
         if (successCount > 0) {
           resetRequestComposer(sentUserIds);
@@ -8402,7 +8404,7 @@ export function OneLocationAgentPageContent({
             : "Your live link now runs for another window."
           : copiedToClipboard
             ? "Public location link created and copied."
-            : "Public location link created.",
+            : "Public location link created.", { className: connectTypography.toast }
       );
       scheduleOneLocationStateRefresh("location_public_invite_created");
       return {status:"succeeded",summary:response.reused ? "The existing public location link was extended for the reviewed duration." : "Public location link created for the reviewed duration."};
@@ -8419,7 +8421,7 @@ export function OneLocationAgentPageContent({
         oneLocationErrorMessage(
           error,
           "Could not create public location link.",
-        ),
+        ), { className: connectTypography.toast }
       );
       return {status:"failed",summary:"Could not create the public link."};
     } finally {
@@ -8445,14 +8447,14 @@ export function OneLocationAgentPageContent({
           routeId: "one_location",
           targetType: "public",
         });
-        toast.success("Public location link copied.");
+        toast.success("Public location link copied.", { className: connectTypography.toast });
         return true;
       } else {
-        toast.error("Could not copy the public location link.");
+        toast.error("Could not copy the public location link.", { className: connectTypography.toast });
         return false;
       }
     } catch {
-      toast.error("Could not copy the public location link.");
+      toast.error("Could not copy the public location link.", { className: connectTypography.toast });
       return false;
     }
   }, [publicInviteUrl]);
@@ -8472,11 +8474,11 @@ export function OneLocationAgentPageContent({
       const delivery = await shareOneLocationLink({title:ONE_LOCATION_PUBLIC_SHARE_TITLE,text:ONE_LOCATION_PUBLIC_SHARE_COPY,url,dialogTitle:"Share to contacts",isCurrent:current});
       if (!current()) return {status:"failed",summary:"Sharing was interrupted. Review the link after unlocking."};
       trackOneLocationJourneyAction({ action: "public_link_shared", routeId: "one_location", targetType: "public" });
-      if (delivery === "copied") toast.success("Public location link copied.");
+      if (delivery === "copied") toast.success("Public location link copied.", { className: connectTypography.toast });
       return {status:"succeeded",summary:delivery==="copied" ? "Public link copied. Paste it into WhatsApp or another app." : "The system share sheet finished. Delivery is handled by the app you chose."};
     } catch (error) {
       const summary=isShareCancellationError(error) ? "Sharing was canceled. Your public link is still available." : "The share sheet could not open. Use Share to contacts on this screen.";
-      if (current() && !isShareCancellationError(error)) toast.error(summary);
+      if (current() && !isShareCancellationError(error)) toast.error(summary, { className: connectTypography.toast });
       return {status:"failed",summary};
     }
   }, [auth.userId,publicInviteUrl,vaultOwnerToken]);
@@ -8526,7 +8528,7 @@ export function OneLocationAgentPageContent({
         countBucket: "1",
       });
       if (delivery === "copied") {
-        toast.success("Invite link copied.");
+        toast.success("Invite link copied.", { className: connectTypography.toast });
       }
     } catch (error) {
       if (isShareCancellationError(error)) return;
@@ -8537,7 +8539,7 @@ export function OneLocationAgentPageContent({
         copied_to_clipboard: false,
         active_invite_count: activePublicInvites.length,
       });
-      toast.error(oneLocationErrorMessage(error, "Could not prepare invite."));
+      toast.error(oneLocationErrorMessage(error, "Could not prepare invite."), { className: connectTypography.toast });
     } finally {
       setBusy(null);
     }
@@ -8576,7 +8578,7 @@ export function OneLocationAgentPageContent({
       toast.success(
         copiedToClipboard
           ? "Invite to One link created and copied."
-          : "Invite to One link created.",
+          : "Invite to One link created.", { className: connectTypography.toast }
       );
       void refresh().catch(() => null);
     } catch (error) {
@@ -8588,7 +8590,7 @@ export function OneLocationAgentPageContent({
         active_invite_count: activeCircleInvites.length,
       });
       toast.error(
-        oneLocationErrorMessage(error, "Could not create Invite to One link."),
+        oneLocationErrorMessage(error, "Could not create Invite to One link."), { className: connectTypography.toast }
       );
     } finally {
       setBusy(null);
@@ -8606,12 +8608,12 @@ export function OneLocationAgentPageContent({
           targetType: "contacts",
           countBucket: "1",
         });
-        toast.success("Invite to One link copied.");
+        toast.success("Invite to One link copied.", { className: connectTypography.toast });
       } else {
-        toast.error("Could not copy the Invite to One link.");
+        toast.error("Could not copy the Invite to One link.", { className: connectTypography.toast });
       }
     } catch {
-      toast.error("Could not copy the Invite to One link.");
+      toast.error("Could not copy the Invite to One link.", { className: connectTypography.toast });
     }
   }, [circleInviteUrl]);
 
@@ -8631,11 +8633,11 @@ export function OneLocationAgentPageContent({
         countBucket: "1",
       });
       if (delivery === "copied") {
-        toast.success("Invite to One link copied.");
+        toast.success("Invite to One link copied.", { className: connectTypography.toast });
       }
     } catch (error) {
       if (isShareCancellationError(error)) return;
-      toast.error("Could not open the share sheet.");
+      toast.error("Could not open the share sheet.", { className: connectTypography.toast });
     }
   }, [circleInviteUrl]);
 
@@ -8649,14 +8651,14 @@ export function OneLocationAgentPageContent({
           inviteId: invite.id,
         });
         setCircleInviteUrl("");
-        toast.success("Invite to One link revoked.");
+        toast.success("Invite to One link revoked.", { className: connectTypography.toast });
         void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           oneLocationErrorMessage(
             error,
             "Could not revoke Invite to One link.",
-          ),
+          ), { className: connectTypography.toast }
         );
       } finally {
         setBusy(null);
@@ -8871,7 +8873,7 @@ export function OneLocationAgentPageContent({
           oneLocationErrorMessage(
             error,
             "Could not load this Circle for sharing.",
-          ),
+          ), { className: connectTypography.toast }
         );
       } finally {
         if (requestGeneration === shareComposerGenerationRef.current) {
@@ -8924,7 +8926,7 @@ export function OneLocationAgentPageContent({
           circle_kind: kind,
         });
         if (!existingCircleId) trackLocationFunnelStepCompleted("circle_created");
-        toast.success(existingCircleId ? "Circle updated." : `${circle.name} created.`);
+        toast.success(existingCircleId ? "Circle updated." : `${circle.name} created.`, { className: connectTypography.toast });
         return circle;
       } catch (error) {
         throw new Error(
@@ -8980,7 +8982,7 @@ export function OneLocationAgentPageContent({
           notificationType: "location_circle_renamed",
           circleId,
         });
-        toast.success("Circle name updated.");
+        toast.success("Circle name updated.", { className: connectTypography.toast });
         return circle;
       } catch (error) {
         throw new Error(
@@ -9014,7 +9016,7 @@ export function OneLocationAgentPageContent({
         toast.success(
           result.joined
             ? `Joined ${result.circle.name}.`
-            : `${result.circle.name} is already in your Circles.`,
+            : `${result.circle.name} is already in your Circles.`, { className: connectTypography.toast }
         );
         return result;
       } catch (error) {
@@ -9044,7 +9046,7 @@ export function OneLocationAgentPageContent({
             rotate,
           },
         );
-        toast.success(rotate ? "Invite code rotated." : "Invite code ready.");
+        toast.success(rotate ? "Invite code rotated." : "Invite code ready.", { className: connectTypography.toast });
         return inviteCode;
       } catch (error) {
         throw new Error(
@@ -9059,10 +9061,10 @@ export function OneLocationAgentPageContent({
 
   const handleCopyNamedCircleCode = useCallback(async (code: string) => {
     if (await copyToClipboard(code)) {
-      toast.success("Circle code copied.");
+      toast.success("Circle code copied.", { className: connectTypography.toast });
       return;
     }
-    toast.error("Could not copy the Circle code.");
+    toast.error("Could not copy the Circle code.", { className: connectTypography.toast });
   }, []);
 
   const handleShareNamedCircleCode = useCallback(
@@ -9092,10 +9094,10 @@ export function OneLocationAgentPageContent({
           routeId: "one_location",
           targetType: "circle",
         });
-        if (delivery === "copied") toast.success("Circle code copied.");
+        if (delivery === "copied") toast.success("Circle code copied.", { className: connectTypography.toast });
       } catch (error) {
         if (isShareCancellationError(error)) return;
-        toast.error("Could not open the share sheet.");
+        toast.error("Could not open the share sheet.", { className: connectTypography.toast });
       }
     },
     [],
@@ -9163,12 +9165,12 @@ export function OneLocationAgentPageContent({
       .then((result) => {
         if (cancelled) return;
         scheduleNamedCircleStateRefresh();
-        toast.success(`You joined ${result?.circle?.name ?? "the circle"}.`);
+        toast.success(`You joined ${result?.circle?.name ?? "the circle"}.`, { className: connectTypography.toast });
       })
       .catch(() => {
         if (cancelled) return;
         toast.error(
-          "That circle code could not be used. Ask for a fresh one from Circles.",
+          "That circle code could not be used. Ask for a fresh one from Circles.", { className: connectTypography.toast }
         );
       });
     return () => {
@@ -9282,10 +9284,10 @@ export function OneLocationAgentPageContent({
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
-        if (delivery === "copied") toast.success("Circle code copied.");
+        if (delivery === "copied") toast.success("Circle code copied.", { className: connectTypography.toast });
       } catch (error) {
         if (isShareCancellationError(error)) return;
-        toast.error("Could not open the share sheet.");
+        toast.error("Could not open the share sheet.", { className: connectTypography.toast });
       }
     },
     [],
@@ -9348,7 +9350,7 @@ export function OneLocationAgentPageContent({
         });
         scheduleNamedCircleStateRefresh();
         await refreshSmsRoster();
-        toast.success("Member removed.");
+        toast.success("Member removed.", { className: connectTypography.toast });
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(error, "Could not remove this member."),
@@ -9465,7 +9467,7 @@ export function OneLocationAgentPageContent({
           source: "one_location_circle_member_invite",
         });
         scheduleNamedCircleStateRefresh();
-        toast.success(`Joined ${circle.name}.`);
+        toast.success(`Joined ${circle.name}.`, { className: connectTypography.toast });
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(error, "Could not join the Circle."),
@@ -9506,7 +9508,7 @@ export function OneLocationAgentPageContent({
           inviteId,
           source: "one_location_circle_member_invite",
         });
-        toast.success("Circle invitation declined.");
+        toast.success("Circle invitation declined.", { className: connectTypography.toast });
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(
@@ -9568,7 +9570,7 @@ export function OneLocationAgentPageContent({
           targetType: "circle",
         });
         scheduleNamedCircleStateRefresh();
-        toast.success("You left the Circle.");
+        toast.success("You left the Circle.", { className: connectTypography.toast });
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(error, "Could not leave the Circle."),
@@ -9599,7 +9601,7 @@ export function OneLocationAgentPageContent({
           notificationType: "location_circle_deleted",
           circleId,
         });
-        toast.success("Circle deleted.");
+        toast.success("Circle deleted.", { className: connectTypography.toast });
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(error, "Could not delete the Circle."),
@@ -9644,7 +9646,7 @@ export function OneLocationAgentPageContent({
           oneLocationErrorMessage(
             error,
             "Could not prepare this member for sharing.",
-          ),
+          ), { className: connectTypography.toast }
         );
         return false;
       } finally {
@@ -9701,7 +9703,7 @@ export function OneLocationAgentPageContent({
               }
             : current,
         );
-        toast.success("Public location link revoked.");
+        toast.success("Public location link revoked.", { className: connectTypography.toast });
         return {status:"succeeded",summary:"Public location link revoked."};
       } catch (error) {
         trackOneLocationJourneyAction({
@@ -9715,7 +9717,7 @@ export function OneLocationAgentPageContent({
           oneLocationErrorMessage(
             error,
             "Could not revoke public location link.",
-          ),
+          ), { className: connectTypography.toast }
         );
         return {status:"failed",summary:"Could not revoke the public link."};
       } finally {
@@ -9797,7 +9799,7 @@ export function OneLocationAgentPageContent({
           (!automaticPrivatePublishingAllowedRef.current ||
             readOneLocationControlState(auth.userId).paused)
         ) {
-          toast.success("Approved. Location stays paused.");
+          toast.success("Approved. Location stays paused.", { className: connectTypography.toast });
           return true;
         }
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
@@ -9812,7 +9814,7 @@ export function OneLocationAgentPageContent({
         toast.success(
           automatic
             ? `Shared with ${recipientLabel(requester)} automatically.`
-            : "Request approved and encrypted update published.",
+            : "Request approved and encrypted update published.", { className: connectTypography.toast }
         );
         // Non-blocking, per the latency fix on main: the approval is already
         // done and published, and holding the button through a full state
@@ -9830,7 +9832,7 @@ export function OneLocationAgentPageContent({
             ? error.message
             : automatic
               ? "Could not auto-approve request."
-              : "Could not approve request.",
+              : "Could not approve request.", { className: connectTypography.toast }
         );
         return false;
       } finally {
@@ -9931,7 +9933,7 @@ export function OneLocationAgentPageContent({
           routeId: "one_location",
           targetType: "person",
         });
-        toast.success("Request denied.");
+        toast.success("Request denied.", { className: connectTypography.toast });
         scheduleOneLocationStateRefresh("location_access_denied");
         return true;
       } catch (error) {
@@ -9942,7 +9944,7 @@ export function OneLocationAgentPageContent({
           targetType: "person",
         });
         toast.error(
-          error instanceof Error ? error.message : "Could not deny request.",
+          error instanceof Error ? error.message : "Could not deny request.", { className: connectTypography.toast }
         );
         return false;
       } finally {
@@ -9964,11 +9966,11 @@ export function OneLocationAgentPageContent({
           grantId: grant.id,
           referredUserId: target,
         });
-        toast.success("Referral sent as an owner approval request.");
+        toast.success("Referral sent as an owner approval request.", { className: connectTypography.toast });
         void refresh().catch(() => null);
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : "Could not refer recipient.",
+          error instanceof Error ? error.message : "Could not refer recipient.", { className: connectTypography.toast }
         );
       } finally {
         setBusy(null);
@@ -10194,12 +10196,12 @@ export function OneLocationAgentPageContent({
         failedRecipientIds: recipientIds,
       };
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
-        toast.error("Location permission is required to check in.");
+        toast.error("Location permission is required to check in.", { className: connectTypography.toast });
         return failedSelection;
       }
       if (!selected.length || selected.length !== new Set(recipientIds).size) {
         toast.error(
-          "Select at least one trusted contact who is ready to receive your location.",
+          "Select at least one trusted contact who is ready to receive your location.", { className: connectTypography.toast }
         );
         return failedSelection;
       }
@@ -10228,7 +10230,7 @@ export function OneLocationAgentPageContent({
         // The location shown on the consent screen is the only point this
         // operation may encrypt; permission is rechecked without recapturing.
         if (!readiness.ready) {
-          toast.error("Location permission is required to check in.");
+          toast.error("Location permission is required to check in.", { className: connectTypography.toast });
           return failedSelection;
         }
         const capturedAtMs = Date.parse(point.capturedAt);
@@ -10242,7 +10244,7 @@ export function OneLocationAgentPageContent({
           confirmedAtMs - capturedAtMs > 60_000 ||
           nowMs - confirmedAtMs > 10 * 60_000
         ) {
-          toast.error("Refresh and review your location before sharing it.");
+          toast.error("Refresh and review your location before sharing it.", { className: connectTypography.toast });
           return failedSelection;
         }
         const durationHoursNum = Number(durationHoursValue) || 1;
@@ -10332,17 +10334,17 @@ export function OneLocationAgentPageContent({
         });
         if (failureCount === 0) {
           toast.success(
-            `Checked in with ${peopleCountLabel(selected.length)}.`,
+            `Checked in with ${peopleCountLabel(selected.length)}.`, { className: connectTypography.toast }
           );
           // Closes the Check-In flow and returns to its authored source.
           setShareCompletedTick((value) => value + 1);
         } else if (successCount > 0) {
           toast.warning(
-            `Shared with ${peopleCountLabel(successCount)}. Retry ${peopleCountLabel(failureCount)}.`,
+            `Shared with ${peopleCountLabel(successCount)}. Retry ${peopleCountLabel(failureCount)}.`, { className: connectTypography.toast }
           );
         } else {
           toast.error(
-            "Could not share with the selected people. Please retry.",
+            "Could not share with the selected people. Please retry.", { className: connectTypography.toast }
           );
         }
         void refresh().catch((refreshError) => {
@@ -10372,7 +10374,7 @@ export function OneLocationAgentPageContent({
           review_required: false,
         });
         toast.error(
-          error instanceof Error ? error.message : "Could not check in.",
+          error instanceof Error ? error.message : "Could not check in.", { className: connectTypography.toast }
         );
         return {
           succeededRecipientIds,
@@ -10400,7 +10402,7 @@ export function OneLocationAgentPageContent({
       shareKind?: string,
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
-        toast.error("Location permission is required to share your drive.");
+        toast.error("Location permission is required to share your drive.", { className: connectTypography.toast });
         return;
       }
       const selected = sosActionRecipients
@@ -10408,7 +10410,7 @@ export function OneLocationAgentPageContent({
         .filter(isShareReadyRecipient);
       if (!selected.length) {
         toast.error(
-          "Select at least one trusted contact who is ready to receive your location.",
+          "Select at least one trusted contact who is ready to receive your location.", { className: connectTypography.toast }
         );
         return;
       }
@@ -10421,7 +10423,7 @@ export function OneLocationAgentPageContent({
           announce: false,
         });
         if (!readiness.ready || !readiness.point) {
-          toast.error("Couldn't get your location — drive not shared.");
+          toast.error("Couldn't get your location — drive not shared.", { className: connectTypography.toast });
           return;
         }
         const point = readiness.point;
@@ -10494,7 +10496,7 @@ export function OneLocationAgentPageContent({
         }
 
         toast.success(
-          `Sharing your drive with ${peopleCountLabel(selected.length)}.`,
+          `Sharing your drive with ${peopleCountLabel(selected.length)}.`, { className: connectTypography.toast }
         );
         setShareCompletedTick((value) => value + 1);
         void refresh().catch(() => null);
@@ -10502,7 +10504,7 @@ export function OneLocationAgentPageContent({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Could not share your drive.",
+            : "Could not share your drive.", { className: connectTypography.toast }
         );
       } finally {
         setBusy(null);
@@ -10530,7 +10532,7 @@ export function OneLocationAgentPageContent({
       const requesterUserId = String(grant.ownerUserId || "").trim();
       const point = decryptedPoints[grant.id];
       if (!requesterUserId || !point) {
-        toast.error("Can't start yet — open their pickup first.");
+        toast.error("Can't start yet — open their pickup first.", { className: connectTypography.toast });
         return;
       }
       const destination: DriveDestination = {
@@ -10564,7 +10566,7 @@ export function OneLocationAgentPageContent({
       pickupPoint?: { latitude: number; longitude: number; label?: string },
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
-        toast.error("Location permission is required to request a pickup.");
+        toast.error("Location permission is required to request a pickup.", { className: connectTypography.toast });
         return;
       }
       const selected = sosActionRecipients
@@ -10572,7 +10574,7 @@ export function OneLocationAgentPageContent({
         .filter(isShareReadyRecipient);
       if (!selected.length) {
         toast.error(
-          "Select at least one trusted contact who is ready to receive your location.",
+          "Select at least one trusted contact who is ready to receive your location.", { className: connectTypography.toast }
         );
         return;
       }
@@ -10599,7 +10601,7 @@ export function OneLocationAgentPageContent({
           });
           if (!readiness.ready || !readiness.point) {
             toast.error(
-              "Couldn't get your location — pickup request not sent.",
+              "Couldn't get your location — pickup request not sent.", { className: connectTypography.toast }
             );
             return;
           }
@@ -10634,7 +10636,7 @@ export function OneLocationAgentPageContent({
           review_required: false,
         });
         toast.success(
-          `Pickup requested from ${peopleCountLabel(selected.length)}. They can see you live.`,
+          `Pickup requested from ${peopleCountLabel(selected.length)}. They can see you live.`, { className: connectTypography.toast }
         );
         setShareCompletedTick((value) => value + 1);
         void refresh().catch(() => null);
@@ -10652,7 +10654,7 @@ export function OneLocationAgentPageContent({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Could not request a pickup.",
+            : "Could not request a pickup.", { className: connectTypography.toast }
         );
       } finally {
         setBusy(null);
@@ -10682,7 +10684,7 @@ export function OneLocationAgentPageContent({
       messageValue?: string,
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
-        toast.error("Location permission is required to share your arrival.");
+        toast.error("Location permission is required to share your arrival.", { className: connectTypography.toast });
         return;
       }
       const selected = sosActionRecipients
@@ -10690,7 +10692,7 @@ export function OneLocationAgentPageContent({
         .filter(isShareReadyRecipient);
       if (!selected.length) {
         toast.error(
-          "Select at least one trusted contact who is ready to receive your location.",
+          "Select at least one trusted contact who is ready to receive your location.", { className: connectTypography.toast }
         );
         return;
       }
@@ -10706,7 +10708,7 @@ export function OneLocationAgentPageContent({
         });
         if (!readiness.ready || !readiness.point) {
           toast.error(
-            "Couldn't get your location — arrival watch not started.",
+            "Couldn't get your location — arrival watch not started.", { className: connectTypography.toast }
           );
           return;
         }
@@ -10779,7 +10781,7 @@ export function OneLocationAgentPageContent({
         }
 
         toast.success(
-          `Safe Arrival started. ${peopleCountLabel(selected.length)} can watch you reach ${destination.label}.`,
+          `Safe Arrival started. ${peopleCountLabel(selected.length)} can watch you reach ${destination.label}.`, { className: connectTypography.toast }
         );
         setShareCompletedTick((value) => value + 1);
         void refresh().catch(() => null);
@@ -10787,7 +10789,7 @@ export function OneLocationAgentPageContent({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Could not start Safe Arrival.",
+            : "Could not start Safe Arrival.", { className: connectTypography.toast }
         );
       } finally {
         setBusy(null);
@@ -11226,7 +11228,7 @@ export function OneLocationAgentPageContent({
           };
         }
         setMapViewportResetKey((current) => current + 1);
-        toast.success("Your live location preview is ready.");
+        toast.success("Your live location preview is ready.", { className: connectTypography.toast });
         return {
           status: "succeeded",
           summary: "Location updates are on again for this device.",
@@ -11239,7 +11241,7 @@ export function OneLocationAgentPageContent({
         const denied = isLocationPermissionDeniedError(error);
         const message = denied ? LOCATION_COPY.denied : LOCATION_COPY.noFix;
         setMyLocationError(message);
-        toast.error(message);
+        toast.error(message, { className: connectTypography.toast });
         return {
           status: "failed",
           summary: message,
@@ -11309,7 +11311,7 @@ export function OneLocationAgentPageContent({
       if (nearbyCheckInAvailable && !vaultOwnerToken) {
         const message =
           "Location updates are paused on this device, but I could not check you out of nearby presence -- unlock One and pause again to finish that.";
-        toast.error(message);
+        toast.error(message, { className: connectTypography.toast });
         return {
           status: "blocked",
           summary: message,
@@ -11344,7 +11346,7 @@ export function OneLocationAgentPageContent({
           if (!isStale()) {
             const message =
               "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
-            toast.error(message);
+            toast.error(message, { className: connectTypography.toast });
             return {
               status: "blocked",
               summary: message,
@@ -11368,7 +11370,7 @@ export function OneLocationAgentPageContent({
           data: { reason: "superseded" },
         };
       }
-      toast.success("Location updates are paused on this device.");
+      toast.success("Location updates are paused on this device.", { className: connectTypography.toast });
       return {
         status: "succeeded",
         summary: "Location updates are paused on this device.",
@@ -13456,7 +13458,7 @@ export function OneLocationAgentPageContent({
         toast.success(
           enabled
             ? "Auto-approve is on. Waiting requests still need your answer."
-            : "Auto-approve is off.",
+            : "Auto-approve is off.", { className: connectTypography.toast }
         );
         CacheSyncService.onOneLocationStateMutated(
           auth.userId,
@@ -13468,7 +13470,7 @@ export function OneLocationAgentPageContent({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Could not update auto-approve.",
+            : "Could not update auto-approve.", { className: connectTypography.toast }
         );
         return null;
       } finally {
@@ -13724,7 +13726,7 @@ export function OneLocationAgentPageContent({
         savedLocationPointUserIdRef.current !== auth.userId ||
         !selectedPoint
       ) {
-        toast.error("Choose a location before continuing.");
+        toast.error("Choose a location before continuing.", { className: connectTypography.toast });
         return false;
       }
       const savingUserId = auth.userId;
@@ -13802,7 +13804,7 @@ export function OneLocationAgentPageContent({
         toast.success(
           canPersistNow
             ? "Location saved securely."
-            : "Location ready. One will save it after your private vault is set up.",
+            : "Location ready. One will save it after your private vault is set up.", { className: connectTypography.toast }
         );
         return true;
       } catch (error) {
@@ -13815,7 +13817,7 @@ export function OneLocationAgentPageContent({
         toast.error(
           error instanceof DuplicateSavedLocationError
             ? error.message
-            : "Could not save this location. Please try again.",
+            : "Could not save this location. Please try again.", { className: connectTypography.toast }
         );
         return false;
       } finally {
@@ -14244,7 +14246,7 @@ export function OneLocationAgentPageContent({
           syncing={busy === "contactSync"}
           onSyncAgain={async () => {
             const result = await handleSyncOnboardingContacts();
-            if (result.status === "failed") toast.error(result.message);
+            if (result.status === "failed") toast.error(result.message, { className: connectTypography.toast });
           }}
           onInvite={handleInviteContactCandidates}
           onRequestConnection={handleRequestContactMatch}
@@ -14614,7 +14616,7 @@ export function OneLocationAgentPageContent({
                   onEnded={handleLiveShareEnded}
                 />
               ) : null}
-              <HushhLoader variant="page" label="Loading location..." />
+              <HushhLoader variant="page" label="Loading location..." labelClassName="ui-text-row-description" />
             </>
           ) : (
             <LocationRedesignHub vm={locationHubVm} />

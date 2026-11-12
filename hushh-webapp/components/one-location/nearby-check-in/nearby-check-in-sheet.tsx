@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   useCallback,
   useEffect,
@@ -1825,7 +1826,7 @@ export function NearbyCheckInSheet({
       setSearchResults([]);
       setSelectedPlaceId("");
       setSearch("");
-      toast.success("You're checked in nearby.");
+      toast.success("You're checked in nearby.", { className: connectTypography.toast });
     } catch (error) {
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -1873,7 +1874,7 @@ export function NearbyCheckInSheet({
       } else if (details.message.toLowerCase().includes("closer place")) {
         setPlacesError(details.message);
       }
-      toast.error(details.message);
+      toast.error(details.message, { className: connectTypography.toast });
     } finally {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
@@ -2161,7 +2162,7 @@ export function NearbyCheckInSheet({
         },
       });
       if (!current()) return;
-      toast.success("Saved.");
+      toast.success("Saved.", { className: connectTypography.toast });
       setCompletedCheckIn((current) =>
         current ? { ...current, saved: true, saveError: null } : current,
       );
@@ -2182,7 +2183,7 @@ export function NearbyCheckInSheet({
           ? { ...current, saveError: "Couldn't save this place." }
           : current,
       );
-      toast.error("Couldn't save this place.");
+      toast.error("Couldn't save this place.", { className: connectTypography.toast });
     } finally {
       if (current()) setSavingPlace(false);
     }
@@ -2226,14 +2227,14 @@ export function NearbyCheckInSheet({
       }
       setAddTimeOpen(false);
       toast.success(
-        incrementMinutes === 60 ? "1 hour added." : "30 minutes added.",
+        incrementMinutes === 60 ? "1 hour added." : "30 minutes added.", { className: connectTypography.toast },
       );
     } catch {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
         presenceMutationGenerationRef.current === generation
       ) {
-        toast.error("Couldn't add time.");
+        toast.error("Couldn't add time.", { className: connectTypography.toast });
       }
     } finally {
       if (
@@ -2307,7 +2308,7 @@ export function NearbyCheckInSheet({
         has_note: Boolean(note),
         has_place_id: Boolean(rateable.googleReviewUrl),
       });
-      toast.success("Rated.");
+      toast.success("Rated.", { className: connectTypography.toast });
     } catch {
       // The stars stay set. Clearing somebody's input because the network
       // failed is how a retry becomes a re-decision.
@@ -2426,7 +2427,7 @@ export function NearbyCheckInSheet({
         setAllowConnectionRequests(false);
       setAddTimeOpen(false);
       setAddTimeBusy(null);
-      toast.success("Check-in ended.");
+      toast.success("Check-in ended.", { className: connectTypography.toast });
       if (savePlaceGenerationRef.current === savePlaceGeneration) {
         void offerSavePlace(savedPlaceOffer);
       }
@@ -2441,7 +2442,7 @@ export function NearbyCheckInSheet({
       ) {
         if (!context)
           toast.error(
-            "Couldn't end the check-in. You may still be visible nearby.",
+            "Couldn't end the check-in. You may still be visible nearby.", { className: connectTypography.toast },
           );
       }
       return {
@@ -2523,14 +2524,14 @@ export function NearbyCheckInSheet({
         onStateChange?.(next);
         return next;
       });
-      toast.success("Connection request sent.");
+      toast.success("Connection request sent.", { className: connectTypography.toast });
     } catch {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
         presenceMutationGenerationRef.current === generation
       ) {
         toast.error(
-          "That person may no longer be nearby. Refreshing the list.",
+          "That person may no longer be nearby. Refreshing the list.", { className: connectTypography.toast },
         );
         setBusy(null);
         mutationInFlightRef.current = false;
@@ -2557,7 +2558,7 @@ export function NearbyCheckInSheet({
         await OneLocationService.openAppSettings();
       }
     } catch {
-      toast.error("Settings could not be opened. Please open them manually.");
+      toast.error("Settings could not be opened. Please open them manually.", { className: connectTypography.toast });
     } finally {
       setBusy(null);
     }
@@ -3512,7 +3513,7 @@ export function NearbyCheckInSheet({
               <SheetTitle className={CHECK_IN_DRAWER_TITLE_CLASSNAME}>Add time</SheetTitle>
               <Button
                 type="button"
-                variant="link"
+                variant="text"
                 size="icon"
                 aria-label="Close"
                 className="min-h-11 min-w-11"

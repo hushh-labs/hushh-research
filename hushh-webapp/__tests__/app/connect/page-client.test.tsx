@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
@@ -437,6 +438,7 @@ describe("Location command connection prerequisite", () => {
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "1 incoming request needs your review.",
+      { className: connectTypography.toast },
     );
     expect(mocks.sendRequest).toHaveBeenCalledOnce();
   });
@@ -963,12 +965,12 @@ describe("Connect — People", () => {
 
     expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
     fireEvent.click(contactBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("You connected with this person through a match from your synced contacts.");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Matched from your contacts.");
     fireEvent.blur(contactBadge);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.click(riaBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Hussh verified this person's advisor profile.");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Advisor verified by Hussh.");
     fireEvent.keyDown(riaBadge, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
@@ -1846,6 +1848,41 @@ describe("Connect — People", () => {
       expect(await screen.findByText(name)).toBeTruthy();
     }
     expect(screen.queryByText('No one matches "N"')).toBeNull();
+  });
+
+  it("submits Find people on Enter and hides rows for the previous query", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({
+      items: [person("previous", "Other Person")],
+      hasMore: true,
+      page: 1,
+    }).mockResolvedValueOnce({
+      items: [person("match", "Dinesh Kumar")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await screen.findByText("Other Person");
+
+    vi.useFakeTimers();
+    try {
+      const search = screen.getByLabelText("Search people");
+      fireEvent.change(search, { target: { value: "Ne" } });
+      expect(screen.queryByText("Other Person")).toBeNull();
+      fireEvent.keyDown(search, { key: "Enter", isComposing: true });
+      expect(mocks.searchDirectory).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.keyDown(search, { key: "Enter" });
+      });
+      expect(screen.getByText("Dinesh Kumar")).toBeVisible();
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(expect.objectContaining({
+        query: "Ne",
+        page: 1,
+        typedSearch: true,
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves the directory's A-Z order rather than re-sorting the page", async () => {
@@ -3064,7 +3101,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     fireEvent.click(await screen.findByText("Invite them to One"));
 
     await waitFor(() =>
-      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied."),
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied.", { className: connectTypography.toast }),
     );
   });
 
@@ -3089,6 +3126,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
         "This browser cannot share links.",
+      { className: connectTypography.toast },
       ),
     );
   });
@@ -3102,6 +3140,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
         "Could not share the invite.",
+      { className: connectTypography.toast },
       ),
     );
   });
@@ -3460,14 +3499,7 @@ describe("Connect — contact sync", () => {
     ).toBeInTheDocument();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
 
-    const proceed = within(sheet).getByRole("link", {
-      name: "Proceed to connections",
-    });
-    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-    proceed.addEventListener("click", (event) => event.preventDefault(), {
-      once: true,
-    });
-    fireEvent.click(proceed);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(sheet).not.toBeInTheDocument());
     expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
   });

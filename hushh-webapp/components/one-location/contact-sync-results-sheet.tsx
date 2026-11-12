@@ -1,7 +1,7 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { Check, Loader2, Send, ShieldAlert } from "@/components/icons";
 import { toast } from "sonner";
 
@@ -35,7 +35,6 @@ import { cn } from "@/lib/utils";
 import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
 import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
 import { connectPersonName } from "@/lib/connections/person-label";
-import { CONNECT_CONNECTIONS_LIST_HREF } from "@/lib/navigation/connect-routes";
 import { withLocationTypography } from "@/components/one-location/redesign/location-typography";
 
 const SheetContent = withLocationTypography(UnscopedSheetContent);
@@ -59,7 +58,6 @@ export function ContactSyncResultsSheet({
   onSyncAgain,
   onInvite,
   onRequestConnection,
-  onViewConnections,
   takeover = false,
   invitations,
   googleSync,
@@ -71,7 +69,6 @@ export function ContactSyncResultsSheet({
   onSyncAgain: () => void | Promise<void>;
   onInvite: () => void | Promise<void>;
   onRequestConnection: (userId: string) => Promise<void>;
-  onViewConnections?: () => void;
   /** Use the existing Location onboarding layer for its nested results. */
   takeover?: boolean;
   invitations?: ContactInvitationController;
@@ -202,109 +199,112 @@ export function ContactSyncResultsSheet({
       <SheetContent
         side="bottom"
         dragDismiss={false}
+        aria-describedby={undefined}
         // The launching menu may restore focus after an async sync opens us.
         // Keep results visible; outside pointer presses, Escape and Close still dismiss.
         onFocusOutside={(event) => event.preventDefault()}
         overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
         className={cn(
-          "mx-auto flex w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
+          "mx-auto flex w-full max-w-2xl flex-col gap-0 overflow-y-hidden rounded-t-[24px] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6",
           CONTACT_SHEET_MAX_HEIGHT_CLASSNAME,
           takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
         )}
       >
-        <SheetHeader className="pr-14 text-left">
+        <SheetHeader className="shrink-0 gap-0 p-0 pb-2 pr-14 pt-4 text-left">
           <SheetTitle>Contact sync results</SheetTitle>
-          <SheetDescription className="line-clamp-1">
-            {invitations?.enabled
-              ? "Contact details stay on your device."
-              : "Only eligible Hushh accounts are shown."}
-          </SheetDescription>
         </SheetHeader>
 
-        {result.sourcePlatform === "google" ? (
-          <p data-location-type-role="body" className="mt-3 text-sm text-muted-foreground">
-            Read {result.readContactCount} saved Google{" "}
-            {result.readContactCount === 1 ? "contact" : "contacts"}.{" "}
-            <a
-              href="https://contacts.google.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-4"
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain">
+          {result.sourcePlatform === "google" ? (
+            <p data-location-type-role="body" className="text-sm text-muted-foreground">
+              Read {result.readContactCount} saved Google{" "}
+              {result.readContactCount === 1 ? "contact" : "contacts"}.
+            </p>
+          ) : null}
+
+          {!emptyGoogleBook ? (
+            <div className="grid grid-cols-2 gap-2 min-[480px]:grid-cols-4">
+              {[
+                ["Checked", result.checkedContactCount],
+                // The list and connection outcomes count unique people. One
+                // person can have several matching address-book entries.
+                ["Matched", result.matches.length],
+                ["Connected", connectedCount],
+                ["No match", result.unmatchedContactCount],
+              ].map(([label, count]) => (
+                <div
+                  key={String(label)}
+                  className="rounded-2xl bg-muted/45 px-3 py-2"
+                >
+                  <p className="text-lg font-semibold text-foreground">{count}</p>
+                  <p data-location-type-role="row-description" className="text-xs text-muted-foreground">{label}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {result.partial ||
+          result.lookupLimitExceeded ||
+          result.unknownContactCount ||
+          result.uncheckableContactCount ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              {result.partial &&
+              !result.partialFailureMessage &&
+              !result.unknownContactCount &&
+              !result.uncheckedContactCount &&
+              !result.lookupLimitExceeded ? (
+                <p data-location-type-role="body">Only part of your contact list was checked.</p>
+              ) : null}
+              {result.partialFailureMessage ? (
+                <p data-location-type-role="body" className="flex items-start gap-2 text-foreground">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  {result.partialFailureMessage}
+                </p>
+              ) : null}
+              {result.unknownContactCount ? (
+                <p data-location-type-role="body">
+                  {result.unknownContactCount} contacts need confirmation. They
+                  are not counted as unmatched or inviteable.
+                </p>
+              ) : null}
+              {result.uncheckedContactCount ? (
+                <p data-location-type-role="body">
+                  {result.uncheckedContactCount} contacts were not checked yet.
+                </p>
+              ) : null}
+              {result.lookupLimitExceeded ? (
+                <p data-location-type-role="body">
+                  This address book exceeded the secure{" "}
+                  {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
+                  {result.lookupLimitedContactCount
+                    ? ` ${result.lookupLimitedContactCount} contacts with overflow numbers were left unchecked and are not inviteable.`
+                    : " Additional numbers were outside the limit, but no matched contact was reclassified as unchecked or inviteable."}
+                </p>
+              ) : null}
+              {result.uncheckableContactCount ? (
+                <p data-location-type-role="body">
+                  {result.uncheckableContactCount} contacts had no usable phone
+                  number.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {recoveryLabel ? (
+            <Button
+              type="button"
+              size="prominent"
+              disabled={syncing}
+              onClick={() => void onSyncAgain()}
+              className="w-full max-w-[244px]"
             >
-              Check Google Contacts
-            </a>
-          </p>
-        ) : null}
+              {syncing ? (
+                <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {recoveryLabel}
+            </Button>
+          ) : null}
 
-        {!emptyGoogleBook ? (
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              ["Checked", result.checkedContactCount],
-              // The list and connection outcomes count unique people. One
-              // person can have several matching address-book entries.
-              ["Matched", result.matches.length],
-              ["Connected", connectedCount],
-              ["No match", result.unmatchedContactCount],
-            ].map(([label, count]) => (
-              <div
-                key={String(label)}
-                className="rounded-2xl bg-muted/45 px-3 py-2.5"
-              >
-                <p className="text-lg font-semibold text-foreground">{count}</p>
-                <p data-location-type-role="row-description" className="text-xs text-muted-foreground">{label}</p>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {result.partial ||
-        result.lookupLimitExceeded ||
-        result.unknownContactCount ||
-        result.uncheckableContactCount ? (
-          <div className="mt-3 rounded-2xl border border-border/70 bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
-            {result.partial &&
-            !result.partialFailureMessage &&
-            !result.unknownContactCount &&
-            !result.uncheckedContactCount &&
-            !result.lookupLimitExceeded ? (
-              <p data-location-type-role="body">Only part of your contact list was checked.</p>
-            ) : null}
-            {result.partialFailureMessage ? (
-              <p data-location-type-role="body" className="flex items-start gap-2 text-foreground">
-                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                {result.partialFailureMessage}
-              </p>
-            ) : null}
-            {result.unknownContactCount ? (
-              <p data-location-type-role="body">
-                {result.unknownContactCount} contacts need confirmation. They
-                are not counted as unmatched or inviteable.
-              </p>
-            ) : null}
-            {result.uncheckedContactCount ? (
-              <p data-location-type-role="body">
-                {result.uncheckedContactCount} contacts were not checked yet.
-              </p>
-            ) : null}
-            {result.lookupLimitExceeded ? (
-              <p data-location-type-role="body">
-                This address book exceeded the secure{" "}
-                {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
-                {result.lookupLimitedContactCount
-                  ? ` ${result.lookupLimitedContactCount} contacts with overflow numbers were left unchecked and are not inviteable.`
-                  : " Additional numbers were outside the limit, but no matched contact was reclassified as unchecked or inviteable."}
-              </p>
-            ) : null}
-            {result.uncheckableContactCount ? (
-              <p data-location-type-role="body">
-                {result.uncheckableContactCount} contacts had no usable phone
-                number.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {result.matches.length ? (
             <ul className="divide-y divide-border/70 rounded-2xl border border-border/70">
               {visibleMatches.map((match) => {
@@ -356,7 +356,7 @@ export function ContactSyncResultsSheet({
                               toast.error(
                                 error instanceof Error
                                   ? error.message
-                                  : "Could not send connection request.",
+                                  : "Could not send connection request.", { className: connectTypography.toast },
                               );
                             })
                             .finally(() => setRequestingUserId(null));
@@ -379,7 +379,7 @@ export function ContactSyncResultsSheet({
               })}
             </ul>
           ) : (
-            <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
+            <div className="rounded-2xl bg-muted/35 px-4 py-4 text-center text-sm text-muted-foreground">
               {googleSummary ? (
                 <>
                   <p data-location-type-role="body" className="font-medium text-foreground">
@@ -419,35 +419,8 @@ export function ContactSyncResultsSheet({
           ) : null}
         </div>
 
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {recoveryLabel ? (
-            <Button
-              type="button"
-              size="prominent"
-              disabled={syncing}
-              onClick={() => void onSyncAgain()}
-              className="w-full max-w-[244px]"
-            >
-              {syncing ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              {recoveryLabel}
-            </Button>
-          ) : null}
-          <Button
-            asChild
-            size="prominent"
-            variant={recoveryLabel || !emptyGoogleBook ? "outline" : "default"}
-            className="w-full max-w-[244px]"
-          >
-            <Link
-              href={CONNECT_CONNECTIONS_LIST_HREF}
-              onClick={() => { onOpenChange(false); onViewConnections?.(); }}
-            >
-              Proceed to connections
-            </Link>
-          </Button>
-          {!emptyGoogleBook ? (
+        {!emptyGoogleBook ? (
+          <div className="flex shrink-0 justify-center pt-3">
             <Button
               type="button"
               size="prominent"
@@ -460,11 +433,11 @@ export function ContactSyncResultsSheet({
               onClick={() => void onInvite()}
               className="w-full max-w-[244px]"
             >
-              <Send className="mr-2 h-4 w-4" />
+              <Send aria-hidden="true" className="mr-2 h-4 w-4" />
               Invite contacts
             </Button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

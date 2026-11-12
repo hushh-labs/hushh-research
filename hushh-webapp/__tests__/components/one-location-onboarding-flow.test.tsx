@@ -565,10 +565,10 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     fireEvent.change(screen.getByLabelText("Circle code"), {
       target: { value: "ZXCVBNMASDFG" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Look up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
 
     expect(await screen.findByText("Family")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Join Family" }));
+    fireEvent.click(screen.getByRole("button", { name: "Join circle", exact: true }));
     await waitFor(() =>
       expect(onAcceptCircleCode).toHaveBeenCalledWith("ZXCVBNMASDFG"),
     );
@@ -584,7 +584,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     fireEvent.change(screen.getByLabelText("Circle code"), {
       target: { value: "ABCD-EFGH-JKLM" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Look up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("your own code");
     expect(onPreviewCircleCode).not.toHaveBeenCalled();
@@ -632,7 +632,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
   it("keeps the map claim honest", async () => {
     await renderReady({ mapPoint: null });
     expect(
-      screen.getByRole("heading", { name: "Your people." }),
+      screen.getByRole("heading", { name: "Find your circle" }),
     ).toBeTruthy();
     expect(screen.getByText("Turn on Location when you're ready.")).toBeTruthy();
   });

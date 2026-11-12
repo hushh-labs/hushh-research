@@ -62,14 +62,15 @@ export interface MutualConnectionsPage {
 }
 
 export type NetworkDegree = 1 | 2 | 3;
-export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship };
-export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
+export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship; suggestionReason?: "verified_advisor" | "name_match" };
+export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; suggestions?: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
 export type NetworkSummary = {
   person: { publicPersonRef: string; displayName: string | null };
   networkDegree: NetworkDegree | null;
   mutualConnectionCount: number;
   mutualConnectionPreview: NetworkPerson | null;
   canBrowseConnections: boolean;
+  visibleConnectionCount?: number | null;
 };
 
 export type ConnectionPersonContext = {
@@ -302,11 +303,12 @@ export class ConnectionsService {
     }));
   }
 
-  static async listNetwork(opts: { idToken: string; personRef?: string; degree?: NetworkDegree; query?: string; page: number; signal?: AbortSignal }): Promise<NetworkPage> {
+  static async listNetwork(opts: { idToken: string; personRef?: string; degree?: NetworkDegree; query?: string; page: number; includeSuggestions?: boolean; signal?: AbortSignal }): Promise<NetworkPage> {
     const params = new URLSearchParams({ page: String(opts.page), limit: "20" });
     if (opts.personRef) params.set("person_ref", opts.personRef);
     if (opts.degree) params.set("degree", String(opts.degree));
     if (opts.query?.trim()) params.set("query", opts.query.trim());
+    if (opts.includeSuggestions) params.set("include_suggestions", "true");
     return jsonOrThrow<NetworkPage>(await ApiService.apiFetch(`/api/one/connections/network?${params}`, {
       method: "GET", headers: authHeaders(opts.idToken), cache: "no-store", signal: opts.signal,
     }));
@@ -431,10 +433,12 @@ export class ConnectionsService {
     limit?: number;
     audience?: DirectoryAudience;
     nameOnly?: boolean;
+    typedSearch?: boolean;
   }): Promise<DirectoryPage> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     if (opts.nameOnly) params.set("name_only", "true");
+    if (opts.typedSearch) params.set("typed_search", "true");
     params.set("page", String(opts.page ?? 1));
     if (typeof opts.limit === "number") params.set("limit", String(opts.limit));
     // Omitted rather than sent as "all", so the request a pre-split caller

@@ -89,18 +89,14 @@ describe("PortfolioImportView", () => {
     ).toBeNull();
   });
 
-  it("selects a setup source without launching it until the primary action", () => {
+  it("starts a setup source as soon as its card is tapped", () => {
     const connect = vi.fn();
     const sample = vi.fn();
     render(<PortfolioImportView presentation="onboarding" onFileSelect={vi.fn()}
       onSkip={vi.fn()} onConnectPlaid={connect} onPreloadSchema={sample} plaidLocalDualEnvironmentEnabled />);
     fireEvent.click(screen.getByRole("button", { name: /Try a sample/ }));
-    expect(sample).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Try sample" }));
     expect(sample).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: /Connect an account/ }));
-    expect(connect).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Connect account", exact: true }));
     expect(connect).toHaveBeenCalledWith("sandbox");
   });
 
@@ -110,13 +106,14 @@ describe("PortfolioImportView", () => {
     const file = vi.fn();
     const { rerender } = render(<PortfolioImportView presentation="onboarding" onFileSelect={file}
       onSkip={skip} onConnectPlaid={connect} isConnectingPlaid />);
-    fireEvent.click(screen.getByRole("button", { name: "Opening Plaid…" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Opening Plaid…");
+    fireEvent.click(screen.getByRole("button", { name: /Connect an account/ }));
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(connect).not.toHaveBeenCalled();
     expect(skip).not.toHaveBeenCalled();
     rerender(<PortfolioImportView presentation="onboarding" onFileSelect={file}
       onSkip={skip} plaidConfigured={false} />);
-    expect(screen.getByRole("button", { name: "Upload statement" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Upload a statement/ })).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Choose a PDF or CSV brokerage statement"), {
       target: { files: [new File(["bad"], "not-a-statement.txt", { type: "text/plain" })] },
     });

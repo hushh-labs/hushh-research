@@ -17,6 +17,19 @@ from hushh_mcp.services.advisor_review_contract import (
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError, project
 
 
+def test_unready_payout_account_tells_each_person_their_own_next_step(monkeypatch):
+    from hushh_mcp.services import advisor_review_billing as billing
+
+    monkeypatch.setattr(billing, "one", lambda *_args, **_kwargs: None)
+    # The advisor can finish their own Stripe setup; the owner paying cannot.
+    with pytest.raises(AdvisorReviewError) as advisor_view:
+        billing.payee(None, "advisor")
+    with pytest.raises(AdvisorReviewError) as owner_view:
+        billing.payee(None, "advisor", "ADVISOR_PAYEE_NOT_READY")
+    assert advisor_view.value.code == "ADVISOR_CONNECT_STRIPE"
+    assert owner_view.value.code == "ADVISOR_PAYEE_NOT_READY"
+
+
 def request_body():
     return {
         "requestId": str(uuid4()),
@@ -83,6 +96,28 @@ def test_terminal_requests_never_return_ciphertext_even_if_old_storage_remains(s
         assert value["snapshotAvailable"] is False and "envelope" not in value
 
 
+def test_only_a_settled_payment_is_shown_and_both_people_see_it():
+    settled = datetime.now(UTC)
+    for status in ("paid", "partially_refunded", "refunded"):
+        paid = {
+            **row("accepted"),
+            "payment_status": status,
+            "payment_amount_cents": 50,
+            "payment_paid_at": settled,
+        }
+        for viewer in ("owner", "advisor"):
+            assert project(paid, viewer)["payment"] == {
+                "status": status,
+                "amountCents": 50,
+                "paidAt": settled.isoformat(),
+            }
+    # Open, processing and expired checkouts have no paid_at and must never read as paid.
+    for status in ("preparing", "checkout_pending", "processing", "expired"):
+        unsettled = {**row("accepted"), "payment_status": status, "payment_amount_cents": 50}
+        assert "payment" not in project(unsettled, "owner")
+    assert "payment" not in project(row("accepted"), "owner")
+
+
 def test_server_expiry_denies_snapshot_before_async_cleanup():
     expired = row("accepted")
     expired["expires_at"] = expired["server_now"] - timedelta(seconds=1)
@@ -112,6 +147,7 @@ def test_one_time_offer_requires_price_and_allows_optional_details():
     assert AdvisorPlan.model_validate(good).interval == "one_time"
     minimum = {"amountCents": 2000, "interval": "one_time"}
     assert AdvisorPlan.model_validate(minimum).cancellationTerms == ""
+    assert AdvisorPlan.model_validate({**minimum, "amountCents": 50}).amountCents == 50
     short = AdvisorPlan.model_validate(
         {**minimum, "services": " Review ", "cancellationTerms": "  "}
     )
@@ -119,6 +155,7 @@ def test_one_time_offer_requires_price_and_allows_optional_details():
     for bad in (
         {"amountCents": True},
         {"amountCents": 0},
+        {"amountCents": 49},
         {"interval": "month"},
         {"services": "x" * 1501},
     ):
@@ -165,7 +202,9 @@ def test_one_time_charge_binds_checkout_offer_amount_and_advisor(monkeypatch):
     assert checkout.create_checkout(provider, "test-key", request_id, payment) == session
     kwargs = create.call_args.kwargs
     assert kwargs["mode"] == "payment"
-    assert kwargs["idempotency_key"] == f"advisor-payment:{request_id}:2:1"
+    assert kwargs["idempotency_key"] == f"advisor-payment:{request_id}:2:1:dynamic-methods-v1"
+    # Stripe rejects the retired explicit list with a 400, so the one-time Pay button failed.
+    assert "payment_method_types" not in kwargs
     assert kwargs["payment_intent_data"]["transfer_data"] == {"destination": "acct_advisor"}
     assert "recurring" not in kwargs["line_items"][0]["price_data"]
     with pytest.raises(AdvisorReviewError, match="UNCONFIRMED"):
@@ -522,3 +561,90 @@ async def test_sandbox_payout_status_reads_a_real_stripe_list_object():
 
 async def _async(value):
     return value
+
+
+def test_a_503_logs_where_it_failed_without_logging_what_it_said(caplog):
+    import logging
+
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes.one.finance_sharing import PrivateFinanceRoute
+
+    router = APIRouter(route_class=PrivateFinanceRoute)
+
+    @router.get("/boom/{item}")
+    async def boom(item: str):
+        raise TypeError("owner portfolio 1234")
+
+    @router.get("/unconfirmed")
+    async def unconfirmed():
+        raise AdvisorReviewError("ADVISOR_BILLING_UNCONFIRMED", 503)
+
+    @router.get("/changed")
+    async def changed():
+        raise AdvisorReviewError("ADVISOR_PLAN_CHANGED", 409)
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="api.routes.one.finance_sharing"):
+        generic = client.get("/boom/abc")
+        coded = client.get("/unconfirmed")
+        client.get("/changed")
+    assert generic.json() == {"detail": {"code": "FINANCE_SHARE_UNAVAILABLE"}}
+    assert coded.status_code == 503
+    lines = [record.getMessage() for record in caplog.records]
+    unavailable = next(line for line in lines if line.startswith("finance_sharing.unavailable"))
+    assert "error=TypeError" in unavailable and "route=/boom/{item}" in unavailable
+    assert "tests/test_advisor_review_contract.py:" in unavailable and ":boom" in unavailable
+    assert "owner portfolio 1234" not in unavailable and "abc" not in unavailable
+    assert "finance_sharing.error reason=advisor.billing.unconfirmed status=503" in " ".join(lines)
+    assert not any("ADVISOR_PLAN_CHANGED" in line for line in lines)
+
+
+def test_advisor_stripe_calls_return_plain_dicts_the_billing_code_can_read(monkeypatch):
+    from types import SimpleNamespace
+
+    import stripe
+
+    from hushh_mcp.services import advisor_stripe
+
+    account = stripe.Account.construct_from(
+        {"id": "acct_1", "payouts_enabled": True, "capabilities": {"transfers": "active"}}, "k"
+    )
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            self.v1 = SimpleNamespace(accounts=SimpleNamespace(retrieve=lambda *_a, **_k: account))
+
+    monkeypatch.setattr(stripe, "StripeClient", Client)
+    remote = dict(advisor_stripe.provider().Account.retrieve("acct_1", api_key="k"))
+    assert remote["id"] == "acct_1"
+    assert remote["capabilities"].get("transfers") == "active"
+
+
+def test_signed_webhook_event_from_the_real_sdk_is_readable(monkeypatch):
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    from hushh_mcp.services import advisor_review_billing_events as events
+
+    secret = "whsec_" + "b" * 24
+    monkeypatch.setenv("RIA_STRIPE_TEST_SECRET_KEY", "sk_test_" + "a" * 24)
+    monkeypatch.setenv("RIA_STRIPE_TEST_WEBHOOK_SECRET", secret)
+    payload = json.dumps(
+        {
+            "id": "evt_1",
+            "object": "event",
+            "type": "checkout.session.completed",
+            "livemode": False,
+            "data": {"object": {"id": "cs_test_1", "object": "checkout.session", "metadata": {}}},
+        }
+    )
+    stamp = int(time.time())
+    digest = hmac.new(secret.encode(), f"{stamp}.{payload}".encode(), hashlib.sha256).hexdigest()
+    header = f"t={stamp},v1={digest}"
+    assert events.process_event(payload.encode(), header) == {"received": True}

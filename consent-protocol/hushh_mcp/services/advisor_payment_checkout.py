@@ -57,8 +57,11 @@ def create_checkout(provider, key, request_id, payment):
         provider.checkout.Session.create(
             api_key=key,
             mode="payment",
-            payment_method_types=["card"],
-            idempotency_key=f"advisor-payment:{request_id}:{payment['plan_revision']}:{payment['attempt']}",
+            # No payment_method_types: Stripe retired the explicit list for Checkout
+            # (see drive_request_payment_service), and sending it fails with 400.
+            idempotency_key=(
+                f"advisor-payment:{request_id}:{payment['plan_revision']}:{payment['attempt']}:dynamic-methods-v1"
+            ),
             client_reference_id=request_id,
             metadata=metadata,
             payment_intent_data={

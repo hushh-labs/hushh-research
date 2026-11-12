@@ -7,7 +7,7 @@ export type PersonProfilePreviewIdentity = {
   personRef?: string | null;
   userId?: string | null;
   networkList?: "mutuals" | "connections" | "discovery";
-  presentation?: "calendar";
+  presentation?: "calendar" | "connect";
 };
 
 export function isPersonProfilePreviewOpen(doc: Document = document): boolean {
@@ -16,8 +16,10 @@ export function isPersonProfilePreviewOpen(doc: Document = document): boolean {
 
 export function openPersonProfilePreview(identity: PersonProfilePreviewIdentity, returnFocus?: HTMLElement): boolean {
   if (!identity.personRef?.trim() && !identity.userId?.trim() && identity.networkList !== "discovery") return false;
+  const opener = returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
+  const presentation = identity.presentation ?? (opener?.closest("[data-typography-scope]") ? "connect" : undefined);
   return !window.dispatchEvent(new CustomEvent(PERSON_PROFILE_PREVIEW_EVENT, {
     cancelable: true,
-    detail: { ...identity, returnFocus: returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined) },
+    detail: { ...identity, presentation, returnFocus: opener },
   }));
 }

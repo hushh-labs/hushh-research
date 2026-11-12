@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { CHART_RESIZE_DEBOUNCE_MS } from "@/components/ui/chart";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
@@ -104,67 +102,20 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
       </div>
       {!chartRows.length ? <p className="py-5 text-sm text-muted-foreground">{period === "1w" ? "Weekly" : "Daily"} sector performance is unavailable.</p> : (
       <>
-      <div className={cn(marketBriefingStyles.sectorRows, "sm:hidden")}>
+      <div className={marketBriefingStyles.sectorRows}>
         {visibleRows.map((row) => {
-          const width = Math.abs(row.changePct) / maximumReturn * 50;
+          // Scale to the largest move, but keep every non-zero move visible: a -0.04% sector
+          // beside a +3% one would otherwise draw no bar at all.
+          const width = row.changePct === 0 ? 0 : Math.max(3, Math.abs(row.changePct) / maximumReturn * 50);
           return <div key={row.sector} className={marketBriefingStyles.sectorRow}>
-              <span className="text-foreground">{row.sector}</span>
-            <div className="relative h-1 rounded-full bg-muted" aria-hidden="true">
+            <span className="text-foreground">{row.sector}</span>
+            <div className="relative h-1.5 rounded-full bg-muted" aria-hidden="true">
               <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
               <span className="absolute inset-y-0 rounded-full" style={{ width: `${width}%`, left: `${row.changePct >= 0 ? 50 : 50 - width}%`, background: row.changePct >= 0 ? "var(--one-up)" : "var(--one-down)" }} />
             </div>
             <span className={cn("text-right font-semibold tabular-nums", row.changePct >= 0 ? "text-[color:var(--one-up)]" : "text-[color:var(--one-down)]")}>{formatOneMarketPercent(row.changePct)}</span>
           </div>;
         })}
-      </div>
-      <div className="hidden w-full sm:block" style={{ height: Math.max(180, visibleRows.length * 28) }}>
-      <ResponsiveContainer width="100%" height="100%" debounce={CHART_RESIZE_DEBOUNCE_MS}>
-        <BarChart
-          data={visibleRows}
-          layout="vertical"
-          margin={{ top: 4, right: 24, left: 4, bottom: 4 }}
-        >
-          <CartesianGrid
-            horizontal={false}
-            strokeDasharray="3 3"
-            strokeOpacity={0.45}
-            stroke="var(--one-line)"
-          />
-          <XAxis
-            type="number"
-            tickCount={3}
-            tickFormatter={(value) => `${value >= 0 ? "+" : ""}${value}%`}
-            axisLine={false}
-            tickLine={false}
-            tick={{ fontSize: 10, fill: "var(--one-fg3)" }}
-          />
-          <YAxis
-            type="category"
-            dataKey="sector"
-            axisLine={false}
-            tickLine={false}
-            width={128}
-            tick={{ fontSize: 11, fill: "var(--one-fg2)" }}
-          />
-          <YAxis yAxisId="returns" orientation="right" type="category" dataKey="changePct"
-            tickFormatter={(value) => formatOneMarketPercent(Number(value))}
-            axisLine={false} tickLine={false} width={56}
-            tick={{ fontSize: 11, fill: "var(--one-fg2)" }} />
-          <Bar
-            dataKey="changePct"
-            radius={[0, 4, 4, 0]}
-            maxBarSize={18}
-            isAnimationActive={false}
-          >
-            {visibleRows.map((row) => (
-              <Cell
-                key={row.sector}
-                fill={row.changePct >= 0 ? "var(--one-up)" : "var(--one-down)"}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
       </div></>)}
       {canExpand ? <div className="flex flex-wrap items-center justify-between gap-x-3">
         <span className="text-xs text-muted-foreground">{!expanded && chartRows.length > 6 ? "3 highest · 3 lowest" : "All available sectors"}</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Briefcase,
@@ -348,12 +349,12 @@ export function SavedLocationsSection() {
   const handleAdd = useCallback(async () => {
     if (!userId || !vaultKey || !vaultOwnerToken || capturing) {
       if (!hasVaultAccess) {
-        toast.error("Unlock your vault before adding a saved location.");
+        toast.error("Unlock your vault before adding a saved location.", { className: connectTypography.toast });
       }
       return;
     }
     if (readOneLocationControlState(userId).paused) {
-      toast.error("Resume Location before adding a saved place.");
+      toast.error("Resume Location before adding a saved place.", { className: connectTypography.toast });
       return;
     }
 
@@ -431,7 +432,7 @@ export function SavedLocationsSection() {
       ) {
         return;
       }
-      toast.error("Check location permission and try again.");
+      toast.error("Check location permission and try again.", { className: connectTypography.toast });
     } finally {
       if (
         captureRequestIdRef.current === captureRequestId &&
@@ -470,7 +471,7 @@ export function SavedLocationsSection() {
       addressLine?: string | null,
     ) => {
       if (!userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
-        toast.error("Unlock your vault and capture the location again.");
+        toast.error("Unlock your vault and capture the location again.", { className: connectTypography.toast });
         return;
       }
 
@@ -497,7 +498,7 @@ export function SavedLocationsSection() {
         saveLocationPoint,
       );
       if (duplicate) {
-        toast.error(duplicateSavedLocationMessage(duplicate));
+        toast.error(duplicateSavedLocationMessage(duplicate), { className: connectTypography.toast });
         return;
       }
 
@@ -551,14 +552,14 @@ export function SavedLocationsSection() {
         setEditingLocation(null);
         setOfferPrefill(null);
         toast.success(
-          editing ? "Location updated." : "Location saved securely.",
+          editing ? "Location updated." : "Location saved securely.", { className: connectTypography.toast },
         );
       } catch (error) {
         if (!isCurrentVaultSession(session)) return;
         toast.error(
           error instanceof DuplicateSavedLocationError
             ? error.message
-            : "Could not save this location. Please try again.",
+            : "Could not save this location. Please try again.", { className: connectTypography.toast },
         );
       } finally {
         if (isCurrentVaultSession(session)) {
@@ -582,7 +583,7 @@ export function SavedLocationsSection() {
   const handleEditSavedLocation = useCallback(
     (location: SavedLocation) => {
       if (!hasVaultAccess) {
-        toast.error("Unlock your vault before editing a saved location.");
+        toast.error("Unlock your vault before editing a saved location.", { className: connectTypography.toast });
         return;
       }
       addressResolutionIdRef.current += 1;
@@ -617,10 +618,10 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
-        toast.success("Saved location removed.");
+        toast.success("Saved location removed.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
-        toast.error("Could not remove this location. Please try again.");
+        toast.error("Could not remove this location. Please try again.", { className: connectTypography.toast });
       } finally {
         if (isCurrentVaultSession(session)) {
           setRemovingId(null);
@@ -639,9 +640,9 @@ export function SavedLocationsSection() {
       if (!isCurrentVaultSession(session)) return;
       setLocations(sortSavedLocationsForDisplay(next));
       setExpandedId(null);
-      toast.success("Added to favorites.");
+      toast.success("Added to favorites.", { className: connectTypography.toast });
     } catch {
-      if (isCurrentVaultSession(session)) toast.error("Couldn't add to favorites. Try again.");
+      if (isCurrentVaultSession(session)) toast.error("Couldn't add to favorites. Try again.", { className: connectTypography.toast });
     } finally {
       if (isCurrentVaultSession(session)) setFavoritingId(null);
     }
@@ -661,7 +662,7 @@ export function SavedLocationsSection() {
         if (!isCurrentVaultSession(session)) return;
         const address = (place.formattedAddress || place.name || "").trim();
         if (!address) {
-          toast.error("No street address was found for this location.");
+          toast.error("No street address was found for this location.", { className: connectTypography.toast });
           return;
         }
         const next = await updateSavedLocationAddress({
@@ -671,10 +672,10 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
-        toast.success("Address updated.");
+        toast.success("Address updated.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
-        toast.error("Could not find the address. Please try again.");
+        toast.error("Could not find the address. Please try again.", { className: connectTypography.toast });
       } finally {
         if (isCurrentVaultSession(session)) {
           setRepairingId(null);
@@ -885,10 +886,10 @@ export function SavedLocationsSection() {
                           </p>
                         </div>
                         {visitDate ? (
-                          <time data-location-type-role="row-description"
+                          <time
                             dateTime={dateValue}
                             title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
-                            className="shrink-0 self-start pt-0.5 text-right text-[12px] leading-[18px] tabular-nums text-[color:var(--app-secondary-label)]"
+                            className="shrink-0 self-start pt-0.5 text-right text-[11px] font-normal leading-[14px] tabular-nums text-[color:var(--app-secondary-label)]"
                           >
                             {!location.checkedInAt ? <span className="block">Saved</span> : null}
                             {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
@@ -954,7 +955,7 @@ export function SavedLocationsSection() {
                             type="button"
                             data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
                             disabled={removingId !== null || favoritingId !== null}
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             {removingId === location.id ? (
                               <Loader2

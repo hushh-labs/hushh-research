@@ -143,6 +143,13 @@ def original_receipt_case(closed):
     historical, observation, _, _ = restoration_observation(module)
     source = observation["row"]["source"]
     run = {
+        "path": ".github/workflows/deploy-production.yml",
+        "head_branch": "main",
+        "event": "workflow_dispatch",
+        "repository": {"full_name": historical.REPOSITORY},
+        "head_repository": {"full_name": historical.REPOSITORY},
+        "actor": {"login": "fixture-release-operator"},
+        "triggering_actor": {"login": "fixture-release-operator"},
         "id": historical.RUN,
         "run_attempt": historical.ATTEMPT,
         "head_sha": historical.WORKFLOW_SHA,
@@ -205,12 +212,16 @@ def original_ports(case, monkeypatch, defect):
         with ZipFile(io.BytesIO(archive)) as bundle:
             return json.loads(bundle.read(name))
 
-    owner = SimpleNamespace(phone=SimpleNamespace(_document=read), serving_reference=MagicMock())
+    owner = SimpleNamespace(
+        ROOT="fixture-repository",
+        phone=SimpleNamespace(_document=read),
+        serving_reference=MagicMock(),
+    )
     if defect == "authority":
         owner.serving_reference.side_effect = ValueError("unqualified_original_operation")
     continuation = SimpleNamespace(
         owner=owner,
-        ports=lambda: {},
+        ports=lambda: {"governed": lambda *_: True},
         manual=MagicMock(),
         archive=lambda *_: (artifact, {"steps": [step]}, content, {}),
         fresh_run=MagicMock(
@@ -220,6 +231,13 @@ def original_ports(case, monkeypatch, defect):
             ]
         ),
     )
+    monkeypatch.setattr(
+        "process_group.bounded_stdout",
+        lambda *_args, **_kwargs: json.dumps(
+            {"production": {"manual_dispatch_users": ["fixture-release-operator"]}}
+        ).encode(),
+    )
+    monkeypatch.setattr(historical, "subprocess", SimpleNamespace(run=MagicMock()))
     monkeypatch.setattr(historical, "_authorities", lambda: None)
     monkeypatch.setattr(
         historical, "importlib", SimpleNamespace(import_module=lambda _: continuation)

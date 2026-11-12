@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
 MAX_NETWORK_NODES = 4000
 MAX_NETWORK_EDGES = 12000
+SUGGESTION_LIMIT = 4
+SHARED_CONNECTION_COUNT_LIMIT = 501
 
 # Each frontier is admitted before it can expand. UNION uses both indexed
 # endpoint columns, rather than scanning the whole graph with an OR join.
@@ -198,6 +200,28 @@ class ConnectionNetworkService:
             )
         )
 
+    def _shared_peer_ids(self, viewer: str, target: str) -> list[str]:
+        rows = self.neighbors(viewer, [target], MAX_NETWORK_EDGES)
+        ids = sorted({str(row["peer_id"]) for row in rows})
+        if len(ids) > MAX_NETWORK_NODES:
+            raise self.unavailable()
+        return ids
+
+    def _visible_shared_peer_ids(self, viewer: str, target: str) -> list[str]:
+        deadline = time.monotonic() + 12
+        ids = self._shared_peer_ids(viewer, target)
+        visible: list[str] = []
+        for offset in range(0, len(ids), 100):
+            people = self.profiles(viewer, ids[offset : offset + 100])
+            if time.monotonic() >= deadline:
+                raise self.unavailable()
+            visible.extend(
+                str(person["userId"]) for person in people if person.get("publicPersonRef")
+            )
+            if len(visible) >= SHARED_CONNECTION_COUNT_LIMIT:
+                break
+        return visible
+
     def degrees(self, viewer: str, *, max_degree: int = 3) -> dict[str, int]:
         """Breadth-first shortest distances, with bounded work and live accounts.
 
@@ -307,13 +331,17 @@ class ConnectionNetworkService:
             degree = self.degrees(viewer).get(uid)
         else:
             self._admitted = [viewer, uid, *([preview_id] if preview else [])]
+        visible_peers = (
+            self._visible_shared_peer_ids(viewer, uid) if direct and target["shared"] else None
+        )
         # All slow identity reads have completed. Settle the target, path,
-        # mutual preview and sharing authority in one database snapshot.
+        # mutual preview, visible count and sharing authority in one database snapshot.
         final = self.connections._execute_one(
             QUALIFIED_SUMMARY_SQL,
             {
                 "viewer": viewer,
                 "user_id": viewer,
+                "owner_user_id": viewer,
                 "target": uid,
                 "preview": preview_id,
                 "admitted": self._admitted,
@@ -321,6 +349,8 @@ class ConnectionNetworkService:
                 "page_user_ids": [uid],
                 "max_degree": 3,
                 "edge_limit": MAX_NETWORK_EDGES + 1,
+                "target_peer_ids": visible_peers,
+                "connection_count_limit": SHARED_CONNECTION_COUNT_LIMIT,
             },
         )
         if not final:
@@ -337,6 +367,14 @@ class ConnectionNetworkService:
             or (preview and not final["preview_active"])
         ):
             raise self.unavailable()
+        can_browse = degree == 1 and bool(final["connection_list_shared"])
+        visible_count = final["visible_connection_count"] if can_browse else None
+        # A partial scan that drops below the display limit can no longer give an exact count.
+        if (
+            visible_count is not None
+            and len(visible_peers or []) >= SHARED_CONNECTION_COUNT_LIMIT > visible_count
+        ):
+            visible_count = None
         return {
             "person": {"publicPersonRef": person_ref, "displayName": target.get("displayName")},
             "networkDegree": degree,
@@ -346,8 +384,39 @@ class ConnectionNetworkService:
             }
             if preview
             else None,
-            "canBrowseConnections": degree == 1 and bool(final["connection_list_shared"]),
+            "canBrowseConnections": can_browse,
+            "visibleConnectionCount": visible_count,
         }
+
+    def suggested_people(
+        self, viewer: str, query: str, network_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        query = query.strip()
+        if query and not any(character.isalnum() for character in query):
+            return []
+        people = self.directory().search_directory_candidates(
+            owner_user_id=viewer,
+            query=query,
+            audience="all" if query else "ria",
+            name_only=True,
+            exclude_network_user_ids=network_ids,
+            include_recommendations=False,
+            limit=SUGGESTION_LIMIT,
+        )["items"]
+        people = [person for person in people if person.get("publicPersonRef")]
+        metadata = ConnectionRowMetadata(self.connections, viewer, people, self.profiles).settle()
+        return [
+            {
+                "publicPersonRef": person["publicPersonRef"],
+                "displayName": person.get("displayName"),
+                "photoUrl": person.get("photoUrl"),
+                "relationship": row["relationship"],
+                "suggestionReason": "name_match" if query else "verified_advisor",
+            }
+            for person in people
+            if (row := metadata[str(person["userId"])])["relationship"] != "connected"
+            and row["mutualConnectionCount"] == 0
+        ]
 
     def browse(
         self,
@@ -358,6 +427,7 @@ class ConnectionNetworkService:
         query: str = "",
         page: int = 1,
         limit: int = 20,
+        include_suggestions: bool = False,
     ) -> dict[str, Any]:
         from hushh_mcp.services.connections_service import ConnectionsError
 
@@ -367,15 +437,17 @@ class ConnectionNetworkService:
                 raise ConnectionsError(
                     "CONNECTION_NETWORK_NOT_FOUND", "This network is unavailable.", status_code=404
                 )
-            rows = self.neighbors(viewer, [target["userId"]], MAX_NETWORK_EDGES)
-            ids = sorted({str(row["peer_id"]) for row in rows})
-            if len(ids) > MAX_NETWORK_NODES:
-                raise self.unavailable()
+            ids = self._shared_peer_ids(viewer, target["userId"])
             # All connection permission checks are re-run on every page/read.
             degrees = self.degrees(viewer) if degree else {}
         else:
             degrees = self.degrees(viewer, max_degree=degree or 3)
             ids = sorted(degrees)
+        suggestions = (
+            self.suggested_people(viewer, query, ids)
+            if include_suggestions and target is None and degree == 3 and page == 1
+            else None
+        )
         if degree:
             ids = [uid for uid in ids if degrees.get(uid) == degree]
         result = (
@@ -404,7 +476,7 @@ class ConnectionNetworkService:
         if target:
             payloads = metadata.settle(
                 f"SELECT user_id, degree, FALSE AS overflow FROM ({QUALIFIED_TARGET_ROWS_SQL}) target_rows",  # nosec B608 -- module-owned literal; request values remain bound.
-                {"viewer": viewer, "target": target["userId"], "candidates": page_ids},
+                {"viewer": viewer, "target": target["userId"], "target_peer_ids": page_ids},
             )
         else:
             payloads = metadata.settle(
@@ -440,4 +512,5 @@ class ConnectionNetworkService:
             ],
             "page": result["page"],
             "hasMore": result["hasMore"],
+            **({"suggestions": suggestions} if suggestions is not None else {}),
         }

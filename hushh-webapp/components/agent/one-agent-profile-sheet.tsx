@@ -235,18 +235,20 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
         </div>
         {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
-          <TabsList
-            className={styles.tabList}
-            aria-label="One profile sections"
-          >
-            <TabsTrigger value="feed">
-              <Newspaper aria-hidden /> Feed
-            </TabsTrigger>
-            <TabsTrigger value="todo"><ClipboardList aria-hidden /> To-do</TabsTrigger>
-            <TabsTrigger value="profile">
-              <Fingerprint aria-hidden /> Profile
-            </TabsTrigger>
-          </TabsList>
+          <div className={styles.tabRail}>
+            <TabsList
+              className={styles.tabList}
+              aria-label="One profile sections"
+            >
+              <TabsTrigger value="feed">
+                <Newspaper aria-hidden /> Feed
+              </TabsTrigger>
+              <TabsTrigger value="todo"><ClipboardList aria-hidden /> To-do</TabsTrigger>
+              <TabsTrigger value="profile">
+                <Fingerprint aria-hidden /> Profile
+              </TabsTrigger>
+            </TabsList>
+          </div>
           <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
             <TabsContent value="feed">{feed}</TabsContent>
             <TabsContent value="todo">{todo}</TabsContent>

@@ -4,7 +4,6 @@ import { PersonSelectionSurface } from "@/components/connections/person-selectio
 import type { ComponentProps, ReactNode } from "react";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
-import { ConnectionStatusBadges } from "@/components/connections/connection-status-badges";
 import { connectPersonName, type ConnectPersonIdentity } from "@/lib/connections/person-label";
 import type { DirectoryPerson, MutualConnectionMetadata } from "@/lib/services/connections-service";
 import { cn } from "@/lib/utils";
@@ -61,7 +60,7 @@ export function ConnectPersonRow({
       </span>
       <span data-slot="settings-row-identity" className="min-w-0">
         <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
-          <span data-slot="settings-row-title" className="min-w-0 underline-offset-4 group-hover/connect-person:underline [overflow-wrap:anywhere]">
+          <span data-slot="settings-row-title" className="min-w-0 group-hover/connect-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere]">
             {title}
           </span>
         </span>
@@ -79,7 +78,7 @@ export function ConnectPersonRow({
     </>
   );
   const identityClassName =
-    "grid min-h-[52px] w-full min-w-0 grid-cols-[30px_minmax(0,1fr)] items-center gap-x-2 py-1.5 text-left";
+    "grid min-h-[52px] -ms-2.5 w-full max-w-full min-w-0 grid-cols-[30px_minmax(0,1fr)] items-center gap-x-2 px-2.5 py-1.5 text-left";
 
   return (
     <div
@@ -99,7 +98,7 @@ export function ConnectPersonRow({
             aria-label={openLabel}
             className={cn(
               identityClassName,
-              "group/connect-person rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:opacity-80",
+              "group/connect-person rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:opacity-80",
             )}
           >
             {identity}
@@ -135,12 +134,7 @@ export function ConnectDirectoryPersonRow({
       description={person.relationship === "pending_outgoing"
         ? "Request sent"
         : person.relationship === "pending_incoming" ? "Wants to connect" : undefined}
-      supplement={person.isRia === true ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">
-          <ConnectionStatusBadges riaVerified />
-          {supplement}
-        </div>
-      ) : supplement}
+      supplement={supplement}
     />
   );
 }
@@ -170,7 +164,7 @@ export function DirectoryMutualLine({
   const label = count === 1 ? "Mutual connection" : `${count} mutual connections`;
   const content = (
     <>
-      {previews.length ? <span className="isolate inline-flex min-w-9 shrink-0 items-center -space-x-1" data-testid="mutual-avatar-stack" aria-hidden="true">
+      {previews.length ? <span className={cn("isolate inline-flex shrink-0 items-center -space-x-1", networkPersonRef && "min-w-9")} data-testid="mutual-avatar-stack" aria-hidden="true">
         {previews.map((peer, index) => <ConnectionPersonAvatar
           key={peer.publicPersonRef ?? index}
           size="compact"
@@ -185,7 +179,7 @@ export function DirectoryMutualLine({
       </span>
     </>
   );
-  const lineClassName = "flex min-w-0 items-center gap-2 text-left";
+  const lineClassName = "flex min-w-0 items-center gap-1.5 text-left";
   return onOpenMutual ? (
     <button
       type="button"

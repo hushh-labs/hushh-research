@@ -133,6 +133,8 @@ def connections_directory(
     # caller that predates the advisor split keeps the list it already had.
     audience: str = Query(default="all", pattern="^(all|people|ria)$"),
     name_only: bool = Query(default=False),
+    # The interactive Find people field uses the typed matching contract.
+    typed_search: bool = Query(default=False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     del request
@@ -144,6 +146,7 @@ def connections_directory(
             limit=limit,
             audience=audience,
             name_only=name_only,
+            typed_search=typed_search,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -225,6 +228,7 @@ def browse_network(
     query: str = Query("", max_length=160),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
+    include_suggestions: bool = Query(False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     del request
@@ -238,6 +242,7 @@ def browse_network(
                 query=query,
                 page=page,
                 limit=limit,
+                include_suggestions=include_suggestions,
             )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

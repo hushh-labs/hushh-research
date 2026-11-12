@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { DetailedPersonaForm } from "@/components/kai/onboarding/detailed-persona-form";
 import { FinancePersonaBadge } from "@/components/kai/onboarding/finance-persona-form";
+import { portfolioPlanningSignals } from "@/lib/kai/investing-persona";
 import { KaiProfileService, type KaiPreferences } from "@/lib/services/kai-profile-service";
 import {
   requireFinanceSession,
@@ -23,6 +24,8 @@ export function PortfolioPersona({
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
+  const { horizon, lossCapacity } = portfolioPlanningSignals(preferences);
+  const action = horizon && lossCapacity ? "Refine persona" : "Complete persona";
 
   return (
     <div className={styles.row}>
@@ -31,12 +34,12 @@ export function PortfolioPersona({
         <FinancePersonaBadge preferences={preferences} />
       </div>
       <button ref={trigger} type="button" className={`${styles.quietAction} ${styles.refinePersona}`} onClick={() => setOpen(true)}>
-        Refine persona
+        {action}
       </button>
       <AdaptiveDetailSurface
         open={open}
         onOpenChange={(next) => { if (!saving) setOpen(next); }}
-        title={<span className="ui-text-section-label">Refine persona</span>}
+        title={<span className="ui-text-section-label">{action}</span>}
         description={<span className="sr-only">13 questions about risk, cash needs and timing.</span>}
         surfaceClassName={styles.reviewSheet}
         bodyClassName="px-4"

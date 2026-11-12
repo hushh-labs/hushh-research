@@ -35,11 +35,15 @@ def pair_gate(conn, owner, advisor):
 _LOAD_SQL = """SELECT r.*,clock_timestamp() AS server_now,
         COALESCE(a.display_name,'Finance member') AS owner_name,
         COALESCE(b.display_name,'Advisor') AS advisor_name,
-        owner_profile.public_person_ref AS owner_person_ref
+        owner_profile.public_person_ref AS owner_person_ref,
+        pay.status AS payment_status,pay.amount_cents AS payment_amount_cents,
+        pay.paid_at AS payment_paid_at
         FROM advisor_review_requests r
         JOIN actor_profiles owner_profile ON owner_profile.user_id=r.owner_user_id
         LEFT JOIN actor_identity_cache a ON a.user_id=r.owner_user_id
         LEFT JOIN actor_identity_cache b ON b.user_id=r.advisor_user_id
+        LEFT JOIN advisor_review_payments pay
+          ON pay.request_id=r.id AND pay.plan_revision=r.plan_revision
         WHERE r.id=CAST(:id AS uuid) AND :viewer IN(r.owner_user_id,r.advisor_user_id)"""
 
 
@@ -111,6 +115,17 @@ def project(row, viewer, *, snapshot=False, current_ui=False):
             and row["owner_envelope"]
         ),
     }
+    # Both people see the same settled payment for the current plan, so the list can
+    # show it without opening the Plan tab. Only provider-confirmed states are stored
+    # with a paid_at, so an open or expired checkout never shows as paid.
+    if row.get("payment_status") in ("paid", "partially_refunded", "refunded") and row.get(
+        "payment_paid_at"
+    ):
+        result["payment"] = {
+            "status": row["payment_status"],
+            "amountCents": row["payment_amount_cents"],
+            "paidAt": iso(row["payment_paid_at"]),
+        }
     if current_ui and past:
         result["pastMeetings"] = [public_meeting(value) for value in past]
     if snapshot and result["snapshotAvailable"]:

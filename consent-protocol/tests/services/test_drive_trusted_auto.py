@@ -1695,8 +1695,17 @@ async def test_paid_delivery_preflight_checks_source_without_reclassifying_exist
 
 
 @pytest.mark.parametrize("status", ["queued", "failed", "running"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "legacy_unbound",
+        "previously_migrated_azure",
+        "previously_migrated_flash",
+        "other_flash_binding",
+    ],
+)
 async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effects(
-    request_bulk, sharing, monkeypatch, status
+    request_bulk, sharing, monkeypatch, status, source
 ):
     from hushh_mcp.runtime_providers import managed_text
     from hushh_mcp.services.drive_request_package_service import assessment_policy_version
@@ -1715,7 +1724,7 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
         historical.setattr(
             "hushh_mcp.services.drive_sharing_store.new_semantic_search_policy_version", lambda: 1
         )
-        historical.setattr(managed_text, "managed_text_policy", lambda: None)
+        historical.setattr(managed_text, "managed_text_policy", lambda **_: None)
         created = await _request(sharing)
     request_id = created["requestId"]
     cp = _semantic_checkpoint("Elena Rostova")
@@ -1739,6 +1748,53 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
     cp["semantic_pending"] = [{"id": "pending-synthetic", "version": "12"}]
     job = _search(request_bulk, request_id=request_id, count=1, selection=cp)
     store = DriveOwnerSearchStore(db=sharing.db)
+    previous = None
+    if source != "legacy_unbound":
+        # Build the historical first receipt using its real transaction and fences.
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE drive_owner_search_jobs SET status='queued' WHERE job_id=:job"),
+                {"job": job},
+            )
+        with monkeypatch.context() as historical:
+            historical.delenv("HUSHH_UAT_MANAGED_AI_PROVIDER", raising=False)
+            historical.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+            historical.setattr(managed_text, "load_drive_text_policy", lambda: None)
+            assert await store.migrate_request_processor(user_id="owner", request_id=request_id)
+            with sharing.db.engine.connect() as connection:
+                row = store._row(
+                    connection,
+                    "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job",
+                    {"job": job},
+                )
+                previous = store._checkpoint(row)["processor_migration"]
+            assert previous["to_binding"]["provider"] == "azure_openai"
+    if source in {"previously_migrated_flash", "other_flash_binding"}:
+        # Preserve a request that already crossed Azure and the original UAT Vertex binding.
+        carbon_policy = managed_text.load_drive_text_policy()
+        with monkeypatch.context() as historical:
+            historical.setattr(
+                managed_text,
+                "load_drive_text_policy",
+                lambda: {
+                    **carbon_policy,
+                    "version": "drive-vertex-flash-v2"
+                    if source == "previously_migrated_flash"
+                    else "another-drive-vertex-flash-binding",
+                    "model": "gemini-3.8-flash",
+                },
+            )
+            assert await store.migrate_request_processor(user_id="owner", request_id=request_id)
+        with sharing.db.engine.connect() as connection:
+            row = store._row(
+                connection,
+                "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job",
+                {"job": job},
+            )
+            flash_migration = store._checkpoint(row)["processor_migration"]
+        assert flash_migration["previous_migration"] == previous
+        assert flash_migration["to_binding"]["deployment"] == "gemini-3.8-flash"
+        previous = flash_migration
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
@@ -1779,6 +1835,23 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
                 ),
                 {"job": job},
             )
+    if source == "other_flash_binding":
+        with pytest.raises(DriveReadError, match="search_superseded"):
+            await store.migrate_request_processor(user_id="owner", request_id=request_id)
+        return
+    if source == "previously_migrated_flash":
+        with monkeypatch.context() as unadmitted:
+            unadmitted.setattr(
+                managed_text,
+                "load_drive_text_policy",
+                lambda: {
+                    **carbon_policy,
+                    "version": "unadmitted-processor-transition",
+                    "model": "gemini-3.7-flash",
+                },
+            )
+            with pytest.raises(DriveReadError, match="search_superseded"):
+                await store.migrate_request_processor(user_id="owner", request_id=request_id)
     assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is True
     assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is False
     with sharing.db.engine.begin() as connection:
@@ -1791,7 +1864,11 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
         assert after["semantic_pending"] == cp["semantic_pending"]
         assert after["semantic_plan_digest"] == cp["semantic_plan_digest"]
         assert after["processor_migration"]["basis"] == "administrator_rollout"
-        assert after["processor_migration"]["from_binding"] is None
+        assert after["processor_migration"]["from_binding"] == (
+            previous["to_binding"] if previous else None
+        )
+        if previous:
+            assert after["processor_migration"]["previous_migration"] == previous
         assert after["semantic_model_binding"] == managed_text.managed_text_binding()
         assert after["semantic_assessment_policy"] != cp["semantic_assessment_policy"]
         assert (

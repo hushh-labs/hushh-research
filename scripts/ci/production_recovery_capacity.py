@@ -10,6 +10,7 @@ import re
 PROJECT = "hushh-pda"
 REGION = "us-central1"
 BACKEND = "consent-protocol"
+APPLICATION_SHA = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
 BACKEND_SERVICE_UID = "35918680-6774-4fa5-8d01-d1f32895cc26"
 BACKEND_SOURCE = "d8a5fa4858741e611d39fd4f1f28b1ab930d057c"
 BACKEND_IMAGE = "gcr.io/hushh-pda/consent-protocol@sha256:cce7d40168dfd8fc0958903f530242f754d346c3d8df6ae264e62fd11e889f60"
@@ -125,6 +126,11 @@ def template():
 REVISION = BACKEND + "-cap-" + fingerprint([PROFILE, DISPLACED, SPEC, LABELS, ANNOTATIONS])[:16]
 
 
+OBSERVED_BRIDGE_UID = "6b0af8c2-b677-43e7-b362-0403b4b8dc99"
+STARTUP_TAG = "capacity-" + REVISION.rsplit("-", 1)[-1]
+STARTUP_PHASES = frozenset({"tag_requested", "removal_requested", "complete"})
+
+
 def has_inert_identity(revision):
     metadata = revision.get("metadata", {})
     return metadata.get("name") == REVISION or metadata.get("labels", {}).get("capacity-bridge") == LABEL
@@ -160,7 +166,7 @@ def reconciled(service):
     )
 
 
-def verified_inert(service, revision):
+def inert_revision_matches(revision):
     metadata = revision.get("metadata", {})
     labels = metadata.get("labels", {})
     annotations = runtime_annotations(revision)
@@ -174,14 +180,20 @@ def verified_inert(service, revision):
         if annotations.get(key) == default:
             annotations.pop(key)
     return (
-        service.get("metadata", {}).get("uid") == BACKEND_SERVICE_UID
-        and metadata.get("name") == REVISION
+        metadata.get("name") == REVISION
         and bool(metadata.get("uid"))
         and labels.get("serving.knative.dev/serviceUid") == BACKEND_SERVICE_UID
         and all(labels.get(key) == value for key, value in LABELS.items())
         and annotations == ANNOTATIONS
         and revision.get("spec") == SPEC
         and revision.get("status", {}).get("imageDigest") == BACKEND_IMAGE
+    )
+
+
+def verified_inert(service, revision):
+    return (
+        service.get("metadata", {}).get("uid") == BACKEND_SERVICE_UID
+        and inert_revision_matches(revision)
         and ready(revision)
         and reconciled(service)
         and unrouted(service, REVISION)

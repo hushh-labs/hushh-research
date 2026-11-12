@@ -30,7 +30,34 @@ def test_network_routes_bind_viewer_and_validate_private_read_contract():
         assert response.status_code == 200
         assert response.headers["cache-control"] == "private, no-store"
         service.return_value.browse.assert_called_once_with(
-            "user-a", person_ref=person_ref, degree=3, query="Alice", page=2, limit=20
+            "user-a",
+            person_ref=person_ref,
+            degree=3,
+            query="Alice",
+            page=2,
+            limit=20,
+            include_suggestions=False,
+        )
+        service.return_value.browse.reset_mock()
+        service.return_value.browse.return_value = {
+            "items": [],
+            "suggestions": [],
+            "page": 1,
+            "hasMore": False,
+        }
+        suggestions = client.get(
+            "/api/one/connections/network", params={"degree": 3, "include_suggestions": True}
+        )
+        assert suggestions.status_code == 200
+        assert suggestions.json()["suggestions"] == []
+        service.return_value.browse.assert_called_once_with(
+            "user-a",
+            person_ref=None,
+            degree=3,
+            query="",
+            page=1,
+            limit=20,
+            include_suggestions=True,
         )
         for params in (
             {"degree": 0},
@@ -160,8 +187,10 @@ def test_create_request_returns_typed_conflict_when_pair_is_already_connected():
     }
 
 
-@pytest.mark.parametrize("name_only", [False, True])
-def test_directory_lists_items(name_only):
+@pytest.mark.parametrize(
+    ("name_only", "typed_search"), [(False, False), (True, False), (False, True)]
+)
+def test_directory_lists_items(name_only, typed_search):
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
         svc_cls.return_value.search_directory.return_value = {
@@ -171,12 +200,18 @@ def test_directory_lists_items(name_only):
         }
         resp = client.get(
             "/api/one/connections/directory",
-            params={"query": "bo", **({"name_only": "true"} if name_only else {})},
+            params={"query": "bo", "name_only": name_only, "typed_search": typed_search},
         )
     assert resp.status_code == 200
     assert resp.json() == {"items": [], "page": 1, "hasMore": False}
     svc_cls.return_value.search_directory.assert_called_once_with(
-        "user-a", query="bo", page=1, limit=20, audience="all", name_only=name_only
+        "user-a",
+        query="bo",
+        page=1,
+        limit=20,
+        audience="all",
+        name_only=name_only,
+        typed_search=typed_search,
     )
 
 

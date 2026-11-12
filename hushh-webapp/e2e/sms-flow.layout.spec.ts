@@ -184,8 +184,12 @@ test("pending recipient metadata keeps the mobile SMS composer usable without di
   await expect(page.getByText("8 contacts · Live location")).toBeVisible();
   await expect(page.locator("details")).toHaveCount(0);
   await expect(page.getByText(/needs? attention|contacts ready|account verification|unlock once|Roopmann Varadharaj/i)).toHaveCount(0);
+  await expect(page.getByText("0/140", { exact: true })).toBeVisible();
+  await expect(page.getByText("Alert your SMS Circle with live location", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Hold Send for 2 seconds/)).toHaveCount(0);
   const send = page.getByTestId("sos-send-custom-message");
   await page.getByRole("button", { name: "Come get me" }).click();
+  await expect(page.getByText("Alert your SMS Circle with your message and live location", { exact: true })).toBeVisible();
   await send.scrollIntoViewIfNeeded();
   await expect(send).toBeVisible();
   await expect(send).toBeEnabled();
@@ -220,7 +224,7 @@ for (const dark of [false, true]) {
       await expect(add).toBeVisible();
       expect(measured.title).toMatchObject({ size: "28px", line: "36px", weight: "600" });
       expect(measured.title.family).toContain("Plus Jakarta Sans");
-      expect(measured.add).toMatchObject({ size: "17px", line: "22px", weight: "650" });
+      expect(measured.add).toMatchObject({ size: "12px", line: "18px", weight: "550" });
       expect(measured.addHeight).toBeGreaterThanOrEqual(52);
       expect(measured.overflow).toBeLessThanOrEqual(1);
       if (width === 320) {
@@ -292,6 +296,7 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await message.fill("Please come to the entrance");
   await send.click();
   await expect(send).toHaveText("Cancel");
+  await expect(page.getByText(/Sending in .* · Tap Cancel/)).toBeVisible();
   await expect(send.getByTestId("sos-send-progress")).toBeVisible();
   await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("sms-send-tap-countdown.png"), fullPage: true });
@@ -348,7 +353,7 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
     const style = getComputedStyle(node);
     return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
   });
-  expect(stopTitle).toMatchObject({ size: "20px", line: "25px", weight: "600" });
+  expect(stopTitle).toMatchObject({ size: "20px", line: "28px", weight: "600" });
   expect(stopTitle.family).toContain("Plus Jakarta Sans");
   await stopDialog.getByRole("button", { name: "Stop alert", exact: true }).click();
   await expect(message).toBeVisible();
