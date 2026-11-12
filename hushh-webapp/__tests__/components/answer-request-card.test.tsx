@@ -514,3 +514,15 @@ it("offers Retry preparation only after automatic attempts are exhausted", async
   expect(screen.getByRole("button", { name: "Retry preparation" })).toBeVisible();
   expect(screen.getByRole("alert")).toHaveTextContent("Preparation could not finish");
 });
+
+it("keeps a genuine refresh failure visible beside verified prepared status", async () => {
+  const state = { role: "owner", requestStatus: "approved", question: "Fixture question", answerPrepared: true };
+  m.state.mockResolvedValue(state);
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  await screen.findByText("Answer prepared. Waiting for payment.");
+  m.state.mockRejectedValueOnce(new Error("Request unavailable"));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh question" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Request unavailable");
+  expect(screen.getByText("Answer prepared. Waiting for payment.")).toBeVisible();
+  expect(m.sweep).not.toHaveBeenCalled();
+});

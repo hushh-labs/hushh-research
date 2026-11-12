@@ -349,7 +349,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
                   : "Prepare answer"}
           </Button>
         ) : null}
-        {error && !prepared ? <HelperText role="alert">{error}</HelperText> : null}
+        {error ? <HelperText role="alert">{error}</HelperText> : null}
         <Button data-consent-role="compact-action" size="standard" variant="none" disabled={busy} onClick={() => void load()}>Refresh question</Button>
       </div>
     );
