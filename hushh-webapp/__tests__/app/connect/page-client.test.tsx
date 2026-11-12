@@ -985,6 +985,31 @@ describe("Connect — People", () => {
     expect(screen.getByRole("tab", { name: /My RIAs/ })).toHaveAttribute("aria-selected", "true");
   });
 
+  it("shows a safe label for a contact-synced connection whose name is an SSO account ID", async () => {
+    const ssoAccountId = "sso_0123456789abcdef0123456789abcdef";
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-sso",
+        userId: ssoAccountId,
+        publicPersonRef: "person-ref-sso",
+        displayName: ssoAccountId,
+        photoUrl: null,
+        createdAt: null,
+        connectedFromContacts: true,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+
+    const list = await screen.findByTestId("connect-my-connections-group");
+    const openProfile = await within(list).findByRole("button", { name: "Open Hussh member's profile" });
+    expect(within(list).queryByText(ssoAccountId)).toBeNull();
+    fireEvent.click(openProfile);
+    const profileHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
+    expect(new URL(profileHref, "https://app.invalid").pathname).toBe("/people/person-ref-sso");
+  });
+
   it("opens a connection's person profile from My connections", async () => {
     mocks.listConnections.mockResolvedValue([
       {

@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -227,6 +227,27 @@ def test_directory_identity_outage_returns_retryable_503():
             "message": "People search is temporarily unavailable. Try again.",
         }
     }
+
+
+def test_contact_sync_reports_provider_outage_as_retryable():
+    with (
+        patch("api.routes.one.connections.ConnectionsService") as service,
+        patch("api.routes.one.connections.ActorIdentityService") as identity,
+        patch("api.routes.one.connections.RIAIAMService") as directory,
+    ):
+        identity.return_value.sync_contact_sync_requester_from_firebase = AsyncMock(
+            return_value=None
+        )
+        directory.return_value.match_one_network_contact_lookups_exact = AsyncMock(
+            return_value=[{"lookup_id": "contact1", "user_id": "peer"}]
+        )
+        service.return_value.sync_contact_matches.side_effect = DirectoryIdentityUnavailableError()
+        response = _client().post(
+            "/api/one/connections/contact-sync",
+            json={"lookups": [{"lookup_id": "contact1", "hash": "a" * 64, "last4": "1234"}]},
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "DIRECTORY_IDENTITY_UNAVAILABLE"
 
 
 def test_connections_no_params_preserves_legacy_complete_shape():
