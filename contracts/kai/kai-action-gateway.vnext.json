@@ -24284,7 +24284,7 @@
         "mutual",
         "connections"
       ],
-      "meaning": "The profile shows viewer-relative degree and direct shared neighbors. Zero mutuals hide the control, one opens its available profile, and multiple open a list. View connections appears only when the server authorizes this active direct connection after the target opts in.",
+      "meaning": "The profile shows viewer-relative degree and eligible connections. Zero mutuals hide the control, one opens its available profile, and multiple open a list. The connection count opens the list when the server confirms an accepted active direct connection, without a separate owner opt-in.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -37562,7 +37562,7 @@
     {
       "action_id": "profile.network_visibility.choose",
       "surface_id": "one_network_visibility",
-      "label": "Share my connection list",
+      "label": "Extended network discovery",
       "aliases": [],
       "search_keywords": [
         "network",
@@ -37570,7 +37570,7 @@
         "visibility",
         "privacy"
       ],
-      "meaning": "The owner explicitly chooses whether active direct connections may browse their connection list and shared edges may contribute anonymous extended-network degree labels. Private contacts and information grants are unaffected. Existing users start private.",
+      "meaning": "The owner explicitly chooses whether their connections may contribute anonymous third-degree discovery. Accepted active direct connections can view their eligible connection list regardless of this setting. Private contact details and information grants are unaffected. Extended discovery starts off.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -37602,7 +37602,7 @@
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
-        "reason": "The owner chooses network sharing using the visible switch after reviewing the disclosure.",
+        "reason": "The owner chooses extended network discovery using the visible switch after reviewing the disclosure.",
         "intended_handler": "NetworkVisibilitySetting"
       },
       "control_ids": [
@@ -37638,7 +37638,7 @@
           {
             "type": "action",
             "action_id": "profile.network_visibility.choose",
-            "label": "Share my connection list",
+            "label": "Extended network discovery",
             "failure_behavior": "stop"
           }
         ],

@@ -45,7 +45,7 @@ function VisibilitySession() {
     } catch { if (mounted.current && generation === getAuthSessionGeneration()) setError("Could not save network visibility. Your preference has not been confirmed."); }
     finally { if (mounted.current && generation === getAuthSessionGeneration()) setBusy(false); }
   };
-  return <div><SettingsRow icon={PROFILE_ICONS.people} iconTone="capability" title="Share my connection list" description="Allow your active direct connections to browse your connections. Shared connections also contribute anonymous extended-network degree labels. This does not share private contacts or grant access to your information." trailing={<Switch data-voice-control-id="network-share-connection-list" aria-label="Share my connection list" checked={enabled} disabled={busy || Boolean(error)} onCheckedChange={value => void update(value)} />} />
+  return <div><SettingsRow icon={PROFILE_ICONS.people} iconTone="capability" title="Extended network discovery" description="Help people discover extended connections through your network. Accepted connections can view your eligible connection list regardless of this setting. This does not share private contact details or grant access to your information." trailing={<Switch data-voice-control-id="network-share-connection-list" aria-label="Extended network discovery" checked={enabled} disabled={busy || Boolean(error)} onCheckedChange={value => void update(value)} />} />
     {error ? <p role="alert" className="px-4 text-sm text-muted-foreground">{error} <button type="button" className="min-h-11 px-2 underline" onClick={() => setRevision(value => value + 1)}>Retry</button></p> : null}
   </div>;
 }
