@@ -81,15 +81,28 @@ export function OneMarketNewsCover({ row, className, thumbnail = false }: { row:
   );
 }
 
-export function OneMarketNewsBriefing({ rows }: { rows: KaiHomeNewsItem[] }) {
+export function OneMarketNewsBriefing({ rows, loading = false }: { rows: KaiHomeNewsItem[]; loading?: boolean }) {
   const stories = rows.slice(0, 4);
+  if (!stories.length && loading) return (
+    <div className={cn(marketBriefingStyles.typography, "grid sm:grid-cols-2 sm:gap-x-6")} role="status" aria-label="Loading market news" aria-busy="true">
+      {[0, 1, 2, 3].map((slot) => (
+        <div key={slot} className="flex items-center gap-3 border-b border-border/60 py-2 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="h-3 w-11/12 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-7/12 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="h-14 w-14 shrink-0 animate-pulse rounded-lg bg-muted sm:h-16 sm:w-16" />
+        </div>
+      ))}
+    </div>
+  );
   if (!stories.length) return <p className="py-4 text-sm text-muted-foreground">Headlines will appear here when a market source is available.</p>;
   return (
     <div className={cn(marketBriefingStyles.typography, "grid sm:grid-cols-2 sm:gap-x-6")}>
       {stories.map((row, index) => (
         <article key={row.url} className="min-w-0 border-b border-border/60 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
           <button type="button" onClick={() => openOneMarketHref(row.url)}
-            className="group/news relative isolate flex min-h-11 w-full items-center gap-3 overflow-hidden rounded-sm py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            className="group/news relative isolate flex min-h-11 w-full items-center gap-3 overflow-hidden rounded-sm py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <span className="min-w-0 flex-1">
               <span className={cn(marketBriefingStyles.newsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--one-link)]")}>{row.title}</span>
               <span className={marketBriefingStyles.newsMetadata}>{row.source_name || "Market news"} <span aria-hidden="true"> · </span> {formatHeadlinePublished(row.published_at)}</span>

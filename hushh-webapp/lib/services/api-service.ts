@@ -5196,6 +5196,8 @@ export class ApiService {
   static async getKaiMarketBaselineInsights(data: {
     userId: string;
     daysBack?: number;
+    /** India view. Omitted for the US view, which stays the default. */
+    market?: "US" | "IN";
     signal?: AbortSignal;
   }): Promise<KaiHomeInsightsV2> {
     const startedAt = Date.now();
@@ -5208,6 +5210,7 @@ export class ApiService {
     if (typeof data.daysBack === "number" && Number.isFinite(data.daysBack)) {
       query.set("days_back", String(data.daysBack));
     }
+    if (data.market === "IN") query.set("market", "IN");
     const suffix = query.toString() ? `?${query.toString()}` : "";
     const path = `/api/kai/market/insights/baseline/${data.userId}${suffix}`;
 

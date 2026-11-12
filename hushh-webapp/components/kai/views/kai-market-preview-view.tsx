@@ -54,6 +54,16 @@ import {
   type KaiHomeWatchlistItem,
 } from "@/lib/services/api-service";
 import { diversifyMarketNewsRows } from "@/lib/kai/market-news-diversity";
+import { useAuth } from "@/hooks/use-auth";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
+import { useIndiaMarketHome } from "@/lib/kai/use-india-market-home";
+import {
+  readSelectedMarketRegion,
+  resolveMarketRegion,
+  storeSelectedMarketRegion,
+  type MarketRegion,
+} from "@/lib/kai/market-region";
 import {
   openExternalUrl,
   requestInternalAppNavigation,
@@ -244,8 +254,16 @@ export function toMoverGroups(
   return { gain: withGroupStatus(gainers), lose: withGroupStatus(losers), active: withGroupStatus(active) };
 }
 
+const INDIA_INDEX_SPECS = [
+  { label: "NIFTY 50", symbol: "^NSEI", match: (label: string) => label === "nifty 50" },
+  { label: "SENSEX", symbol: "^BSESN", match: (label: string) => label.includes("sensex") },
+  { label: "NIFTY Bank", symbol: "^NSEBANK", match: (label: string) => label.includes("bank") },
+  { label: "NIFTY IT", symbol: "^CNXIT", match: (label: string) => label === "nifty it" },
+];
+
 export function toIndexStripItems(
   payload: KaiHomeInsightsV2 | null,
+  region: MarketRegion = "US",
 ): MarketOverviewMetric[] {
   const overviewRows = Array.isArray(payload?.market_overview)
     ? payload.market_overview.filter(
@@ -255,7 +273,7 @@ export function toIndexStripItems(
       )
     : [];
 
-  return [
+  return (region === "IN" ? INDIA_INDEX_SPECS : [
     {
       label: "S&P 500",
       symbol: "^GSPC",
@@ -269,15 +287,18 @@ export function toIndexStripItems(
       symbol: "^RUT",
       match: (label: string) => label.includes("russell"),
     },
-  ].map(({ label, symbol, match }) => {
+  ]).map(({ label, symbol, match }) => {
     const row =
       overviewRows.find((candidate) =>
         (!candidate.symbol || candidate.symbol === symbol) &&
         match(String(candidate.label || "").toLowerCase()),
       ) || null;
-    return row && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0
+    const metric = row && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0
       ? toIndexOverviewMetric({ ...row, label, degraded: Boolean(row.degraded || payload?.stale) }, label)
       : toIndexOverviewMetric(null, label);
+    return region === "IN" && metric.detailPanel
+      ? { ...metric, detailPanel: { ...metric.detailPanel, summary: "India equity index · points" } }
+      : metric;
   });
 }
 
@@ -757,13 +778,41 @@ export function KaiMarketPreviewView() {
     activePickSource,
     loadInsights,
   } = useKaiMarketHome();
-  const [retainedPayload, setRetainedPayload] =
-    useState<KaiHomeInsightsV2 | null>(payload);
-  const usingLocalPreviewFallback = Boolean(localPreviewPayload && !payload);
-  const displayPayload = payload ?? localPreviewPayload;
-  const displayLoading = usingLocalPreviewFallback ? false : loading;
-  const displayRefreshing = usingLocalPreviewFallback ? false : refreshing;
-  const displayError = usingLocalPreviewFallback ? null : error;
+  const { userId, phoneNumber } = useAuth();
+  const [selectedMarket, setSelectedMarket] = useState<MarketRegion | null>(null);
+  useEffect(() => {
+    setSelectedMarket(readSelectedMarketRegion(userId));
+  }, [userId]);
+  // Resolved only once the account is known (client side, after sign-in), so the first
+  // server and client render agree and nothing is shown for the wrong market meanwhile.
+  const marketRegion = useMemo<MarketRegion>(
+    () =>
+      userId
+        ? resolveMarketRegion({
+            selected: selectedMarket,
+            holdings: KaiFinancialResourceService.peek(userId)?.data?.activePortfolio?.holdings,
+            phoneNumber,
+            localeTag: typeof navigator === "undefined" ? null : navigator.language,
+          }).region
+        : "US",
+    [phoneNumber, selectedMarket, userId],
+  );
+  const chooseMarket = (region: MarketRegion) => {
+    setSelectedMarket(region);
+    storeSelectedMarketRegion(userId, region);
+  };
+  const indiaHome = useIndiaMarketHome(userId, marketRegion === "IN");
+  const inIndia = marketRegion === "IN";
+  const [retained, setRetained] = useState<{ region: MarketRegion; payload: KaiHomeInsightsV2 } | null>(
+    payload ? { region: "US", payload } : null,
+  );
+  const usingLocalPreviewFallback = !inIndia && Boolean(localPreviewPayload && !payload);
+  const displayPayload = inIndia ? indiaHome.data : payload ?? localPreviewPayload;
+  const displayLoading = inIndia ? indiaHome.loading : usingLocalPreviewFallback ? false : loading;
+  const displayRefreshing = inIndia ? indiaHome.refreshing : usingLocalPreviewFallback ? false : refreshing;
+  const displayError = inIndia ? indiaHome.error : usingLocalPreviewFallback ? null : error;
+  const reloadMarket = () =>
+    inIndia ? void indiaHome.refresh({ force: true }) : void loadInsights({ manual: true });
   const [selectedOverviewMetricId, setSelectedOverviewMetricId] = useState<
     string | null
   >(null);
@@ -776,11 +825,12 @@ export function KaiMarketPreviewView() {
 
   useEffect(() => {
     if (displayPayload) {
-      setRetainedPayload(displayPayload);
+      setRetained({ region: marketRegion, payload: displayPayload });
     }
-  }, [displayPayload]);
+  }, [displayPayload, marketRegion]);
 
-  const effectivePayload = displayPayload ?? retainedPayload;
+  // A retained US view must never stand in for India while India loads, or the reverse.
+  const effectivePayload = displayPayload ?? (retained?.region === marketRegion ? retained.payload : null);
   const marketPaneActive = !searchParams?.get("tab") || searchParams.get("tab") === "market";
   const hasPayload = Boolean(effectivePayload);
   const pickRows = useMemo(
@@ -795,8 +845,8 @@ export function KaiMarketPreviewView() {
     [effectivePayload],
   );
   const indexStripItems = useMemo(
-    () => toIndexStripItems(effectivePayload),
-    [effectivePayload],
+    () => toIndexStripItems(effectivePayload, marketRegion),
+    [effectivePayload, marketRegion],
   );
   const selectedOverviewMetric = useMemo(
     () =>
@@ -1020,8 +1070,10 @@ export function KaiMarketPreviewView() {
     () =>
       diversifyMarketNewsRows(
         Array.isArray(effectiveNewsTape) ? effectiveNewsTape : [],
+        // India headlines share one topic, so the per-symbol cap would hide all but two.
+        inIndia ? { maxPerSymbol: 4 } : {},
       ),
-    [effectiveNewsTape],
+    [effectiveNewsTape, inIndia],
   );
   const sectorRotationRows = useMemo(
     () =>
@@ -1072,14 +1124,17 @@ export function KaiMarketPreviewView() {
         <AppPageContentRegion>
           <SurfaceCard>
           <SurfaceCardContent className={marketBriefingStyles.cardBody}>
-          <OneMarketSectionHeader title="US markets" actions={
-            <div className="flex items-center gap-1">
+          <OneMarketSectionHeader title={inIndia ? "India markets" : "US markets"} actions={
+            <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+            <SegmentedTabs value={marketRegion} onValueChange={(value) => chooseMarket(value === "IN" ? "IN" : "US")}
+              ariaLabel="Market" variant="filter" className="w-auto"
+              options={[{ value: "IN", label: "India" }, { value: "US", label: "US" }]} />
             {marketStatus ? <span data-testid="market-header-status" className="inline-flex min-h-8 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
               <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", marketStatus.isOpen && !marketStatus.degraded ? "bg-[color:var(--one-up)]" : "bg-muted-foreground")} />
               {marketStatus.label}
             </span> : null}
             <ShellActionSurface aria-label="Refresh market home" disabled={displayRefreshing}
-              onClick={() => void loadInsights({ manual: true })}
+              onClick={reloadMarket}
               className="h-11 w-11"
               >
               {displayRefreshing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
@@ -1120,7 +1175,7 @@ export function KaiMarketPreviewView() {
                   variant="none"
                   effect="fade"
                   size="sm"
-                  onClick={() => void loadInsights({ manual: true })}
+                  onClick={reloadMarket}
                 >
                   Retry
                 </Button>
@@ -1141,7 +1196,7 @@ export function KaiMarketPreviewView() {
                   variant="none"
                   effect="fade"
                   size="sm"
-                  onClick={() => void loadInsights({ manual: true })}
+                  onClick={reloadMarket}
                 >
                   Retry
                 </Button>
@@ -1160,12 +1215,14 @@ export function KaiMarketPreviewView() {
                     </SurfaceCardContent></SurfaceCard>
                   </section>
                 ) : null}
+                {inIndia ? null : (
                 <section className="min-w-0" aria-label="Market movers">
                   <OneMarketSectionHeader title="Market movers" />
                   <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
                   <OneMarketMovers groups={moverGroups} />
                   </SurfaceCardContent></SurfaceCard>
                 </section>
+                )}
               </div>
 
               {showConnectPortfolio ? (
@@ -1173,9 +1230,11 @@ export function KaiMarketPreviewView() {
               ) : null}
 
               <section aria-label="Market news">
-                <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />
-                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
-                <OneMarketNewsBriefing rows={marketNewsRows} />
+                {inIndia
+                  ? <OneMarketSectionHeader title="Market news" />
+                  : <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />}
+                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.newsCardBody}>
+                <OneMarketNewsBriefing rows={marketNewsRows} loading={displayLoading} />
                 </SurfaceCardContent></SurfaceCard>
               </section>
             </div>

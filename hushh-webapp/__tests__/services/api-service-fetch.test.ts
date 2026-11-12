@@ -1555,6 +1555,21 @@ describe("ApiService.apiFetch", () => {
     expect(payload.meta?.market_mode).toBe("baseline");
   });
 
+  it("asks for the India market view only when it is selected", async () => {
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce("firebase-id-token")
+      .mockResolvedValueOnce("firebase-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ generated_at: "2026-11-12T10:00:00Z" }));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ generated_at: "2026-11-12T10:00:00Z" }));
+
+    await ApiService.getKaiMarketBaselineInsights({ userId: "user_123", daysBack: 7, market: "IN" });
+    await ApiService.getKaiMarketBaselineInsights({ userId: "user_123", daysBack: 7, market: "US" });
+
+    const urls = mockFetch.mock.calls.map((call) => String(call[0]));
+    expect(urls[0]).toBe("/api/kai/market/insights/baseline/user_123?days_back=7&market=IN");
+    expect(urls[1]).toBe("/api/kai/market/insights/baseline/user_123?days_back=7");
+  });
+
   it("keeps US Market session status independent of the viewer timezone", async () => {
     const resolvedOptions = new Intl.DateTimeFormat().resolvedOptions();
     vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
