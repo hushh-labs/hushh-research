@@ -301,8 +301,8 @@ const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
 const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
 /** Green (--app-success). A live check-in is a settled positive fact. */
 const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
-/** Apple blue for a chosen venue; shape and label distinguish it from you. */
-const PLACE_PENDING_TINT = SELF_TINT;
+/** Red marks the selected venue before the owner confirms their check-in. */
+const PLACE_PENDING_TINT = { r: 234, g: 67, b: 53, a: 255 } as const;
 
 /** The CSS form of a pin tint, so a legend swatch cannot drift from its pin. */
 function tintCss(tint: { r: number; g: number; b: number }): string {
@@ -2239,7 +2239,7 @@ export function LocationImmersiveMap({
     };
   }, [isCheckInSurface, displayedPlaceFocus, activeCheckedInAt, selfMarker]);
 
-  /** A venue contributes a text label while choosing. The bridge draws people only. */
+  /** The selected venue has its own pin until the check-in becomes active. */
   const nearbyPlaceMarker = useMemo<RenderMarker | null>(() => {
     if (!displayedPlaceFocus) return null;
     if (isCheckInSurface && displayedPlaceFocus.active) return null;
@@ -2324,7 +2324,7 @@ export function LocationImmersiveMap({
   const rendererMarkers = useMemo(
     () =>
       rendererReady
-        ? visibleMarkers.filter((marker) => marker.kind === "person")
+        ? visibleMarkers.filter((marker) => marker.kind !== "self")
         : [],
     [rendererReady, visibleMarkers],
   );
@@ -3103,7 +3103,9 @@ export function LocationImmersiveMap({
       ));
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
         // Private names stay in the local tray and avatar overlays.
-        const title = "Private location";
+        const title = marker.kind === "place"
+          ? "Selected check-in place"
+          : "Private location";
         return {
           coordinate: {
             lat: marker.point.latitude,
@@ -3115,7 +3117,9 @@ export function LocationImmersiveMap({
           ...(isNative()
             ? {
                 title,
-                snippet: "Sharing privately now",
+                snippet: marker.kind === "place"
+                  ? "Confirm your check-in in the drawer"
+                  : "Sharing privately now",
               }
               : avatarTitles.has(marker.key)
               ? {

@@ -16,6 +16,7 @@ import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 import { recordSavedPlaceChanges } from "@/lib/one-location/saved-place-activity";
 import { snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
+import { normalizeCheckedInPlaceCategory, type CheckedInPlaceCategory } from "@/lib/one-location/nearby-places";
 import {
   normalizeSavedLocationAddressDetails,
   type SavedLocationAddressDetails,
@@ -92,6 +93,7 @@ export type SavedLocation = {
   /** Venue identity and visit time, when recorded by a check-in. */
   placeName?: string | null;
   placeId?: string | null;
+  placeCategory?: CheckedInPlaceCategory | null;
   checkedInAt?: string | null;
   /** Explicit saves from the check-out flow belong in Checked In Places. */
   savedFrom?: "check_in";
@@ -196,6 +198,7 @@ function locationsFromDomain(
     addressDetails: sanitizeAddressDetails(location.addressDetails),
     placeName: typeof location.placeName === "string" ? location.placeName : null,
     placeId: typeof location.placeId === "string" ? location.placeId : null,
+    placeCategory: normalizeCheckedInPlaceCategory(location.placeCategory),
     checkedInAt:
       typeof location.checkedInAt === "string" &&
       Number.isFinite(Date.parse(location.checkedInAt))
@@ -487,6 +490,7 @@ export async function addSavedLocation(params: {
     savedFrom?: "check_in";
     placeName?: string | null;
     placeId?: string | null;
+    placeCategory?: CheckedInPlaceCategory | null;
     checkedInAt?: string | null;
   };
 }): Promise<SavedLocation[]> {
@@ -519,6 +523,7 @@ export async function addSavedLocation(params: {
     savedAt: new Date().toISOString(),
     placeName: cleanText(input.placeName, 200),
     placeId: cleanText(input.placeId, 300),
+    placeCategory: normalizeCheckedInPlaceCategory(input.placeCategory),
     checkedInAt:
       input.checkedInAt && Number.isFinite(Date.parse(input.checkedInAt))
         ? input.checkedInAt
@@ -624,6 +629,7 @@ export async function updateSavedLocation(params: {
         ...entry,
         placeName: previous?.placeName ? cleanText(input.label, 200) : null,
         placeId: previous?.placeId ?? null,
+        placeCategory: normalizeCheckedInPlaceCategory(previous?.placeCategory),
         checkedInAt: previous?.checkedInAt ?? null,
         ...(previous?.savedFrom ? { savedFrom: previous.savedFrom } : {}),
       };
