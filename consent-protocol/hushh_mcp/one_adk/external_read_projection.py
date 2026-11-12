@@ -21,6 +21,7 @@ from hushh_mcp.one_adk.receipt_client_tools import (
     STATE_RECEIPT_PRIVATE,
     STATE_RECEIPT_RESULT,
 )
+from hushh_mcp.pod_connectors.contacts_tool import STATE_CONTACT_CALENDAR_READ
 
 _EPHEMERAL = frozenset(
     {
@@ -30,6 +31,7 @@ _EPHEMERAL = frozenset(
         STATE_DRIVE_READ_OUTCOME,
         STATE_EXTERNAL_READ,
         STATE_EXTERNAL_READ_CONTINUATION,
+        STATE_CONTACT_CALENDAR_READ,
         STATE_SELECTED_DRIVE_SHARE,
         STATE_RECEIPT_RESULT,
         "temp:hussh:workspace_chat_admission",

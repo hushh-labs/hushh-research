@@ -540,6 +540,7 @@ def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_to
         "calendar_free_slots",
         "calendar_shared_free_slots",
         "calendar_opening_detail",
+        "search_my_contacts",
     ],
 )
 def test_each_calendar_read_blocks_a_later_action_in_the_same_turn(read_name):
@@ -1496,6 +1497,50 @@ def test_calendar_invitation_continuation_admits_only_exact_client_review_tool()
     assert before_external_read_tool(FunctionTool(same_name), {}, context)["status"] == "blocked"
     context.state.pop(STATE_EXTERNAL_READ_CONTINUATION)
     assert before_external_read_tool(exact, {}, context)["status"] == "blocked"
+
+
+def test_scheduling_contacts_admits_one_exact_openings_read_after_the_lookup():
+    from hushh_mcp.agents.calendar.tools import calendar_free_slots, propose_calendar_event
+    from hushh_mcp.pod_connectors.contacts_tool import (
+        STATE_CONTACT_CALENDAR_READ,
+        search_my_contacts,
+    )
+
+    context = SimpleNamespace(
+        invocation_id="read",
+        user_id="owner",
+        state={STATE_EXECUTION_SURFACE: "typed_chat"},
+    )
+    assert before_external_read_tool(FunctionTool(search_my_contacts), {}, context) is None
+    exact = FunctionTool(calendar_free_slots)
+    window = {
+        "start_at": "2026-11-13T12:00:00Z",
+        "end_at": "2026-11-13T14:00:00Z",
+        "duration_minutes": 30,
+    }
+    # The Contacts tool writes this only after a successful scheduling lookup.
+    context.state[STATE_CONTACT_CALENDAR_READ] = {"invocation": "read", **window, "limit": 3}
+    assert before_external_read_tool(exact, window, context)["status"] == "blocked"
+    proposal = FunctionTool(propose_calendar_event)
+    request = SimpleNamespace(
+        tools_dict={tool.name: tool for tool in (exact, proposal)},
+        config=types.GenerateContentConfig(),
+    )
+    before_external_read_model(context, request)
+    assert set(request.tools_dict) == {"calendar_free_slots", "propose_calendar_event"}
+    assert (
+        before_external_read_tool(SimpleNamespace(name="calendar_free_slots"), {}, context)[
+            "status"
+        ]
+        == "blocked"
+    )
+    assert (
+        before_external_read_tool(exact, {**window, "duration_minutes": 60}, context)["status"]
+        == "blocked"
+    )
+    assert before_external_read_tool(exact, window, context) is None
+    assert before_external_read_tool(exact, window, context)["status"] == "blocked"
+    assert before_external_read_tool(proposal, {}, context) is None
 
 
 @pytest.mark.parametrize(

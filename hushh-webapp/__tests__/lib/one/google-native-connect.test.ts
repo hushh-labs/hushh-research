@@ -20,7 +20,7 @@ import {
   nativeGoogleClient,
 } from "@/lib/one/google-native-connect";
 import { openGoogleConnectorAuth } from "@/lib/one/google-connector-auth";
-import { googleConnectorIntent } from '@/lib/one/google-connector-intent';
+import { googleConnectorIntent, googleConnectorWantsCalendarList, googleConnectorWantsOtherContacts } from '@/lib/one/google-connector-intent';
 import { base64UrlEncode } from "@/lib/one/ai-selection-seal";
 
 const TRANSITION = { id: `gct_${'a'.repeat(32)}`, nonce: 'b'.repeat(43) };
@@ -165,6 +165,35 @@ describe("google native connect", () => {
     expect(outcome).toMatchObject({ ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: { connector: "calendar" } });
     expect(ownerPodRequest).not.toHaveBeenCalled();
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it('requests Other Contacts only on an explicit upgrade and carries the intent through phone handoff', async () => {
+    const scope = 'https://www.googleapis.com/auth/contacts.other.readonly';
+    const request = { client: nativeGoogleClient('ios')!, connector: 'contacts' as const, challenge: 'challenge', state: 'state' };
+    const base = new URL(googleAuthorizationUrl(request));
+    const upgrade = new URL(googleAuthorizationUrl({ ...request, includeOtherContacts: true }));
+    expect(base.searchParams.get('scope')?.split(' ')).not.toContain(scope);
+    expect(upgrade.searchParams.get('scope')?.split(' ')).toContain(scope);
+    expect(upgrade.searchParams.get('include_granted_scopes')).toBe('false');
+    const outcome = await connectGoogleConnector('contacts', { platform: 'web', includeOtherContacts: true });
+    expect(outcome).toMatchObject({ ok: false, code: 'PHONE_HANDOFF_REQUIRED' });
+    if (outcome.ok || !('handoff' in outcome)) throw new Error('expected handoff');
+    const { deepLink } = outcome.handoff;
+    expect(googleConnectorIntent(deepLink)).toBe('contacts');
+    expect(googleConnectorWantsOtherContacts(deepLink)).toBe(true);
+    expect(googleConnectorWantsOtherContacts(`${deepLink}?owner=other`)).toBe(false);
+    expect(googleConnectorIntent('hushh://one/connect/google/gmail/other')).toBeNull();
+  });
+
+  it('carries optional subscribed-Calendar consent through the phone handoff without changing a base grant', async () => {
+    const scope = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+    const request = { client: nativeGoogleClient('ios')!, connector: 'calendar' as const, challenge: 'challenge', state: 'state' };
+    expect(new URL(googleAuthorizationUrl(request)).searchParams.get('scope')?.split(' ')).not.toContain(scope);
+    expect(new URL(googleAuthorizationUrl({ ...request, includeCalendarList: true })).searchParams.get('scope')?.split(' ')).toContain(scope);
+    const result = await connectGoogleConnector('calendar', { platform: 'web', includeCalendarList: true });
+    if (result.ok || !('handoff' in result)) throw new Error('expected handoff');
+    expect(googleConnectorIntent(result.handoff.deepLink)).toBe('calendar');
+    expect(googleConnectorWantsCalendarList(result.handoff.deepLink)).toBe(true);
   });
 
   it("uses the separate native public-client adapter and handles cancellation", async () => {

@@ -13,6 +13,7 @@ from typing import Any
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
+from hushh_mcp.pod_connectors.contacts_tool import STATE_CONTACT_CALENDAR_READ
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ READ_TOOLS = {
     "calendar_free_slots": None,
     "calendar_shared_free_slots": None,
     "calendar_opening_detail": None,
+    "search_my_contacts": None,
     # Per-provider admission and owner authority are checked inside the tool.
     # Establish the content barrier before dispatch, regardless of provider.
     "read_workspace_tool": None,
@@ -131,6 +133,32 @@ def _reviewable_selected_drive_share_tool(tool: Any) -> bool:
     from hushh_mcp.one_adk.agent_tree import propose_drive_share
 
     return type(tool) is FunctionTool and tool.func is propose_drive_share
+
+
+def _contact_calendar_openings_tool(
+    tool: Any, context: Any, args: dict[str, Any] | None = None
+) -> bool:
+    availability = context.state.get(STATE_CONTACT_CALENDAR_READ)
+    if (
+        getattr(tool, "name", None) != "calendar_free_slots"
+        or not isinstance(availability, dict)
+        or not availability.get("invocation")
+        or availability["invocation"] != context.invocation_id
+    ):
+        return False
+    from google.adk.tools import FunctionTool
+
+    from hushh_mcp.agents.calendar.tools import calendar_free_slots
+
+    if type(tool) is not FunctionTool or tool.func is not calendar_free_slots:
+        return False
+    return args is None or (
+        args.get("account_id") in {None, "default"}
+        and all(
+            args.get(key, 3 if key == "limit" else None) == availability.get(key)
+            for key in ("start_at", "end_at", "duration_minutes", "limit")
+        )
+    )
 
 
 def _selected_share_ready(context: Any) -> bool:
@@ -204,6 +232,17 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
         tool_context.state[STATE_EXTERNAL_READ] = invocation
         return None
     if external_read_active(tool_context):
+        # A named Contacts lookup explicitly prepared for scheduling may lead
+        # to one read of the owner's open times after the lookup returns.
+        # Other connectors and all provider mutations stay behind the barrier.
+        if (
+            tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and tool_context.state.get(STATE_EXTERNAL_READ_CONTINUATION)
+            == tool_context.invocation_id
+            and _contact_calendar_openings_tool(tool, tool_context, args)
+        ):
+            tool_context.state[STATE_CONTACT_CALENDAR_READ] = None
+            return None
         if (
             (
                 _reviewable_draft_tool(tool)
@@ -383,6 +422,7 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
             if scheduled_finish_tool(tool, callback_context)
             or _reviewed_mcp_tool(tool)
             or _reviewable_draft_tool(tool)
+            or _contact_calendar_openings_tool(tool, callback_context)
             or (
                 _selected_share_ready(callback_context)
                 and _reviewable_selected_drive_share_tool(tool)

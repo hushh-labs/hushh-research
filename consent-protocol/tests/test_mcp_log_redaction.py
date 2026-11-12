@@ -236,7 +236,14 @@ def test_drive_share_message_in_a_request_url_is_redacted() -> None:
     assert f"emailMessage={REDACTED}" in rendered
 
 
-def test_sensitive_log_record_factory_redacts_httpx_url_args() -> None:
+@pytest.mark.parametrize(
+    ("url", "key", "value"),
+    [
+        ("https://finnhub.io/api/v1/quote?symbol=AAPL", "token", "secret-provider-token"),
+        ("https://people.googleapis.com/v1/people:searchContacts", "query", "private+contact"),
+    ],
+)
+def test_sensitive_log_record_factory_redacts_httpx_url_args(url, key, value) -> None:
     install_sensitive_log_filter()
     record = logging.getLogRecordFactory()(
         "httpx",
@@ -244,14 +251,14 @@ def test_sensitive_log_record_factory_redacts_httpx_url_args() -> None:
         __file__,
         1,
         "HTTP Request: GET %s",
-        (httpx.URL("https://finnhub.io/api/v1/quote?symbol=AAPL&token=secret-provider-token"),),
+        (httpx.URL(f"{url}{'&' if '?' in url else '?'}{key}={value}"),),
         None,
     )
 
     rendered = record.getMessage()
 
-    assert "secret-provider-token" not in rendered
-    assert f"token={REDACTED}" in rendered
+    assert value not in rendered
+    assert f"{key}={REDACTED}" in rendered
 
 
 # ---------------------------------------------------------------------------

@@ -881,6 +881,38 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         mailbox_changes=mail_admitted and (not pod_mode() or owner_cloud_agent()),
         timezone=state_getter(STATE_TIMEZONE) if callable(state_getter) else None,
     ) + legacy_draft_addressing(state_getter)
+    if (
+        callable(state_getter)
+        and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+        and owner_cloud_agent()
+    ):
+        mail_instruction += (
+            "\n\nCALENDAR AND CONTACTS: For a guest explicitly selected from a Calendar "
+            "event detail, pass event_attendee_ordinals. To schedule with the sender of an "
+            "inbound Gmail message selected in this chat, pass mail_sender_ordinal. If the "
+            "owner asks to both schedule and reply in that thread, pass mail_reply_body in "
+            "the same Calendar proposal. The owner reviews both effects together. "
+            "When the owner asks to schedule with a named person "
+            "and has not supplied an address or chosen a contact in this conversation, call "
+            "search_my_contacts with their name and for_calendar=true. Use the numbered "
+            "choice in propose_calendar_event(contact_ordinals=[...]); never copy its address "
+            "into attendees. For multiple named guests, pass their names separately as queries "
+            "in one lookup and select one address per name. "
+            "If multiple people or addresses match, or a name matches only "
+            "partially, ask the owner to choose using numbered names and mailbox hints. If the "
+            "owner requested open times and supplied a window and duration, include those exact "
+            "availability arguments in the initial Contacts lookup and then pass the same "
+            "arguments to calendar_free_slots after a successful lookup. "
+            "Those are the owner's open times. Say which availability scope the tool returned. "
+            "Carry the exact slot_ordinal into the proposal "
+            "when the owner selects a listed time or asks you to choose one. For an exact "
+            "requested time, prepare the normal "
+            "Calendar proposal, which checks conflicts. Send an invitation only after the owner "
+            "confirms the proposal. For more of the same event search, use "
+            "calendar_events(next_page=true). Use recent_booking=true for an explicit "
+            "reference to the meeting just booked here, or the latest Calendar event position "
+            "for a reschedule or cancellation of a listed meeting."
+        )
     drive_admitted = (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"

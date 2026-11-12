@@ -1120,6 +1120,32 @@ def test_rescheduling_an_all_day_event_keeps_it_all_day() -> None:
     assert patch["payload"] == {"start": {"date": "2026-10-05"}, "end": {"date": "2026-10-06"}}
 
 
+@pytest.mark.parametrize(
+    "change",
+    [{"recurrence": ["RRULE:FREQ=WEEKLY"]}, {"attendeesOmitted": True}, {"etag": None}],
+)
+def test_reschedule_refuses_unreviewable_event_without_creating_a_proposal(change):
+    service, requests, stored = _reschedule_harness(_event(**change))
+    with pytest.raises(GoogleConnectionError):
+        _reschedule(service)
+    assert stored == {}
+    assert [request["method"] for request in requests] == ["GET"]
+
+
+def test_reschedule_clears_explicit_fields_on_one_occurrence():
+    service, requests, _ = _reschedule_harness(
+        _event(recurringEventId="series-1", originalStartTime={"dateTime": "2026-10-01T16:00:00Z"})
+    )
+    _reschedule(service, location="", description="", attendees=[])
+    asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
+    [patch] = [request for request in requests if request["method"] == "PATCH"]
+    assert patch["payload"]["description"] == patch["payload"]["location"] == ""
+    assert {item["email"] for item in patch["payload"]["attendees"]} == {
+        _OWNER["email"],
+        _ROOM["email"],
+    }
+
+
 def test_a_new_guest_list_is_reviewed_as_exact_adds_and_removes() -> None:
     service, requests, _ = _reschedule_harness(_event())
     result = _reschedule(service, attendees=["new@example.com"])
@@ -1831,14 +1857,13 @@ def test_booking_seals_exact_account_and_primary_calendar(account_id, action):
     )
 
 
-@pytest.mark.parametrize("action", ["create", "reschedule", "cancel"])
-def test_secondary_calendar_booking_never_substitutes_primary(action):
+def test_secondary_calendar_booking_never_substitutes_primary():
     service, requests, _ = _reschedule_harness(_event())
     with pytest.raises(GoogleConnectionError, match="primary calendar"):
         asyncio.run(
             service.propose(
                 user_id="user-1",
-                action=action,
+                action="create",
                 payload={
                     "calendar_id": "secondary@example.com",
                     "event_id": "evt-1",

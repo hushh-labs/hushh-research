@@ -1014,6 +1014,7 @@ export function getCalendarDirectiveFromToolEvent(
   }
 
   if (!parsed) return null;
+  if (parsed.linked_review === true) return null; // the owner-only state carries both reviewed effects
 
   // 1. Explicit directive in tool result
   const rawDirective = parsed.directive as Record<string, unknown> | undefined;
@@ -10839,6 +10840,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     };
 
                     if (type === "calendar.execute_proposal") {
+                      const reply = payload.gmailReply as Record<string, unknown> | undefined;
+                      const gmailReply = reply && Array.isArray(reply.to) &&
+                        reply.to.length > 0 && reply.to.every((address: unknown) => typeof address === "string") &&
+                        typeof reply.subject === "string" && typeof reply.body === "string"
+                        ? { to: reply.to as string[], subject: reply.subject, body: reply.body }
+                        : undefined;
                       return (
                         <AgentCalendarProposalCard
                           action={calendarAction}
@@ -10855,14 +10862,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           description={typeof payload.description === "string" ? payload.description : null}
                           sendUpdates={payload.sendUpdates === true}
                           googleMeet={payload.googleMeet === true}
+                          gmailReply={gmailReply}
+                          calendarLabel={typeof payload.calendarLabel === "string" ? payload.calendarLabel : undefined}
                           conflicts={conflicts}
                           confirmLabel={String(payload.confirmLabel ?? "Schedule meeting")}
                           busy={specialistBusy}
                           onConfirm={onConfirm}
                           onCancel={onCancel}
-                          validationError={calendarProposalReviewError(payload) ?? (calendarSlot ? calendarSlotProposalError(calendarSlot.selection, payload) : null)}
+                          validationError={payload.gmailReply && !gmailReply ? "The Gmail preview is incomplete. Ask One to prepare both changes again." : (calendarProposalReviewError(payload) ?? (calendarSlot ? calendarSlotProposalError(calendarSlot.selection, payload) : null))}
                           timeOptions={calendarSlot ? calendarSlotStarts(calendarSlot.selection) : []}
-                          onChangeTime={calendarSlot && calendarSlot.selection.ownerId === applicationOwnerId && calendarAction === "create" ? start => {
+                          onChangeTime={!gmailReply && calendarSlot && calendarSlot.selection.ownerId === applicationOwnerId && calendarAction === "create" ? start => {
                             setPendingSpecialistDirective(null);
                             enqueuePrompt(`Change this meeting using Calendar account_id ${JSON.stringify(calendarSlot.selection.accountId ?? "default")} to ${start}, ending ${new Date(Date.parse(start) + calendarSlot.selection.durationMinutes * 60000).toISOString()} (${calendarSlot.selection.timeZone}). Keep the ${calendarSlot.selection.durationMinutes}-minute duration, title ${JSON.stringify(payload.title)} and attendees ${JSON.stringify(attendees)}. Check availability again and show a fresh proposal for confirmation; do not schedule yet.`);
                           } : undefined}

@@ -79,6 +79,7 @@ export type InPlaceConnectOwner = {
 };
 
 export type ConnectControls = {
+  includeCalendarList?: boolean;
   presentation?: "calendar";
   /** Ends the attempt without a UI update (unmount, account switch). */
   signal?: AbortSignal;
@@ -155,9 +156,10 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
   const { connectGoogleConnector } = await import('@/lib/one/google-native-connect');
   if (!current() || controls.cancelSignal?.aborted) return false;
   const outcome = await connectGoogleConnector(connector, { isCurrent: () => current() && !controls.cancelSignal?.aborted,
-    vaultOwnerCapability: controls.vaultOwnerCapability, confirmLegacyTransition: controls.confirmLegacyTransition });
+    vaultOwnerCapability: controls.vaultOwnerCapability, confirmLegacyTransition: controls.confirmLegacyTransition,
+    ...(connector === 'calendar' && controls.includeCalendarList ? { includeCalendarList: true } : {}) });
   if (!current() || controls.cancelSignal?.aborted) return false;
-  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector, controls.presentation); return 'phone_handoff'; }
+  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector, controls.presentation, controls.includeCalendarList); return 'phone_handoff'; }
   if (!outcome.ok && outcome.code === 'PRIVATE_AGENT_UNLOCK_REQUIRED') return 'unlock_required';
   if (!outcome.ok && outcome.code !== 'SIGN_IN_CANCELLED') throw new Error('Google connection could not be completed.');
   if (outcome.ok && outcome.legacyCleanup === 'unconfirmed') return 'cleanup_unconfirmed';

@@ -100,6 +100,16 @@ class PodActionProposalStore:
                     state[proposal_id] = {"proposal": payload, "status": STATUS_PENDING}
             elif proposal_id in state:
                 state[proposal_id]["status"] = str(payload.get("status") or "")
+                if isinstance(payload.get("calendar_reply"), dict):
+                    state[proposal_id]["calendar_reply"] = payload["calendar_reply"]
+                if payload.get("status") == "executed" and isinstance(
+                    payload.get("calendar_event_id"), str
+                ):
+                    state[proposal_id]["calendar_booking"] = {
+                        "event_id": payload["calendar_event_id"],
+                        "at_ms": payload.get("atMs"),
+                        "sequence": record["seq"],
+                    }
         return state, int(records[-1]["seq"]) if records else 0
 
     async def issue(
@@ -155,6 +165,48 @@ class PodActionProposalStore:
             outcome = "outcome_unknown"
         return {"proposalId": proposal_id, "kind": "gmail_mailbox", "state": outcome}
 
+    async def calendar_reply_status(self, *, proposal_id: str, owner_id: str) -> dict | None:
+        state, _ = await self._snapshot(self._log())
+        held = state.get(proposal_id)
+        if not held:
+            return None
+        proposal = held["proposal"]
+        if (
+            not owner_id
+            or proposal.get("ownerId") != owner_id
+            or proposal.get("kind") != "calendar"
+            or not (proposal.get("payload") or {}).get("plan", {}).get("linked_gmail_reply")
+        ):
+            return None
+        receipt = held.get("calendar_reply")
+        if receipt is None:
+            if held["status"] == STATUS_PENDING:
+                state_name = (
+                    "expired"
+                    if proposal["expiresAtMs"] <= int(self._clock() * 1000)
+                    else "prepared"
+                )
+                return {
+                    "proposalId": proposal_id,
+                    "kind": "calendar",
+                    "calendar": state_name,
+                    "gmail": "not_sent",
+                }
+            return {
+                "proposalId": proposal_id,
+                "kind": "calendar",
+                "calendar": "created" if held["status"] == "executed" else "outcome_unknown",
+                "gmail": "outcome_unknown" if held["status"] == STATUS_EXECUTING else "not_sent",
+            }
+        gmail = receipt["gmail"] if receipt["gmail"] != "dispatching" else "outcome_unknown"
+        return {
+            "proposalId": proposal_id,
+            "kind": "calendar",
+            "calendar": "created",
+            "eventId": receipt["event_id"],
+            "gmail": gmail,
+        }
+
     async def claim(self, *, proposal_id: str, owner_id: str, kind: str) -> Optional[dict]:
         """Move a live pending proposal to ``executing``; its payload, or None."""
         from hushh_mcp.services.pod_commit_log import PodLogConflict  # noqa: PLC0415
@@ -183,14 +235,100 @@ class PodActionProposalStore:
             return dict(proposal.get("payload") or {})
         return None
 
-    async def settle(self, *, proposal_id: str, status: str) -> None:
+    async def settle(
+        self, *, proposal_id: str, status: str, calendar_event_id: str | None = None
+    ) -> None:
         """Record ``executed`` or ``failed``. Best effort: a claimed proposal never reruns."""
         if status not in TERMINAL:
             raise ValueError("a proposal settles as executed or failed")
         try:
-            await self._log().append(SETTLED_KIND, self._settled(proposal_id, status))
+            settlement = self._settled(proposal_id, status)
+            if status == "executed" and calendar_event_id:
+                settlement["calendar_event_id"] = calendar_event_id
+            await self._log().append(SETTLED_KIND, settlement)
         except Exception as exc:  # noqa: BLE001 - the action's outcome already stands
             logger.warning("pod_action_proposals.settle_failed reason=%s", type(exc).__name__)
+
+    async def recent_calendar_booking(self, *, owner_id: str, conversation_id: str) -> dict | None:
+        if not owner_id or not conversation_id:
+            return None
+        state, _ = await self._snapshot(self._log())
+        recent = None
+        for held in state.values():
+            receipt = held.get("calendar_booking")
+            proposal = held["proposal"]
+            payload = proposal.get("payload") or {}
+            plan = payload.get("plan") or {}
+            if (
+                not receipt
+                or held["status"] != "executed"
+                or proposal.get("ownerId") != owner_id
+                or proposal.get("kind") != "calendar"
+                or payload.get("action") != "create"
+                or plan.get("chat_conversation_id") != conversation_id
+                or (recent is not None and receipt["sequence"] <= recent["sequence"])
+            ):
+                continue
+            recent = {
+                **receipt,
+                "account_id": plan.get("account_id"),
+                "calendar_id": plan.get("calendar_id"),
+                "grant_binding": plan.get("connection_binding"),
+            }
+        if recent and isinstance(recent["at_ms"], int):
+            if 0 <= int(self._clock() * 1000) - recent["at_ms"] <= 300_000:
+                return recent
+        return None
+
+    async def record_calendar_reply(
+        self,
+        *,
+        proposal_id: str,
+        owner_id: str,
+        event_id: str,
+        gmail: str,
+        message_id: str | None = None,
+    ) -> bool:
+        """Checkpoint Calendar's receipt before any linked Gmail dispatch."""
+        from hushh_mcp.services.pod_commit_log import PodLogConflict
+
+        log = self._log()
+        for _ in range(_ATTEMPTS):
+            state, last_seq = await self._snapshot(log)
+            held = state.get(proposal_id)
+            if not held or held["status"] != STATUS_EXECUTING:
+                return False
+            proposal = held["proposal"]
+            previous = held.get("calendar_reply")
+            if (
+                proposal.get("ownerId") != owner_id
+                or proposal.get("kind") != "calendar"
+                or not (proposal.get("payload") or {}).get("plan", {}).get("linked_gmail_reply")
+                or (gmail == "dispatching" and previous is not None)
+                or (
+                    gmail != "dispatching"
+                    and (
+                        gmail not in {"sent", "not_sent", "outcome_unknown"}
+                        or not previous
+                        or previous.get("gmail") != "dispatching"
+                        or previous.get("event_id") != event_id
+                    )
+                )
+            ):
+                return False
+            receipt = {"event_id": event_id, "gmail": gmail}
+            if message_id:
+                receipt["message_id"] = message_id
+            try:
+                await log.append(
+                    SETTLED_KIND,
+                    {**self._settled(proposal_id, STATUS_EXECUTING), "calendar_reply": receipt},
+                    expected_seq=last_seq,
+                )
+            except PodLogConflict:
+                continue
+            return True
+        return False
 
     def _settled(self, proposal_id: str, status: str) -> dict[str, Any]:
         return {

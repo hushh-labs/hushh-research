@@ -68,6 +68,8 @@ KIND_MCP_OAUTH = "mcp_oauth"
 
 _G = "https://www.googleapis.com/auth/"
 #: Per connector and access level, the scope sets that satisfy it, preferred first.
+OTHER_CONTACTS_SCOPE = _G + "contacts.other.readonly"
+POD_CALENDAR_LIST_SCOPE = _G + "calendar.calendarlist.readonly"
 CONNECTOR_SCOPES: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
     "gmail": {
         "read": ((_G + "gmail.readonly",), (_G + "gmail.modify",)),
@@ -79,12 +81,16 @@ CONNECTOR_SCOPES: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
             (_G + "calendar.events", _G + "calendar.freebusy"),
         ),
         "manage": ((_G + "calendar.events", _G + "calendar.freebusy"),),
+        "read_calendar_list": ((POD_CALENDAR_LIST_SCOPE,),),
     },
     "drive": {
         "read": ((_G + "drive.readonly",), (_G + "drive",)),
         "manage": ((_G + "drive",),),
     },
-    "contacts": {"read": ((_G + "contacts.readonly",),)},
+    "contacts": {
+        "read": ((_G + "contacts.readonly",),),
+        "read_other": ((OTHER_CONTACTS_SCOPE,),),
+    },
 }
 IDENTITY_SCOPES = frozenset({"openid", "email", _G + "userinfo.email"})
 

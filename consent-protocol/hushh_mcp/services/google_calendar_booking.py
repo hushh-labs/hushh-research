@@ -198,14 +198,8 @@ def target_fields(payload: dict[str, Any]) -> dict[str, str]:
     calendar_id = payload.get("calendar_id", "primary")
     if not isinstance(account_id, str) or not account_id.strip() or len(account_id) > 128:
         raise GoogleConnectionError("Choose a valid Calendar account", status_code=422)
-    # Secondary calendars are readable, but their mutation authority is not yet
-    # qualified. Never reinterpret an explicit target as the primary calendar.
-    if calendar_id != "primary":
-        raise GoogleConnectionError(
-            "Changes currently require this account's primary calendar. Choose that calendar and review again.",
-            status_code=422,
-            reason_code="calendar_destination_unsupported",
-        )
+    if not isinstance(calendar_id, str) or not calendar_id.strip() or len(calendar_id) > 1024:
+        raise GoogleConnectionError("Choose a valid calendar", status_code=422)
     return {"account_id": account_id, "calendar_id": calendar_id}
 
 
@@ -267,6 +261,12 @@ def validate_plan(
     calendar: GoogleCalendarService, *, action: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
     target = target_fields(payload)
+    if action == "create" and target["calendar_id"] != "primary":
+        raise GoogleConnectionError(
+            "New events currently require the selected account's primary calendar.",
+            status_code=422,
+            reason_code="calendar_destination_unsupported",
+        )
     if target["account_id"] != getattr(calendar.connections, "account_id", "default"):
         raise GoogleConnectionError(
             "Calendar account review changed",
@@ -326,8 +326,7 @@ def validate_plan(
         )
     raw_attendees = payload.get("attendees")
     attendees = [
-        str(item).strip().lower()
-        for item in (raw_attendees if isinstance(raw_attendees, list) else [])
+        str(item).strip() for item in (raw_attendees if isinstance(raw_attendees, list) else [])
     ]
     if len(attendees) > 100 or any("@" not in item for item in attendees):
         raise GoogleConnectionError(
@@ -525,6 +524,19 @@ async def execute_create(
                 expected_binding=binding,
             ),
         )
+
+    async def check_source_grants_at_dispatch() -> None:
+        if before_write is not None:
+            await before_write()
+        calendar._check_attendee_grant(plan)
+        calendar._check_mail_attendee_grant(user_id, plan)
+
+    # The Calendar token exchange can overlap with a Contacts or Gmail disconnect.
+    dispatch_guard = (
+        check_source_grants_at_dispatch
+        if plan.get("attendee_grant_binding") or plan.get("mail_attendee_grant")
+        else before_write
+    )
     return await calendar._request(
         user_id=user_id,
         method="POST",
@@ -540,7 +552,7 @@ async def execute_create(
             ),
         },
         payload=calendar._event_payload(plan),
-        **({"before_write": before_write} if before_write is not None else {}),
+        **({"before_write": dispatch_guard} if dispatch_guard is not None else {}),
     )
 
 

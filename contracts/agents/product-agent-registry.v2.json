@@ -174,7 +174,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "5763b7fa94cbc3a7fb8e5f3acdd98f66bea0a689b19a1f503c42b61b9e337c5c",
+      "system_instruction_sha256": "f1f5e7fcae4fabca21451a2c61aab6f39e2b62ebb47ca773d48661c5be34393a",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {

@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: { executeProposal: vi.fn() },
 }));
+vi.mock("@/lib/services/private-google-connections", () => ({
+  readPrivateCalendarReplyStatus: vi.fn(),
+}));
 
 vi.mock("@/lib/services/todo-list-pkm-service", () => ({
   calendarTodoInput: vi.fn(),
@@ -13,6 +16,7 @@ vi.mock("@/lib/services/todo-list-pkm-service", () => ({
 
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { readPrivateCalendarReplyStatus } from "@/lib/services/private-google-connections";
 import {
   calendarTodoInput,
   createTodo,
@@ -155,6 +159,17 @@ describe("runCalendarDirective", () => {
       locationCleared: true, descriptionCleared: true, ...change };
     await expect(runCalendarDirective({ ...directive, payload }, "HCT:test", "user-1")).rejects.toThrow("incomplete");
     expect(GoogleCalendarService.executeProposal).not.toHaveBeenCalled();
+  });
+
+  it("recovers the linked outcome without repeating either effect after losing the response", async () => {
+    vi.mocked(GoogleCalendarService.executeProposal).mockRejectedValueOnce(new Error("response lost"));
+    vi.mocked(readPrivateCalendarReplyStatus).mockResolvedValueOnce({ calendar: "created", gmail: "outcome_unknown" });
+    const linked = { ...directive, payload: { ...directive.payload, gmailReply: { to: ["p@example.com"], subject: "Re: Call", body: "Booked." } } };
+    const result = await runCalendarDirective(linked, "HCT:test", "user-1");
+    expect(result.detail).toContain("Scheduled the event.");
+    expect(result.detail).toContain("Gmail delivery could not be confirmed.");
+    expect(GoogleCalendarService.executeProposal).toHaveBeenCalledOnce();
+    expect(readPrivateCalendarReplyStatus).toHaveBeenCalledExactlyOnceWith("gcal_example");
   });
 
   it("rejects directives that are not a server-persisted calendar proposal", async () => {

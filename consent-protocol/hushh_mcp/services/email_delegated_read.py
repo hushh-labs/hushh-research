@@ -141,6 +141,7 @@ class MailReadOffer(BaseModel):
     message_ids: list[str] = Field(min_length=1, max_length=25)
     created_at_ms: int = Field(ge=1)
     selected_ordinal: int | None = Field(default=None, ge=1, le=25)
+    pod_credential_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,128}$")
 
     @field_validator("message_ids")
     @classmethod
@@ -195,6 +196,7 @@ def make_mail_read_offer(raw: Any, *, owner_id: str, conversation_id: str) -> di
                 "message_ids": raw.get("message_ids"),
                 "created_at_ms": int(time.time() * 1000),
                 "selected_ordinal": raw.get("selected_ordinal"),
+                "pod_credential_id": raw.get("pod_credential_id"),
             }
         )
     except (ValidationError, TypeError, ValueError):
@@ -735,6 +737,11 @@ async def run_delegated_mail_read(
             with mail_latency("fetch"):
                 metadata = await reader.read(operation, arguments)
                 await reader.require_current()
+            calendar_grant = getattr(reader, "calendar_source_credential_id", None)
+            credential_id = calendar_grant() if callable(calendar_grant) else None
+            owner_source = (
+                {"pod_credential_id": credential_id} if isinstance(credential_id, str) else {}
+            )
             if operation == "analyze_mail":
                 stage = "analysis"
                 rows = metadata["untrusted_external_content"]
@@ -799,6 +806,7 @@ async def run_delegated_mail_read(
                             "message_ids": list(offered_ids),
                             "account": reader.account,
                             "mailbox": arguments["mailbox"],
+                            **owner_source,
                             **({"selected_ordinal": selected_ordinal} if selected_ordinal else {}),
                         }
                         if offered_ids
@@ -881,6 +889,7 @@ async def run_delegated_mail_read(
                             "message_ids": list(offered_ids),
                             "account": reader.account,
                             "mailbox": arguments["mailbox"],
+                            **owner_source,
                         },
                     )
             evidence = {k: v for k, v in metadata.items() if k != "coverage"}
@@ -978,6 +987,7 @@ async def run_delegated_mail_read(
                         "message_ids": list(offered_ids),
                         "account": reader.account,
                         "mailbox": arguments["mailbox"],
+                        **owner_source,
                         **({"selected_ordinal": selected_ordinal} if selected_ordinal else {}),
                     }
                     if offered_ids

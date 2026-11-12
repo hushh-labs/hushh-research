@@ -388,11 +388,15 @@ async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(
     }
 
 
-def test_drive_result_and_snapshot_are_redacted_but_other_tools_unchanged():
+@pytest.mark.parametrize(
+    ("tool_name", "source"),
+    [("read_google_drive", "google_drive_mcp"), ("search_my_contacts", "google_contacts")],
+)
+def test_private_result_and_snapshot_are_redacted_but_other_tools_unchanged(tool_name, source):
     secret = "PRIVATE_DRIVE_SENTINEL"
-    result = json.dumps({"source": "google_drive_mcp", "result": secret})
+    result = json.dumps({"source": source, "result": secret})
     known: set[str] = set()
-    start = ToolCallStartEvent(tool_call_id="drive-1", tool_call_name="read_google_drive")
+    start = ToolCallStartEvent(tool_call_id="drive-1", tool_call_name=tool_name)
     assert redact_drive_wire_event(start, known) == start
     assert known == {"drive-1"}
     chunk = ToolCallChunkEvent(tool_call_id="drive-1", delta=secret)
@@ -419,7 +423,7 @@ def test_drive_result_and_snapshot_are_redacted_but_other_tools_unchanged():
                 tool_calls=[
                     ToolCall(
                         id="drive-1",
-                        function=FunctionCall(name="read_google_drive", arguments=secret),
+                        function=FunctionCall(name=tool_name, arguments=secret),
                     )
                 ],
             ),

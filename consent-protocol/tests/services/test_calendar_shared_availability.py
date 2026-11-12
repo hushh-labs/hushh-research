@@ -210,6 +210,35 @@ def test_free_time_route_queries_full_day_and_excludes_captured_late_busy(journe
     assert len(result["calendars"]) == 4
 
 
+def test_chat_openings_use_board_coverage_and_normalize_the_primary_alias(journey):
+    request = FULL_DAY["request"]
+    context = SimpleNamespace(
+        state={
+            "hussh:user_id": "owner",
+            "hussh:timezone": "Asia/Kolkata",
+            "hussh:conversation_id": "same-conversation",
+            "temp:one_execution_surface": "typed_chat",
+        }
+    )
+    result = asyncio.run(
+        tools.calendar_free_slots(
+            context, request["timeMin"], request["timeMax"], duration_minutes=30
+        )
+    )
+    assert result["availability_scope"] == "included_calendars"
+    assert journey.state["requests"] == [
+        {
+            **request,
+            "items": [
+                {"id": identifier}
+                for identifier in ("calendar-1", "calendar-2", "calendar-4", "primary")
+            ],
+        }
+    ]
+    assert [item["opening_ordinal"] for item in result["openings"]] == [1, 2, 3]
+    assert all(item["end_at"] <= "2030-01-17T17:30:00Z" for item in result["openings"])
+
+
 def test_chat_real_tool_preview_and_route_executor_once_with_pinned_meeting_window(journey):
     result, context = propose()
     assert result["status"] == "confirmation_required", result

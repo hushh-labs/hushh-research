@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 from email import policy
 from email.parser import BytesParser
+from types import SimpleNamespace
 
 # ruff: noqa: S106 -- token strings below name test fixtures, not credentials.
 from typing import Any
@@ -20,10 +21,22 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from google.adk.tools import FunctionTool
+from google.genai import types
 
 from api.routes.one import pod_actions, pod_session, pod_turn
 from hushh_mcp.agents.calendar import tools as calendar_tools
+from hushh_mcp.agents.calendar.read_offer import STATE_OPENING_OFFER
+from hushh_mcp.one_adk.external_read_boundary import (
+    before_external_read_model,
+    before_external_read_tool,
+)
+from hushh_mcp.pod_connectors.contacts_tool import (
+    STATE_CONTACT_ATTENDEE_OFFER,
+    search_my_contacts,
+)
 from hushh_mcp.services import google_calendar_service, pod_consent_client
+from hushh_mcp.services import pod_connector_credentials as credentials
 from hushh_mcp.services.pod_consent_client import ConsentVerdict
 from hushh_mcp.services.pod_session_authority import LOCAL_TOKEN_PREFIX, SCOPE_POD_ACT
 from tests import pod_connector_harness as h
@@ -31,6 +44,121 @@ from tests import pod_connector_harness as h
 OWNER_SESSION = {"Authorization": "Bearer pod-session-fixture"}
 _CLAIMS = {"role": "app", "scopes": [SCOPE_POD_ACT], "user_id": h.OWNER_UID}
 EVENTS = f"{h.CALENDAR}/calendars/primary/events"
+PEOPLE_SEARCH = "https://people.googleapis.com/v1/people:searchContacts"
+OTHER_CONTACTS_SEARCH = "https://people.googleapis.com/v1/otherContacts:search"
+
+
+@pytest.mark.parametrize("target", ["same_chat", "other_chat", "new_grant"])
+async def test_recent_confirmed_booking_is_exact_chat_reschedule_source(agent, target):
+    _log, _tokens, google = agent
+    proposal_id = await _propose_lunch()
+    with _client() as client:
+        assert (
+            client.post(
+                f"/api/one/pod/actions/{proposal_id}/confirm", headers=OWNER_SESSION
+            ).status_code
+            == 200
+        )
+    event = {
+        "id": "evt1",
+        "etag": '"reviewed-version"',
+        "summary": "Lunch",
+        "start": {"dateTime": "2026-10-07T12:00:00Z"},
+        "end": {"dateTime": "2026-10-07T13:00:00Z"},
+    }
+    google.on("GET", f"{EVENTS}/evt1", event)
+    google.on("PATCH", f"{EVENTS}/evt1", event)
+    context = h.tool_context()
+    if target == "other_chat":
+        context.state["hussh:conversation_id"] = "another-conversation"
+    if target == "new_grant":
+        credentials.set_active_connector_credentials(
+            {
+                "calendar": h.credential(
+                    "calendar", h.SCOPES["calendar"], credential_id="new-calendar-grant"
+                ),
+            }
+        )
+    result = await calendar_tools.propose_calendar_reschedule(
+        context, recent_booking=True, start_at="2026-10-07T16:00:00Z", end_at="2026-10-07T17:00:00Z"
+    )
+    if target != "same_chat":
+        assert result["status"] != "confirmation_required"
+        assert google.calls("GET", f"{EVENTS}/evt1") == []
+        return
+    assert result["directive"]["payload"]["eventId"] == "evt1"
+    assert len(google.calls("GET", f"{EVENTS}/evt1")) == 1
+    assert google.calls("PATCH", f"{EVENTS}/evt1") == []
+    with _client() as client:
+        assert (
+            client.post(
+                f"/api/one/pod/actions/{result['proposal_id']}/confirm", headers=OWNER_SESSION
+            ).status_code
+            == 200
+        )
+    [write] = google.calls("PATCH", f"{EVENTS}/evt1")
+    assert write.headers["If-Match"] == '"reviewed-version"'
+
+
+@pytest.mark.parametrize(
+    "action, revoke", [("reschedule", False), ("cancel", False), ("reschedule", True)]
+)
+async def test_secondary_calendar_edit_checks_writable_copy_before_one_confirmed_write(
+    agent, action, revoke
+):
+    from hushh_mcp.services.pod_connector_credential_seal import POD_CALENDAR_LIST_SCOPE
+
+    _log, tokens, google = agent
+    credentials.set_active_connector_credentials(
+        {"calendar": h.credential("calendar", (*h.SCOPES["calendar"], POD_CALENDAR_LIST_SCOPE))}
+    )
+    secondary = "project@example.com"
+    inventory = f"{h.CALENDAR}/users/me/calendarList"
+    target = f"{h.CALENDAR}/calendars/{secondary}/events"
+    event_path = f"{target}/same-id"
+    entry = {"id": secondary, "summary": "Project Calendar", "accessRole": "writer"}
+    event = {
+        "id": "same-id",
+        "etag": '"version"',
+        "summary": "Project review",
+        "organizer": {"self": True},
+        "start": {"dateTime": "2026-11-13T12:00:00Z"},
+        "end": {"dateTime": "2026-11-13T12:30:00Z"},
+    }
+    google.on("GET", inventory, {"items": [entry]})
+    google.on("GET", f"{inventory}/{secondary}", entry)
+    google.on("GET", target, {"items": [event]})
+    google.on("GET", event_path, event)
+    google.on("PATCH", event_path, event)
+    google.on("DELETE", event_path, {})
+    context = h.tool_context()
+    assert (await calendar_tools.calendar_calendars(context))["status"] == "ok"
+    assert (
+        await calendar_tools.calendar_events(
+            context, "2026-11-13T12:00:00Z", "2026-11-14T00:00:00Z", calendar_ordinal=1
+        )
+    )["status"] == "ok"
+    if action == "reschedule":
+        review = await calendar_tools.propose_calendar_reschedule(
+            context, event_ordinal=1, start_at="2026-11-13T13:00:00Z", end_at="2026-11-13T13:30:00Z"
+        )
+    else:
+        review = await calendar_tools.propose_calendar_cancellation(context, event_ordinal=1)
+    assert review["status"] == "confirmation_required", review
+    assert review["directive"]["payload"]["calendarId"] == secondary
+    assert review["directive"]["payload"]["calendarLabel"] == "Project Calendar"
+    assert ("calendar", "read_calendar_list") in tokens.asks
+    method = "PATCH" if action == "reschedule" else "DELETE"
+    assert google.calls(method, event_path) == []
+    if revoke:
+        google.on("GET", f"{inventory}/{secondary}", {**entry, "accessRole": "reader"})
+    with _client() as client:
+        outcome = client.post(
+            f"/api/one/pod/actions/{review['proposal_id']}/confirm", headers=OWNER_SESSION
+        )
+    assert outcome.status_code == (409 if revoke else 200)
+    assert len(google.calls(method, event_path)) == (0 if revoke else 1)
+    assert google.calls(method, f"{EVENTS}/same-id") == []
 
 
 async def _verifier(_token: str, *, expected_scope: str) -> ConsentVerdict:
@@ -70,6 +198,7 @@ def agent(monkeypatch, tmp_path):
             "calendar": h.credential("calendar", h.SCOPES["calendar"]),
             "gmail": h.credential("gmail", h.SCOPES["gmail_manage"]),
             "drive": h.credential("drive", h.SCOPES["drive"]),
+            "contacts": h.credential("contacts", h.SCOPES["contacts"]),
         },
     )
     monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
@@ -128,6 +257,455 @@ async def test_a_calendar_change_runs_once_on_the_owners_own_confirmation(agent)
     assert len(google.calls("POST", EVENTS)) == 1, "a repeat confirmation sends nothing"
     assert ("calendar", "manage") in tokens.asks
     assert _Session.held >= 2, "every confirmation requires a held incarnation"
+
+
+def _contact_response(request):
+    if not request.url.params["query"]:
+        return {}
+    return {
+        "results": [
+            {
+                "person": {
+                    "names": [{"displayName": "Priya Example"}],
+                    "emailAddresses": [
+                        {"value": "Priya@example.com"},
+                        {"value": "pri\u0000ya@example.com"},
+                    ],
+                    "phoneNumbers": [{"value": "+15550101000"}],
+                }
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize("granted", [False, True])
+async def test_other_contacts_fallback_uses_its_separate_scope(agent, granted):
+    from hushh_mcp.services.pod_connector_credential_seal import OTHER_CONTACTS_SCOPE
+
+    _log, tokens, google = agent
+    scopes = (*h.SCOPES["contacts"], OTHER_CONTACTS_SCOPE) if granted else h.SCOPES["contacts"]
+    credentials.set_active_connector_credentials({"contacts": h.credential("contacts", scopes)})
+    google.on("GET", PEOPLE_SEARCH, {})
+    google.on("GET", OTHER_CONTACTS_SEARCH, _contact_response)
+    context = h.tool_context()
+    context.invocation_id = "lookup"
+    result = await search_my_contacts(context, query="Priya Example", for_calendar=True)
+    other_requests = google.calls("GET", OTHER_CONTACTS_SEARCH)
+    if granted:
+        assert result["attendee_choices"][0]["name"] == "Priya Example"
+        assert tokens.asks == [("contacts", "read"), ("contacts", "read_other")]
+        assert [request.url.params["query"] for request in other_requests] == ["", "Priya Example"]
+        assert all(
+            request.url.params["readMask"] == "names,emailAddresses" for request in other_requests
+        )
+    else:
+        assert result["other_contacts_available"] is False
+        assert result["attendee_choices"] == []
+        assert other_requests == []
+        assert tokens.asks == [("contacts", "read")]
+
+
+async def test_multiple_contact_names_require_one_choice_per_guest(agent):
+    _log, _tokens, google = agent
+
+    def lookup(request):
+        name = request.url.params["query"]
+        if not name:
+            return {}
+        emails = (
+            ["Priya@example.com", "Priya2@example.com"] if name == "Priya" else ["Sam@example.com"]
+        )
+        return {
+            "results": [
+                {
+                    "person": {
+                        "names": [{"displayName": name}],
+                        "emailAddresses": [{"value": email} for email in emails],
+                    }
+                }
+            ]
+        }
+
+    google.on("GET", PEOPLE_SEARCH, lookup)
+    context = h.tool_context()
+    context.invocation_id = "multi-guest"
+    contact_tool = FunctionTool(search_my_contacts)
+    proposal_tool = FunctionTool(calendar_tools.propose_calendar_event)
+    lookup_args = {"queries": ["Priya", "Sam"], "for_calendar": True}
+    assert before_external_read_tool(contact_tool, lookup_args, context) is None
+    search = await search_my_contacts(context, **lookup_args)
+    assert [(item["query"], item["ordinal"]) for item in search["attendee_choices"]] == [
+        ("Priya", 1),
+        ("Priya", 2),
+        ("Sam", 3),
+    ]
+    window = {"start_at": "2026-11-13T12:00:00Z", "end_at": "2026-11-13T12:30:00Z"}
+    proposal_args = {"title": "Plan", "contact_ordinals": [2, 3], **window}
+    blocked = before_external_read_tool(proposal_tool, proposal_args, context)
+    assert blocked["reason"] == "connector_read_complete"
+    request = SimpleNamespace(
+        tools_dict={proposal_tool.name: proposal_tool, contact_tool.name: contact_tool},
+        config=types.GenerateContentConfig(),
+    )
+    before_external_read_model(context, request)
+    assert set(request.tools_dict) == {proposal_tool.name}
+    assert before_external_read_tool(proposal_tool, proposal_args, context) is None
+    rejected = await calendar_tools.propose_calendar_event(
+        context, title="Plan", contact_ordinals=[1, 2], **window
+    )
+    assert rejected["reason_code"] == "contact_selection_unavailable"
+    review = await calendar_tools.propose_calendar_event(context, **proposal_args)
+    assert review["directive"]["payload"]["attendees"] == ["Priya2@example.com", "Sam@example.com"]
+    assert google.calls("POST", EVENTS) == []
+    with _client() as client:
+        assert (
+            client.post(
+                f"/api/one/pod/actions/{review['proposal_id']}/confirm", headers=OWNER_SESSION
+            ).status_code
+            == 200
+        )
+    [write] = google.calls("POST", EVENTS)
+    assert h.body(write)["attendees"] == [
+        {"email": "Priya2@example.com"},
+        {"email": "Sam@example.com"},
+    ]
+
+
+async def test_past_calendar_event_guest_is_reviewed_and_delivered_from_an_exact_selection(agent):
+    _log, _tokens, google = agent
+    google.on("GET", EVENTS, {"items": [{"id": "past", "summary": "Planning"}]})
+    google.on(
+        "GET",
+        f"{EVENTS}/past",
+        {
+            "id": "past",
+            "attendees": [
+                {"email": "owner@example.com", "self": True},
+                {"email": "room@example.com", "resource": True},
+                {
+                    "email": "Priya@example.com",
+                    "displayName": "Priya",
+                    "responseStatus": "accepted",
+                },
+            ],
+        },
+    )
+    context = h.tool_context()
+    start, end = "2026-11-13T12:00:00Z", "2026-11-13T12:30:00Z"
+    assert (await calendar_tools.calendar_events(context, start, end))["status"] == "ok"
+    detail = await calendar_tools.calendar_event_detail(context, ordinal=1)
+    assert detail["attendee_choices"] == [
+        {"ordinal": 1, "name": "Priya", "mailbox_hint": "P… (example.com)"}
+    ]
+    foreign = h.tool_context(**context.state)
+    foreign.state["hussh:conversation_id"] = "unrelated"
+    blocked = await calendar_tools.propose_calendar_event(
+        foreign, title="Follow up", start_at=start, end_at=end, event_attendee_ordinals=[1]
+    )
+    assert blocked["reason_code"] == "calendar_attendee_offer_required"
+    review = await calendar_tools.propose_calendar_event(
+        context, title="Follow up", start_at=start, end_at=end, event_attendee_ordinals=[1]
+    )
+    assert review["directive"]["payload"]["attendees"] == ["Priya@example.com"]
+    assert google.calls("POST", EVENTS) == []
+    with _client() as client:
+        assert (
+            client.post(
+                f"/api/one/pod/actions/{review['proposal_id']}/confirm", headers=OWNER_SESSION
+            ).status_code
+            == 200
+        )
+    [request] = google.calls("POST", EVENTS)
+    assert h.body(request)["attendees"] == [{"email": "Priya@example.com"}]
+
+
+def _mail_sender_context(google):
+    from hushh_mcp.services.email_delegated_read import make_mail_read_offer
+
+    grant = credentials.active_connector_credential("gmail")
+    assert grant is not None
+    context = h.tool_context()
+    context.state["hussh:mail_read_offer"] = make_mail_read_offer(
+        {
+            "account": grant.account_subject,
+            "mailbox": "inbox",
+            "message_ids": ["mail-1"],
+            "pod_credential_id": grant.credential_id,
+        },
+        owner_id=h.OWNER_UID,
+        conversation_id=context.state["hussh:conversation_id"],
+    )
+    google.on("GET", f"{h.GMAIL}/profile", {"emailAddress": "owner@example.com"})
+    message_path = f"{h.GMAIL}/messages/mail-1"
+    google.on(
+        "GET",
+        message_path,
+        {
+            **h.gmail_message("mail-1", sender="Priya <Priya@example.com>"),
+            "labelIds": ["INBOX"],
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "Priya <Priya@example.com>"},
+                    {"name": "Reply-To", "value": "routing@example.com"},
+                    {"name": "Subject", "value": "Meeting"},
+                    {"name": "Message-ID", "value": "<mail-1@example.com>"},
+                ],
+            },
+        },
+    )
+    return context, message_path
+
+
+@pytest.mark.parametrize("reconnect", [False, True])
+async def test_selected_gmail_sender_remains_bound_through_calendar_confirmation(agent, reconnect):
+    _log, _tokens, google = agent
+    context, message_path = _mail_sender_context(google)
+    review = await calendar_tools.propose_calendar_event(
+        context,
+        title="Follow up",
+        start_at="2026-11-13T12:00:00Z",
+        end_at="2026-11-13T12:30:00Z",
+        mail_sender_ordinal=1,
+    )
+    assert review["status"] == "confirmation_required", review
+    assert review["directive"]["payload"]["attendees"] == ["Priya@example.com"]
+    assert "mail_attendee_grant" not in review["plan"]
+    [read] = google.calls("GET", message_path)
+    assert read.url.params["format"] == "metadata"
+    assert google.calls("POST", EVENTS) == []
+    if reconnect:
+        credentials.set_active_connector_credentials(
+            {
+                "calendar": h.credential("calendar", h.SCOPES["calendar"]),
+                "gmail": h.credential(
+                    "gmail", h.SCOPES["gmail_manage"], credential_id="new-gmail-grant"
+                ),
+            }
+        )
+    with _client() as client:
+        outcome = client.post(
+            f"/api/one/pod/actions/{review['proposal_id']}/confirm", headers=OWNER_SESSION
+        )
+    assert outcome.status_code == (409 if reconnect else 200)
+    writes = google.calls("POST", EVENTS)
+    assert len(writes) == (0 if reconnect else 1)
+    if writes:
+        assert h.body(writes[0])["attendees"] == [{"email": "Priya@example.com"}]
+
+
+@pytest.mark.parametrize(
+    ("calendar_status", "gmail_status", "expected"),
+    [
+        (200, 200, "sent"),
+        (200, 403, "not_sent"),
+        (200, 503, "outcome_unknown"),
+        (200, None, "not_sent"),
+        (503, 200, "not_sent"),
+    ],
+)
+async def test_linked_calendar_and_gmail_review_settles_each_provider_once(
+    agent, calendar_status, gmail_status, expected, monkeypatch
+):
+    _log, _tokens, google = agent
+    context, _ = _mail_sender_context(google)
+    gmail_send = f"{h.GMAIL}/messages/send"
+    google.on("POST", EVENTS, {"id": "confirmed-event"}, status=calendar_status)
+    if gmail_status is None:
+        from hushh_mcp.services.pod_google_connections import PodCalendarProposalStore
+
+        async def refuse_checkpoint(self, **receipt):
+            return False
+
+        monkeypatch.setattr(PodCalendarProposalStore, "record_calendar_reply", refuse_checkpoint)
+    else:
+        google.on(
+            "POST", gmail_send, {"id": "sent-reply", "threadId": "t-mail-1"}, status=gmail_status
+        )
+    result = await calendar_tools.propose_calendar_event(
+        context,
+        title="Follow up",
+        start_at="2026-11-13T12:00:00Z",
+        end_at="2026-11-13T12:30:00Z",
+        mail_sender_ordinal=1,
+        mail_reply_body="I sent the calendar invite.",
+    )
+    assert result["status"] == "confirmation_required", result
+    assert result["linked_review"] is True and "directive" not in result
+    review = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert review["attendees"] == ["Priya@example.com"]
+    assert review["gmailReply"] == {
+        "to": ["routing@example.com"],
+        "subject": "Re: Meeting",
+        "body": "I sent the calendar invite.",
+    }
+    assert google.calls("POST", EVENTS) == google.calls("POST", gmail_send) == []
+    route = f"/api/one/pod/actions/{result['proposal_id']}"
+    with _client() as client:
+        assert client.get(f"{route}/status", headers=OWNER_SESSION).json()["calendar"] == "prepared"
+        settled = client.post(f"{route}/confirm", headers=OWNER_SESSION)
+        assert client.post(f"{route}/confirm", headers=OWNER_SESSION).status_code == 409
+        receipt = client.get(f"{route}/status", headers=OWNER_SESSION).json()
+    [invite] = google.calls("POST", EVENTS)
+    assert receipt["gmail"] == expected
+    if calendar_status == 503:
+        assert settled.status_code == 502
+        assert receipt["calendar"] == "outcome_unknown"
+        assert google.calls("POST", gmail_send) == []
+        return
+    assert settled.status_code == 200
+    assert settled.json()["result"]["gmail_reply"]["status"] == expected
+    assert receipt["calendar"] == "created"
+    if gmail_status is None:
+        assert google.calls("POST", gmail_send) == []
+        return
+    assert receipt["eventId"] == "confirmed-event"
+    [send] = google.calls("POST", gmail_send)
+    assert google.requests.index(invite) < google.requests.index(send)
+    payload = h.body(send)
+    assert payload["threadId"] == "t-mail-1"
+    mime = BytesParser(policy=policy.default).parsebytes(base64.urlsafe_b64decode(payload["raw"]))
+    assert mime["To"] == "routing@example.com"
+    assert mime["In-Reply-To"] == mime["References"] == "<mail-1@example.com>"
+    assert mime.get_body().get_content().strip() == "I sent the calendar invite."
+
+
+@pytest.mark.parametrize(
+    "binding_change",
+    [
+        "none",
+        "conversation",
+        "contacts_grant",
+        "calendar_grant",
+        "contacts_after_review",
+        "contacts_during_calendar_token_exchange",
+    ],
+)
+async def test_contact_lookup_to_reviewed_calendar_invite(agent, binding_change, monkeypatch):
+    _log, tokens, google = agent
+    google.on("GET", PEOPLE_SEARCH, _contact_response)
+    lookup_context = h.tool_context()
+    lookup_context.invocation_id = "lookup"
+    window = {
+        "start_at": "2026-11-13T12:00:00Z",
+        "end_at": "2026-11-13T14:00:00Z",
+        "duration_minutes": 30,
+        "limit": 2,
+    }
+    lookup_args = {
+        "query": "Priya Example",
+        "for_calendar": True,
+        **{f"availability_{key}": value for key, value in window.items()},
+    }
+    contact_tool = FunctionTool(search_my_contacts)
+    openings_tool = FunctionTool(calendar_tools.calendar_free_slots)
+    assert before_external_read_tool(contact_tool, lookup_args, lookup_context) is None
+    search = await search_my_contacts(lookup_context, **lookup_args)
+    assert search == {
+        "status": "ok",
+        "source": "google_contacts",
+        "attendee_choices": [
+            {"ordinal": 1, "name": "Priya Example", "mailbox_hint": "P… (example.com)"}
+        ],
+    }
+    reads = google.calls("GET", PEOPLE_SEARCH)
+    assert [request.url.params["query"] for request in reads] == ["", "Priya Example"]
+    assert all(request.url.params["readMask"] == "names,emailAddresses" for request in reads)
+    assert tokens.asks == [("contacts", "read")]
+    google.on(
+        "POST",
+        f"{h.CALENDAR}/freeBusy",
+        {
+            "calendars": {
+                "primary": {
+                    "busy": [{"start": "2026-11-13T12:30:00Z", "end": "2026-11-13T13:00:00Z"}]
+                }
+            }
+        },
+    )
+    request = SimpleNamespace(
+        tools_dict={openings_tool.name: openings_tool}, config=types.GenerateContentConfig()
+    )
+    before_external_read_model(lookup_context, request)
+    assert set(request.tools_dict) == {"calendar_free_slots"}
+    assert before_external_read_tool(openings_tool, window, lookup_context) is None
+    openings = await calendar_tools.calendar_free_slots(lookup_context, **window)
+    assert [slot["opening_ordinal"] for slot in openings["openings"]] == [1, 2]
+    provider_reads = len(google.requests)
+
+    context = h.tool_context(
+        **{
+            STATE_CONTACT_ATTENDEE_OFFER: lookup_context.state[STATE_CONTACT_ATTENDEE_OFFER],
+            STATE_OPENING_OFFER: lookup_context.state[STATE_OPENING_OFFER],
+        }
+    )
+    if binding_change == "conversation":
+        context.state["hussh:conversation_id"] = "other-conversation"
+    if binding_change in {"contacts_grant", "calendar_grant"}:
+        connector = binding_change.removesuffix("_grant")
+        logins = {name: h.credential(name, h.SCOPES[name]) for name in ("contacts", "calendar")}
+        logins[connector] = h.credential(
+            connector,
+            h.SCOPES[connector],
+            credential_id="77777777-2222-4333-8444-555555555555",
+        )
+        credentials.set_active_connector_credentials(logins)
+    proposal = await calendar_tools.propose_calendar_event(
+        context,
+        title="Planning",
+        contact_ordinals=[1],
+        opening_ordinal=2,
+    )
+    assert google.calls("POST", EVENTS) == []
+    if binding_change not in {
+        "none",
+        "contacts_after_review",
+        "contacts_during_calendar_token_exchange",
+    }:
+        assert proposal["reason_code"] == (
+            "contact_selection_unavailable"
+            if binding_change in {"contacts_grant", "conversation"}
+            else "calendar_connection_changed"
+        )
+        assert len(google.requests) == provider_reads
+        return
+
+    assert proposal["status"] == "confirmation_required"
+    assert proposal["directive"]["payload"]["attendees"] == ["Priya@example.com"]
+    calendar_only = {"calendar": h.credential("calendar", h.SCOPES["calendar"])}
+    if binding_change == "contacts_after_review":
+        credentials.set_active_connector_credentials(calendar_only)
+    disconnected_during_exchange = False
+    if binding_change == "contacts_during_calendar_token_exchange":
+        get_token = tokens.access_token
+        conflicts_reads = len(google.calls("GET", EVENTS))
+
+        async def disconnect_during_exchange(service, level):
+            nonlocal disconnected_during_exchange
+            if (service, level) == ("calendar", "manage") and len(
+                google.calls("GET", EVENTS)
+            ) > conflicts_reads:
+                credentials.set_active_connector_credentials(calendar_only)
+                disconnected_during_exchange = True
+            return await get_token(service, level)
+
+        monkeypatch.setattr(tokens, "access_token", disconnect_during_exchange)
+    with _client() as client:
+        route = f"/api/one/pod/actions/{proposal['proposal_id']}/confirm"
+        if binding_change in {"contacts_after_review", "contacts_during_calendar_token_exchange"}:
+            assert client.post(route, headers=OWNER_SESSION).status_code == 409
+            assert disconnected_during_exchange == (
+                binding_change == "contacts_during_calendar_token_exchange"
+            )
+            assert google.calls("POST", EVENTS) == []
+            return
+        assert client.post(route, headers=OWNER_SESSION).status_code == 200
+        assert client.post(route, headers=OWNER_SESSION).status_code == 409
+    [sent] = google.calls("POST", EVENTS)
+    assert h.body(sent)["attendees"] == [{"email": "Priya@example.com"}]
+    assert h.body(sent)["start"]["dateTime"].startswith("2026-11-13T13:00:00")
+    assert h.body(sent)["end"]["dateTime"].startswith("2026-11-13T13:30:00")
+    assert sent.url.params["sendUpdates"] == "all"
+    assert sent.url.params["conferenceDataVersion"] == "1"
 
 
 @pytest.mark.parametrize("foreign_turn", ["voice", "other_owner"])
@@ -450,8 +1028,10 @@ def test_send_status_keeps_neighboring_ingress_routes_closed():
     from api.middlewares.pod_ingress import is_app_surface
 
     assert is_app_surface("/api/one/pod/actions/gmod_abcdefghijklmnop/status")
+    assert is_app_surface("/api/one/pod/actions/gcal_abcdefghijklmnop/status")
     for path in (
-        "gcal_abcdefghijklmnop/status",
+        "gcal_short/status",
+        "gcal_abcdefghijklmnop/status/provider",
         "gmod_short/status",
         "gmod_abcdefghijklmnop/status/provider",
         "gmod_abcdefghijklmnop/retry",
@@ -477,7 +1057,7 @@ async def test_hosted_calendar_has_no_hub_or_local_google_fallback(monkeypatch):
 
 @pytest.mark.parametrize("action", ["reschedule", "cancel"])
 async def test_calendar_mutation_keeps_the_owner_cloud_source_grant(agent, action):
-    _log, _tokens, google = agent
+    log, _tokens, google = agent
     event = {
         "id": "evt1",
         "etag": '"event-version"',
@@ -499,7 +1079,13 @@ async def test_calendar_mutation_keeps_the_owner_cloud_source_grant(agent, actio
     else:
         result = await calendar_tools.propose_calendar_cancellation(context, event_id="evt1")
     assert result["status"] == "confirmation_required", result
-    assert len(result["plan"]["connection_binding"]) > 6
+    from hushh_mcp.services.pod_action_proposals import pod_action_proposals
+
+    stored, _ = await pod_action_proposals()._snapshot(log)
+    assert (
+        len(stored[result["proposal_id"]]["proposal"]["payload"]["plan"]["connection_binding"]) > 6
+    )
+    assert "connection_binding" not in result["plan"]
     assert google.calls("PATCH", f"{EVENTS}/evt1") == google.calls("DELETE", f"{EVENTS}/evt1") == []
     response = _client().post(
         f"/api/one/pod/actions/{result['proposal_id']}/confirm", headers=OWNER_SESSION

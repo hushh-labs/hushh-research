@@ -192,6 +192,20 @@ def test_calendar_read_tools_resolve_selected_calendar_and_event_from_private_of
     monkeypatch,
 ) -> None:  # noqa: ANN001
     calendar = _Calendar()
+
+    async def owner_cloud_grant(**_: object) -> tuple[str, ...]:
+        return (
+            "user-1",
+            "calendar",
+            "credential-id",
+            "google-sub",
+            "connected-at",
+            "calendar.events",
+            "calendar.freebusy",
+            "openid",
+        )
+
+    calendar.connections.read_grant_binding = owner_cloud_grant
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
     context = _context()
     calendars = asyncio.run(tools.calendar_calendars(context))
@@ -753,6 +767,57 @@ def test_calendar_events_searches_within_a_bound_and_reports_truncation(monkeypa
     assert seen["query"] == "dentist"
     assert seen["max_results"] == 250
     assert result["truncated"] is True
+
+
+async def test_calendar_next_page_retains_exact_search_and_refuses_a_foreign_conversation(
+    monkeypatch,
+) -> None:
+    calls = []
+
+    class Listing(_Calendar):
+        async def list_events(self, **kwargs):
+            calls.append(kwargs)
+            return (
+                {"events": [{"id": "event-1"}], "next_page_token": "cursor-1"}
+                if len(calls) == 1
+                else {"events": []}
+            )
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: Listing())
+    context = _context()
+    context.state["temp:one_execution_surface"] = "typed_chat"
+    first = await tools.calendar_events(
+        context,
+        start_at="2026-08-11T00:00:00Z",
+        end_at="2026-08-18T00:00:00Z",
+        query="dentist",
+        limit=12,
+    )
+    assert first["status"] == "ok"
+    assert first["next_page_available"] and "next_page_token" not in first
+    foreign = SimpleNamespace(state={**context.state, "hussh:conversation_id": "elsewhere"})
+    rejected = await tools.calendar_events(foreign, next_page=True)
+    assert rejected["reason_code"] == "calendar_page_required"
+    assert len(calls) == 1
+    assert (await tools.calendar_events(context, next_page=True))["status"] == "ok"
+    assert calls[1] == {**calls[0], "page_token": "cursor-1"}
+    assert (await tools.calendar_events(context, next_page=True))[
+        "reason_code"
+    ] == "calendar_page_required"
+
+
+@pytest.mark.parametrize("value", ["Friday", "2026-03-08", "2026-03-08T02:30:00"])
+async def test_invalid_calendar_time_returns_input_required_without_provider_io(monkeypatch, value):
+    context = _context()
+    context.state["hussh:timezone"] = "America/Los_Angeles"
+    service = _Calendar()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    result = await tools.calendar_events(context, start_at=value, end_at="2026-03-09T00:00:00Z")
+    proposal = await tools.propose_calendar_event(
+        context, title="Meeting", start_at=value, end_at="2026-03-09T00:00:00Z"
+    )
+    assert result["status"] == proposal["status"] == "input_required"
+    assert service.last_list is None and service.proposal_payload is None
 
 
 def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_bound(monkeypatch):

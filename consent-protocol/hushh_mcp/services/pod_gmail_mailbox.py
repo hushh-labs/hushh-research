@@ -20,7 +20,11 @@ from typing import Any, Optional
 import httpx
 
 from hushh_mcp.services import pod_connector_credentials as credentials
-from hushh_mcp.services.gmail_delivery_service import _message_for, normalize_draft
+from hushh_mcp.services.gmail_delivery_service import (
+    GmailReplyContext,
+    _message_for,
+    normalize_draft,
+)
 from hushh_mcp.services.gmail_mailbox_actions import (
     LABEL_ACTIONS,
     MAILBOX_ACTIONS,
@@ -226,12 +230,40 @@ class PodGmailMailboxActions(GmailMailboxActions):
             await self._proposals().settle(proposal_id=proposal_id, status="executed")
         return result
 
-    async def _deliver(self, token: str, proposal: dict[str, Any]) -> dict[str, Any]:
+    async def linked_calendar_token(self, *, credential_id: str, account: str) -> str:
+        self._credential(credential_id)
+        token = await self._gmail.get_modify_access_token(
+            user_id=self._owner, expected_google_sub=account
+        )
+        self._credential(credential_id)
+        return token
+
+    async def send_linked_calendar_reply(
+        self, *, credential_id: str, account: str, envelope: dict[str, Any]
+    ) -> dict[str, Any]:
+        token = await self.linked_calendar_token(credential_id=credential_id, account=account)
+        return await self._deliver(
+            token,
+            {"action": "send_email", "draft": envelope["draft"]},
+            reply_context=GmailReplyContext(**envelope["reply"]),
+        )
+
+    async def _deliver(
+        self,
+        token: str,
+        proposal: dict[str, Any],
+        *,
+        reply_context: GmailReplyContext | None = None,
+    ) -> dict[str, Any]:
         draft = normalize_draft(proposal["draft"])
-        raw = base64.urlsafe_b64encode(_message_for(draft).as_bytes()).decode("ascii")
+        raw = base64.urlsafe_b64encode(
+            _message_for(draft, reply_context=reply_context).as_bytes()
+        ).decode("ascii")
         save = proposal["action"] == "save_draft"
         path = "/drafts" if save else "/messages/send"
         payload = {"message": {"raw": raw}} if save else {"raw": raw}
+        if reply_context is not None:
+            payload["threadId"] = reply_context.thread_id
         from opentelemetry.instrumentation.utils import suppress_instrumentation  # noqa: PLC0415
 
         with suppress_instrumentation():
@@ -254,7 +286,11 @@ class PodGmailMailboxActions(GmailMailboxActions):
         except ValueError:
             raise _unknown_outcome() from None
         identifier = body.get("id") if isinstance(body, dict) else None
-        if not isinstance(identifier, str) or not 1 <= len(identifier) <= 256:
+        if (
+            not isinstance(identifier, str)
+            or not 1 <= len(identifier) <= 256
+            or (reply_context is not None and body.get("threadId") != reply_context.thread_id)
+        ):
             raise _unknown_outcome()
         return {
             "status": "saved" if save else "sent",

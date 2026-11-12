@@ -25,6 +25,8 @@ import { googleConnectorTransition, type GoogleConnectorTransition, type Authori
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const G = "https://www.googleapis.com/auth/";
 const IDENTITY = ["openid", "email"];
+const OTHER_CONTACTS_SCOPE = `${G}contacts.other.readonly`;
+const CALENDAR_LIST_SCOPE = `${G}calendar.calendarlist.readonly`;
 
 /** What each connector asks for at sign-in; the agent narrows further per use. */
 export const GOOGLE_CONNECTOR_SCOPES: Record<GoogleConnector, string[]> = {
@@ -33,6 +35,13 @@ export const GOOGLE_CONNECTOR_SCOPES: Record<GoogleConnector, string[]> = {
   drive: [...IDENTITY, `${G}drive.readonly`],
   contacts: [...IDENTITY, `${G}contacts.readonly`],
 };
+
+function connectorScopes(connector: GoogleConnector, includeOtherContacts?: boolean, includeCalendarList?: boolean): string[] {
+  const scopes = GOOGLE_CONNECTOR_SCOPES[connector];
+  if (connector === 'contacts' && includeOtherContacts) return [...scopes, OTHER_CONTACTS_SCOPE];
+  if (connector === 'calendar' && includeCalendarList) return [...scopes, CALENDAR_LIST_SCOPE];
+  return scopes;
+}
 
 export type NativeGoogleClient = { profile: GoogleClientProfile; clientId: string; redirectUri: string };
 
@@ -53,6 +62,8 @@ export type GoogleConnectorTransitionReview = {
 export type GoogleConnectorConnectOptions = {
   openAuthSession?: OpenAuthSession;
   platform?: string;
+  includeOtherContacts?: boolean;
+  includeCalendarList?: boolean;
   isCurrent?: () => boolean;
   /** Mounted, memory-only owner capability; never recovered from storage. */
   vaultOwnerCapability?: string | null;
@@ -111,12 +122,14 @@ export function googleAuthorizationUrl(input: {
   connector: GoogleConnector;
   challenge: string;
   state: string;
+  includeOtherContacts?: boolean;
+  includeCalendarList?: boolean;
 }): string {
   const params = new URLSearchParams({
     client_id: input.client.clientId,
     redirect_uri: input.client.redirectUri,
     response_type: "code",
-    scope: GOOGLE_CONNECTOR_SCOPES[input.connector].join(" "),
+    scope: connectorScopes(input.connector, input.includeOtherContacts, input.includeCalendarList).join(" "),
     code_challenge: input.challenge,
     code_challenge_method: "S256",
     state: input.state,
@@ -183,8 +196,9 @@ export async function sendConnectorCredentialToAgent(
 }
 
 /** Intent only: the phone resolves its own owner and agent, never a QR-supplied endpoint. */
-export function phoneHandoff(connector: GoogleConnector): PhoneHandoff {
-  return { connector, deepLink: `hushh://one/connect/google/${connector}` };
+export function phoneHandoff(connector: GoogleConnector, includeOtherContacts?: boolean, includeCalendarList?: boolean): PhoneHandoff {
+  const suffix = connector === 'contacts' && includeOtherContacts ? '/other' : connector === 'calendar' && includeCalendarList ? '/list' : '';
+  return { connector, deepLink: `hushh://one/connect/google/${connector}${suffix}` };
 }
 
 /** Sign in on this phone, seal the code to the agent, and let the agent redeem it. */
@@ -193,7 +207,7 @@ export async function connectGoogleConnector(
   deps: GoogleConnectorConnectOptions = {},
 ): Promise<ConnectOutcome> {
   const platform = deps.platform ?? Capacitor.getPlatform();
-  if (platform === 'web') return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector) };
+  if (platform === 'web') return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector, deps.includeOtherContacts, deps.includeCalendarList) };
   const client = nativeGoogleClient(platform);
   if (!client) return { ok: false, code: platform === 'android' ? 'ANDROID_CONNECTOR_DEV_REQUIRED' : 'NATIVE_CLIENT_NOT_CONFIGURED' };
   const vaultEpoch = snapshotVaultSessionEpoch();
@@ -238,7 +252,7 @@ export async function connectGoogleConnector(
   let code: string;
   try {
     const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
-      googleAuthorizationUrl({ client, connector, challenge, state }),
+      googleAuthorizationUrl({ client, connector, challenge, state, includeOtherContacts: deps.includeOtherContacts, includeCalendarList: deps.includeCalendarList }),
       client.redirectUri,
     );
     if (!current()) throw new Error(changedCode());
@@ -253,7 +267,7 @@ export async function connectGoogleConnector(
     code,
     codeVerifier: verifier,
     redirectUri: client.redirectUri,
-    scopes: GOOGLE_CONNECTOR_SCOPES[connector],
+    scopes: connectorScopes(connector, deps.includeOtherContacts, deps.includeCalendarList),
     transition,
   }, firebaseUid, current);
   return current() ? delivered : { ok: false, code: changedCode() };

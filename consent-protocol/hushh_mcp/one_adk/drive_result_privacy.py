@@ -14,16 +14,24 @@ from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_S
 
 _OUTCOMES = frozenset({"ok", "blocked", "unavailable", "permission_required", "review_required"})
 _WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
+_CONTACTS_TOOL = "search_my_contacts"
 _PRIVATE_TOOLS = frozenset(
     {
         DRIVE_READ_TOOL_NAME,
         "inspect_selected_drive_files",
         "read_workspace_tool",
         "read_selected_drive_search_result",
+        _CONTACTS_TOOL,
     }
 )
 _PRIVATE_SOURCES = frozenset(
-    {DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp", "drive_saved_search"}
+    {
+        DRIVE_PRIVATE_SOURCE,
+        SELECTED_STATUS_SOURCE,
+        "workspace_mcp",
+        "drive_saved_search",
+        "google_contacts",
+    }
 )
 _DYNAMIC_MCP_TOOL = re.compile(r"mcp_[0-9a-f]{40}\Z")
 _CONNECTOR_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
@@ -100,7 +108,8 @@ class ConfirmationWireProjection:
         self.review_call_ids: list[str] = []
 
     def project(self, event: BaseEvent) -> list[BaseEvent]:
-        if _private_tool_name(getattr(event, "tool_call_name", None)):
+        name = getattr(event, "tool_call_name", None)
+        if name != _CONTACTS_TOOL and _private_tool_name(name):
             self._external_content = True
         call_id = str(getattr(event, "tool_call_id", ""))
         if event.type == EventType.MESSAGES_SNAPSHOT:
@@ -108,7 +117,7 @@ class ConfirmationWireProjection:
                 if getattr(message, "role", None) == "user":
                     self._external_content = False
                 if any(
-                    _private_tool_name(call.function.name)
+                    call.function.name != _CONTACTS_TOOL and _private_tool_name(call.function.name)
                     for call in (getattr(message, "tool_calls", None) or [])
                 ):
                     self._external_content = True
@@ -440,7 +449,8 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
                 external_content = False
             for call in getattr(message, "tool_calls", None) or []:
                 if _private_tool_name(getattr(call.function, "name", None)):
-                    external_content = True
+                    if call.function.name != _CONTACTS_TOOL:
+                        external_content = True
                     private_call_ids.add(str(getattr(call, "id", "")))
                 elif external_content:
                     private_call_ids.add(str(getattr(call, "id", "")))

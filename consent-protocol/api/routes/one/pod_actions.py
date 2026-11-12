@@ -205,6 +205,10 @@ class _EmailSendStatusPort(Protocol):
         self, *, proposal_id: str, owner_id: str
     ) -> dict[str, Any] | None: ...
 
+    async def calendar_reply_status(
+        self, *, proposal_id: str, owner_id: str
+    ) -> dict[str, Any] | None: ...
+
 
 async def run_email_send_status(
     proposal_id: str,
@@ -226,12 +230,16 @@ async def run_email_send_status(
     owner = str(claims.get("user_id") or "")
     if not owner or owner != pod_owner_user_id():
         raise _refused(403, "OWNER_MISMATCH")
-    if not re.fullmatch(r"gmod_[A-Za-z0-9_-]{16,64}", proposal_id or ""):
+    if not re.fullmatch(r"(?:gmod|gcal)_[A-Za-z0-9_-]{16,64}", proposal_id or ""):
         raise _refused(404, "ACTION_UNKNOWN")
     try:
-        result = await (store if store is not None else pod_action_proposals()).email_send_status(
-            proposal_id=proposal_id, owner_id=owner
+        reader = store if store is not None else pod_action_proposals()
+        read = (
+            reader.calendar_reply_status
+            if proposal_id.startswith("gcal_")
+            else reader.email_send_status
         )
+        result = await read(proposal_id=proposal_id, owner_id=owner)
     except Exception as exc:
         raise _explain(exc) from None
     if result is None:
