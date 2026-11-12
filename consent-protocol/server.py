@@ -152,6 +152,7 @@ from api.routes import (  # noqa: E402
     hushh_tech,
     notifications,
     pwm_notification_drain,
+    website_pwm_research,
     referral_scoring_drain,
     session,
     sse,
@@ -376,6 +377,7 @@ register_connector_routes(app)
 # startup/background execution path.
 app.include_router(referral_scoring_drain.router)
 app.include_router(pwm_notification_drain.router)
+app.include_router(website_pwm_research.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)

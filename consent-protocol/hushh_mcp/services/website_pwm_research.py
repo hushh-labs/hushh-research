@@ -102,8 +102,10 @@ async def run_website_research_slice(
     ) != identity:
         raise PermissionError("Website research identity changed")
     await require_access()
-    return {
+    response = {
         key: result[key]
-        for key in ("status", "pkm_written", "restart_required", "report", "research")
+        for key in ("status", "pkm_written", "restart_required", "report")
         if key in result
     }
+    response["research"] = {"source_use": (result.get("research") or {}).get("source_use")}
+    return response
