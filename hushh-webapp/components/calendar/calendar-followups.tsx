@@ -508,7 +508,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       </div> : null}
       {error ? <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
-        {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
+        {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="text" onClick={onViewAll}>View all</Button> : <span />}
       </div>
       {expanded && list ? <PaginatedListFooter
         page={Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1}
@@ -550,7 +550,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
                   <h3 className={styles.followupTitle}>{request.title}</h3>
                   <p className={styles.muted}>{request.kind === "meeting" ? meetingStatus(request, zone) : dueText(request, zone)}</p>
                 </div>
-                {link ? <Button asChild variant="ghost" size="compact" className={styles.sourceAction}>
+                {link ? <Button asChild variant="text" size="compact" className={styles.sourceAction}>
                   <a href={link} target="_blank" rel="noopener noreferrer" aria-label="Open original email"><span>Open original email</span><ExternalLink className="size-4" aria-hidden /></a>
                 </Button> : null}
               </div>
@@ -564,7 +564,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
                 {request.reminder_at ? <p className={styles.muted}>{reminderText(request, zone)}</p> : null}
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="compact" disabled={busy} onClick={() => void act(request, "done")}>Mark done</Button>
-                  <Button variant="ghost" size="compact" aria-expanded={reminderOpen === request.id}
+                  <Button variant="text" size="compact" aria-expanded={reminderOpen === request.id}
                     onClick={() => setReminderOpen(reminderOpen === request.id ? null : request.id)}>Reminder</Button>
                 </div>
                 {reminderOpen === request.id ? <div className="flex min-w-0 flex-wrap items-end gap-2">

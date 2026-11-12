@@ -520,7 +520,8 @@ def test_network_directory_filter_applies_before_pagination(connection):
 @pytest.mark.parametrize(
     "change", ["opt_out", "disconnect", "block", "peer_disconnect", "peer_block"]
 )
-def test_shared_network_rechecks_permission_after_directory_work(connection, change):
+@pytest.mark.parametrize("operation", ["browse", "summary"])
+def test_shared_network_rechecks_permission_after_directory_work(connection, change, operation):
     from hushh_mcp.services.connections_service import ConnectionsError
 
     network = _network(connection)
@@ -549,10 +550,12 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
     with pytest.raises(ConnectionsError) as private:
         network.browse(OWNER, person_ref=target_ref)
     assert private.value.status_code == 404
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] is None
     network.set_preference("target", True)
     page = network.browse(OWNER, person_ref=target_ref)
     assert len(page["items"]) == 1
     assert page["items"][0]["networkDegree"] == 2
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == len(page["items"])
     assert set(page["items"][0]) == {
         "publicPersonRef",
         "displayName",
@@ -567,7 +570,7 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
 
     def read_then_revoke(**kwargs):
         result = original(**kwargs)
-        if "network_user_ids" in kwargs:
+        if "network_user_ids" in kwargs or kwargs.get("candidate_user_ids") == ["peer"]:
             if change == "opt_out":
                 network.set_preference("target", False)
             elif change in ("disconnect", "peer_disconnect"):
@@ -589,9 +592,90 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
         return result
 
     network.directory().search_directory_candidates = read_then_revoke
+    if operation == "summary" and change in ("opt_out", "peer_disconnect", "peer_block"):
+        summary = network.summary(OWNER, target_ref)
+        assert summary["canBrowseConnections"] is (change != "opt_out")
+        assert summary["visibleConnectionCount"] == (None if change == "opt_out" else 0)
+        return
+
     with pytest.raises(ConnectionsError) as caught:
-        network.browse(OWNER, person_ref=target_ref)
+        if operation == "summary":
+            network.summary(OWNER, target_ref)
+        else:
+            network.browse(OWNER, person_ref=target_ref)
     assert caught.value.status_code in (404, 503)
+
+
+def test_shared_network_summary_counts_only_browsable_profiles(connection):
+    network = _network(connection)
+    for uid in (OWNER, "target", "visible", "disabled", "hidden", "blocked"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        UPDATE actor_profiles SET public_profile_status = 'disabled' WHERE user_id = 'disabled';
+        UPDATE actor_profiles SET directory_listed = FALSE WHERE user_id = 'hidden';
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    _network_edge(connection, OWNER, "target")
+    for peer in ("visible", "disabled", "hidden", "blocked"):
+        _network_edge(connection, "target", peer)
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES "
+            "(:viewer, 'blocked', 'rejected', '{\"blocked_by\":\"viewer\"}')"
+        ),
+        {"viewer": OWNER},
+    )
+    network.set_preference("target", True)
+
+    page = network.browse(OWNER, person_ref=target_ref)
+    assert [item["displayName"] for item in page["items"]] == ["Person visible"]
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 1
+
+    _network_edge(connection, OWNER, "visible")
+    assert network.browse(OWNER, person_ref=target_ref)["items"][0]["relationship"] == "connected"
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 1
+
+
+def test_shared_network_display_cap_preserves_pagination(connection):
+    network = _network(connection)
+    _person(connection, OWNER, "Viewer")
+    _person(connection, "target", "Target")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        INSERT INTO actor_profiles (user_id, public_person_ref, directory_listed)
+          SELECT 'member-' || n, gen_random_uuid(), TRUE FROM generate_series(1, 502) n;
+        INSERT INTO actor_identity_cache (user_id, display_name)
+          SELECT user_id, 'Member ' || lpad(substr(user_id, 8), 4, '0')
+          FROM actor_profiles WHERE user_id LIKE 'member-%';
+        INSERT INTO connections (user_a_id, user_b_id, status)
+          SELECT user_id, 'target', 'active'
+          FROM actor_profiles WHERE user_id LIKE 'member-%';
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    _network_edge(connection, OWNER, "target")
+    network.set_preference("target", True)
+
+    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 501
+    page = network.browse(OWNER, person_ref=target_ref, page=11, limit=50)
+    assert [item["displayName"] for item in page["items"]] == ["Member 0501", "Member 0502"]
+    assert page["hasMore"] is False
 
 
 def test_extended_discovery_rechecks_third_hop_opt_out_after_page_read(connection):
@@ -1013,6 +1097,69 @@ def test_bounded_directory_profile_lookup_keeps_visibility_and_empty_list_bounda
         service.search_directory_candidates(owner_user_id=OWNER, candidate_user_ids=[])["items"]
         == []
     )
+
+
+def test_typed_directory_search_matches_spacing_variants_before_paging(connection, monkeypatch):
+    names = ["Sharu Khan", "Sharukhan", "Sharu  Khan", "SHARUKHAN", "Sharu\u00a0Khan"]
+    for index, name in enumerate(names):
+        _person(connection, f"match-{index}", name)
+    _person(connection, "contact-only", "Other Person", email="sharukhan@example.test")
+    _person(connection, "unlisted", "Sharukhan", vault=None)
+    _person(connection, "recovered", "")
+    service = _Directory(connection)
+    monkeypatch.setattr(
+        service,
+        "_directory_auth_profiles",
+        lambda ids: (
+            {"recovered": {"display_name": "Sharu Khan", "photo_url": None}}
+            if "recovered" in ids
+            else {}
+        ),
+    )
+
+    previous_ids = None
+    for query in ("Sharu", "Sharu K", "Sharu Khan", "Sharukhan", "SHARUKHA", "  Sharu\t Khan  "):
+        ids = []
+        for page in range(1, 4):
+            result = service.search_directory_candidates(
+                owner_user_id=OWNER, query=query, typed_search=True, page=page, limit=2
+            )
+            assert result["hasMore"] == (page < 3)
+            ids.extend(row["userId"] for row in result["items"])
+        assert len(ids) == 6
+        assert set(ids) == {*(f"match-{index}" for index in range(5)), "recovered"}
+        if previous_ids is not None:
+            assert ids == previous_ids
+        previous_ids = ids
+
+
+def test_typed_directory_search_uses_literal_short_name_matches_and_explicit_contacts(connection):
+    _person(connection, "prefix", "Neelesh Meena")
+    _person(connection, "substring", "Dinesh Kumar")
+    _person(connection, "joined-only", "John Ellis")
+    _person(
+        connection,
+        "contact-only",
+        "Other Person",
+        email="ne@example.test",
+        phone="+14155550100",
+        phone_verified=True,
+    )
+    _person(
+        connection, "private-contact", "Hidden Person", email="ne@example.test", discoverable=False
+    )
+    service = _Directory(connection)
+
+    def search(query):
+        return service.search_directory_candidates(
+            owner_user_id=OWNER, query=query, typed_search=True
+        )
+
+    assert [row["userId"] for row in search("NE")["items"]] == ["prefix", "substring"]
+    assert [row["userId"] for row in search("n")["items"]] == ["prefix"]
+    assert [row["userId"] for row in search("ne@")["items"]] == ["contact-only"]
+    assert [row["userId"] for row in search("415 555")["items"]] == ["contact-only"]
+    assert search("%")["items"] == []
 
 
 def test_directory_email_typeahead_ranks_names_and_pages_contact_matches(connection, monkeypatch):

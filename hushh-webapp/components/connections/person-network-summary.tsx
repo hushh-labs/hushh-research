@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ChevronRight } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
 import { ConnectionsService, type NetworkSummary } from "@/lib/services/connections-service";
 import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
@@ -55,10 +56,32 @@ function SummarySession({ personRef, onReady }: { personRef: string; onReady?: (
     } catch { if (mounted.current && generation === getAuthSessionGeneration()) setError("Could not open this mutual connection. Please try again."); }
     finally { if (mounted.current && generation === getAuthSessionGeneration()) setOpening(false); }
   };
-  return <section aria-label="Network" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-sm">
-    {networkDegreeLabel(summary?.networkDegree) ? <span className="rounded-full bg-muted px-3 py-1">{networkDegreeLabel(summary?.networkDegree)} connection</span> : null}
-    {(summary?.mutualConnectionCount ?? 0) > 0 ? <button type="button" data-voice-control-id="person-network-mutuals" className="min-h-11 rounded-full px-3 text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring" disabled={opening} onClick={event => void openMutual(event.currentTarget)}>{summary!.mutualConnectionCount} mutual {summary!.mutualConnectionCount === 1 ? "connection" : "connections"}</button> : null}
-    {summary?.canBrowseConnections === true ? <button type="button" data-voice-control-id="person-network-connections" className="min-h-11 rounded-full px-3 text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring" onClick={event => openPersonProfilePreview({ personRef, networkList: "connections" }, event.currentTarget)}>View connections</button> : null}
-    {error ? <span role="status" className="text-muted-foreground">{error} <button type="button" className="min-h-11 px-2 underline" onClick={() => setRevision(value => value + 1)}>Retry</button></span> : null}
-  </section>;
+  const degree = networkDegreeLabel(summary?.networkDegree);
+  const mutualCount = summary?.mutualConnectionCount ?? 0;
+  const canBrowse = summary?.canBrowseConnections === true;
+  const count = summary?.visibleConnectionCount;
+  const countLabel = count == null ? "View connections"
+    : count > 500 ? "500+ connections"
+    : `${count} ${count === 1 ? "connection" : "connections"}`;
+  if (!canBrowse && !degree && mutualCount === 0 && !error) return null;
+
+  return (
+    <section aria-label="Network" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+      {canBrowse ? (
+        <button
+          type="button"
+          data-voice-control-id="person-network-connections"
+          aria-haspopup="dialog"
+          className="inline-flex min-h-11 items-center gap-1 rounded-md text-start font-semibold text-primary hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={event => openPersonProfilePreview({ personRef, networkList: "connections" }, event.currentTarget)}
+        >
+          {countLabel}
+          <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 rtl:rotate-180" />
+        </button>
+      ) : null}
+      {degree ? <span className="rounded-full bg-muted px-3 py-1">{degree} connection</span> : null}
+      {mutualCount > 0 ? <button type="button" data-voice-control-id="person-network-mutuals" className="min-h-11 rounded-md text-primary hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring" disabled={opening} onClick={event => void openMutual(event.currentTarget)}>{mutualCount} mutual {mutualCount === 1 ? "connection" : "connections"}</button> : null}
+      {error ? <span role="status" className="text-muted-foreground">{error} <button type="button" className="min-h-11 px-2 underline" onClick={() => setRevision(value => value + 1)}>Retry</button></span> : null}
+    </section>
+  );
 }

@@ -70,6 +70,7 @@ export type NetworkSummary = {
   mutualConnectionCount: number;
   mutualConnectionPreview: NetworkPerson | null;
   canBrowseConnections: boolean;
+  visibleConnectionCount?: number | null;
 };
 
 export type ConnectionPersonContext = {
@@ -431,10 +432,12 @@ export class ConnectionsService {
     limit?: number;
     audience?: DirectoryAudience;
     nameOnly?: boolean;
+    typedSearch?: boolean;
   }): Promise<DirectoryPage> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     if (opts.nameOnly) params.set("name_only", "true");
+    if (opts.typedSearch) params.set("typed_search", "true");
     params.set("page", String(opts.page ?? 1));
     if (typeof opts.limit === "number") params.set("limit", String(opts.limit));
     // Omitted rather than sent as "all", so the request a pre-split caller

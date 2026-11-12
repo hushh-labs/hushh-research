@@ -233,6 +233,23 @@ it("opens a one-time Stripe return on Plan and only shows Paid after provider re
   expect(screen.queryByRole("button", { name: "Pay $25.00" })).toBeNull();
 });
 
+it("shows an earlier paid revision's amount with a single dollar sign", async () => {
+  mocks.view.mockResolvedValue({
+    ...value,
+    status: "accepted",
+    direction: "outgoing",
+    plan: { amountCents: 3000, currency: "usd", interval: "one_time", services: "", cancellationTerms: "" },
+    planRevision: 3,
+  });
+  mocks.billing.mockResolvedValue({
+    mode: "test", status: "not_started", planRevision: 3,
+    lastPayment: { amountCents: 2500, paidAt: "2026-11-11T12:00:00Z", status: "paid" },
+  });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }}
+    openPlan onClose={vi.fn()} />);
+  expect(await screen.findByText(/^Previous payment · \$25\.00 · /)).toBeVisible();
+});
+
 it.each(["owner", "advisor"])("reads and refreshes the %s’s own connected Calendar", async (userId) => {
   mocks.view.mockResolvedValue({ ...value, status: "accepted", direction: userId === "advisor" ? "received" : "outgoing" });
   mocks.calendarStatus.mockResolvedValueOnce({
@@ -252,7 +269,7 @@ it("opens accepted reviews on Meeting and supports keyboard navigation without c
   const close = vi.fn();
   mocks.view.mockResolvedValue({ ...value, status: "accepted", direction: "outgoing" });
   render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }} onClose={close} />);
-  expect(await screen.findByRole("button", { name: "Stop advisor review" })).toHaveTextContent(/^Stop$/);
+  expect(await screen.findByRole("button", { name: "Cancel advisor review" })).toHaveTextContent(/^Cancel$/);
   const meeting = screen.getByRole("tab", { name: "Meeting" });
   expect(meeting).toHaveAttribute("aria-selected", "true");
   expect(await screen.findByRole("link", { name: "Connect Calendar" })).toBeVisible();

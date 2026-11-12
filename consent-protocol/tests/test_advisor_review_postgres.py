@@ -330,6 +330,17 @@ def test_one_time_checkout_reuses_open_session_and_preserves_prior_payment(advis
         assert rows == [(1, 2500, "paid")]
 
 
+def test_advisor_can_stop_an_accepted_review_but_not_withdraw_a_pending_one(advisor_db):
+    _db, service, approved = advisor_db
+    created = service.create("alice", approved)
+    with pytest.raises(AdvisorReviewError, match="ADVISOR_WRONG_PARTICIPANT"):
+        service.decide("bob", created["id"], "withdraw")
+    service.decide("bob", created["id"], "accept")
+    assert service.decide("bob", created["id"], "stop")["status"] == "stopped"
+    assert "envelope" not in service.view("bob", created["id"])
+    assert service.view("alice", created["id"])["status"] == "stopped"
+
+
 def test_disconnect_reconnect_cannot_restore_snapshot_and_owner_erasure_removes_request(advisor_db):
     db, service, approved = advisor_db
     created = service.create("alice", approved)

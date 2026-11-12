@@ -61,7 +61,7 @@ export function ConnectPersonRow({
       </span>
       <span data-slot="settings-row-identity" className="min-w-0">
         <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
-          <span data-slot="settings-row-title" className="min-w-0 [overflow-wrap:anywhere]">
+          <span data-slot="settings-row-title" className="min-w-0 group-hover/connect-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere]">
             {title}
           </span>
         </span>
@@ -99,7 +99,7 @@ export function ConnectPersonRow({
             aria-label={openLabel}
             className={cn(
               identityClassName,
-              "rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:bg-foreground/[0.065] motion-reduce:transition-none [@media(hover:hover)]:hover:bg-foreground/[0.04]",
+              "group/connect-person rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:opacity-80",
             )}
           >
             {identity}

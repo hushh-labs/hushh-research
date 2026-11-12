@@ -122,10 +122,7 @@ DIRECTORY_CANDIDATE_SQL = """
               ))
               OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
                 :query = ''
-                OR {separator_sql} = :exact_name
-                OR {separator_sql} LIKE :name_prefix ESCAPE '!'
-                OR {separator_sql} LIKE :word_prefix ESCAPE '!'
-                OR (:query <> '' AND {all_tokens_match_sql})
+                OR ({name_match_sql})
               )))
               AND (
                 :audience = 'all'
@@ -143,10 +140,7 @@ DIRECTORY_CANDIDATE_SQL = """
               CASE
                 WHEN :name_search = FALSE THEN 4
                 WHEN :query = '' THEN 0
-                WHEN {separator_sql} = :exact_name THEN 0
-                WHEN {separator_sql} LIKE :name_prefix ESCAPE '!' THEN 1
-                WHEN {separator_sql} LIKE :word_prefix ESCAPE '!' THEN 2
-                WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
+                {name_rank_sql}
                 ELSE 4
               END,
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
@@ -162,14 +156,36 @@ def build_directory_candidate_statement(
     all_tokens_match_sql: str,
     verified_email_clause: str,
     mutual_filter_clause: str,
+    typed_name_sql: str | None = None,
 ) -> str:
     """Fill only internal static SQL fragments; caller binds every value."""
+    if typed_name_sql is None:
+        name_match_sql = f"""
+            {separator_sql} = :exact_name
+            OR {separator_sql} LIKE :name_prefix ESCAPE '!'
+            OR {separator_sql} LIKE :word_prefix ESCAPE '!'
+            OR (:query <> '' AND {all_tokens_match_sql})
+        """
+        name_rank_sql = f"""
+            WHEN {separator_sql} = :exact_name THEN 0
+            WHEN {separator_sql} LIKE :name_prefix ESCAPE '!' THEN 1
+            WHEN {separator_sql} LIKE :word_prefix ESCAPE '!' THEN 2
+            WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
+        """
+    else:
+        match_position = f"STRPOS({typed_name_sql}, :query)"
+        name_match_sql = f"{match_position} > 0"
+        name_rank_sql = f"""
+            WHEN {typed_name_sql} = :query THEN 0
+            WHEN {match_position} = 1 THEN 1
+            WHEN {match_position} > 0 THEN 2
+        """
     return DIRECTORY_CANDIDATE_SQL.format(
         usable_identity=usable_name("identity.display_name"),
         usable_marketplace=usable_name("marketplace.display_name"),
         usable_ria=usable_name("ria.display_name"),
-        separator_sql=separator_sql,
-        all_tokens_match_sql=all_tokens_match_sql,
+        name_match_sql=name_match_sql,
+        name_rank_sql=name_rank_sql,
         verified_email_clause=verified_email_clause,
         mutual_filter_clause=mutual_filter_clause,
         profile_eligibility=DIRECTORY_PROFILE_ELIGIBILITY_SQL,

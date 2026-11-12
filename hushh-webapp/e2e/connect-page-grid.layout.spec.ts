@@ -883,6 +883,32 @@ for (const width of [393, 1440]) {
       await page.screenshot({ path: test.info().outputPath(`create-circle-${presentation}-${width}.png`), animations: "disabled" });
     });
   }
+  test(`Connect inline actions stay transparent on hover at ${width}px`, async ({ page }) => {
+    await open(page, width, false);
+    await settle(page, width);
+    const tabs = page.getByRole("tablist", { name: "Connection views" });
+    const mine = tabs.getByRole("tab", { name: /My connections/ });
+    await mine.click();
+    const discover = tabs.getByRole("tab", { name: "Find people" });
+    const refresh = page.getByRole("button", { name: "Refresh contacts" });
+    const message = page.getByRole("button", { name: "Message Jordan Lee", exact: true });
+    const options = page.getByRole("button", { name: "Options for Jordan Lee", exact: true });
+    const profile = page.getByRole("button", { name: "Open Jordan Lee's profile", exact: true });
+
+    await expect(discover).toHaveAttribute("aria-selected", "false");
+    for (const action of [discover, refresh, message, options]) {
+      await action.hover();
+      await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
+    }
+
+    await profile.hover();
+    await expect(profile).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const title = page.getByTestId("connect-person-row").filter({ has: profile }).locator('[data-slot="settings-row-title"]');
+    await expect(title).toHaveCSS("text-decoration-line", "none");
+    await page.screenshot({ path: test.info().outputPath(`inline-hover-${width}.png`), animations: "disabled" });
+  });
+
   test(`Connection icons halve their visible gap at ${width}px without shrinking targets`, async ({ page }) => {
     await open(page, width, false);
     await settle(page, width);

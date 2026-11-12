@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { DirectoryMutualLine } from "@/components/connect/connect-person-row";
 import { ConnectionsService, type NetworkPerson } from "@/lib/services/connections-service";
@@ -57,15 +56,12 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
       type="button"
       data-network-person={person.publicPersonRef}
       aria-label={`Open ${name}'s profile`}
-      className={cn(
-        "col-span-full row-start-1 grid min-h-11 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-2.5 rounded-lg py-1 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring min-[300px]:col-span-1 sm:grid-cols-[2.5rem_minmax(0,1fr)] sm:gap-x-3",
-        PERSON_ROW_FEEDBACK_CLASSNAME,
-      )}
+      className="group/network-person col-span-full row-start-1 grid min-h-11 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-2.5 rounded-lg py-1 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:opacity-80 min-[300px]:col-span-1 sm:grid-cols-[2.5rem_minmax(0,1fr)] sm:gap-x-3"
       onClick={event => onOpen(event.currentTarget)}
     >
       <ConnectionPersonAvatar label={name} photoUrl={person.photoUrl} size="list" className="!size-9 sm:!size-10" />
       <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-        <span dir="auto" className="min-w-0 text-sm leading-snug font-medium [overflow-wrap:anywhere] sm:text-base">{name}</span>
+        <span dir="auto" className="min-w-0 text-sm leading-snug font-medium group-hover/network-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere] sm:text-base">{name}</span>
         {person.networkDegree ? (
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
             {person.networkDegree === 1 ? "1st" : person.networkDegree === 2 ? "2nd" : "3rd"}

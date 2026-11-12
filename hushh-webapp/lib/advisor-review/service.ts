@@ -73,6 +73,32 @@ export class AdvisorReviewError extends Error {
             "This advisor is not currently available for an in-app request.",
           ADVISOR_INVITATION_EMAIL_REQUIRED:
             "A verified invitation email is needed before booking. Check your profile email.",
+          ADVISOR_MEETING_CHANGED:
+            "The meeting changed. Refresh and review the current time.",
+          ADVISOR_MEETING_NOT_FINISHED:
+            "The meeting has not finished yet.",
+          ADVISOR_CALENDAR_UNCONFIRMED:
+            "Calendar could not confirm this step. Check its status before booking again.",
+          ADVISOR_REQUEST_NOT_ACCEPTED:
+            "This review is no longer shared. Refresh to see its current status.",
+          ADVISOR_REQUEST_NOT_FOUND:
+            "This request is no longer available. Refresh to see your requests.",
+          ADVISOR_CONNECTION_BLOCKED:
+            "This connection is not available.",
+          ADVISOR_RETRY_CONFLICT:
+            "This request already changed. Refresh to see its current status.",
+          FINANCE_ADVISOR_NOT_VERIFIED:
+            "This advisor is not verified for in-app requests yet.",
+          ADVISOR_BILLING_UNCONFIRMED:
+            "Stripe could not confirm this payment. Check payment status before trying again.",
+          ADVISOR_PAYEE_NOT_READY:
+            "The advisor has not finished payout setup yet, so payment is not available.",
+          ADVISOR_LOCATION_REQUIRED:
+            "Enter a postal code or allow your location to search nearby.",
+          ADVISOR_LOCATION_INVALID:
+            "Enter a valid postal code, or allow your location, and search again.",
+          ADVISOR_DIRECTORY_UNAVAILABLE:
+            "Advisor search is unavailable right now. Try again shortly.",
         } as Record<string, string>
       )[code] ||
         "This step could not be confirmed. Refresh its status before trying again.",

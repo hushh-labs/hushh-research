@@ -1,5 +1,4 @@
 "use client";
-import { useState } from "react";
 import type { AdvisorSnapshot } from "@/lib/advisor-review/contract";
 import styles from "./advisor-review.module.css";
 
@@ -15,7 +14,6 @@ export function AdvisorSnapshotView({
 }: {
   snapshot: AdvisorSnapshot;
 }) {
-  const [visible, setVisible] = useState(50);
   return (
     <div className={styles.stack}>
       <section className={styles.card} aria-label="Finance snapshot">
@@ -75,7 +73,7 @@ export function AdvisorSnapshotView({
       <details className={styles.card}>
         <summary>All holdings · {snapshot.holdings.length}</summary>
         <div className={styles.scroll}>
-          {snapshot.holdings.slice(0, visible).map((h, index) => (
+          {snapshot.holdings.map((h, index) => (
             <div className={styles.holding} key={`${h.symbol}:${index}`}>
               <div>
                 <strong>{h.name}</strong>
@@ -88,16 +86,6 @@ export function AdvisorSnapshotView({
             </div>
           ))}
         </div>
-        {visible < snapshot.holdings.length ? (
-          <button
-            type="button"
-            className="min-h-11 ui-text-button-label"
-            onClick={() => setVisible((n) => n + 50)}
-          >
-            Show more holdings ({Math.min(visible, snapshot.holdings.length)} of{" "}
-            {snapshot.holdings.length})
-          </button>
-        ) : null}
       </details>
       <details className={styles.card}>
         <summary>Allocation and history</summary>

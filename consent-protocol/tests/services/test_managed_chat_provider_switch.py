@@ -22,6 +22,68 @@ from tests.services.test_azure_adk import message, model, request, response
 from tests.services.test_one_azure_chat_contract import advance_model_clock as advance_model_clock
 
 
+@pytest.mark.asyncio
+async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
+    from pathlib import Path
+
+    from hushh_mcp.hushh_adk import single_turn
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+    from hushh_mcp.runtime_providers import managed_azure, managed_azure_text
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    forbidden = Mock(side_effect=AssertionError("Drive must not construct or call Azure"))
+    monkeypatch.setattr(managed_azure, "_credential_supplier", forbidden)
+    monkeypatch.setattr(managed_azure_text, "build_azure_text_model", forbidden)
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", forbidden)
+    sent = []
+    failure = False
+
+    async def vertex(req, stream=False):
+        sent.append((req.model, req.config.thinking_config.thinking_level))
+        if failure:
+            raise TimeoutError("synthetic Vertex outage")
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="ready")]))
+
+    native = SimpleNamespace(model="gemini-3.8-flash", generate_content_async=vertex)
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
+    current = AsyncMock()
+    wrapped = managed.build_managed_text_model(
+        scope="drive_document_requests", require_current=current
+    )
+    assert wrapped.model == "gemini-3.8-flash" and wrapped.primary_provider == "vertex"
+    assert wrapped.allow_fallback is False
+    assert len([r async for r in wrapped.generate_content_async(request())]) == 1
+    failure = True
+    with pytest.raises(TimeoutError):
+        _ = [r async for r in wrapped.generate_content_async(request())]
+    assert sent == [("gemini-3.8-flash", types.ThinkingLevel.LOW)] * 2
+    current.side_effect = PermissionError("revoked")
+    with pytest.raises(managed.ManagedTextAuthorityError):
+        _ = [r async for r in wrapped.generate_content_async(request())]
+    assert len(sent) == 2
+
+    # Exercise every authored Documents gene through the shared single-turn builder.
+    from google.adk.models import Gemini
+
+    native_adk = Gemini(model="gemini-3.8-flash")
+    monkeypatch.setattr(
+        ManagedGeminiRuntimeBinding, "build_regional_adk_model", lambda *a, **k: native_adk
+    )
+    manifest = ManifestLoader.load(
+        str(Path(__file__).parents[2] / "hushh_mcp/agents/documents/agent.yaml")
+    )
+    for gene in manifest.subagents:
+        agent = single_turn.build_single_turn_agent(gene, output_schema={"type": "object"})
+        assert agent.model is native_adk
+        assert (
+            agent.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+        )
+    forbidden.assert_not_called()
+
+
 def _completed_azure_history():
     return [
         types.Content(role="user", parts=[types.Part(text="Previous Azure request")]),
@@ -73,7 +135,9 @@ async def _run(sessions, session, lookup, adapter, text):
         await runner.close()
 
 
-def _vertex_transport(monkeypatch, sent, signature, *, advance=None, delayed_call=0):
+def _vertex_transport(
+    monkeypatch, sent, signature, *, advance=None, delayed_call=0, model_name=None
+):
     async def vertex_generate(req, stream=False):
         sent.append(req.model_copy(deep=True))
         if len(sent) == delayed_call:
@@ -92,7 +156,8 @@ def _vertex_transport(monkeypatch, sent, signature, *, advance=None, delayed_cal
         )
 
     native = SimpleNamespace(
-        model=resolve_fleet_model_name("gemini-default"), generate_content_async=vertex_generate
+        model=model_name or resolve_fleet_model_name("gemini-default"),
+        generate_content_async=vertex_generate,
     )
     monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
     return native
@@ -104,13 +169,19 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 ):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
     monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
     sent, effects = [], []
     signature = b"synthetic-native-signature"
 
+    policy = managed.load_scoped_text_policy("one_text_chat")
     native = _vertex_transport(
-        monkeypatch, sent, signature, advance=advance_model_clock, delayed_call=delayed_call
+        monkeypatch,
+        sent,
+        signature,
+        advance=advance_model_clock,
+        delayed_call=delayed_call,
+        model_name=policy["model"],
     )
 
     async def lookup(query: str) -> dict:
@@ -119,7 +190,8 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
         return {"result": query}
 
     vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
-    assert vertex.model == native.model and vertex.allow_fallback is False
+    assert vertex.primary_provider == "vertex"
+    assert vertex.model == native.model == "gemini-3.8-flash" and vertex.allow_fallback is False
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="provider_switch", user_id="synthetic", session_id="conversation"
@@ -138,6 +210,8 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 
     await _run(sessions, session, lookup, vertex, "Lookup the current subject")
     assert effects == ["current subject"] and len(sent) == 2
+    assert all(req.config.thinking_config.thinking_level == types.ThinkingLevel.LOW for req in sent)
+    assert all(req.config.max_output_tokens == policy["max_output_tokens"] for req in sent)
     assert [event.model_dump() for event in session.events[: len(stored)]] == stored
     assert all(content.parts for req in sent for content in req.contents)
     parts = [part for content in sent[1].contents for part in content.parts]
@@ -150,7 +224,7 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
     )
     assert any(p.function_response and p.function_response.id == "call_previous" for p in parts)
 
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setattr(managed, "load_scoped_text_policy", lambda _: None)
     with pytest.raises(managed.ManagedTextAuthorityError, match="policy changed"):
         _ = [r async for r in vertex.generate_content_async(request())]
     adapter, client, factory, token = model([response(message("Azure continued the conversation"))])
@@ -232,6 +306,12 @@ async def test_vertex_chat_rechecks_each_delta_and_closes_only_its_owned_model(
 async def test_managed_drive_fallback_targets_gemini_without_replaying_tools(
     monkeypatch, status, scope
 ):
+    # Historical policies retain their bounded fallback contract.
+    monkeypatch.setattr(
+        __import__("hushh_mcp.runtime_providers.managed_text", fromlist=["load_drive_text_policy"]),
+        "load_drive_text_policy",
+        lambda: None,
+    )
     from unittest.mock import AsyncMock
 
     from google.adk.models.llm_response import LlmResponse
@@ -264,7 +344,7 @@ async def test_managed_drive_fallback_targets_gemini_without_replaying_tools(
         token_supplier=lambda: "synthetic",
         require_current=guard,
         fallback_model=SimpleNamespace(model="gemini-fallback", generate_content_async=gemini),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope=scope)["generation"],
         processing_scope=scope,
     )
     req = request(
@@ -335,7 +415,7 @@ async def test_managed_uat_denial_auth_configuration_never_falls_back(monkeypatc
         token_supplier=lambda: "synthetic",
         require_current=AsyncMock(),
         fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope=scope)["generation"],
         processing_scope=scope,
     )
     with pytest.raises(type(error)):
@@ -361,7 +441,7 @@ async def test_managed_primary_success_partial_output_and_authority_fence(monkey
         token_supplier=lambda: "synthetic",
         require_current=guard,
         fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
-        policy_generation=managed.managed_text_policy()["generation"],
+        policy_generation=managed.managed_text_policy(scope=scope)["generation"],
         processing_scope=scope,
     )
 

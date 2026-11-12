@@ -86,7 +86,9 @@ def test_config() -> tuple[str, str]:
     return key, secret
 
 
-def payee(conn, advisor):
+def payee(conn, advisor, not_ready="ADVISOR_CONNECT_STRIPE"):
+    """not_ready is the code shown to whoever pressed the button: the advisor fixes
+    their own Stripe setup, but the owner can only wait for it."""
     row = one(
         conn,
         """SELECT stripe_account_id,details_submitted,payouts_enabled
@@ -94,7 +96,7 @@ def payee(conn, advisor):
         {"uid": advisor},
     )
     if not row or not row["details_submitted"] or not row["payouts_enabled"]:
-        raise AdvisorReviewError("ADVISOR_CONNECT_STRIPE", 409)
+        raise AdvisorReviewError(not_ready, 409)
     return row["stripe_account_id"]
 
 
@@ -161,7 +163,7 @@ class AdvisorBillingService:
             if plan.get("interval") != "one_time":
                 raise AdvisorReviewError("ADVISOR_PLAN_CHANGED", 409)
             plan_hash = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
-            destination = payee(conn, row["advisor_user_id"])
+            destination = payee(conn, row["advisor_user_id"], "ADVISOR_PAYEE_NOT_READY")
             revision = row["plan_revision"]
             payment = load_payment(conn, request_id, revision)
             if not payment:

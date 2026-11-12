@@ -25,6 +25,8 @@ export const buttonVariants = cva(
           "bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]",
         ghost:
           "text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)]",
+        plain: "bg-transparent text-foreground hover:opacity-80",
+        text: "min-h-0 rounded-none bg-transparent text-[color:var(--app-accent)] hover:text-[color:var(--app-accent-hover)]",
         link: "min-h-0 rounded-none text-[color:var(--app-accent)] underline-offset-4 hover:underline",
       },
       size: {

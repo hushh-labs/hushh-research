@@ -4517,12 +4517,12 @@ export function LocationImmersiveMap({
                           return (
                             <div
                               key={attendee.participantAlias}
-                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
+                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 focus-within:ring-2 focus-within:ring-accent/70"
                               data-testid="one-location-map-nearby-person"
                             >
                               <button
                                 type="button"
-                                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                                className="group/nearby-person flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
                                 aria-label={`Open nearby actions for ${attendee.displayName}`}
                                 onClick={openNearbyCheckIn}
                               >
@@ -4530,7 +4530,7 @@ export function LocationImmersiveMap({
                                   {personInitials(attendee.displayName)}
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium">
+                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium group-hover/nearby-person:text-[color:var(--app-accent)]">
                                     {attendee.displayName}
                                   </span>
                                   <span data-location-type-role="row-description" className="block truncate text-xs text-muted-foreground">

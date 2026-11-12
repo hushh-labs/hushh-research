@@ -552,7 +552,7 @@ Rules:
    must not fall back to the older full-width-divider or comfortable-density
    treatment merely because they are rendered below Account, Appearance,
    Security, Memory, Access, Support, Gmail, or Connected Systems.
-6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
+6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app. Use `plain` for unfilled actions, `text` for accent-colored text actions, and `link` for links. Their hover feedback comes from the foreground, with press ripple and a visible keyboard focus indicator.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
 9. A browse-heavy manager with top-shell tabs must bound its grouped list to the

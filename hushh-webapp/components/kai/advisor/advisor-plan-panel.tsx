@@ -191,7 +191,7 @@ export function AdvisorPlanPanel({
             ) : null}
             {billing?.lastPayment ? (
               <p className="ui-text-helper-text">
-                Previous payment · $${(billing.lastPayment.amountCents / 100).toFixed(2)} · {new Date(billing.lastPayment.paidAt).toLocaleDateString()}
+                Previous payment · ${(billing.lastPayment.amountCents / 100).toFixed(2)} · {new Date(billing.lastPayment.paidAt).toLocaleDateString()}
                 {billing.lastPayment.status !== "paid" ? ` · ${billing.lastPayment.status.replaceAll("_", " ")}` : ""}
               </p>
             ) : null}

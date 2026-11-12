@@ -255,7 +255,7 @@ describe("PhoneVerificationFlow country selector", () => {
     const indiaItem = indiaLabel.closest("[data-slot='combobox-item']");
     expect(indiaItem).not.toBeNull();
     expect(indiaItem?.className).toContain(
-      "data-highlighted:text-accent-foreground",
+      "data-highlighted:text-foreground",
     );
 
     const dialCode = Array.from(indiaItem?.querySelectorAll("span") ?? []).find(

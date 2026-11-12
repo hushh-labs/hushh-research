@@ -48,7 +48,7 @@ def semantic_request_model_binding(
 
     if authorization_basis not in {None, "uat_policy"}:
         raise ValueError("Invalid Documents authorization basis")
-    active_policy = managed_text_policy()
+    active_policy = managed_text_policy(scope="drive_document_requests")
     if authorization_basis == "uat_policy" and active_policy is None:
         raise ValueError("Documents UAT processing policy changed")
     if active_policy is not None and (provider is None or authorization_basis == "uat_policy"):
@@ -71,10 +71,24 @@ def semantic_request_model_binding(
         if approval_generation is not None or authorization_basis is not None:
             raise ValueError("Gemini binding cannot contain an Azure approval")
         settings = managed_ai_settings()
+        from hushh_mcp.managed_ai_config import load_drive_text_policy
+
+        drive_policy = load_drive_text_policy()
         return {
             "provider": "gemini",
-            "deployment": resolve_fleet_model_name("gemini-default"),
-            "config_fingerprint": settings.config_hash,
+            "deployment": resolve_fleet_model_name(
+                "gemini-default", processing_scope="drive_document_requests"
+            ),
+            "config_fingerprint": profile_hash(
+                {
+                    "profile": settings.config_hash,
+                    "model": resolve_fleet_model_name(
+                        "gemini-default", processing_scope="drive_document_requests"
+                    ),
+                }
+            )
+            if drive_policy is not None
+            else settings.config_hash,
             "approval_generation": None,
         }
     if provider != "azure_openai" or os.environ.get("ENVIRONMENT", "").lower() != "uat":
@@ -106,10 +120,8 @@ def semantic_request_model_binding(
     }
 
 
-def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | None]:
-    """Freeze old jobs on Gemini and reject a changed or disabled Azure binding."""
-    if binding is None:
-        return semantic_request_model_binding(provider="gemini")
+def validate_semantic_model_provenance(binding: dict) -> dict:
+    """Validate recorded provenance; this does not authorize a model invocation."""
     fields = {
         "provider",
         "deployment",
@@ -136,6 +148,16 @@ def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | Non
         or (generation is not None and not isinstance(generation, str))
     ):
         raise ValueError("Invalid Documents model binding")
+    return dict(binding)
+
+
+def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | None]:
+    """Reject a changed or disabled processor before any new model invocation."""
+    if binding is None:
+        return semantic_request_model_binding(provider="gemini")
+    binding = validate_semantic_model_provenance(binding)
+    provider = binding["provider"]
+    generation = binding["approval_generation"]
     expected = semantic_request_model_binding(
         provider=provider,
         approval_generation=generation,
@@ -152,8 +174,11 @@ def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | Non
 
 def build_semantic_request_azure_model(*, require_current, model_binding: dict | None = None):
     """Trusted transport construction; callers must supply their invocation authority."""
-    from hushh_mcp.managed_ai_config import load_pwm_policy
+    from hushh_mcp.managed_ai_config import load_drive_text_policy, load_pwm_policy
     from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
+
+    if load_drive_text_policy() is not None:
+        raise ValueError("Documents processor binding requires recorded Vertex migration")
 
     binding = (
         semantic_request_model_binding()
@@ -184,7 +209,7 @@ async def private_semantic_request_model(
     if binding["provider"] == "gemini" and binding.get("authorization_basis") != "uat_policy":
         from hushh_mcp.runtime_providers.managed_text import managed_text_policy
 
-        if managed_text_policy() is not None:
+        if managed_text_policy(scope="drive_document_requests") is not None:
             raise ValueError("Documents processor binding requires recorded UAT migration")
         return None
     from hushh_mcp.services.private_text_processing_approval_service import (

@@ -96,9 +96,9 @@ export function registerAdvisorReviewChecks(
     expect(await frame.evaluate((trace) => trace.stop())).toBeLessThanOrEqual(1);
     await frame.dispose();
     await review.screenshot({ path: info.outputPath("advisor-client-review.png") });
-    await review.getByRole("button", { name: "Stop advisor review" }).click();
-    const confirm = page.getByRole("alertdialog", { name: "Stop sharing your portfolio?" });
-    await confirm.getByRole("button", { name: "Stop sharing", exact: true }).click();
+    await review.getByRole("button", { name: "Cancel advisor review" }).click();
+    const confirm = page.getByRole("alertdialog", { name: "Cancel advisor review?" });
+    await confirm.getByRole("button", { name: "Cancel review", exact: true }).click();
     await expect(review.getByRole("heading", { name: "Portfolio sharing stopped" })).toBeVisible();
     await expect(review.getByRole("tab", { name: "Portfolio" })).toHaveCount(0);
   });

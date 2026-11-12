@@ -33,9 +33,12 @@ import {
 } from "@/components/one-location/onboarding/location-picker-map";
 import {
   ADDRESS_LABEL_ROW_CLASSNAME,
+  COMPACT_ONBOARDING_DIALOG_SIZE_CLASSNAME,
   DIALOG_SURFACE_CLASSNAME,
   OPTIONAL_BADGE_CLASSNAME,
   REQUIRED_BADGE_CLASSNAME,
+  SAVE_LOCATION_SURFACE_BORDER_CLASSNAME,
+  SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
@@ -90,7 +93,7 @@ const SheetContent = withLocationTypography(UnscopedSheetContent);
 const touchTargetClassName =
   "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
 
-const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
+const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 /**
  * The same control, laid out instead of absolutely positioned. Written as its
@@ -99,7 +102,7 @@ const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center ju
  * key and `relative` is the only one -- which is exactly the trap documented
  * on `touchTargetClassName`.
  */
-const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
+const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
@@ -1087,8 +1090,10 @@ export function SaveLocationModal({
 
   // A real edge and a real lift, so the surface reads as a layer above the
   // screen rather than a rectangle pasted onto it.
-  const surfaceEdgeClassName =
-    "border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]";
+  const surfaceEdgeClassName = cn(
+    SAVE_LOCATION_SURFACE_BORDER_CLASSNAME,
+    "bg-[color:var(--app-card-surface-default-solid)]",
+  );
   const surfacePaddingClassName = unifiedOnboarding
     ? "!gap-0 !overflow-hidden !p-0"
     : detailsPaneActive
@@ -1097,12 +1102,6 @@ export function SaveLocationModal({
           SHEET_PLAIN_SHELL_CLASSNAME,
           flowStep === "map" && canPickOnMap && "overflow-y-hidden",
         );
-  // `!` because the arbitrary shadow does not merge away the primitive's own
-  // `shadow-[var(--app-card-shadow-feature)]`: tailwind-merge leaves both
-  // classes on the element and the base one wins on stylesheet order, so the
-  // lift never actually rendered.
-  const surfaceShadowClassName =
-    "!shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),0_8px_20px_-8px_rgba(16,24,40,0.24)] dark:!shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)]";
 
   /**
    * One string or the other, never one layered over the other. See
@@ -2010,7 +2009,7 @@ export function SaveLocationModal({
             surfaceGeometryClassName,
             surfaceEdgeClassName,
             surfacePaddingClassName,
-            surfaceShadowClassName,
+            SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
             surfaceTakeoverTopClassName,
           )}
         >
@@ -2046,11 +2045,11 @@ export function SaveLocationModal({
           DIALOG_SURFACE_CLASSNAME,
           unifiedOnboarding &&
             (compactOnboarding
-              ? "!h-[min(620px,calc(100dvh-48px))] !max-h-[min(620px,calc(100dvh-48px))] sm:!max-w-[min(1040px,calc(100vw-48px))]"
+              ? COMPACT_ONBOARDING_DIALOG_SIZE_CLASSNAME
               : "!h-[min(92dvh,860px)] !max-h-[min(92dvh,860px)] sm:!max-w-[min(1120px,calc(100vw-48px))]"),
           surfaceEdgeClassName,
           surfacePaddingClassName,
-          surfaceShadowClassName,
+          SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
         )}
       >
         {surfaceChildren}

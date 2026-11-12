@@ -2169,6 +2169,39 @@ def _provider_fixture(module, provider, *, document=None):
             for scope in module.PROVIDER_SCOPES[provider]
         },
     }
+    if "one_chat_text_uat" in document and "drive_text_uat" in document:
+        from hushh_mcp.managed_ai_config import load_scoped_text_policy, text_policy_generation
+        from scripts.readiness_exam_manifest import load_manifest, planner_cases
+
+        profile = document["environments"]["uat"]
+        core["schema"] = "managed_text_probe.v2"
+        core.pop("policy_generation")
+        for scope in core["scopes"]:
+            policy = load_scoped_text_policy(scope, environment="uat", document=document)
+            core["scopes"][scope] = {
+                "ready": True,
+                "provider": policy["provider"],
+                "model": policy["model"],
+                "location": profile["text_locations"][0],
+                "policy_generation": text_policy_generation(
+                    document["private_drive_text_uat"], policy["provider"], policy
+                ),
+                "binding_fingerprint": module.fingerprint(
+                    {
+                        "policy": policy,
+                        "project": profile["project"],
+                        "locations": profile["text_locations"],
+                    }
+                ),
+            }
+        core["activity_planner"] = {
+            "schema": "drive.activity_planner.probe.v1",
+            "provider": core["scopes"]["drive_document_requests"]["provider"],
+            "passed": True,
+            "cases": [{"case": case, "passed": True} for case, _ in planner_cases(load_manifest())],
+            "drive_calls": 0,
+            "per_item_model_calls": 0,
+        }
     job = ("azure-pwm-" if provider == "azure_openai" else "genai-ready-") + expected["build_id"]
     receipt = {
         "schema": "managed_provider_execution.v1",
@@ -2329,7 +2362,7 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
     module = _managed_provider_gate()
     expected, receipt = _provider_fixture(module, "vertex")
     policy = managed_text_policy()
-    receipt["core"]["policy_generation"] = policy["generation"]
+    receipt["core"]["scopes"]["one_text_chat"]["policy_generation"] = policy["generation"]
     result = module.evaluate({"vertex": receipt}, expected)
     assert result["ready"] is False
     assert result["providers"]["vertex"]["ready"] is True
@@ -2337,7 +2370,17 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
 
 @pytest.mark.parametrize(
     "defect",
-    ["image", "context", "scope", "model", "generation", "duplicate_trust", "failed_trust"],
+    [
+        "image",
+        "context",
+        "scope",
+        "model",
+        "generation",
+        "scope_provider",
+        "planner",
+        "duplicate_trust",
+        "failed_trust",
+    ],
 )
 @pytest.mark.parametrize("mode", ["full", "core"])
 def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect, mode):
@@ -2355,7 +2398,11 @@ def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect, mode):
     elif defect == "model":
         value["core"]["scopes"]["one_text_chat"]["model"] = "another-model"
     elif defect == "generation":
-        value["core"]["policy_generation"] = "old"
+        value["core"]["scopes"]["one_text_chat"]["policy_generation"] = "old"
+    elif defect == "scope_provider":
+        value["core"]["scopes"]["one_text_chat"]["provider"] = "azure_openai"
+    elif defect == "planner":
+        value["core"]["activity_planner"]["cases"].pop()
     elif defect == "duplicate_trust":
         value["pwm_proof"] = [value["pwm_proof"]] * 2
     else:
@@ -2634,6 +2681,9 @@ def test_legacy_provider_receipt_is_accepted_only_in_governed_exception():
     }
     assert not module.valid_core(legacy, "azure_openai", expected, document)
     expected["legacy_exception"] = True
+    assert not module.valid_core(legacy, "azure_openai", expected, document)
+    document.pop("drive_text_uat")
+    document.pop("one_chat_text_uat")
     assert module.valid_core(legacy, "azure_openai", expected, document)
     assert not module.valid_core(legacy, "vertex", expected, document)
 
@@ -2717,14 +2767,14 @@ def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeyp
             }
         }
         actual = module.expected_policy_generation(job)
-        assert actual == managed_text_policy()["generation"]
+        assert actual == managed_text_policy(scope="drive_document_requests")["generation"]
         generations.append(actual)
         job["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"][1]["value"] = (
             "invalid"
         )
         with pytest.raises(ValueError, match="bindings disagree"):
             module.expected_policy_generation(job)
-    assert generations[0] != generations[1]
+    assert generations[0] == generations[1]
 
 
 def test_vertex_drive_evidence_cannot_qualify_one_chat():
@@ -2735,6 +2785,31 @@ def test_vertex_drive_evidence_cannot_qualify_one_chat():
     assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] is None
     vertex["core"]["scopes"].pop("one_text_chat")
     assert not module.valid_core(vertex["core"], "vertex", expected, document)
+
+
+def test_scoped_core_skips_only_explicitly_unrun_planner_diagnostics():
+    module = _managed_provider_gate()
+    expected, vertex = _provider_fixture(module, "vertex")
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    core = vertex["core"]
+    expected["qualification_mode"] = "core"
+    # Historical core images that ran the full planner remain compatible.
+    assert module.valid_core(core, "vertex", expected, document)
+    core["activity_planner"]["passed"] = False
+    assert not module.valid_core(core, "vertex", expected, document)
+    core["activity_planner"] = None
+    assert module.valid_core(core, "vertex", expected, document)
+    expected["qualification_mode"] = "full"
+    assert not module.valid_core(core, "vertex", expected, document)
+    expected["qualification_mode"] = "core"
+    row = core["scopes"]["one_text_chat"]
+    for field in ("provider", "model", "location", "policy_generation", "binding_fingerprint"):
+        original = row[field]
+        row[field] = "wrong-binding"
+        assert not module.valid_core(core, "vertex", expected, document)
+        row[field] = original
+    del core["activity_planner"]
+    assert not module.valid_core(core, "vertex", expected, document)
 
 
 def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monkeypatch):

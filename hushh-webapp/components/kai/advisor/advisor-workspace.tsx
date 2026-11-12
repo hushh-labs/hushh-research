@@ -203,13 +203,11 @@ export function AdvisorWorkspace({
                 href={buildDirectMessageRoute({ personRef: incoming ? review.ownerPersonRef : review.advisorPersonRef })}>
                 Messages
               </Link>
-              {!incoming ? (
-                <ShellActionSurface variant="pill" wrapperClassName={styles.handshakeForward}
-                  className="app-critical-action-outline min-h-11 ui-text-compact-button-label"
-                  aria-label="Stop advisor review" disabled={busy} onClick={() => setEndAction("stop")}>
-                  Stop
-                </ShellActionSurface>
-              ) : null}
+              <ShellActionSurface variant="pill" wrapperClassName={styles.handshakeForward}
+                className="app-critical-action-outline min-h-11 ui-text-compact-button-label"
+                aria-label="Cancel advisor review" disabled={busy} onClick={() => setEndAction("stop")}>
+                Cancel
+              </ShellActionSurface>
             </>
           )}
         </div>
@@ -221,7 +219,10 @@ export function AdvisorWorkspace({
           <ShellActionSurface
             variant="pill"
             disabled={busy}
-            onClick={() => void load()}
+            onClick={() => {
+              setError(null);
+              void load();
+            }}
           >
             Refresh status
           </ShellActionSurface>
@@ -286,10 +287,12 @@ export function AdvisorWorkspace({
       <AlertDialog open={endAction !== null} onOpenChange={(open) => { if (!open) setEndAction(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{endAction === "stop" ? "Stop sharing your portfolio?" : "Cancel advisor request?"}</AlertDialogTitle>
+            <AlertDialogTitle>{endAction === "stop" ? "Cancel advisor review?" : "Cancel advisor request?"}</AlertDialogTitle>
             <AlertDialogDescription>
               {endAction === "stop"
-                ? "This ends the review and the advisor’s portfolio access. Existing meetings, payments and your connection are managed separately."
+                ? incoming
+                  ? "This ends the review. You will no longer be able to open the portfolio. Existing meetings, payments and your connection are managed separately."
+                  : "This ends the review and the advisor’s portfolio access. Existing meetings, payments and your connection are managed separately."
                 : "The advisor will no longer be able to accept this request or open your snapshot."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -298,7 +301,7 @@ export function AdvisorWorkspace({
             <AlertDialogAction disabled={busy} onClick={() => {
               if (endAction) void run(() => AdvisorReviewService.decide(context, id, endAction));
             }}>
-              {endAction === "stop" ? "Stop sharing" : "Cancel request"}
+              {endAction === "stop" ? "Cancel review" : "Cancel request"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

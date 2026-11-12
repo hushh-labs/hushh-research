@@ -2278,13 +2278,13 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 hover:bg-[color:var(--app-secondary-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
+      className="group flex min-h-12 w-full cursor-pointer items-center justify-between border-b border-[color:var(--app-separator)] px-[14px] py-2 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
         <RowLabel
           as="span"
-          className="min-w-0"
+          className="min-w-0 group-hover:text-[color:var(--app-accent)]"
         >
           {title}
         </RowLabel>
@@ -3335,7 +3335,7 @@ function LocationSettingsFlow({
               secondary={
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="text"
                   size="standard"
                   className={QUIET_FLOW_ACTION_CLASSNAME}
                   disableHoverRipple
@@ -3601,8 +3601,7 @@ export function PersonRow({
           {onShare ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={shareReady ? onShare : onShareUnavailable}
               disableHoverRipple
@@ -3622,8 +3621,7 @@ export function PersonRow({
           {onAsk ? (
             <MorphyButton
               type="button"
-              variant="none"
-              effect="fade"
+              variant="plain"
               size="compact"
               onClick={onAsk}
               className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
@@ -4599,8 +4597,7 @@ export function PublicLinkActionRows({
       <div className="flex flex-wrap items-center gap-2" data-testid="public-link-actions">
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onShare}
           size="compact"
           className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
@@ -4612,8 +4609,7 @@ export function PublicLinkActionRows({
         </MorphyButton>
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={handleCopy}
           disabled={copyBusy}
           aria-busy={copyBusy || undefined}
@@ -4661,8 +4657,7 @@ function ActiveLinkRow({
       trailing={
         <MorphyButton
           type="button"
-          variant="none"
-          effect="fade"
+          variant="plain"
           onClick={onCopy}
           size="compact"
           className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "shrink-0")}
@@ -5350,7 +5345,6 @@ function ShareFlow({
         </SectionCard>
 
         <SelectedRecipientsRail
-          title="Can see you"
           ariaLabel="People who can see your location"
           recipients={selectedReady}
           recipientLabel={vm.recipientLabel}
@@ -5359,7 +5353,7 @@ function ShareFlow({
               type="button"
               onClick={backToPeople}
               aria-label="Change who can see you"
-              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+              className="flex min-h-11 min-w-11 shrink-0 items-center rounded-full pe-3 text-sm font-semibold text-[color:var(--app-accent)]"
             >
               Edit
             </button>
@@ -5400,7 +5394,7 @@ function ShareFlow({
             }
             secondary={
               <Button
-                variant="ghost"
+                variant="text"
                 size="standard"
                 onClick={() => onClose()}
                 className={QUIET_FLOW_ACTION_CLASSNAME}
@@ -5692,7 +5686,7 @@ function LiveShareDurationEditor({
         }
         secondary={
           <Button
-            variant="ghost"
+            variant="text"
             size="standard"
             className={QUIET_FLOW_ACTION_CLASSNAME}
             disableHoverRipple
@@ -6289,7 +6283,7 @@ function AskFlow({
               }
               secondary={
                 <Button
-                  variant="ghost"
+                  variant="text"
                   size="standard"
                   onClick={() => onClose()}
                   className={QUIET_FLOW_ACTION_CLASSNAME}
@@ -6497,8 +6491,8 @@ function SelectedRecipientsRail({
   recipientLabel,
   trailing,
 }: {
-  title: string;
-  ariaLabel?: string;
+  title?: string;
+  ariaLabel: string;
   recipients: OneLocationRecipient[];
   recipientLabel: (recipient: OneLocationRecipient) => string;
   trailing?: ReactNode;
@@ -6510,14 +6504,16 @@ function SelectedRecipientsRail({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 px-1">
-        <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
-          {title}
-        </p>
+        {title ? (
+          <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
+            {title}
+          </p>
+        ) : null}
         {trailing}
       </div>
       {compact ? (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
@@ -6550,7 +6546,7 @@ function SelectedRecipientsRail({
         </div>
       ) : (
         <div
-          aria-label={ariaLabel ?? title}
+          aria-label={ariaLabel}
           aria-roledescription="recipient summary"
           role="list"
           className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
@@ -6622,8 +6618,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
         <div className="grid grid-cols-2 gap-2.5" data-testid="circle-invite-actions">
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onShareCircleInvite}
@@ -6635,8 +6630,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
           </MorphyButton>
           <MorphyButton
             type="button"
-            variant="none"
-            effect="fade"
+            variant="plain"
             size="compact"
             className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onCopyCircleInvite}

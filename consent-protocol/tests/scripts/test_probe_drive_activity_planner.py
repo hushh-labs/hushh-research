@@ -1,5 +1,6 @@
 """Synthetic planner qualification and fail-closed Azure wrapper contracts."""
 
+import asyncio
 import importlib.util
 import json
 from copy import deepcopy
@@ -11,6 +12,68 @@ import pytest
 
 from hushh_mcp.services.drive_request_semantic_plan import parse_semantic_plan
 from scripts.probe_drive_activity_planner import ActivityPlannerContractError, grade_plan
+from scripts.verify_drive_vertex_journey import (
+    JourneyFailure,
+    LiveState,
+    cleanup,
+    fixture_write,
+    recipient_access_state,
+    require_fixture_plan,
+)
+
+
+async def test_drive_journey_retains_fixtures_after_cancelled_provider_write(capsys):
+    transport = SimpleNamespace(write_tool=AsyncMock(side_effect=asyncio.CancelledError()))
+    state = LiveState("owner", "recipient", "person", None, transport, None, None, {})
+    state.created_files.append("known-fixture")
+    with pytest.raises(asyncio.CancelledError):
+        await fixture_write(state, {"kind": "folder", "name": "synthetic"})
+    assert state.write_outcome_unknown
+    transport.write_tool.reset_mock()
+    await cleanup(None, state)
+    transport.write_tool.assert_not_awaited()
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert events[-1]["outcome"] == "incomplete"
+    assert "known-fixture" not in json.dumps(events)
+
+
+@pytest.mark.parametrize(
+    "status,body,accessible",
+    [
+        (200, {"id": "synthetic-file"}, True),
+        (404, {"error": {"code": 404, "errors": [{"reason": "notFound"}]}}, False),
+        (403, {"error": {"code": 403, "errors": [{"reason": "rateLimitExceeded"}]}}, None),
+        (401, {"error": {"code": 401}}, None),
+    ],
+)
+def test_drive_journey_requires_definitive_recipient_access_evidence(status, body, accessible):
+    response = SimpleNamespace(status_code=status, json=lambda: body)
+    if accessible is None:
+        with pytest.raises(JourneyFailure, match="recipient_access_unverified"):
+            recipient_access_state(response, "synthetic-file")
+    else:
+        assert recipient_access_state(response, "synthetic-file") is accessible
+
+
+@pytest.mark.parametrize(
+    "file_id,recipient",
+    [
+        ("synthetic-file", "fixture-recipient"),
+        ("unrelated-file", "fixture-recipient"),
+        ("synthetic-file", "unrelated-recipient"),
+    ],
+)
+def test_drive_journey_never_grants_outside_its_exact_fixture(file_id, recipient):
+    plan = {"file_id": file_id, "recipient": {"user_id": recipient}}
+    if (file_id, recipient) == ("synthetic-file", "fixture-recipient"):
+        require_fixture_plan(
+            plan, file_id="synthetic-file", recipient="fixture-recipient", kind="grant"
+        )
+    else:
+        with pytest.raises(JourneyFailure):
+            require_fixture_plan(
+                plan, file_id="synthetic-file", recipient="fixture-recipient", kind="grant"
+            )
 
 
 def ordinary_plan():

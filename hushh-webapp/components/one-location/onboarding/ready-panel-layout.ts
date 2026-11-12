@@ -1,6 +1,21 @@
-/** Shared composition measured by the real-browser layout pack. */
-export const READY_SURFACE_CLASSNAME =
-  "mx-auto grid h-full min-h-0 w-full max-w-[1000px] flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-x-6 overflow-hidden bg-[color:var(--app-grouped-background)] px-4 pb-[max(env(safe-area-inset-bottom,0px),12px)] pt-[max(var(--app-safe-area-top-effective,0px),8px)] sm:px-6 md:max-h-[620px] md:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] md:py-6";
+import { cn } from "@/lib/utils";
+import {
+  COMPACT_ONBOARDING_COLUMNS_CLASSNAME,
+  COMPACT_ONBOARDING_DIALOG_SIZE_CLASSNAME,
+  COMPACT_ONBOARDING_INSETS_CLASSNAME,
+  SAVE_LOCATION_SURFACE_BORDER_CLASSNAME,
+  SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
+} from "./save-location-sheet-layout";
+
+export const READY_SURFACE_CLASSNAME = cn(
+  "grid min-h-0 w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-y-3 overflow-hidden bg-[color:var(--app-grouped-background)]",
+  "max-sm:!h-full max-sm:!max-h-full sm:rounded-[20px] sm:border",
+  COMPACT_ONBOARDING_DIALOG_SIZE_CLASSNAME,
+  COMPACT_ONBOARDING_INSETS_CLASSNAME,
+  COMPACT_ONBOARDING_COLUMNS_CLASSNAME,
+  SAVE_LOCATION_SURFACE_BORDER_CLASSNAME,
+  SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
+);
 
 export const READY_MAP_CLASSNAME =
   "hidden h-full min-h-0 overflow-hidden rounded-[20px] md:col-start-1 md:row-start-2 md:block";
