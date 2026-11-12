@@ -17,6 +17,19 @@ from hushh_mcp.services.advisor_review_contract import (
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError, project
 
 
+def test_unready_payout_account_tells_each_person_their_own_next_step(monkeypatch):
+    from hushh_mcp.services import advisor_review_billing as billing
+
+    monkeypatch.setattr(billing, "one", lambda *_args, **_kwargs: None)
+    # The advisor can finish their own Stripe setup; the owner paying cannot.
+    with pytest.raises(AdvisorReviewError) as advisor_view:
+        billing.payee(None, "advisor")
+    with pytest.raises(AdvisorReviewError) as owner_view:
+        billing.payee(None, "advisor", "ADVISOR_PAYEE_NOT_READY")
+    assert advisor_view.value.code == "ADVISOR_CONNECT_STRIPE"
+    assert owner_view.value.code == "ADVISOR_PAYEE_NOT_READY"
+
+
 def request_body():
     return {
         "requestId": str(uuid4()),
