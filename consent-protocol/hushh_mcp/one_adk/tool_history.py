@@ -3,6 +3,32 @@
 from typing import Any
 
 
+def validate_one_tool_result_history(callback_context: Any, llm_request: Any) -> None:
+    from hushh_mcp.hushh_adk.tool_history import validate_tool_result_history
+
+    validate_tool_result_history(
+        callback_context, llm_request, transport_placeholder_matches=_receipt_placeholder_matches
+    )
+
+
+def _receipt_placeholder_matches(event: Any, result: Any, expected_name: str | None) -> bool:
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+
+    # Tool-only AG-UI handback stores a value-free result with its exact call ID.
+    # Receipt admission checks the actual values separately before this callback.
+    return (
+        event.author == "user"
+        and bool(result.id)
+        and result.name == "unknown"
+        and expected_name in RECEIPT_TOOL_NAMES
+        and result.response
+        in (
+            {"schema": "receipt_result.v1", "operation": expected_name, "ephemeral_result": True},
+            {"content_redacted": True},
+        )
+    )
+
+
 def normalize_tool_results(contents: list[Any]) -> tuple[list[Any], int, int]:
     # ag-ui-adk 0.7 can pre-append a receipt result with its ID intact but
     # name="unknown" when a resume contains no assistant call. Repair only an
