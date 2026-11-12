@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 import queue_combined_result as queue
+from repo_governance_plan import MAX_CHANGED_BYTES, MAX_CHANGED_PATHS
 
 BASE, FIRST, SECOND, HEAD1, HEAD2 = (letter * 40 for letter in "abcde")
 
@@ -910,7 +911,7 @@ def test_destination_only_paths_do_not_prevent_tested_merge_reuse(tested_pr_merg
     ("QUEUE_SELECTION_FILES", '["wrong.txt"]'),
     ("QUEUE_SELECTION_FILES", '["old.txt", "shared.txt"]'),
     ("QUEUE_SELECTION_FILES", '[null]'), ("QUEUE_SELECTION_FILES", '["line\\nname"]'),
-    ("QUEUE_SELECTION_FILES", '["' + "x" * 500_000 + '"]'),
+    ("QUEUE_SELECTION_FILES", '["' + "x" * MAX_CHANGED_BYTES + '"]'),
     ("QUEUE_AUTH_HEALTH_ONLY", "true"), ("QUEUE_AUTH_HEALTH_ONLY", ""),
 ], ids=("missing", "malformed", "wrong-shape", "empty", "wrong-path", "rename",
         "null-path", "newline", "oversized", "pr-only-profile", "unknown-profile"))
@@ -934,6 +935,29 @@ def test_event_base_must_be_actual_tested_merge_parent(tested_pr_merge, monkeypa
     assert queue.record_receipt()["selection_exact"] is False
 
 
+@pytest.mark.parametrize("count,padding,allowed", [
+    (4899, 80, True), (MAX_CHANGED_PATHS + 1, 0, False),
+    (1, MAX_CHANGED_BYTES, False),
+])
+def test_complete_large_selection_keeps_exact_inventory_and_canonical_bounds(tmp_path, monkeypatch, count, padding, allowed):
+    paths = [f"contracts/{index:04d}-{'a' * padding}.json" for index in range(count)]
+    raw = json.dumps(paths, separators=(",", ":"))
+    selection = tmp_path / "selection.json"
+    selection.write_text(json.dumps(raw))
+    monkeypatch.setenv("QUEUE_SELECTION_FILE", str(selection))
+    monkeypatch.setenv("QUEUE_AUTH_HEALTH_ONLY", "false")
+    monkeypatch.setattr(queue, "git", lambda *args: "\0".join(paths) + "\0")
+    assert queue.exact_selection(BASE) is allowed
+    if allowed:
+        assert len(raw.encode()) > 500_000
+        assert len(raw.encode("utf-16-le")) < 1024 * 1024
+        # Raising capacity must never bless GitHub's truncated API inventory.
+        selection.write_text(json.dumps(json.dumps(paths[:3000])))
+        assert queue.exact_selection(BASE) is False
+        selection.write_text(json.dumps(json.dumps([*paths[:-1], "wrong-tail.json"])))
+        assert queue.exact_selection(BASE) is False
+
+
 def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
     import yaml
 
@@ -941,6 +965,8 @@ def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]
     paths = jobs["paths"]
     selector = next(step for step in paths["steps"] if step.get("id") == "filter")
+    assert selector["with"]["token"] == "${{ (github.event_name != 'pull_request' || github.event.pull_request.changed_files < 3000) && github.token || '' }}"
+    assert "github.event.pull_request.changed_files >= 3000" in paths["steps"][0]["with"]["fetch-depth"]
     assert selector["with"]["list-files"] == "json"
     assert yaml.safe_load(selector["with"]["filters"])["queue_selection"] == ["**"]
     assert paths["outputs"]["queue_selection_files"] == "${{ steps.filter.outputs.queue_selection_files }}"

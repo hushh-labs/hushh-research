@@ -374,25 +374,27 @@ def reusable(state, validations, read=api, *, reasons=None):
 
 
 def exact_selection(base):
-    """Prove the actual API inventory matches the tested merge inventory.
+    """Prove the actual selector inventory matches the tested merge inventory.
 
     Branch ancestry alone is neither necessary nor sufficient. Keep unknown
     inputs conservative, including the PR-only backend suppression profile.
     """
+    from repo_governance_plan import MAX_CHANGED_BYTES, MAX_CHANGED_PATHS
+
     if os.environ.get("QUEUE_AUTH_HEALTH_ONLY") != "false":
         return False
     try:
         with open(os.environ.get("QUEUE_SELECTION_FILE", ""), encoding="utf-8") as source:
-            encoded = source.read(1_000_001)
-        if len(encoded) > 1_000_000:
+            encoded = source.read(2 * MAX_CHANGED_BYTES + 3)
+        if len(encoded) > 2 * MAX_CHANGED_BYTES + 2:
             return False
         raw = json.loads(encoded)
-        if not isinstance(raw, str) or len(raw.encode()) > 500_000:
+        if not isinstance(raw, str) or len(raw.encode()) > MAX_CHANGED_BYTES:
             return False
         paths = json.loads(raw)
     except (OSError, ValueError):
         return False
-    if (not isinstance(paths, list) or not paths or len(paths) > 6000
+    if (not isinstance(paths, list) or not paths or len(paths) > MAX_CHANGED_PATHS
             or any(not isinstance(path, str) or not path
                    or any(char in path for char in ("\0", "\n", "\r")) for path in paths)):
         return False
