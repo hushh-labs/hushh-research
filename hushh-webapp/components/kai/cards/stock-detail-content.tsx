@@ -11,9 +11,11 @@ import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { StockQuoteHeader } from "./stock-quote-header";
 import type { StockQuoteLoader } from "@/lib/services/public-stock-quote";
 
+import { formatDisplayMoney } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export type { StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
 const money = (value: number | null | undefined, compact = false) => typeof value === "number" && Number.isFinite(value)
-  ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: compact ? "compact" : "standard", maximumFractionDigits: 2 }).format(value) : "Unavailable";
+  ? formatDisplayMoney(value, { notation: compact ? "compact" : "standard", maximumFractionDigits: 2 }) : "Unavailable";
 const ratio = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}×` : "Unavailable";
 const asOf = (value: string | null | undefined) => value && Number.isFinite(Date.parse(value))
   ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Unavailable";
@@ -22,6 +24,7 @@ const asOf = (value: string | null | undefined) => value && Number.isFinite(Date
 export function StockDetailContent({ row, facts, loadHistory, loadQuote, news = [] }: {
   row: KaiHomeRenaissanceItem; facts?: KaiMarketCompanyFacts; loadHistory?: StockHistoryLoader; loadQuote?: StockQuoteLoader; news?: KaiHomeNewsItem[];
 }) {
+  useMarketCurrency();
   const symbol = row.quote_symbol || row.symbol;
   const companyNews = news.filter(item => [row.symbol, row.quote_symbol].some(ticker => ticker && ticker.toUpperCase() === item.symbol.trim().toUpperCase()) && /^https?:\/\//i.test(item.url)).slice(0, 4);
   const financialFacts = [

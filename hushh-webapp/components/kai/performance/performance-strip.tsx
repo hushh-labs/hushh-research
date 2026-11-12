@@ -7,11 +7,10 @@ import type { SinceBought } from "@/lib/kai/portfolio-performance";
 import { cn } from "@/lib/utils";
 import styles from "./portfolio-performance.module.css";
 
-const wholeDollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-const dollarsAndCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-
-export const money = (value: number) => wholeDollars.format(value);
-export const signedMoney = (value: number) => `${value < 0 ? "−" : "+"}${wholeDollars.format(Math.abs(value))}`;
+import { formatCurrency, formatCurrencyWhole } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+export const money = (value: number) => formatCurrencyWhole(value);
+export const signedMoney = (value: number) => `${value < 0 ? "−" : "+"}${formatCurrencyWhole(Math.abs(value))}`;
 export const signedPercent = (value: number) => `${value < 0 ? "−" : "+"}${Math.abs(value).toFixed(1)}%`;
 export const tone = (value: number) => (value < 0 ? styles.negative : value > 0 ? styles.positive : undefined);
 
@@ -32,8 +31,9 @@ export function PerformanceStrip({ value, sinceBought, invested, cash, period }:
   cash: number | null;
   period: string;
 }) {
+  useMarketCurrency();
   const stats = [
-    <Stat key="value" label="Portfolio value">{dollarsAndCents.format(value)}</Stat>,
+    <Stat key="value" label="Portfolio value">{formatCurrency(value)}</Stat>,
     sinceBought ? (
       <Stat key="since" label="Since you bought">
         <span className={tone(sinceBought.gain)}>

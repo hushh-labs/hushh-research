@@ -22,11 +22,13 @@ import { overviewFacts } from "./portfolio-display-facts";
 import { signedMoney, signedPercent, tone } from "@/components/kai/performance/performance-strip";
 import { sinceBought } from "@/lib/kai/portfolio-performance";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export function PortfolioOverview({ model, portfolio, source, period, action, briefing, sharing, valuationKind, loadHistory, onImport, onOpenSection }: {
   model: DashboardViewModel; portfolio: PortfolioData; source: string;
   valuationKind?: "statement" | "linked"; loadHistory?: StockHistoryLoader;
   period: string; action?: ReactNode; briefing?: ReactNode; sharing?: ReactNode; onImport?: () => void; onOpenSection: (section: KaiPortfolioSection) => void;
 }) {
+  useMarketCurrency();
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
   const facts = overviewFacts(model, portfolio);
   const positions = [...model.canonicalModel.positions].filter(position => !position.isCashEquivalent && position.marketValue > 0).sort((a, b) => b.marketValue - a.marketValue);

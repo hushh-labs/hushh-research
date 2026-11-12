@@ -4046,6 +4046,18 @@ debt/equity, or the provider company description. Unknown ratios are null.
 Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
 Provider retrieval time and financial period end remain separate.
 
+### Market currency rate
+
+The India display mode converts dollar amounts at one daily rate from
+`GET /api/kai/market/fx/usd-inr/{user_id}` (Firebase auth must match the path owner).
+The payload is `{base, quote, rate, as_of, quoted_at, source, stale}`, where `as_of`
+is the quote's day. The rate is one keyless Yahoo `INR=X` chart read held in the shared
+market cache under `fx:usd_inr:v1` (six-hour fresh, 14-day stale, outside every
+US-session-gated prefix), so a rate-limited provider serves the last good rate. With no
+cached rate and the provider down the route answers `503`; the client keeps showing
+dollars and never substitutes a guess. Conversion happens at display time only and does
+not change stored or shared values.
+
 Stock detail reads `GET /api/kai/market/history/{user_id}?symbol=AAPL`
 through the existing Kai catch-all proxy and platform-aware `ApiService`.
 Firebase authentication must match the path owner before any cache/provider

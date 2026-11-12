@@ -39,7 +39,6 @@ import { HoldingGainLoss } from "@/components/kai/holdings/holding-gain-loss";
 import { ReviewEntriesSheet } from "@/components/kai/holdings/review-entries-sheet";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 
-
 import {
   Accordion,
   AccordionContent,
@@ -91,9 +90,8 @@ import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 
-
-
-
+import { formatCurrency as formatDisplayCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -238,15 +236,8 @@ type ReviewHoldingRow = Holding & {
 // HELPER FUNCTIONS
 // =============================================================================
 
-function formatCurrency(value: number | undefined | null, currency = "USD"): string {
-  if (value === undefined || value === null) return "$0.00";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: /^[A-Z]{3}$/i.test(currency) ? currency : "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+const formatCurrency = (value: number | undefined | null, currency = "USD") =>
+  formatDisplayCurrency(value ?? 0, currency);
 
 function _formatPercent(value: number | undefined | null): string {
   if (value === undefined || value === null) return "0.00%";
@@ -711,6 +702,7 @@ export function PortfolioReviewView({
   onBack: _onBack,
   className,
 }: PortfolioReviewViewProps) {
+  useMarketCurrency();
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const { user } = useAuth();
   const {
@@ -1921,7 +1913,6 @@ export function PortfolioReviewView({
         >
           <AccordionTrigger className="ui-text-section-label py-3 hover:no-underline">
 
-
             <div className="flex items-center gap-2">
               <Icon icon={Building2} size="sm" aria-hidden="true" />
               Account Information
@@ -2004,7 +1995,6 @@ export function PortfolioReviewView({
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
             <AccordionTrigger className="ui-text-section-label py-3 hover:no-underline">
-
 
               <div className="flex items-center gap-2">
                 <Icon icon={PieChart} size="sm" aria-hidden="true" />
@@ -2093,7 +2083,6 @@ export function PortfolioReviewView({
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
             <AccordionTrigger className="ui-text-section-label py-3 hover:no-underline">
-
 
               <div className="flex items-center gap-2">
                 <Icon icon={Wallet} size="sm" aria-hidden="true" />

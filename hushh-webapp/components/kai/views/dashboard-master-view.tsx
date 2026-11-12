@@ -103,6 +103,7 @@ import {
   type KaiPortfolioSection,
 } from "@/lib/navigation/routes";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export type PortfolioDashboardSection = "overview" | KaiPortfolioSection;
 
 interface DashboardMasterViewProps {
@@ -153,8 +154,6 @@ const FINANCIAL_INTENT_MAP = [
 function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
 }
-
-
 
 function compareHoldingsByNameAsc<T extends { name?: string; symbol?: string }>(
   left: T,
@@ -368,6 +367,7 @@ export function DashboardMasterView({
   onReupload,
   section = "overview",
 }: DashboardMasterViewProps) {
+  useMarketCurrency();
   const router = useRouter();
   const pathname = usePathname();
   const { vaultKey } = useVault();

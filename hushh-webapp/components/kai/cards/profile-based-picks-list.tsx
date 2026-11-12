@@ -11,6 +11,8 @@ import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-servic
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import { formatCurrency as formatPrice } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 interface ProfileBasedPicksListProps {
   userId: string;
   vaultOwnerToken: string;
@@ -22,17 +24,6 @@ interface ProfileBasedPicksListProps {
 function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
-}
-
-function formatPrice(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "Price unavailable";
-  }
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function PicksSkeleton() {
@@ -61,6 +52,7 @@ export function ProfileBasedPicksList({
   onAdd,
   limit = 3,
 }: ProfileBasedPicksListProps) {
+  useMarketCurrency();
   const [loading, setLoading] = useState(true);
   const [riskProfile, setRiskProfile] = useState("balanced");
   const [picks, setPicks] = useState<KaiDashboardProfilePick[]>([]);

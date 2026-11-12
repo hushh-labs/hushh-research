@@ -13,6 +13,7 @@ import { StockHistoryPanel, type StockHistoryLoader } from "@/components/kai/cha
 import { HoldingEntryList } from "./holding-entry-list";
 import { HoldingGainLoss } from "./holding-gain-loss";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 function money(value: number | null, currency?: string): string {
   return value === null || !Number.isFinite(value) ? "—" : formatCurrency(value, currency);
 }
@@ -62,6 +63,7 @@ export function HoldingDetailsDrawer({
   onToggleDeleteEntry,
   onAddEntry,
 }: HoldingDetailsDrawerProps) {
+  useMarketCurrency();
   const hasHistory = Boolean(holding && !holding.isCash && holding.identifierType !== "cusip"
     && /^[A-Z][A-Z0-9.-]{0,15}$/.test(holding.symbol));
 

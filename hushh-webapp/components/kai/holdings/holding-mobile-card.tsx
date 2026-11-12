@@ -4,6 +4,7 @@ import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { formatCurrency } from "@/lib/kai/market-value-format";
 import { cn } from "@/lib/utils";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 function formatShares(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
@@ -53,6 +54,7 @@ export function HoldingMobileCard({
   holding,
   onOpen,
 }: HoldingMobileCardProps) {
+  useMarketCurrency();
   const gainLossTone =
     holding.gainLossPct === null
       ? "text-muted-foreground"

@@ -6,15 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 function formatChange(value: number): string {
   const sign = value >= 0 ? "+" : "-";
   return `${sign}${formatCurrency(Math.abs(value))}`;
@@ -52,6 +45,7 @@ export function DashboardSummaryHero({
   periodRange,
   beginningBalance,
 }: DashboardSummaryHeroProps) {
+  useMarketCurrency();
   const positive = netChange >= 0;
 
   return (

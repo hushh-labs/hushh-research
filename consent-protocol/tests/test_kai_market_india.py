@@ -7,6 +7,7 @@ import pytest
 from api.routes.kai import _shared_last_close as shared_last_close
 from api.routes.kai import market_insights
 from hushh_mcp.market_data import india_market
+from hushh_mcp.services import market_insights_cache as cache_module
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
 from tests.helpers.market_public_cache import _FakeStore  # noqa: F401
 
@@ -244,3 +245,78 @@ async def test_index_cards_draw_the_last_session_and_never_a_month_line_beside_a
         quotes["^BSESN"]["sparkline"] is None
     )  # no intraday data: neutral guide, not a month line
     assert len(quotes["^CNXAUTO"]["sparkline_points"]) == 22  # sector returns still use the month
+
+
+def _fx_chart(price: float = 88.4, stamp: int = 1_762_905_600) -> dict:
+    return {"meta": {"regularMarketPrice": price, "regularMarketTime": stamp}}
+
+
+def test_usd_inr_chart_parses_the_rate_and_its_day_and_rejects_bad_quotes():
+    from hushh_mcp.market_data import fx_rate
+
+    parsed = fx_rate.parse_usd_inr_chart(_fx_chart())
+    assert parsed is not None
+    assert parsed["rate"] == 88.4 and parsed["as_of"] == "2025-11-12"
+    assert parsed["base"] == "USD" and parsed["quote"] == "INR"
+    assert fx_rate.parse_usd_inr_chart(_fx_chart(price=0.88)) is None  # inverted pair
+    assert fx_rate.parse_usd_inr_chart(_fx_chart(price=float("nan"))) is None
+    assert fx_rate.parse_usd_inr_chart({"meta": {"regularMarketPrice": 88.4}}) is None
+
+
+@pytest.mark.asyncio
+async def test_usd_inr_rate_serves_the_last_good_rate_when_the_provider_fails(monkeypatch):
+    from hushh_mcp.market_data import fx_rate
+
+    store = _FakeStore()
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    good = fx_rate.parse_usd_inr_chart(_fx_chart())
+
+    async def ok() -> dict:
+        return good
+
+    monkeypatch.setattr(market_insights, "fetch_usd_inr_rate", ok)
+    first = await market_insights._get_usd_inr_rate()
+    assert first["rate"] == 88.4 and first["stale"] is False
+
+    # Move past the fresh window (not the stale one), then take the provider down.
+    later = cache_module.time.time() + market_insights.USD_INR_FRESH_TTL_SECONDS + 3600
+    monkeypatch.setattr(cache_module.time, "time", lambda: later)
+    monkeypatch.setattr(market_insights, "time", lambda: later)
+
+    async def down() -> dict:
+        raise fx_rate.FxRateUnavailable("fx_provider_status_429")
+
+    monkeypatch.setattr(market_insights, "fetch_usd_inr_rate", down)
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    served = await market_insights._get_usd_inr_rate()
+    assert served["rate"] == 88.4 and served["as_of"] == good["as_of"]
+    assert served["stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_usd_inr_route_answers_503_with_no_cached_rate_and_no_provider(monkeypatch):
+    from fastapi import HTTPException
+
+    from hushh_mcp.market_data import fx_rate
+
+    async def down() -> dict:
+        raise fx_rate.FxRateUnavailable("fx_provider_status_429")
+
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "fetch_usd_inr_rate", down)
+    monkeypatch.setattr(market_insights, "verify_user_id_match", lambda *_: None)
+
+    with pytest.raises(HTTPException) as caught:
+        await market_insights.get_market_usd_inr_rate("user_a", firebase_uid="user_a")
+    assert caught.value.status_code == 503
+
+
+def test_usd_inr_cache_key_is_outside_every_us_session_gated_prefix():
+    gated = (
+        *market_insights.MARKET_PRICE_REFRESH_PREFIXES,
+        *shared_last_close.LAST_CLOSE_PREFIXES,
+        "movers:",
+    )
+    assert not "fx:usd_inr:v1".startswith(tuple(gated))

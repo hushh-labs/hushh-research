@@ -6,13 +6,16 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, CHART_ANIMATION_ACTI
 import type { FinanceProjection } from "@/lib/finance-sharing/contract";
 import styles from "./finance-sharing.module.css";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 const colors = ["var(--app-accent)", "var(--app-indigo)", "#30b0c7", "var(--app-warning)", "var(--app-purple)", "var(--app-success)"];
-const money = (value: number, currency = "USD") => new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
 const percent = (value: number) => `${value.toFixed(1)}%`;
 
 /** Renders the already filtered recipient object. Never receives the owner's model. */
 export function FinanceSharingPreview({ projection, section, compact = false }: { projection: FinanceProjection; section?: "portfolio" | "allocation" | "stocks"; compact?: boolean }) {
   const chartId = `finance-share-${useId().replace(/:/g, "")}`;
+  const { format } = useMarketCurrency();
+  // Converted at display time only: the shared projection keeps its own value and currency.
+  const money = (value: number, currency = "USD") => format(value, { source: currency });
   const performance = projection.performance;
   const formatValue = (value: number) => performance?.unit === "USD" ? money(value) : percent(value);
   return <div className={compact ? styles.compactSections : styles.section}>

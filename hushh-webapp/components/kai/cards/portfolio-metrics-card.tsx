@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 interface Holding {
   symbol: string;
   name: string;
@@ -34,15 +36,6 @@ interface PortfolioMetricsCardProps {
   className?: string;
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function formatPercent(value: number): string {
   return `${value.toFixed(2)}%`;
 }
@@ -52,6 +45,7 @@ export function PortfolioMetricsCard({
   totalValue,
   className,
 }: PortfolioMetricsCardProps) {
+  useMarketCurrency();
   // Calculate diversification score (0-100)
   // Based on Herfindahl-Hirschman Index (HHI)
   const diversificationScore = useMemo(() => {

@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { allocationColor } from "@/lib/kai/allocation-colors";
 
+import { formatCurrencyAdaptive as formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export interface PortfolioAllocationDatum {
   name: string;
   value: number;
@@ -27,15 +29,6 @@ interface PortfolioAllocationBarProps {
   selectedName?: string | null;
   onSelectionChange?: (name: string | null) => void;
   className?: string;
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: value >= 1_000_000 ? "compact" : "standard",
-    maximumFractionDigits: value >= 1_000_000 ? 1 : 0,
-  }).format(value);
 }
 
 function toChartKey(name: string, index: number): string {
@@ -53,6 +46,7 @@ export function PortfolioAllocationBar({
   onSelectionChange,
   className,
 }: PortfolioAllocationBarProps) {
+  useMarketCurrency();
   const { segments, total, chartConfig, chartRow } = useMemo(() => {
     const eligible = data.filter(
       (entry) => Number.isFinite(entry.value) && entry.value > 0,
