@@ -2742,9 +2742,9 @@ async def _track_one_consent_access(callback_context: Any) -> None:
 
 def _one_consent_before_model(callback_context: Any, llm_request: Any) -> None:
     """Redact ended shared information, then speed up a consent answer turn."""
-    from hushh_mcp.hushh_adk.tool_history import validate_tool_result_history
+    from hushh_mcp.one_adk.tool_history import validate_one_tool_result_history
 
-    validate_tool_result_history(callback_context, llm_request)
+    validate_one_tool_result_history(callback_context, llm_request)
     redact_ended_consent_context(callback_context, llm_request)
     consent_answer_fast_path(
         callback_context, llm_request, model=getattr(llm_request, "model", None)
