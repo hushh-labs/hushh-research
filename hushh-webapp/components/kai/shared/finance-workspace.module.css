@@ -98,6 +98,9 @@ button.portfolioListRow { min-height: 44px; }
     display: none;
   }
 }
+/* One highlight radius for every tappable Finance row: a compact utility rect (8px), concentric inside the
+   18px card. Set here, unlayered, so a stray rounded-* utility on the row cannot widen it into a pill. */
+.interactiveRow { --finance-row-radius: var(--app-radius-sm); border-radius: var(--finance-row-radius); }
 .interactiveRow:not(button) {
   background-color: var(--finance-row-fill, revert-layer);
   box-shadow: var(--finance-row-indicator, revert-layer);
@@ -109,15 +112,15 @@ button.interactiveRow::before {
   inset: 2px 0;
   z-index: -1;
   pointer-events: none;
-  border-radius: var(--radius-lg);
+  border-radius: var(--finance-row-radius);
   background-color: var(--finance-row-fill, transparent);
   box-shadow: var(--finance-row-indicator, none);
   transition: background-color 120ms ease;
 }
 .stockRows > button.interactiveRow::before { inset-inline: -8px; }
 .mobileHoldingRow {
-  --settings-row-top-radius: var(--radius-lg);
-  --settings-row-bottom-radius: var(--radius-lg);
+  --settings-row-top-radius: var(--app-radius-sm);
+  --settings-row-bottom-radius: var(--app-radius-sm);
 }
 @media (hover: hover) {
   .interactiveRow:not(.selectedRow):not([data-finance-selected="true"]):hover {
