@@ -47,6 +47,7 @@ from hushh_mcp.services.drive_request_review_policy import (
     autoshare_selection,
     checkpoint_requires_owner_review,
 )
+from hushh_mcp.services.drive_request_search_binding import require_uat_processor_transition
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -807,7 +808,6 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         from hushh_mcp.runtime_providers.managed_text import (
             managed_text_binding,
             managed_text_policy,
-            matches_previous_uat_drive_flash_binding,
         )
         from hushh_mcp.services.drive_owner_allowed import semantic_search_request
         from hushh_mcp.services.drive_request_package_service import assessment_policy_version
@@ -924,28 +924,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ):
                     raise DriveReadError("search_in_progress")
             previous_migration = private.get("processor_migration")
-            if previous_migration:
-                # Retain the receipt chain for the admitted UAT processor transitions.
-                if not (
-                    isinstance(previous_migration, dict)
-                    and previous_migration.get("version") == 1
-                    and previous_migration.get("basis") == "administrator_rollout"
-                    and previous_migration.get("to_binding") == old_binding
-                    and isinstance(old_binding, dict)
-                    and target["provider"] == "gemini"
-                    and target.get("authorization_basis") == "uat_policy"
-                    and (
-                        (
-                            old_binding.get("provider") == "azure_openai"
-                            and "previous_migration" not in previous_migration
-                        )
-                        or (
-                            target.get("deployment") == "gemini-4-carbon"
-                            and matches_previous_uat_drive_flash_binding(old_binding)
-                        )
-                    )
-                ):
-                    raise DriveReadError("search_superseded")
+            require_uat_processor_transition(old_binding, target, previous_migration)
             record = {
                 "version": 1,
                 "basis": "administrator_rollout",
