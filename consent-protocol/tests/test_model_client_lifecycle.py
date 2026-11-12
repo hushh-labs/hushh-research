@@ -148,6 +148,31 @@ async def test_scheduled_model_closes_existing_native_client_without_creating_an
         await close_owned_adk_model(owner)
 
 
+async def test_owned_model_teardown_leaves_another_event_loops_client_open(monkeypatch):
+    from hushh_mcp.runtime_providers.factory import build_gemini_byok_adk_model
+    from hushh_mcp.runtime_providers.lifecycle import close_owned_adk_model
+
+    owner = build_gemini_byok_adk_model("gemini-3.8-flash", "synthetic")
+    current = owner.api_client
+    other_loop = asyncio.new_event_loop()
+    other = genai.Client(api_key="synthetic", vertexai=False)
+    other_close = Mock(wraps=other.close)
+    monkeypatch.setattr(other, "close", other_close)
+    cache = owner.__dict__["_per_loop_api_client"]
+    with cache._lock:
+        cache._values[other_loop] = other
+    try:
+        await close_owned_adk_model(owner)
+        other_close.assert_not_called()
+        assert cache._values[other_loop] is other
+        assert asyncio.get_running_loop() not in cache._values
+        assert owner.api_client is not current
+    finally:
+        await close_owned_adk_model(owner)
+        await close_owned_model_client(other)
+        other_loop.close()
+
+
 async def test_repeated_cancellation_joins_both_owned_genai_halves(monkeypatch):
     client = genai.Client(api_key="synthetic", vertexai=False)
     entered, release = asyncio.Event(), asyncio.Event()

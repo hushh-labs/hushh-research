@@ -91,6 +91,7 @@ async def test_native_handback_retains_session_without_repeating_goal_or_pending
         result = await native.run(control=runtime, processing=process, goal=process.task_goal)
         assert result.outcome == "needs_owner"
         context = native._tasks[runtime.binding.task_id]
+        assert process.task_goal not in repr(context)
         original_session = context.session_id
         session = await context.sessions.get_session(
             app_name="pod_browser", user_id=runtime.binding.owner_id, session_id=original_session
@@ -143,6 +144,25 @@ async def test_native_handback_retains_session_without_repeating_goal_or_pending
                 text.count(process.task_goal) == 1
             )  # retained original, never another goal submission
             assert "handed back this same browser task" in text
+            # The fresh task scope must also retain completed action context,
+            # not just its goal. Transient projection creates no session replay.
+            contents = requests[2]["contents"]
+            assert (
+                sum(
+                    part.function_call is not None and part.function_call.name == "click"
+                    for content in contents
+                    for part in content.parts or []
+                )
+                == 1
+            )
+            assert (
+                sum(
+                    part.function_response is not None and part.function_response.name == "click"
+                    for content in contents
+                    for part in content.parts or []
+                )
+                == 1
+            )
             assert context.session_id == original_session
             # Native task segments use fresh explicit IDs instead of unfinished-call replay.
             assert context.segments == 2 and first_ids

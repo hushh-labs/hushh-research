@@ -2191,6 +2191,7 @@ jobs:
     permissions:
       contents: read
       actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: dev

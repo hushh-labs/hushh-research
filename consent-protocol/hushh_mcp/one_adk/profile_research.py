@@ -333,7 +333,10 @@ async def run_profile_research(
         generate_content_config=generation,
         mode="task",
         instruction=task.system_instruction,
-        include_contents="none",
+        # This task has a fresh isolated session. ADK 2.14's no-history
+        # current-turn selector drops scoped task receipts; default retains
+        # this task's own input and Search results, never another conversation.
+        include_contents="default",
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
         tools=[AgentTool(agent=search, propagate_grounding_metadata=True)],
