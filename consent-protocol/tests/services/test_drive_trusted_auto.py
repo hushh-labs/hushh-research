@@ -24,6 +24,7 @@ from hushh_mcp.services.drive_sharing_contract import (
 )
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from tests.helpers.drive_processor_history import record_processor_history
 from tests.services.test_drive_request_bulk_postgres import (
     FILE_ACTIVITY_SELECTION,
     _search,
@@ -1701,7 +1702,10 @@ async def test_paid_delivery_preflight_checks_source_without_reclassifying_exist
         "legacy_unbound",
         "previously_migrated_azure",
         "previously_migrated_flash",
+        "previously_migrated_carbon",
+        "carbon_at_creation",
         "other_flash_binding",
+        "other_carbon_at_creation",
     ],
 )
 async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effects(
@@ -1717,15 +1721,27 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
     await DriveLivePreferences(db=sharing.db).set_background(
         user_id="owner", enabled=True, confirmed=True
     )
-    # Create an actual historical Gemini binding, not a current owner acceptance.
-    real_policy = managed_text.managed_text_policy
+    recovery_policy = managed_text.load_drive_text_policy()
+    carbon_policy = {
+        **recovery_policy,
+        "version": "drive-vertex-carbon-v2",
+        "model": "gemini-4-carbon",
+    }
+    if source == "other_carbon_at_creation":
+        carbon_policy["version"] = "another-drive-vertex-carbon-binding"
+    carbon_at_creation = source in {"carbon_at_creation", "other_carbon_at_creation"}
     with monkeypatch.context() as historical:
         # This is a historical assessed request, not the new query-match policy.
         historical.setattr(
             "hushh_mcp.services.drive_sharing_store.new_semantic_search_policy_version", lambda: 1
         )
-        historical.setattr(managed_text, "managed_text_policy", lambda **_: None)
+        if carbon_at_creation:
+            historical.setattr(managed_text, "load_drive_text_policy", lambda: carbon_policy)
+        else:
+            historical.setattr(managed_text, "managed_text_policy", lambda **_: None)
         created = await _request(sharing)
+        original_binding = managed_text.managed_text_binding() if carbon_at_creation else None
+        original_assessment = assessment_policy_version(original_binding)
     request_id = created["requestId"]
     cp = _semantic_checkpoint("Elena Rostova")
     cp.pop("request_revision")
@@ -1743,58 +1759,22 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
             )
         )
         cp["semantic_purpose"] = private["purpose"]
-    cp["semantic_assessment_policy"] = assessment_policy_version(None)
+    assert private.get("semantic_model_binding") == original_binding
+    cp["semantic_model_binding"] = original_binding
+    cp["semantic_assessment_policy"] = original_assessment
     cp["page_token"] = "preserve-provider-cursor"
     cp["semantic_pending"] = [{"id": "pending-synthetic", "version": "12"}]
     job = _search(request_bulk, request_id=request_id, count=1, selection=cp)
     store = DriveOwnerSearchStore(db=sharing.db)
-    previous = None
-    if source != "legacy_unbound":
-        # Build the historical first receipt using its real transaction and fences.
-        with sharing.db.engine.begin() as connection:
-            connection.execute(
-                text("UPDATE drive_owner_search_jobs SET status='queued' WHERE job_id=:job"),
-                {"job": job},
-            )
-        with monkeypatch.context() as historical:
-            historical.delenv("HUSHH_UAT_MANAGED_AI_PROVIDER", raising=False)
-            historical.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
-            historical.setattr(managed_text, "load_drive_text_policy", lambda: None)
-            assert await store.migrate_request_processor(user_id="owner", request_id=request_id)
-            with sharing.db.engine.connect() as connection:
-                row = store._row(
-                    connection,
-                    "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job",
-                    {"job": job},
-                )
-                previous = store._checkpoint(row)["processor_migration"]
-            assert previous["to_binding"]["provider"] == "azure_openai"
-    if source in {"previously_migrated_flash", "other_flash_binding"}:
-        # Preserve a request that already crossed Azure and the original UAT Vertex binding.
-        carbon_policy = managed_text.load_drive_text_policy()
-        with monkeypatch.context() as historical:
-            historical.setattr(
-                managed_text,
-                "load_drive_text_policy",
-                lambda: {
-                    **carbon_policy,
-                    "version": "drive-vertex-flash-v2"
-                    if source == "previously_migrated_flash"
-                    else "another-drive-vertex-flash-binding",
-                    "model": "gemini-3.8-flash",
-                },
-            )
-            assert await store.migrate_request_processor(user_id="owner", request_id=request_id)
-        with sharing.db.engine.connect() as connection:
-            row = store._row(
-                connection,
-                "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job",
-                {"job": job},
-            )
-            flash_migration = store._checkpoint(row)["processor_migration"]
-        assert flash_migration["previous_migration"] == previous
-        assert flash_migration["to_binding"]["deployment"] == "gemini-3.8-flash"
-        previous = flash_migration
+    previous = await record_processor_history(
+        store,
+        monkeypatch,
+        source=source,
+        request_id=request_id,
+        job=job,
+        flash=recovery_policy,
+        carbon=carbon_policy,
+    )
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
@@ -1816,7 +1796,6 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
                 "drive_bulk_share_effects",
             )
         }
-    assert real_policy() is not None
     if status == "running":
         with sharing.db.engine.begin() as connection:
             connection.execute(
@@ -1835,17 +1814,17 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
                 ),
                 {"job": job},
             )
-    if source == "other_flash_binding":
+    if source in {"other_flash_binding", "other_carbon_at_creation"}:
         with pytest.raises(DriveReadError, match="search_superseded"):
             await store.migrate_request_processor(user_id="owner", request_id=request_id)
         return
-    if source == "previously_migrated_flash":
+    if source in {"previously_migrated_flash", "previously_migrated_carbon", "carbon_at_creation"}:
         with monkeypatch.context() as unadmitted:
             unadmitted.setattr(
                 managed_text,
                 "load_drive_text_policy",
                 lambda: {
-                    **carbon_policy,
+                    **recovery_policy,
                     "version": "unadmitted-processor-transition",
                     "model": "gemini-3.7-flash",
                 },
@@ -1854,6 +1833,14 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
                 await store.migrate_request_processor(user_id="owner", request_id=request_id)
     assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is True
     assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is False
+    with monkeypatch.context() as historical:
+        historical.setattr(
+            managed_text,
+            "load_drive_text_policy",
+            lambda: {**carbon_policy, "version": "drive-vertex-carbon-v2"},
+        )
+        with pytest.raises(DriveReadError, match="search_superseded"):
+            await store.migrate_request_processor(user_id="owner", request_id=request_id)
     with sharing.db.engine.begin() as connection:
         row = store._row(
             connection, "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job", {"job": job}
@@ -1865,7 +1852,7 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
         assert after["semantic_plan_digest"] == cp["semantic_plan_digest"]
         assert after["processor_migration"]["basis"] == "administrator_rollout"
         assert after["processor_migration"]["from_binding"] == (
-            previous["to_binding"] if previous else None
+            previous["to_binding"] if previous else original_binding
         )
         if previous:
             assert after["processor_migration"]["previous_migration"] == previous

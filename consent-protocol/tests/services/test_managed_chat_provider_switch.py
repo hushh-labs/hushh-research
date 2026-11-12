@@ -51,19 +51,19 @@ async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
             raise TimeoutError("synthetic Vertex outage")
         yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="ready")]))
 
-    native = SimpleNamespace(model="gemini-4-carbon", generate_content_async=vertex)
+    native = SimpleNamespace(model="gemini-3.8-flash", generate_content_async=vertex)
     monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
     current = AsyncMock()
     wrapped = managed.build_managed_text_model(
         scope="drive_document_requests", require_current=current
     )
-    assert wrapped.model == "gemini-4-carbon" and wrapped.primary_provider == "vertex"
+    assert wrapped.model == "gemini-3.8-flash" and wrapped.primary_provider == "vertex"
     assert wrapped.allow_fallback is False
     assert len([r async for r in wrapped.generate_content_async(request())]) == 1
     failure = True
     with pytest.raises(TimeoutError):
         _ = [r async for r in wrapped.generate_content_async(request())]
-    assert sent == [("gemini-4-carbon", types.ThinkingLevel.LOW)] * 2
+    assert sent == [("gemini-3.8-flash", types.ThinkingLevel.LOW)] * 2
     current.side_effect = PermissionError("revoked")
     with pytest.raises(managed.ManagedTextAuthorityError):
         _ = [r async for r in wrapped.generate_content_async(request())]
@@ -72,7 +72,7 @@ async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
     # Exercise every authored Documents gene through the shared single-turn builder.
     from google.adk.models import Gemini
 
-    native_adk = Gemini(model="gemini-4-carbon")
+    native_adk = Gemini(model="gemini-3.8-flash")
     monkeypatch.setattr(
         ManagedGeminiRuntimeBinding, "build_regional_adk_model", lambda *a, **k: native_adk
     )

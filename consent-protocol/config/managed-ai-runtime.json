@@ -12,9 +12,9 @@
     "allow_cross_provider_fallback": false
   },
   "drive_text_uat": {
-    "version": "drive-vertex-carbon-v2",
+    "version": "drive-vertex-flash-v3",
     "provider": "vertex",
-    "model": "gemini-4-carbon",
+    "model": "gemini-3.8-flash",
     "thinking_level": "low",
     "max_output_tokens": 16384,
     "allow_cross_provider_fallback": false
