@@ -50,7 +50,11 @@ async def run_website_research_slice(
         raise PermissionError("Website PWM research is unavailable for this grant")
 
     async def check_grant() -> None:
-        if grant.expires_at <= datetime.now(timezone.utc) or await read_active_grant() != grant:
+        if (
+            not one_profile_research_enabled()
+            or grant.expires_at <= datetime.now(timezone.utc)
+            or await read_active_grant() != grant
+        ):
             raise PermissionError("Website research grant is no longer active")
 
     require_access = hub_content_check(grant.owner_id, check_grant)
