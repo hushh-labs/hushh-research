@@ -101,6 +101,8 @@ import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label"
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   PLACE_CATEGORIES,
+  checkedInPlaceCategory,
+  type CheckedInPlaceCategory,
   normalizeAutomaticPlaces,
   placesInCategory,
 } from "@/lib/one-location/nearby-places";
@@ -594,6 +596,7 @@ type SavePlaceCandidate = {
   address: string | null;
   checkedInAt: string;
   placeId: string | null;
+  placeCategory: CheckedInPlaceCategory | null;
   latitude: number;
   longitude: number;
 };
@@ -632,6 +635,7 @@ function savePlaceCandidate(
     address: place?.address?.trim() || legacy.address,
     checkedInAt: presence.checkedInAt,
     placeId: presence.placeId || null,
+    placeCategory: checkedInPlaceCategory(place?.categories),
     latitude: placeLat,
     longitude: placeLng,
   };
@@ -2102,6 +2106,19 @@ export function NearbyCheckInSheet({
       savePlaceGenerationRef.current === generation;
     setSavingPlace(true);
     try {
+      let placeCategory = candidate.placeCategory;
+      if (!placeCategory && candidate.placeId) {
+        try {
+          const details = await OneLocationService.placeDetails({
+            vaultOwnerToken,
+            placeId: candidate.placeId,
+          });
+          placeCategory = checkedInPlaceCategory(details.categories);
+        } catch {
+          // Saving remains available when venue enrichment is unavailable.
+        }
+      }
+      if (!current()) return;
       let address = candidate.address;
       if (!address) {
         // Name-only responses still save a usable address before the next view.
@@ -2129,6 +2146,7 @@ export function NearbyCheckInSheet({
           label: candidate.label,
           placeName: candidate.label,
           placeId: candidate.placeId,
+          placeCategory,
           address,
           addressBase: address,
           checkedInAt: candidate.checkedInAt,

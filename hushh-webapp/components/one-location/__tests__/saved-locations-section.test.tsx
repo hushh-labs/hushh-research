@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   updateSavedLocationAddress: vi.fn(),
   captureCurrentPosition: vi.fn(),
   reverseGeocode: vi.fn(),
+  placeDetails: vi.fn(),
   getMapPreferences: vi.fn(),
   updateMapPreferences: vi.fn(),
   toastError: vi.fn(),
@@ -81,6 +82,7 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     captureCurrentPosition: mocks.captureCurrentPosition,
     reverseGeocode: mocks.reverseGeocode,
+    placeDetails: mocks.placeDetails,
     getMapPreferences: mocks.getMapPreferences,
     updateMapPreferences: mocks.updateMapPreferences,
   },
@@ -181,6 +183,7 @@ describe("SavedLocationsSection", () => {
       name: null,
       countryCode: "IN",
     });
+    mocks.placeDetails.mockReset().mockResolvedValue({ categories: ["cafes"] });
     mocks.getMapPreferences.mockReset().mockResolvedValue({
       presenceMode: "ghost",
       rendererConsentVersion: "google-maps-renderer-v1",
@@ -211,7 +214,7 @@ describe("SavedLocationsSection", () => {
     const homeIcon = screen.getByTestId("saved-location-icon-home");
     // Home uses the authored category accent; keep its white glyph paired
     // with a colored background rather than a white foreground surface.
-    expect(homeIcon.className).toContain("bg-[color:var(--app-accent)]");
+    expect(homeIcon).toHaveStyle({ backgroundColor: "var(--app-accent)" });
     expect(homeIcon.className).toContain("text-white");
     expect(screen.queryByText(/12\.9763|77\.5929/)).not.toBeInTheDocument();
     expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
@@ -269,6 +272,7 @@ describe("SavedLocationsSection", () => {
       address: null,
       savedFrom: "check_in",
       checkedInAt: "2026-10-21T12:00:00.000Z",
+      placeCategory: "cafes",
     };
     mocks.loadSavedLocations.mockResolvedValue([HOME, visit]);
     mocks.reverseGeocode.mockResolvedValue({ formattedAddress: "Shop 9, Tower 1, Godrej Green Cove, Pune" });
@@ -280,6 +284,10 @@ describe("SavedLocationsSection", () => {
     expect(checkedIn.getByText("Dezzerto")).toBeInTheDocument();
     expect(region.querySelector("time")).toHaveAttribute("datetime", visit.checkedInAt);
     expect(region.querySelector("time")).toHaveAttribute("title", expect.stringContaining("Checked in on"));
+    expect(region.querySelector("time")?.textContent).toBe(
+      new Date(visit.checkedInAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }),
+    );
+    expect(checkedIn.getByTestId("saved-location-icon-other")).toHaveAttribute("data-place-category", "cafes");
     expect(checkedIn.queryByText("Address unavailable")).toBeNull();
     fireEvent.click(checkedIn.getByRole("button", { name: /Dezzerto/ }));
     expect(checkedIn.queryByRole("button", { name: "Edit" })).toBeNull();
@@ -298,7 +306,7 @@ describe("SavedLocationsSection", () => {
     mocks.loadSavedLocations.mockResolvedValue([{ ...HOME, id: "legacy", category: "other", label: "Cafe, Shop 3, Pune", address: null, savedFrom: "check_in" }]);
     const view = render(<SavedLocationsSection />);
     expect(await screen.findByText("Shop 3, Pune")).toBeInTheDocument();
-    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(view.container.querySelector("time")).toHaveTextContent(/^Saved /);
     await waitFor(() => expect(mocks.reverseGeocode).toHaveBeenCalled());
     mocks.vault.isVaultUnlocked = false;
     mocks.vault.vaultKey = null;
@@ -307,6 +315,40 @@ describe("SavedLocationsSection", () => {
     await act(async () => resolveAddress({ formattedAddress: "Private recovered address" }));
     expect(screen.queryByText("Private recovered address")).toBeNull();
     expect(screen.queryByText("Cafe")).toBeNull();
+  });
+
+  it("resolves a legacy check-in category by place ID without changing the saved record", async () => {
+    const legacyPlace = {
+      ...HOME, id: "legacy-venue", category: "other", label: "Cafe", placeId: "venue-1", savedFrom: "check_in",
+    };
+    mocks.loadSavedLocations.mockResolvedValue([{ ...legacyPlace }]);
+    render(<SavedLocationsSection />);
+    await waitFor(() => expect(screen.getByTestId("saved-location-icon-other"))
+      .toHaveAttribute("data-place-category", "cafes"));
+    expect(mocks.placeDetails).toHaveBeenCalledWith({ vaultOwnerToken: "vault-owner-token", placeId: "venue-1" });
+    expect(mocks.addSavedLocation).not.toHaveBeenCalled();
+    expect(mocks.updateSavedLocationAddress).not.toHaveBeenCalled();
+    mocks.loadSavedLocations.mockResolvedValue([{ ...legacyPlace }]);
+    fireEvent.focus(window);
+    await waitFor(() => expect(mocks.loadSavedLocations).toHaveBeenCalledTimes(2));
+    expect(mocks.placeDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards late legacy category metadata when the vault locks", async () => {
+    let resolveCategory!: (value: { categories: string[] }) => void;
+    mocks.placeDetails.mockReturnValue(new Promise((resolve) => { resolveCategory = resolve; }));
+    mocks.loadSavedLocations.mockResolvedValue([{
+      ...HOME, id: "legacy-venue", category: "other", placeId: "venue-1", savedFrom: "check_in",
+    }]);
+    const view = render(<SavedLocationsSection />);
+    await waitFor(() => expect(mocks.placeDetails).toHaveBeenCalled());
+    mocks.vault.isVaultUnlocked = false;
+    mocks.vault.vaultKey = null;
+    mocks.vault.vaultOwnerToken = null;
+    view.rerender(<SavedLocationsSection />);
+    await act(async () => resolveCategory({ categories: ["cafes"] }));
+    expect(screen.queryByTestId("saved-location-icon-other")).toBeNull();
+    expect(screen.getByText(/unlock your vault to view saved places/i)).toBeInTheDocument();
   });
 
   it("retries a legacy address after reconnecting and exposes manual recovery on failure", async () => {

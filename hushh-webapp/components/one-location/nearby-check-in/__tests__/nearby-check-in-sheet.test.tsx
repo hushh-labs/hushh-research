@@ -2649,16 +2649,21 @@ describe("NearbyCheckInSheet", () => {
     });
 
     it("saves the shop name, address and check-in date separately", async () => {
+      service.placeDetails.mockResolvedValue({
+        label: "Dezzerto", latitude: 37.79, longitude: -122.4,
+        categories: ["food_drink", "cafes"],
+      });
       savedPlaces.loadSavedLocations.mockResolvedValue([]);
       savedPlaces.addSavedLocation.mockResolvedValue([]);
       await renderAndCheckOut("vault-key", vi.fn(), {
         ...anchoredPresence,
-        presence: { ...anchoredPresence.presence, placeLabel: "Dezzerto, Shop 9, Tower 1, Pune" },
+        presence: { ...anchoredPresence.presence, placeId: "dezzerto", placeLabel: "Dezzerto, Shop 9, Tower 1, Pune" },
       });
       fireEvent.click(await screen.findByRole("button", { name: "Save for faster check-ins" }));
       await waitFor(() => expect(savedPlaces.addSavedLocation).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({
         label: "Dezzerto",
         placeName: "Dezzerto",
+        placeCategory: "cafes",
         address: "Shop 9, Tower 1, Pune",
         checkedInAt: anchoredPresence.presence.checkedInAt,
       }) })));

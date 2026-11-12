@@ -451,6 +451,7 @@ async def test_place_details_parses_location(monkeypatch):
             json={
                 "id": "p1",
                 "displayName": {"text": "Starbucks"},
+                "types": ["cafe", "establishment"],
                 "formattedAddress": "Market St, SF",
                 "location": {"latitude": 37.79, "longitude": -122.4},
             },
@@ -465,6 +466,7 @@ async def test_place_details_parses_location(monkeypatch):
         "label": "Starbucks, Market St, SF",
         "latitude": 37.79,
         "longitude": -122.4,
+        "categories": ["cafes"],
     }
 
 

@@ -1493,12 +1493,14 @@ describe("LocationImmersiveMap demo experience", () => {
     );
   });
 
-  it("previews a candidate place separately from the owner's avatar", async () => {
+  it.each([false, true])("previews and replaces a red venue pin separately from the owner with native=%s", async (native) => {
     // Before confirmation the owner still needs to compare their live position
-    // with the venue they are considering. The venue is a label and the
+    // with the venue they are considering. The venue has a red pin and the
     // owner remains an avatar at the current device fix.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
+    platformHarness.native = native;
+    stubCheckInMapGeometry();
     // Check-in is its own destination now; the legacy `?action=check-in`
     // entry redirects here instead of opening over Your Map.
 
@@ -1533,10 +1535,48 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(legend).toHaveTextContent("You are here");
     expect(legend).toHaveTextContent("Checking in at Hotel Two");
     expect(legend).not.toHaveTextContent("180 m from you");
-    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mapHarness.map.addMarkers).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          coordinate: { lat: 37.7775, lng: -122.4172 },
+          tintColor: { r: 234, g: 67, b: 53, a: 255 },
+        }),
+      ]);
+    });
+    const [venuePin] = mapHarness.map.addMarkers.mock.lastCall![0] as Array<
+      Record<string, unknown>
+    >;
+    if (native) {
+      expect(venuePin.title).toBe("Selected check-in place");
+      expect(venuePin.snippet).toBe("Confirm your check-in in the drawer");
+    } else {
+      // The web bridge uses its title as the pin glyph.
+      expect(venuePin).not.toHaveProperty("title");
+    }
 
+    mapHarness.map.removeMarkers.mockClear();
+    experienceHarness.placeFocus = {
+      ...experienceHarness.placeFocus,
+      placeId: "hotel-three",
+      label: "Hotel Three",
+      latitude: 0,
+      longitude: 0,
+    };
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    await waitFor(() => {
+      expect(mapHarness.map.removeMarkers).toHaveBeenCalledWith(["marker-0"]);
+      expect(mapHarness.map.addMarkers).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          coordinate: { lat: 0, lng: 0 },
+          tintColor: { r: 234, g: 67, b: 53, a: 255 },
+        }),
+      ]);
+    });
+
+    mapHarness.map.removeMarkers.mockClear();
     fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
     await waitFor(() => {
+      expect(mapHarness.map.removeMarkers).toHaveBeenCalledWith(["marker-0"]);
       expect(mapHarness.map.removePolylines).toHaveBeenCalledWith([
         "polyline-0",
       ]);
@@ -1544,6 +1584,26 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.queryByTestId("one-location-nearby-place-legend"),
     ).not.toBeInTheDocument();
+
+    experienceHarness.placeFocus = { ...DEFAULT_PLACE_FOCUS };
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    await waitFor(() => {
+      expect(mapHarness.map.addMarkers).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          coordinate: { lat: 37.7775, lng: -122.4172 },
+        }),
+      ]);
+    });
+    mapHarness.map.addMarkers.mockClear();
+    mapHarness.map.removeMarkers.mockClear();
+    fireEvent.click(screen.getByTestId("publish-nearby-state"));
+    await waitFor(() => {
+      expect(mapHarness.map.removeMarkers).toHaveBeenCalledWith(["marker-0"]);
+    });
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
+      "Show my check-in place",
+    );
   });
 
   it("moves the owner avatar to the venue and removes the place pin after check-in", async () => {
