@@ -333,8 +333,8 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | Setting in that file | Consumers and boundary |
 | --- | --- |
 | `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
-| `drive_text_uat` | UAT Documents genes and Drive request models use native Vertex independently of the fleet default: `gemini-3.8-flash` at the global endpoint, LOW thinking, 16,384 output tokens, and no Azure fallback. Existing prompts and processing stages remain unchanged. |
-| `one_chat_text_uat` | The UAT managed One chat model, its inherited Search model, and conversation titles use Vertex `gemini-3.8-flash` at the global endpoint with LOW thinking and no Azure fallback. Explicit owner model connections follow their own bindings. |
+| `drive_text_uat` | UAT Documents genes and Drive request models use Vertex `gemini-4-carbon` at the global endpoint with LOW thinking, a 16,384-token output cap, and no Azure fallback. |
+| `one_chat_text_uat` | The UAT managed One chat model, its inherited Search model, and conversation titles use Vertex `gemini-4-carbon` at the global endpoint with LOW thinking, a 16,384-token output cap, and no Azure fallback. Explicit owner model connections follow their own bindings. |
 | `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
 | `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
 | `managed_runtime_uat.azure.one_text_root` | Azure One root deployment and generation budget for releases using the legacy fleet text binding. |
