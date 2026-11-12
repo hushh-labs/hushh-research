@@ -77,6 +77,8 @@ class Ports:
         self.calls, self.mutations = [], []
         self.scanner = True
         self.config_state = "ENABLED"
+        self.provider_startup = True
+        self.replace_timeouts = set()
 
     def run(self, command, **_kwargs):
         self.calls.append(command)
@@ -92,6 +94,8 @@ class Ports:
         args = [item for item in command[1:] if item != "--quiet"]
         if args[:3] == ["run", "services", "replace"]:
             self.replace(Path(args[3]))
+            if len(self.mutations) in self.replace_timeouts:
+                raise subprocess.TimeoutExpired(command, 120)
             return b"{}"
         result = self.read(args)
         return json.dumps(result).encode()
@@ -126,19 +130,27 @@ class Ports:
         self.mutations.append(resource)
         self.value["spec"] = resource["spec"]
         self.value["metadata"]["generation"] += 1
-        self.value["metadata"]["resourceVersion"] = "2"
+        self.value["metadata"]["resourceVersion"] = str(self.value["metadata"]["generation"])
         self.value["status"]["observedGeneration"] += 1
         template = resource["spec"]["template"]
-        metadata = {
-            **template["metadata"],
-            "uid": "candidate-uid",
-            "creationTimestamp": "2026-10-27T00:01:00Z",
-        }
-        self.revisions[metadata["name"]] = {
-            "metadata": metadata,
-            "spec": copy.deepcopy(template["spec"]),
-            "status": {"conditions": [{"type": "Ready", "status": "True"}]},
-        }
+        name = template["metadata"]["name"]
+        self.value["status"]["traffic"] = copy.deepcopy(resource["spec"]["traffic"])
+        if name not in self.revisions:
+            metadata = {
+                **template["metadata"],
+                "uid": "candidate-uid",
+                "creationTimestamp": "2026-10-27T00:01:00Z",
+            }
+            conditions = [{"type": "Ready", "status": "True"}]
+            self.value["status"]["latestCreatedRevisionName"] = name
+            if self.provider_startup:
+                conditions.append({"type": "ContainerHealthy", "status": "True"})
+                self.value["status"]["latestReadyRevisionName"] = name
+            self.revisions[name] = {
+                "metadata": metadata,
+                "spec": copy.deepcopy(template["spec"]),
+                "status": {"conditions": conditions},
+            }
 
 
 @pytest.fixture
@@ -164,6 +176,61 @@ def _stage(path, monkeypatch):
     monkeypatch.setenv("DRIVE_WORKER_STAGE_INTENT_SHA256", digest)
     WORKER.stage(path)
     return digest
+
+
+@pytest.mark.parametrize("result", ["ready", "timeouts_applied", "unready", "wrong_expired_uid"])
+def test_recorded_recovery_starts_the_private_candidate_and_clears_its_tag(
+    stage_ports, tmp_path, monkeypatch, result
+):
+    monkeypatch.setenv("DEPLOY_SHA", WORKER.RECOVERY["APPLICATION_SHA"])
+    live = stage_ports.value
+    old = stage_ports.revisions.pop(OLD)
+    old["metadata"].update(name=WORKER.RECORDED_SERVING, uid=WORKER.RECORDED_SERVING_UID)
+    stage_ports.revisions[WORKER.RECORDED_SERVING] = old
+    expired = copy.deepcopy(old)
+    expired["metadata"].update(
+        name=WORKER.RECORDED_EXPIRED,
+        uid=WORKER.RECORDED_EXPIRED_UID if result != "wrong_expired_uid" else "changed",
+    )
+    stage_ports.revisions[WORKER.RECORDED_EXPIRED] = expired
+    routes = [{"revisionName": WORKER.RECORDED_SERVING, "percent": 100}]
+    live["metadata"]["uid"] = WORKER.RECORDED_WORKER_UID
+    live["spec"]["traffic"] = copy.deepcopy(routes)
+    live["spec"]["template"] = {
+        "metadata": copy.deepcopy(expired["metadata"]),
+        "spec": copy.deepcopy(expired["spec"]),
+    }
+    live["status"].update(
+        latestCreatedRevisionName=WORKER.RECORDED_EXPIRED,
+        latestReadyRevisionName=WORKER.RECORDED_EXPIRED,
+        traffic=copy.deepcopy(routes),
+    )
+    stage_ports.provider_startup = result != "unready"
+    if result == "timeouts_applied":
+        stage_ports.replace_timeouts = {1, 2}
+    path = tmp_path / "intent.json"
+    if result == "wrong_expired_uid":
+        with pytest.raises(ValueError, match="expired_template_changed"):
+            WORKER.prepare(path)
+        assert not stage_ports.mutations
+        return
+    if result == "unready":
+        with pytest.raises(ValueError, match="provider_startup_unqualified"):
+            _stage(path, monkeypatch)
+        assert not path.with_suffix(".json.staged.json").exists()
+    else:
+        _stage(path, monkeypatch)
+        staged = json.loads(path.with_suffix(".json.staged.json").read_bytes())
+        WORKER.validate(staged, path.with_suffix(".json.scheduler.json"), allow_retirement=True)
+        assert live["status"]["latestReadyRevisionName"] == NEW
+    assert len(stage_ports.mutations) == 2
+    initial = stage_ports.mutations[0]["spec"]
+    assert initial["traffic"] == [*routes, WORKER.startup_target({"candidate": NEW})]
+    assert (
+        initial["template"]["metadata"]["annotations"]["run.googleapis.com/health-check-disabled"]
+        == "false"
+    )
+    assert live["spec"]["traffic"] == live["status"]["traffic"] == routes
 
 
 def test_preparation_accepts_the_resolved_pinned_scanner(stage_ports, tmp_path):

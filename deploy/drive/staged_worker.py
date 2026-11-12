@@ -27,6 +27,12 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PROJECT, REGION, SERVICE = "hushh-pda", "us-central1", "consent-protocol-drive-worker"
 SCHEMA = "drive.worker.stage.v1"
+RECOVERY = run_path(str(ROOT / "scripts/ci/production_recovery_capacity.py"))
+RECORDED_WORKER_UID = "9e1d2707-bf41-46d3-b1fa-ba166f3c28d3"
+RECORDED_SERVING = SERVICE + "-00003-xiz"
+RECORDED_SERVING_UID = "22469ebf-9ad5-4bc5-b28d-1a7923dfd0ff"
+RECORDED_EXPIRED = SERVICE + "-s-40981147326-1"
+RECORDED_EXPIRED_UID = "5f167ea5-0c42-4409-a9f1-b626f3297892"
 
 
 def run(command: list[str], *, timeout: int = 120) -> bytes:
@@ -206,10 +212,147 @@ def release_basis(path: Path | None, fields: dict, prior: dict) -> dict:
     return {"release_basis": _bind_basis(json.loads(path.read_bytes()), fields, prior)}
 
 
+def recovery_stage(fields):
+    return fields["source"] == RECOVERY["APPLICATION_SHA"]
+
+
+def stage_template(value, prior, fields, version, name):
+    old = revision(prior["serving"])
+    template = value["spec"]["template"]
+    template_name = template.get("metadata", {}).get("name")
+    same_spec = VERIFIER["same_worker_spec"]
+    if template_name != prior["serving"] or not same_spec(template["spec"], old["spec"]):
+        if (
+            not recovery_stage(fields)
+            or prior["uid"] != RECORDED_WORKER_UID
+            or prior["serving"] != RECORDED_SERVING
+            or old["metadata"].get("uid") != RECORDED_SERVING_UID
+            or template_name != RECORDED_EXPIRED
+            or value["status"].get("latestCreatedRevisionName") != RECORDED_EXPIRED
+            or value["status"].get("latestReadyRevisionName") != RECORDED_EXPIRED
+            or any(target.get("revisionName") == RECORDED_EXPIRED
+                   for target in [*prior["traffic"], *value["status"]["traffic"]])
+        ):
+            raise ValueError("worker_latest_template_is_not_serving_revision")
+        expired = revision(RECORDED_EXPIRED)
+        if (
+            expired["metadata"].get("uid") != RECORDED_EXPIRED_UID
+            or not same_spec(template["spec"], expired["spec"])
+        ):
+            raise ValueError("worker_recorded_expired_template_changed")
+        ignored = {
+            "run.googleapis.com/operation-id", "serving.knative.dev/creator",
+            "serving.knative.dev/lastModifier",
+        }
+        annotations = {key: val for key, val in old["metadata"].get("annotations", {}).items()
+                       if key not in ignored}
+        if annotations != template["metadata"].get("annotations", {}):
+            raise ValueError("worker_serving_template_controls_changed")
+        labels = {key: val for key, val in old["metadata"]["labels"].items()
+                  if not key.startswith(("serving.knative.dev/", "cloud.googleapis.com/",
+                                         "run.googleapis.com/"))}
+        spec = copy.deepcopy(old["spec"])
+        scanner = next(item for item in spec["containers"] if item["name"] == "clamav")
+        scanner["image"] = f"clamav/clamav@{SCANNER_INDEX}"
+        template = {"metadata": {"annotations": annotations, "labels": labels}, "spec": spec}
+    verify(old, {
+        "source": old["metadata"]["labels"]["deploy-sha"],
+        "image": next(item["image"] for item in old["spec"]["containers"]
+                      if item["name"] == "drive-worker"),
+    })
+    result = candidate({"spec": {"template": template}}, fields, version, name)
+    if recovery_stage(fields):
+        result["metadata"]["annotations"]["run.googleapis.com/health-check-disabled"] = "false"
+    return result
+
+
+def startup_target(receipt):
+    # Service name plus tag and separator must fit Cloud Run's 46 characters.
+    name = receipt["candidate"]
+    suffix = hashlib.sha256(name.encode()).hexdigest()[:9]
+    return {"revisionName": name, "tag": f"stage-{suffix}"}
+
+
+def startup_verified(value, actual, receipt):
+    name = receipt["candidate"]
+    return (
+        value["status"].get("latestCreatedRevisionName") == name
+        and value["status"].get("latestReadyRevisionName") == name
+        and any(row.get("type") == "ContainerHealthy" and row.get("status") == "True"
+                for row in actual.get("status", {}).get("conditions", []))
+    )
+
+
+def worker_startup_state(value, receipt, scheduler_hash):
+    tag = startup_target(receipt)
+    normalized = copy.deepcopy(value)
+    found = []
+    for lane in ("spec", "status"):
+        rows = value[lane]["traffic"]
+        owned = [row for row in rows if row.get("tag") == tag["tag"]
+                 or row.get("revisionName") == receipt["candidate"]]
+        if owned and (
+            len(owned) != 1
+            or owned[0].get("tag") != tag["tag"]
+            or owned[0].get("revisionName") != receipt["candidate"]
+            or owned[0].get("percent", 0) != 0
+            or owned[0].get("latestRevision")
+        ):
+            raise ValueError("worker_startup_route_changed")
+        found.append(bool(owned))
+        normalized[lane]["traffic"] = [row for row in rows if row not in owned]
+    if found[0] != found[1]:
+        raise ValueError("worker_startup_route_unreconciled")
+    continuity(normalized, receipt, scheduler_hash, allow_retirement=False)
+    return found[0]
+
+
+def finish_recovery_startup(receipt, template, scheduler_hash):
+    after = service()
+    actual = revision(receipt["candidate"])
+    if (
+        after["spec"]["template"].get("metadata", {}).get("name") != receipt["candidate"]
+        or not VERIFIER["same_worker_spec"](template["spec"], after["spec"]["template"]["spec"])
+        or not VERIFIER["same_worker_spec"](template["spec"], actual["spec"])
+        or not actual["metadata"].get("uid")
+    ):
+        raise ValueError("worker_submitted_template_readback_mismatch")
+    if worker_startup_state(after, receipt, scheduler_hash):
+        try:
+            for _ in range(6):
+                if startup_verified(after, actual, receipt):
+                    break
+                time.sleep(3)
+                after = service()
+                if not worker_startup_state(after, receipt, scheduler_hash):
+                    raise ValueError("worker_startup_route_unreconciled")
+                refreshed = revision(receipt["candidate"])
+                if refreshed["metadata"].get("uid") != actual["metadata"]["uid"]:
+                    raise ValueError("worker_staged_revision_changed")
+                actual = refreshed
+        finally:
+            # Remove only the exact private tag, even when startup failed.
+            after = service()
+            if worker_startup_state(after, receipt, scheduler_hash):
+                try:
+                    submit(after, after["spec"]["template"], targets=receipt["baseline"]["traffic"])
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    pass  # Resolve the provider result before publishing proof.
+        after = service()
+        if worker_startup_state(after, receipt, scheduler_hash):
+            raise ValueError("worker_startup_tag_removal_unresolved")
+        refreshed = revision(receipt["candidate"])
+        if refreshed["metadata"].get("uid") != actual["metadata"]["uid"]:
+            raise ValueError("worker_staged_revision_changed")
+        actual = refreshed
+    if not startup_verified(after, actual, receipt):
+        raise ValueError("worker_provider_startup_unqualified")
+    return after, actual
+
+
 def prepare(path: Path, release_basis_path: Path | None = None) -> None:
     fields, value = context(), service()
     prior = baseline(value, snapshot(Path(str(path) + ".scheduler.json"), value))
-    old = revision(prior["serving"])
     annotations = value["metadata"].get("annotations", {})
     if (
         annotations.get("run.googleapis.com/ingress") != "internal"
@@ -221,23 +364,6 @@ def prepare(path: Path, release_basis_path: Path | None = None) -> None:
         != "false"
     ):
         raise ValueError("worker_private_service_controls_mismatch")
-    if value["spec"]["template"].get("metadata", {}).get("name") != prior[
-        "serving"
-    ] or not VERIFIER["same_worker_spec"](
-        value["spec"]["template"]["spec"], old["spec"]
-    ):
-        raise ValueError("worker_latest_template_is_not_serving_revision")
-    verify(
-        old,
-        {
-            "source": old["metadata"]["labels"]["deploy-sha"],
-            "image": next(
-                item["image"]
-                for item in old["spec"]["containers"]
-                if item["name"] == "drive-worker"
-            ),
-        },
-    )
     secret = gcloud(
         "secrets",
         "versions",
@@ -255,7 +381,12 @@ def prepare(path: Path, release_basis_path: Path | None = None) -> None:
     name = f"{SERVICE}-s-{fields['run_id']}-{fields['attempt']}"
     if len(name) > 63:
         raise ValueError("worker_staged_revision_name_too_long")
-    template = candidate(value, fields, version, name)
+    template = stage_template(value, prior, fields, version, name)
+    if recovery_stage(fields) and any(
+        row.get("tag") == startup_target({"candidate": name})["tag"]
+        for row in [*prior["traffic"], *value["status"]["traffic"]]
+    ):
+        raise ValueError("worker_startup_tag_already_present")
     write(
         path,
         {
@@ -293,7 +424,7 @@ def continuity(
         raise ValueError("worker_controls_iam_scheduler_or_traffic_changed")
 
 
-def submit(value: dict, template: dict) -> None:
+def submit(value: dict, template: dict, *, targets=None) -> None:
     replacement = {
         "apiVersion": "serving.knative.dev/v1",
         "kind": "Service",
@@ -305,6 +436,8 @@ def submit(value: dict, template: dict) -> None:
         "spec": copy.deepcopy(value["spec"]),
     }
     replacement["spec"]["template"] = template
+    if targets is not None:
+        replacement["spec"]["traffic"] = targets
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as resource:
         json.dump(replacement, resource)
         resource.flush()
@@ -346,26 +479,29 @@ def stage(path: Path) -> None:
         row.get("metadata", {}).get("name") == receipt["candidate"] for row in rows
     ):
         raise ValueError("worker_stage_outcome_already_exists_or_unknown")
-    template = candidate(
-        value, receipt["context"], receipt["config_version"], receipt["candidate"]
+    template = stage_template(
+        value, receipt["baseline"], receipt["context"], receipt["config_version"],
+        receipt["candidate"],
     )
     if fingerprint(template) != receipt["template"]:
         raise ValueError("worker_stage_template_intent_mismatch")
-    submit(value, template)
-    after = service()
-    continuity(
-        after,
-        receipt,
-        fingerprint(json.loads(scheduler.read_bytes())),
-        allow_retirement=False,
-    )
-    if after["spec"]["template"]["spec"] != template["spec"] or (
-        after["spec"]["template"].get("metadata", {}).get("name")
-        != receipt["candidate"]
-    ):
-        raise ValueError("worker_submitted_template_readback_mismatch")
+    scheduler_hash = fingerprint(json.loads(scheduler.read_bytes()))
+    if recovery_stage(receipt["context"]):
+        try:
+            submit(value, template, targets=[*receipt["baseline"]["traffic"], startup_target(receipt)])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass  # Reconcile the one submitted candidate; never create a second.
+        after, actual = finish_recovery_startup(receipt, template, scheduler_hash)
+    else:
+        submit(value, template)
+        after = service()
+        continuity(after, receipt, scheduler_hash, allow_retirement=False)
+        if after["spec"]["template"]["spec"] != template["spec"] or (
+            after["spec"]["template"].get("metadata", {}).get("name") != receipt["candidate"]
+        ):
+            raise ValueError("worker_submitted_template_readback_mismatch")
+        actual = revision(receipt["candidate"])
     run(scheduler_command("verify", scheduler, after["status"]["url"]))
-    actual = revision(receipt["candidate"])
     verify(actual, receipt["context"], receipt["config_version"])
     if not actual["metadata"].get("uid"):
         raise ValueError("worker_candidate_uid_unavailable")
@@ -400,6 +536,12 @@ def validate(receipt: dict, snapshot_path: Path, *, allow_retirement: bool) -> d
     )
     actual = revision(receipt["candidate"])
     verify(actual, receipt["context"], receipt["config_version"])
+    if recovery_stage(receipt["context"]) and (
+        not startup_verified(value, actual, receipt)
+        or any(target.get("revisionName") == receipt["candidate"]
+               for target in [*value["spec"]["traffic"], *value["status"]["traffic"]])
+    ):
+        raise ValueError("worker_staged_provider_startup_changed")
     config = gcloud(
         "secrets",
         "versions",

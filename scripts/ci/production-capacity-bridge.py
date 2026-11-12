@@ -527,7 +527,7 @@ def verify_superseded_predecessor(previous, source, inventory, service, profile)
             raise retention.UnsafeState("Predecessor secret pin is no longer enabled")
 
 
-def replace_service(service, template, targets):
+def replace_service(service, template, targets, *, timeout=150):
     # Preserve the exact live resourceVersion. The deployment lock also
     # serializes cooperating operations, while CAS fences out-of-band changes.
     body = {
@@ -553,7 +553,7 @@ def replace_service(service, template, targets):
             retention.run_command(
                 ["gcloud", "run", "services", "replace", str(spec_file),
                  f"--project={PROJECT}", f"--region={REGION}", "--quiet"],
-                timeout=150,
+                timeout=timeout,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, retention.BudgetExpired):
             raise retention.MutationUncertain(
@@ -573,7 +573,8 @@ def recorded_probe_state(service, revision, receipt):
         expected = sorted([*expected, (recorded.REVISION, 0, recorded.STARTUP_TAG)])
     if (
         revision["metadata"].get("uid") != recorded.OBSERVED_BRIDGE_UID
-        or not recorded.inert_revision_matches(service, revision)
+        or service.get("metadata", {}).get("uid") != recorded.BACKEND_SERVICE_UID
+        or not recorded.inert_revision_matches(revision)
         or not recorded.reconciled(service)
         or service["status"].get("latestCreatedRevisionName") != recorded.REVISION
         or service["status"].get("latestReadyRevisionName") not in {recorded.REVISION, recorded.DISPLACED}
@@ -641,16 +642,25 @@ def reconcile_recorded_startup(service, revision, receipt, save, *, create, prof
         return
     if not create:
         raise retention.MutationUncertain("Recorded bridge requires an explicit startup reconciliation")
-    if phase is None and not tagged:
+    attempts = receipt.get("startupAttempts", 0)
+    can_start = phase is None or phase == "removal_requested" and attempts < 2
+    if not tagged and can_start:
+        # Leave time for both the bounded tag write and tag restoration.
+        if retention.remaining_seconds(75) < 75:
+            raise retention.BudgetExpired("Recorded bridge startup cleanup budget unavailable")
         report = budget.evaluate(profile, "production", inventory, candidate_services=frozenset())
         if not report["admitted"]:
             raise retention.UnsafeState("Recorded bridge startup capacity is not admitted")
         receipt["startupProbe"] = "tag_requested"
+        receipt["startupAttempts"] = attempts + 1
         save()
-        replace_service(service, service["spec"]["template"], [
-            *receipt["desiredTraffic"],
-            {"revisionName": recorded.REVISION, "tag": recorded.STARTUP_TAG},
-        ])
+        try:
+            replace_service(service, service["spec"]["template"], [
+                *receipt["desiredTraffic"],
+                {"revisionName": recorded.REVISION, "tag": recorded.STARTUP_TAG},
+            ], timeout=30)
+        except retention.MutationUncertain:
+            pass  # Only an exact observed tag can advance this intent.
         service, revision = readback()
         tagged = recorded_probe_state(service, revision, receipt)
         phase = "tag_requested"
@@ -674,7 +684,10 @@ def reconcile_recorded_startup(service, revision, receipt, save, *, create, prof
             raise retention.MutationUncertain("Recorded bridge startup tag is absent")
         receipt["startupProbe"] = "removal_requested"
         save()
-        replace_service(service, service["spec"]["template"], receipt["desiredTraffic"])
+        try:
+            replace_service(service, service["spec"]["template"], receipt["desiredTraffic"], timeout=30)
+        except retention.MutationUncertain:
+            pass  # An observed unchanged or removed tag decides the next action.
     service, revision = readback()
     if recorded_probe_state(service, revision, receipt) or not recorded_startup_ready(service, revision):
         raise retention.MutationUncertain("Recorded bridge startup is unverified after tag removal")
@@ -894,6 +907,7 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
     startup_phase = previous.get("startupProbe") if recorded_recovery and reuse else None
     if startup_phase is not None:
         receipt["startupProbe"] = startup_phase
+        receipt["startupAttempts"] = previous.get("startupAttempts", 0)
     if (
         recorded_recovery and reuse and previous["status"] == "intent"
         and previous["requested"] and (
