@@ -375,7 +375,7 @@ export function FinanceSharingManager({
                       .toUpperCase() || "?"}
                   </PersonProfileButton>
                   <div>
-                    <h3 className="text-sm font-semibold">
+                    <h3 className={styles.grantName}>
                       {direction === "outgoing"
                         ? item.recipientName
                         : item.senderName}
@@ -392,8 +392,8 @@ export function FinanceSharingManager({
               </div>
               {renderGrant(item)}
               {shares.length > 1 ? (
-                <details className="mt-2 border-t border-border pt-2">
-                  <summary className="cursor-pointer text-sm">
+                <details className={styles.grantEarlier}>
+                  <summary>
                     Earlier ({shares.length - 1})
                   </summary>
                   {shares.slice(1).map((earlier) => renderGrant(earlier, true))}
