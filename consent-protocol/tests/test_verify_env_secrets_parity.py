@@ -15,6 +15,39 @@ parity = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(parity)
 
 
+@pytest.mark.parametrize("latest_payload", ["synthetic-payload", "previous-payload"])
+def test_secret_upsert_preserves_runtime_and_rollback_versions(monkeypatch, latest_payload):
+    import io
+    import subprocess
+
+    path = REPO_ROOT / "scripts/ops/upsert_gcp_secret.py"
+    spec = importlib.util.spec_from_file_location("upsert_secret", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        assert "destroy" not in argv, "An upsert must preserve pinned secret versions"
+        output = "synthetic-secret"
+        if "access" in argv:
+            output = latest_payload
+        elif "list" in argv:
+            output = "1\n2\n3\n"
+        elif "add" in argv:
+            assert kwargs["input"] == "synthetic-payload"
+        return subprocess.CompletedProcess(argv, 0, output, "")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("synthetic-payload"))
+    monkeypatch.setattr(
+        sys, "argv", ["upsert", "--project", "synthetic", "--secret", "TEST", "--stdin"]
+    )
+    assert module.main() == 0
+    assert sum("add" in argv for argv in calls) == (latest_payload != "synthetic-payload")
+
+
 def test_domain_runtime_requires_only_the_matching_alias_group(monkeypatch):
     origin = "https://uat.one.hushh.ai"
     config = {

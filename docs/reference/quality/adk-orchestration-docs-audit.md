@@ -460,6 +460,36 @@ items; reuse prior evidence only when its owner, image and lifecycle match.
 
 ## Historical decision — 27 October 2026
 
+## Durable owner recovery — 31 October 2026 source correction
+
+The existing GCP and Azure storage/custody architecture is retained. Configured
+durable pods now refuse startup if identity or session-authority recovery fails,
+before Browser, heartbeat or background consumers start. They cannot silently
+rotate to an ephemeral identity or serve relayed turns without recovered fencing.
+Legacy non-durable startup retains its existing behavior. Checkpoint-budget
+overflow shares one complete verified log replay across startup reducers; it
+never truncates history. A gateway response after a chat POST is now unconfirmed,
+not permission to resend; pre-send wake probes remain retryable.
+
+Focused local checks cover cross-store CAS, custody, identity, fencing, recovery,
+memory durability and the actual client wake wrapper. These establish source
+behavior, not installed-owner acceptance. On 1 November, explicit owner CLI
+sessions successfully read the registered GCP service and both Azure apps. The
+earlier admin-ADC GCP denial and Azure broker-assertion HTTP 403 are specific to
+that credential path, not a general cloud-access blocker. GCP reports Ready with
+durable identity and commit-log storage enabled; both Azure apps report successful
+provisioning. CLI defaults were not changed, and every target was explicit to
+avoid the default UAT project. Task-owned database proxies stopped. No cloud
+mutation, UAT action, deployment or current-image restart qualification was performed.
+Finish installed acceptance through the existing owner-approved update path:
+exact image, stable identity/history after replacement,
+stale-writer refusal and an authenticated completed turn. Do not use process
+health, historical receipts or an offline lifecycle simulation as that proof.
+
+## Previous release decision — 27 October 2026
+## Previous release decision — 27 October 2026
+
+
 **Production recovery is verified. Release-system activation and installed-owner
 Browser acceptance remain open.** The compatible pre-pod Shared application
 `d8a5fa485874` serves the recorded production pair; its

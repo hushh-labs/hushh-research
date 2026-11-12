@@ -18,7 +18,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Pencil, Trash2, Save, Loader2, Undo2 } from "@/components/icons";
 import { Kbd } from "@/components/ui/kbd";
 
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import {

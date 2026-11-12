@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Loader2, Send, ShieldAlert } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";

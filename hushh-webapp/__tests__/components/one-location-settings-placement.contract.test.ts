@@ -86,7 +86,7 @@ describe("One Location settings placement", () => {
     const settingsEnd = HUB_SOURCE.indexOf("/* PEOPLE HUB", settingsStart);
     const settingsSource = HUB_SOURCE.slice(settingsStart, settingsEnd);
 
-    expect(settingsSource).toContain("<SavedLocationsSection />");
+    expect(settingsSource).toContain("<SavedLocationsSection ");
     expect(PROFILE_SOURCE).not.toContain("SavedLocationsSection");
   });
 

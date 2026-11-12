@@ -299,11 +299,12 @@ export async function clearAgentAiSelection(
 }
 
 /** Verify the cloud default without discarding the provider's typed refusal. */
-export async function verifyAgentCloudAi(): Promise<AiSelectionOutcome> {
+export async function verifyAgentCloudAi(visitIsCurrent: () => boolean = () => true): Promise<AiSelectionOutcome> {
   const owner = snapshotValidatedAuthSessionOwner();
-  if (!owner) return { ok: false, code: "AGENT_UNREACHABLE" };
+  const isCurrent = () => Boolean(owner && isValidatedAuthSessionOwnerCurrent(owner) && visitIsCurrent());
+  if (!isCurrent()) return { ok: false, code: "AGENT_UNREACHABLE" };
   const status = await readAgentStatus();
-  if (!isValidatedAuthSessionOwnerCurrent(owner))
+  if (!isCurrent())
     return { ok: false, code: "AGENT_UNREACHABLE" };
   const provider = ownerCloudProvider(status?.deploymentTarget);
   const knownPlacement = (status?.hostingMode === "byoc" && provider !== null) ||
@@ -315,9 +316,9 @@ export async function verifyAgentCloudAi(): Promise<AiSelectionOutcome> {
   // still refuse with 404/405 and provider/owner/incarnation checks remain intact.
   const expectedProvider = provider === "azure" ? "azure_openai" : "gemini";
   try {
-    const response = await ApiService.ownerPodRequest("ai-selection", { method: "PATCH" }, false, undefined, undefined, () => isValidatedAuthSessionOwnerCurrent(owner));
+    const response = await ApiService.ownerPodRequest("ai-selection", { method: "PATCH" }, false, undefined, undefined, isCurrent);
     const body = await response.json().catch(() => null);
-    if (!isValidatedAuthSessionOwnerCurrent(owner)) return { ok: false, code: "AGENT_UNREACHABLE" };
+    if (!isCurrent()) return { ok: false, code: "AGENT_UNREACHABLE" };
     if (!response.ok) return { ok: false, code: refusalFromResponse(response.status, body) };
     const model = textOrNull(body?.defaultModel);
     const checkedAtMs = finiteOrNull(body?.checkedAtMs);
@@ -403,8 +404,10 @@ export async function shareGeminiSelectionWithAgent(
 export async function clearAgentAiSelectionFor(
   onlyProvider: AiSelectionProvider | null,
   verifyDefault = false,
+  visitIsCurrent: () => boolean = () => true,
 ): Promise<"cleared" | "not_needed" | "failed"> {
-  const isCurrent = captureAiOwner();
+  const ownerIsCurrent = captureAiOwner();
+  const isCurrent = () => ownerIsCurrent() && visitIsCurrent();
   if (!isCurrent()) return "failed";
   const status = await readAgentStatus();
   if (!isCurrent()) return "failed";

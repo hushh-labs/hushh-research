@@ -1,5 +1,7 @@
 import Capacitor
 import SwiftUI
+
+private let nativeDockRestingHeight: CGFloat = 52
 import UIKit
 
 /// Geometry only. Equal-height keyboard movement still needs an ordered receipt.
@@ -205,7 +207,7 @@ final class NativeDockPlacement {
         dock.translatesAutoresizingMaskIntoConstraints = false
         leading = dock.leadingAnchor.constraint(equalTo: parent.leadingAnchor)
         width = dock.widthAnchor.constraint(equalToConstant: 1)
-        height = dock.heightAnchor.constraint(equalToConstant: 68)
+        height = dock.heightAnchor.constraint(equalToConstant: nativeDockRestingHeight)
         bottom = dock.bottomAnchor.constraint(equalTo: parent.topAnchor)
         // A short landscape viewport may compress the editor, but never push
         // it through the keyboard or above the safe header region.
@@ -399,9 +401,9 @@ struct NativeAgentDockView: View {
                     if model.mode == "text" && model.expanded {
                         dockButton("arrow.down.right.and.arrow.up.left", "Finish editing") { model.action("collapse") }
                     }
-                }.padding(.vertical, model.expanded ? 4 : 12).padding(.trailing, model.expanded ? 6 : 12)
+                }.padding(.vertical, 4).padding(.trailing, model.expanded ? 6 : 8)
             }
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .glassEffect(.regular, in: .rect(cornerRadius: 26))
             .glassEffectID("agent-dock", in: glass)
         }
         .tint(Color(uiColor: model.accent))
@@ -677,7 +679,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         guard #available(iOS 26.0, *), let parent = bridge?.viewController, let host = hosting else { return }
         let scale = parent.view.bounds.width / max(1, viewport.width)
         guard let dockHost = host as? NativeDockHostingController else { return }
-        let desired = min(340, max(68, dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height))
+        let desired = min(340, max(nativeDockRestingHeight, dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height))
         if placement?.update(frame: CGRect(x: frame.minX * scale, y: frame.minY * scale,
             width: frame.width * scale, height: frame.height * scale), height: desired, editing: model.mode == "text") == true {
             parent.view.setNeedsLayout()
@@ -720,7 +722,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             // WK drawers cannot interleave with foreground UIKit controls.
             // Retain the editor/host, but conceal the foreground pilot until
             // the current React owner acknowledges fresh admission.
-            self.hosting?.view.isHidden = self.compositor == nil || !self.safe
+            self.hosting?.view.isHidden = true
             self.hosting?.view.accessibilityElementsHidden = true
             self.compositor?.setAdmission("agent-dock", admitted: false)
             call.resolve(self.ack(identity, sequence: self.fence.update, phase: "active"))
@@ -847,7 +849,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         var result = identityPayload(identity)
         result["updateSequence"] = sequence
         result["phase"] = phase
-        result["height"] = Double(hosting?.view.bounds.height ?? 68)
+        result["height"] = Double(hosting?.view.bounds.height ?? nativeDockRestingHeight)
         if phase == "active", let layout = currentLayout() { result["layout"] = layout }
         return result
     }

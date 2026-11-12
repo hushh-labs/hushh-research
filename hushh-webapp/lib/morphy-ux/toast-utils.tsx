@@ -484,4 +484,35 @@ export const morphyToast = {
       },
     });
   },
+
+  /** Explicit promise path for owner-fenced, plain-text native feedback. */
+  promiseText: <T,>(
+    promise: Promise<T> | (() => Promise<T>),
+    data: {
+      loading: string;
+      description?: React.ReactNode;
+      variant?: ColorVariant;
+      finally?: () => void | Promise<void>;
+      isCurrent?: () => boolean;
+      success: string | ((value: T) => string | null);
+      error: string | ((error: unknown) => string | null);
+    }
+  ): ReturnType<typeof toast.promise> => {
+    const accent = getToastVariantAccentClassName(data.variant);
+    const success = (value: T) => typeof data.success === "function" ? data.success(value) : data.success;
+    const error = (cause: unknown) => typeof data.error === "function" ? data.error(cause) : data.error;
+    return toast.promiseText(promise, {
+      loading: data.loading,
+      get success() { return !data.isCurrent || data.isCurrent() ? success : undefined; },
+      get error() { return !data.isCurrent || data.isCurrent() ? error : undefined; },
+      description: data.description,
+      finally: data.finally,
+      classNames: {
+        toast: cn("morphy-sonner-toast", accent),
+        loading: cn(getToastToneClassName("info", data.variant)),
+        success: cn(getToastToneClassName("success", data.variant)),
+        error: cn(getToastToneClassName("error", data.variant)),
+      },
+    });
+  },
 };

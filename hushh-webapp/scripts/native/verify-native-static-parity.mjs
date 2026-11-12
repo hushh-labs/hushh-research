@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { hasNativeRouteAuditContract } from "./native-route-status.mjs";
 
 const repoRoot = process.cwd();
 const iosInfoPlistPath = path.join(repoRoot, "ios/App/App/Info.plist");
@@ -226,15 +227,20 @@ const inventoryRouteSet = new Set(inventoryRoutes.map((route) => route.route));
 // Compatibility routes are web redirects, not native destinations. They remain
 // in ROUTES so inbound links and the web proxy stay typed, but must not force a
 // native inventory entry or native smoke surface of their own.
-const missingRoutes = routeValues.filter(
+// The authored ROUTES constant does not include every dynamic App Router page.
+// Standard layout entries are product surfaces too and must be classified.
+const standardLayoutRoutes = routeLayout
+  .filter((entry) => entry?.mode === "standard")
+  .map((entry) => entry.route);
+const missingRoutes = [...new Set([...routeValues, ...standardLayoutRoutes])].filter(
   (route) =>
     !inventoryRouteSet.has(route) && !redirectOnlyRoutes.has(route),
 );
 if (missingRoutes.length > 0) {
-  fail(`native-route-inventory.json is missing ROUTES entries: ${missingRoutes.join(", ")}`);
+  fail(`native-route-inventory.json is missing app routes: ${missingRoutes.join(", ")}`);
 }
 
-const routeValueSet = new Set(routeValues);
+const routeValueSet = new Set([...routeValues, ...standardLayoutRoutes]);
 const unclassifiedExtras = inventoryRoutes
   .filter((route) => !routeValueSet.has(route.route))
   .filter((route) => route.legacyAlias !== true)
@@ -267,6 +273,14 @@ const markerlessRequiredRoutes = inventoryRoutes
   .map((route) => route.route);
 if (markerlessRequiredRoutes.length > 0) {
   fail(`native-required routes need expectedMarker: ${markerlessRequiredRoutes.join(", ")}`);
+}
+
+const incompleteAuditContracts = inventoryRoutes
+  .filter((route) => String(route.classification || "").startsWith("native-required"))
+  .filter((route) => !hasNativeRouteAuditContract(route))
+  .map((route) => route.route);
+if (incompleteAuditContracts.length > 0) {
+  fail(`native-required routes need a complete auth/data contract: ${incompleteAuditContracts.join(", ")}`);
 }
 
 // An `excluded-*` classification drops a route out of every parity check above.

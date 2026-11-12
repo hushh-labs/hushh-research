@@ -1,4 +1,6 @@
-/** Authored form/action vectors only; the parent owns Vite lifetime and emission. */
+import { createElement } from "react";
+
+/** Authored vectors only; the parent owns Vite lifetime and emission. */
 export async function loadNativeProfileFormArtwork(profileLoader) {
   const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
   const { PROFILE_ICONS } = await profileLoader.ssrLoadModule("/components/icons/profile-icons.ts");
@@ -7,7 +9,11 @@ export async function loadNativeProfileFormArtwork(profileLoader) {
   const { GeminiLogo } = await profileLoader.ssrLoadModule("/components/brand/gemini-logo.tsx");
   const { Brain } = await profileLoader.ssrLoadModule("/components/icons/legacy-ui-icons.tsx");
   const { NATIVE_ACTION_ARTWORK } = await profileLoader.ssrLoadModule("/lib/capacitor/native-action-artwork.ts");
+  const { OneRosterAgentIcon } = await profileLoader.ssrLoadModule("/components/icons/agents/one-roster-agent-icon.tsx");
+  const { AGENT_ICON_MAP } = await profileLoader.ssrLoadModule("/components/icons/agents/agent-icons.tsx");
   return [
+    ...[...Object.keys(AGENT_ICON_MAP), "default"].map(agentId => ({ id: `roster-${agentId}`, size: 36,
+      icon: props => createElement(OneRosterAgentIcon, { ...props, agentId }) })),
     ...[...NATIVE_ACTION_ARTWORK].map(([icon, id]) => ({ id, icon })),
     { id: "ai-connection", icon: Brain },
     { id: "style-name", icon: rows.PreferredNameRowIcon },

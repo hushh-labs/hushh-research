@@ -1,3 +1,4 @@
+import { NativeWorkspacePresentationOwner } from "@/lib/capacitor/native-workspace-presence";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService } from "@/lib/services/cache-service";
@@ -12,12 +13,54 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+describe("shared workspace lifetime ownership", () => {
+  it("keeps the successor covered when an older retirement completes or repeats", async () => {
+    const owner = new NativeWorkspacePresentationOwner();
+    const old = {}, next = {};
+    const withdrawal = Promise.withResolvers<boolean>();
+    owner.register(old, () => withdrawal.promise.then(absent => {
+      owner.report(old, absent ? "web" : "blocked", "inactive"); return absent;
+    }));
+    owner.report(old, "native", "active");
+    owner.register(next, async () => false);
+    const ready = owner.retirePredecessors(next);
+    expect(owner.getSnapshot()).toMatchObject({ identity: next, phase: "checking", held: true });
+    withdrawal.resolve(true);
+    expect(await ready).toBe(true);
+    owner.report(next, "native", "active");
+    owner.report(old, "web", "inactive");
+    expect(owner.getSnapshot()).toMatchObject({ identity: next, phase: "native", held: true });
+    expect(await owner.retireForWeb()).toBe(false);
+    expect(owner.getSnapshot().held).toBe(true);
+  });
+});
+
 const historyProbe = vi.hoisted(() => ({ getContext: null as null | ((id: string) => { isCurrent: () => boolean } | null) }));
+const nativeWorkspaceHarness = vi.hoisted(() => ({ retire: null as null | (() => Promise<boolean>) }));
 vi.mock("@/components/wallet/wallet-sharing-history", () => ({ WalletSharingHistory: ({ getContext }: { getContext: typeof historyProbe.getContext }) => { historyProbe.getContext = getContext; return <section>Received cards</section>; } }));
 vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: ({ cardDetails, getHistoryContext }: { cardDetails?: boolean; getHistoryContext: typeof historyProbe.getContext }) => {
   historyProbe.getContext = getHistoryContext;
   return <section>{cardDetails ? "Card recipients" : "Sharing overview"}</section>;
 } }));
+vi.mock("@/lib/capacitor/use-native-workspace", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  const actual = await vi.importActual<typeof import("@/lib/capacitor/use-native-workspace")>("@/lib/capacitor/use-native-workspace");
+  return { ...actual,
+    useNativeWorkspace: (options: { presentationOwner?: NativeWorkspacePresentationOwner }) => {
+      React.useLayoutEffect(() => {
+        const identity = {};
+        let retirement: Promise<boolean> | undefined;
+        const retire = () => retirement ??= (nativeWorkspaceHarness.retire?.() ?? Promise.resolve(true)).then(absent => {
+          options.presentationOwner?.report(identity, absent ? "web" : "blocked", "inactive"); return absent;
+        });
+        options.presentationOwner?.register(identity, retire);
+        options.presentationOwner?.report(identity, "native", "active");
+        return () => { void retire(); };
+      }, [options.presentationOwner]);
+      return "native" as const;
+    },
+  };
+});
 vi.mock("@/components/wallet-card/wallet-card-workspace", () => ({
   WalletCardWorkspace: () => <section>Live profile controls</section>,
 }));
@@ -465,6 +508,28 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
+  it("preserves the AppPageShell gutter in the native Wallet frame", async () => {
+    const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";
+    const previous = Object.getOwnPropertyDescriptor(window, key);
+    Object.defineProperty(window, key, { configurable: true, value: { contractVersion: 1, enabled: true, coherentShell: true, walletCardForms: true } });
+    let unmount: (() => void) | undefined;
+    try {
+      const view = render(<WalletWorkspace />);
+      unmount = view.unmount;
+      fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+      const frame = await waitFor(() => {
+        const element = view.container.querySelector<HTMLElement>('[data-native-wallet-workspace="native"]');
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      expect(frame.style.paddingLeft).toBe("");
+      expect(frame.style.paddingRight).toBe("");
+    } finally {
+      unmount?.();
+      if (previous) Object.defineProperty(window, key, previous);
+      else Reflect.deleteProperty(window, key);
+    }
+  });
   it("removes the browser when the vault locks", async () => {
     const view = await open();
     vaultMock.locked = true;
@@ -472,6 +537,49 @@ describe("Wallet video browser workspace", () => {
     await screen.findByTestId("one-wallet-locked");
     expect(screen.queryByTestId("wallet-card-browser")).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
+  });
+  it("keeps the locked Wallet fallback covered until native retirement is confirmed", async () => {
+    let confirmFirstRetirement!: (absent: boolean) => void;
+    let confirmCurrentRetirement!: (absent: boolean) => void;
+    const firstRetirement = new Promise<boolean>(resolve => { confirmFirstRetirement = resolve; });
+    const currentRetirement = new Promise<boolean>(resolve => { confirmCurrentRetirement = resolve; });
+    let retirements = 0;
+    nativeWorkspaceHarness.retire = vi.fn(() => {
+      retirements += 1;
+      return retirements === 1 ? firstRetirement : retirements === 2 ? currentRetirement : Promise.resolve(true);
+    });
+    const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";
+    const previous = Object.getOwnPropertyDescriptor(window, key);
+    Object.defineProperty(window, key, { configurable: true, value: { contractVersion: 1, enabled: true, coherentShell: true, walletCardForms: true } });
+    let unmount: (() => void) | undefined;
+    try {
+      const view = render(<WalletWorkspace />);
+      unmount = view.unmount;
+      fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+      await waitFor(() => expect(view.container.querySelector('[data-native-wallet-web-surface="hidden"]')).not.toBeNull());
+      vaultMock.locked = true;
+      view.rerender(<WalletWorkspace />);
+      await waitFor(() => expect(nativeWorkspaceHarness.retire).toHaveBeenCalled());
+      expect(screen.getByTestId("one-wallet-locked")).not.toBeVisible();
+      vaultMock.locked = false;
+      view.rerender(<WalletWorkspace />);
+      await waitFor(() => expect(view.container.querySelector('[data-native-wallet-workspace="native"]')).not.toBeNull());
+      await act(async () => confirmFirstRetirement(true));
+      expect(view.container.querySelector('[data-native-wallet-web-surface="hidden"]')).not.toBeNull();
+
+      vaultMock.locked = true;
+      view.rerender(<WalletWorkspace />);
+      await waitFor(() => expect(nativeWorkspaceHarness.retire).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId("one-wallet-locked")).not.toBeVisible();
+      await act(async () => confirmCurrentRetirement(true));
+      await waitFor(() => expect(screen.getByTestId("one-wallet-locked")).toBeVisible());
+    } finally {
+      unmount?.();
+      nativeWorkspaceHarness.retire = null;
+      if (previous) Object.defineProperty(window, key, previous);
+      else Reflect.deleteProperty(window, key);
+      vaultMock.locked = false;
+    }
   });
   it.each(["owner", "lock", "tab", "visibility"])("rejects a pending number copy when %s changes", async boundary => {
     let finish!: (value: unknown) => void;

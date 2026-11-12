@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useMemo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { Briefcase } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -19,10 +22,16 @@ const CARD = "rounded-[24px] border border-border/45 bg-card/88 p-5 shadow-[var(
 const FIELD = "mt-1 w-full rounded-xl border bg-background px-3 py-2 text-sm";
 
 export default function CareerPage() {
-  const { user, userId } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const auth = useAuth(), vault = useVault();
+  // An owner change must retire the previous resume/draft, even when both
+  // sessions are unlocked. The existing readers stay inside that boundary.
+  return <CareerWorkspace key={`${auth.userId || "signed-out"}:${vault.isVaultUnlocked}`} auth={auth} vault={vault} />;
+}
+function CareerWorkspace({ auth, vault }: { auth: ReturnType<typeof useAuth>; vault: ReturnType<typeof useVault> }) {
+  const { user, userId } = auth;
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = vault;
   const ready = Boolean(userId && isVaultUnlocked && vaultKey && vaultOwnerToken);
-  const write = ready ? { userId: userId!, vaultKey: vaultKey!, vaultOwnerToken: vaultOwnerToken! } : null;
+  const write = useMemo(() => ready ? { userId: userId!, vaultKey: vaultKey!, vaultOwnerToken: vaultOwnerToken! } : null, [ready, userId, vaultKey, vaultOwnerToken]);
 
   const [saved, setSaved] = useState<Resume | null>(null);
   const [draft, setDraft] = useState<Resume | null>(null);
@@ -31,29 +40,49 @@ export default function CareerPage() {
   const [applying, setApplying] = useState<CareerRole | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [rolesError, setRolesError] = useState(false);
+  const [readRevision, setReadRevision] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
+  const nativeFrame = useRef<HTMLDivElement | null>(null);
+  const review = useRef<HTMLElement | null>(null);
+  const [filePickerOpen, setFilePickerOpen] = useState(false);
+  useEffect(() => {
+    const input = fileInput.current;
+    if (!input) return;
+    const cancelled = () => setFilePickerOpen(false);
+    input.addEventListener("cancel", cancelled);
+    return () => input.removeEventListener("cancel", cancelled);
+  }, [ready]);
+  useLayoutEffect(() => { if (applying) review.current?.scrollIntoView({ block: "start" }); }, [applying]);
+  useBackLayer(ROUTES.ONE_CAREER, draft || applying || filePickerOpen ? 1 : 0, () => {
+    if (busy === "save" || busy === "apply") return true;
+    setDraft(null); setApplying(null); setFilePickerOpen(false); return true;
+  });
 
   useEffect(() => {
     if (!write) return;
     let cancelled = false;
+    setLoadError(null); setRolesError(false);
     CareerPkmService.load(write)
       .then((state) => {
         if (cancelled) return;
         setSaved(state.resume);
         setApplications(state.applications);
       })
+      .catch(() => { if (!cancelled) setLoadError("Couldn’t load your resume. Try again."); })
       .finally(() => !cancelled && setLoaded(true));
     CareerService.listRoles()
       .then((next) => !cancelled && setRoles(next))
-      .catch(() => !cancelled && setRoles([]));
+      .catch(() => { if (!cancelled) { setRolesError(true); setRoles([]); } });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [write, readRevision]);
 
   const onFile = useCallback(
     async (file: File | undefined) => {
+      setFilePickerOpen(false);
       if (!file || !vaultOwnerToken) return;
       setBusy("parse");
       try {
@@ -74,7 +103,8 @@ export default function CareerPage() {
     if (!draft || !write) return;
     setBusy("save");
     try {
-      await CareerPkmService.saveResume({ ...write, resume: draft });
+      const result = await CareerPkmService.saveResume({ ...write, resume: draft });
+      if (!result.success) throw new Error("Resume save was not committed.");
       setSaved(normalizeResume(draft));
       setDraft(null);
       toast.success("Saved to your knowledge model");
@@ -103,8 +133,8 @@ export default function CareerPage() {
 
   const applied = new Set(applications.map((a) => a.role_slug));
 
-  return (
-    <AppPageShell
+  const content = (
+    <AppPageShell ref={nativeFrame}
       as="main"
       width="reading"
       headerContentSpacing="compact"
@@ -113,7 +143,9 @@ export default function CareerPage() {
         routeId: ROUTES.ONE_CAREER,
         marker: "native-route-one-career",
         authState: user ? "authenticated" : "pending",
-        dataState: !ready ? "loading" : loaded ? "loaded" : "loading",
+        dataState: !ready ? "loading" : loadError || rolesError ? "error" : loaded ? "loaded" : "loading",
+        errorCode: loadError ? "career_resume_load" : rolesError ? "career_roles_load" : null,
+        errorMessage: loadError || (rolesError ? "Open roles are temporarily unavailable." : null),
       }}
     >
       <AppPageHeaderRegion>
@@ -140,7 +172,20 @@ export default function CareerPage() {
               onChange={(e) => void onFile(e.target.files?.[0])}
             />
 
-            {draft ? (
+            {loadError || rolesError ? <div role="alert" className={CARD}>
+              <p>{loadError || "Couldn’t load open roles. Try again."}</p>
+              <Button type="button" onClick={() => setReadRevision(value => value + 1)}>Retry</Button>
+            </div> : null}
+            {filePickerOpen ? (
+              <section className={CARD} aria-labelledby="upload-resume-heading">
+                <h2 id="upload-resume-heading" className="text-lg font-semibold">Upload a resume</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Choose a PDF or Word file. You’ll review it before saving.</p>
+                <div className="mt-4 flex gap-2">
+                  <Button type="button" onClick={() => fileInput.current?.click()}>Choose file</Button>
+                  <Button type="button" variant="none" effect="fade" onClick={() => setFilePickerOpen(false)}>Cancel</Button>
+                </div>
+              </section>
+            ) : draft ? (
               <ResumeEditor draft={draft} onChange={setDraft} onSave={saveDraft} onCancel={() => setDraft(null)} busy={busy === "save"} />
             ) : (
               <section className={CARD} aria-labelledby="resume-heading">
@@ -171,7 +216,7 @@ export default function CareerPage() {
               <h2 id="roles-heading" className="text-lg font-semibold">
                 Open roles at hussh
               </h2>
-              {roles === null ? (
+              {rolesError ? <p className="mt-2 text-sm text-muted-foreground">Open roles are temporarily unavailable.</p> : roles === null ? (
                 <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
               ) : roles.length === 0 ? (
                 <p className="mt-2 text-sm text-muted-foreground">No open roles right now.</p>
@@ -205,7 +250,7 @@ export default function CareerPage() {
             </section>
 
             {applying && saved ? (
-              <section className={`${CARD} border-foreground/30`} aria-labelledby="confirm-heading">
+              <section ref={review} className={`${CARD} border-foreground/30`} aria-labelledby="confirm-heading">
                 <h2 id="confirm-heading" className="text-lg font-semibold">
                   Apply to {applying.title}?
                 </h2>
@@ -255,6 +300,24 @@ export default function CareerPage() {
       </AppPageContentRegion>
     </AppPageShell>
   );
+  const sections: NativeWorkspaceSurfaceSection[] = [{ key: "resume", title: "Your resume", rows: [
+    ...(!loaded ? [{ key: "loading", label: "Loading your resume…", pending: true }] : []),
+    ...(loadError || rolesError ? [{ key: "read-error", label: loadError || "Couldn’t load open roles. Try again." }, { key: "retry", label: "Retry", run: () => setReadRevision(value => value + 1) }] : []),
+    { key: "resume-summary", label: saved?.name || "Your resume", detail: saved ? [saved.headline, `${saved.experience.length} roles`, `${saved.skills.length} skills`].filter(Boolean).join(" · ") : "Upload a PDF or Word file. You'll review it before anything is saved." },
+    { key: "upload", label: busy === "parse" ? "Reading…" : saved ? "Replace" : "Upload", enabled: busy !== "parse", pending: busy === "parse", web: true, run: () => setFilePickerOpen(true) },
+    ...(saved ? [{ key: "edit", label: "Edit", web: true, run: () => setDraft(saved) }] : []),
+  ] }, { key: "roles", title: "Open roles at hussh", rows: rolesError ? [{ key: "roles-error", label: "Open roles are temporarily unavailable." }] : roles === null ? [{ key: "roles-loading", label: "Loading…", pending: true }]
+    : roles.length ? [...roles.map(role => ({ key: `role:${role.family}:${role.slug}`, label: role.title,
+      detail: [role.group, role.cities.slice(0, 2).join(", "), applied.has(role.slug) ? "Applied" : "Apply"].filter(Boolean).join(" · "),
+      ...(applied.has(role.slug) ? {} : { enabled: Boolean(saved && !isEmptyResume(saved)), web: true, run: () => setApplying(role) }),
+    })), ...(!saved ? [{ key: "resume-required", label: "Save your resume first to apply." }] : [])]
+    : [{ key: "roles-empty", label: "No open roles right now." }] }];
+  if (applications.length) sections.push({ key: "applications", title: "Your applications", rows: applications.map(application => ({ key: `receipt:${application.receipt_id}`, label: application.role_title,
+    detail: `${new Date(application.sent_at).toLocaleDateString()}${application.reference ? ` · ${application.reference}` : ""}`,
+    ...(application.status_link?.startsWith("https://") ? { web: true, run: () => openExternalUrl(application.status_link!) } : {}),
+  })) });
+  return <NativeWorkspaceRoute owner={userId || null} workspace="career" active={ready} path={ROUTES.ONE_CAREER} frame={nativeFrame} title="Career" sections={sections}
+    webChild={Boolean(draft || applying || filePickerOpen)}>{content}</NativeWorkspaceRoute>;
 }
 
 function ResumeEditor(props: {

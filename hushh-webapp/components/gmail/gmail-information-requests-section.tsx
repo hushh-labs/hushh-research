@@ -1,7 +1,8 @@
 "use client";
+import { NativeMailLayer, NativeMailReactOnly, useNativeMailPaneActive, type MailNativeSection, type MailNativeRow } from "./native-mail-workspace";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Loader2, MailCheck, RefreshCw } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
@@ -500,6 +501,8 @@ function GmailInformationRequestsWorkspace({
   onRequestVaultUnlock,
   onEnableGmailSend,
 }: Props) {
+  const nativeActive = useNativeMailPaneActive("kyc");
+  const [nativePage, setNativePage] = useState(0);
   const createHandoff = useOneConversationSession(
     (state) => state.createHandoff,
   );
@@ -543,6 +546,7 @@ function GmailInformationRequestsWorkspace({
   const [nextOffset, setNextOffset] = useState<number | null>(warm?.requests?.next_offset ?? null);
   const [totalCount, setTotalCount] = useState(warm?.requests?.total_count ?? 0);
   const [listView, setListView] = useState<"requests" | "activity">("requests");
+  useEffect(() => { setNativePage(0); }, [listView]);
   const [activityLoaded, setActivityLoaded] = useState(Boolean(warm?.activity));
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityNextOffset, setActivityNextOffset] = useState<number | null>(warm?.activity?.next_offset ?? null);
@@ -1174,7 +1178,7 @@ function GmailInformationRequestsWorkspace({
         : "Unlock to start"}
     </Button>
   );
-  return (
+  const fallback = (
     <SurfaceInset className="consent-presentation-surface space-y-4 !border-0 !bg-transparent !p-0 text-sm !shadow-none">
       <div className={enabled ? "flex items-start justify-between gap-3" : "mx-auto max-w-md pt-8 text-center"}>
         <div className="space-y-1">
@@ -1406,7 +1410,7 @@ function GmailInformationRequestsWorkspace({
           />
         ) : null}
       </AdaptiveDetailSurface>
-      <AlertDialog
+      <NativeMailReactOnly><AlertDialog
         open={active && showEnableConfirm}
         onOpenChange={(open) => setShowEnableConfirm(open)}
       >
@@ -1436,8 +1440,8 @@ function GmailInformationRequestsWorkspace({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog
+      </AlertDialog></NativeMailReactOnly>
+      <NativeMailReactOnly><AlertDialog
         open={active && showDisableConfirm}
         onOpenChange={(open) => setShowDisableConfirm(open)}
       >
@@ -1466,7 +1470,79 @@ function GmailInformationRequestsWorkspace({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog></NativeMailReactOnly>
     </SurfaceInset>
   );
+  if (!nativeActive || !active) return fallback;
+  const nativeSections: MailNativeSection[] = [{ key: "kyc-intro", rows: [{ key: "kyc", label: "KYC requests",
+    detail: enabled ? "Review requests and approve every reply before it sends." : "One checks emails for KYC requests. You approve before sending." }] }];
+  if (isInitialWorkspaceLoading) nativeSections.push({ key: "kyc-loading", rows: [{ key: "loading", label: "Getting your KYC workspace ready.", pending: true }] });
+  else {
+    const monitoring: MailNativeRow[] = enabled ? [
+      { key: "monitoring", label: scanningInbox ? "Scanning emails: " + String(scannedCount ?? 0) : "Gmail monitoring is on",
+        detail: scanningInbox ? "New KYC requests appear here as we find them." : "We’ll show you new requests here when they arrive.", pending: scanningInbox },
+      { key: "check", label: vaultOwnerToken ? "Check now" : "Unlock to check", enabled: !loading && !scanningInbox,
+        web: !vaultOwnerToken, run: () => vaultOwnerToken ? scanInbox() : onRequestVaultUnlock() },
+      { key: "disable", label: "Turn off", enabled: !updating && !loading && !scanningInbox && preference !== null,
+        run: () => setShowDisableConfirm(true) },
+    ] : [
+      { key: "enable", label: updating ? "Starting…" : vaultKey && vaultOwnerToken ? "Start monitoring" : "Unlock to start",
+        enabled: !updating && !loading && !scanningInbox && preference !== null, web: !vaultKey || !vaultOwnerToken,
+        run: () => vaultKey && vaultOwnerToken ? setShowEnableConfirm(true) : setMonitoring(true) },
+      { key: "stop", label: "Stop anytime." },
+    ];
+    nativeSections.push({ key: "monitoring", rows: monitoring });
+    if (error) nativeSections.push({ key: "kyc-error", rows: [
+      { key: "error", label: error }, { key: "retry", label: "Try again", enabled: !loading, run: () => load(true) },
+      ...(needsGmailSend && onEnableGmailSend ? [{ key: "send-permission", label: "Enable Mail sending", web: true, run: onEnableGmailSend }] : []),
+    ] });
+    if (enabled && scanSummary) nativeSections.push({ key: "scan-summary", rows: [
+      { key: "scanned", label: "Emails checked", detail: String(scanSummary.scanned_count) },
+      { key: "matched", label: "KYC requests found", detail: String(scanSummary.matched_count) },
+    ] });
+    if (enabled && !vaultOwnerToken) nativeSections.push({ key: "kyc-unlock", rows: [
+      { key: "unlock-description", label: "Unlock your private vault to view KYC requests, check Gmail, or prepare a draft." },
+      { key: "unlock", label: "Unlock private vault", web: true, run: onRequestVaultUnlock },
+    ] });
+    if (enabled && vaultOwnerToken) {
+      nativeSections.push({ key: "kyc-views", rows: [
+        { key: "requests", label: "Active requests" + (visibleRequestCount ? " (" + visibleRequestCount + ")" : ""), selected: listView === "requests", run: () => changeListView("requests") },
+        { key: "activity", label: "Activity" + (activityTotalCount ? " (" + activityTotalCount + ")" : ""), selected: listView === "activity", run: () => changeListView("activity") },
+      ] });
+      const items = listView === "requests" ? workflows : activityWorkflows;
+      const index = Math.min(nativePage, Math.max(0, Math.ceil(items.length / 24) - 1));
+      const entries: MailNativeRow[] = [];
+      for (const item of items.slice(index * 24, (index + 1) * 24)) {
+        if (listView === "requests") entries.push(
+          { key: "request:" + item.workflow_id, label: "Information requested", detail: fieldLabels(item) + (item.received_at ? " · Received " + new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(item.received_at)) : " · New request") + (item.attachment_review_required ? " · Attachment included" : "") },
+          { key: "draft:" + item.workflow_id, label: "Draft with One", web: true, run: () => draftWithOne(item) },
+          { key: "review:" + item.workflow_id, label: "Review", web: true, run: () => setSelectedWorkflowId(item.workflow_id) },
+        );
+        else {
+          const timestamp = item.updated_at || item.received_at || item.created_at;
+          const label = item.status === "sent" ? "Reply sent" : item.status === "ignored" ? "Request ignored" : item.status === "blocked" ? "Request blocked" : "Needs attention";
+          entries.push({ key: "activity:" + item.workflow_id, label, detail: fieldLabels(item) + (timestamp ? " · " + new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp)) : "") });
+          if (item.gmail_thread_id) entries.push({ key: "mail:" + item.workflow_id, label: "Open Mail", web: true, run: () => openExternalUrl(gmailThreadUrl(item.gmail_thread_id!)) });
+        }
+      }
+      if (entries.length) nativeSections.push({ key: "kyc-items", title: listView === "requests" ? "KYC requests" : "KYC activity", rows: entries });
+      else nativeSections.push({ key: "kyc-empty", rows: [{ key: "empty", label: listView === "activity" && activityLoading ? "Loading activity…" : loading && preference === null ? "Loading requests…" : listView === "requests" ? "No KYC requests found yet." : "No KYC activity yet. Sent messages remain available in Gmail.", pending: listView === "activity" ? activityLoading : loading && preference === null }] });
+      nativeSections.push({ key: "kyc-pagination", rows: [
+        ...(index > 0 ? [{ key: "previous-kyc", label: "Previous", run: () => setNativePage(index - 1) }] : []),
+        ...((index + 1) * 24 < items.length ? [{ key: "next-kyc", label: "Next", run: () => setNativePage(index + 1) }] : []),
+        ...(listView === "requests" && nextOffset !== null ? [{ key: "load-requests", label: "Load more", enabled: !loading, run: () => loadMore() }] : []),
+        ...(listView === "activity" && activityNextOffset !== null ? [{ key: "load-activity", label: activityLoading ? "Loading activity…" : "Load more activity", enabled: !activityLoading, run: () => loadActivity(true) }] : []),
+      ] });
+    }
+  }
+  return <NativeMailLayer active={nativeActive && active} title="KYC" includeRoot sections={nativeSections}
+    webChild={Boolean(selectedWorkflow)} fallback={fallback}
+    confirmation={showEnableConfirm ? { title: "Start monitoring?", description: "We’ll look through recent Gmail emails for KYC requests. Nothing is shared or sent without your approval.",
+      confirm: { key: "monitoring-enable", label: updating ? "Starting…" : "Start monitoring", enabled: !updating, pending: updating, run: () => setMonitoring(true).finally(() => setShowEnableConfirm(false)) },
+      cancelLabel: "Not now", cancel: () => setShowEnableConfirm(false),
+    } : showDisableConfirm ? { title: "Turn off monitoring?", description: "This stops checking new Gmail emails and clears the requests shown here. Your Gmail emails are not deleted.",
+      confirm: { key: "monitoring-disable", label: updating ? "Turning off…" : "Turn off and delete activity", enabled: !updating, pending: updating,
+        run: () => setMonitoring(false).then(updated => { if (updated) setShowDisableConfirm(false); }) },
+      cancelLabel: "Keep monitoring on", cancel: () => setShowDisableConfirm(false),
+    } : undefined} />;
 }

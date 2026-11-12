@@ -582,6 +582,25 @@ def test_financial_packet_inputs_schedule_existing_connections_pack() -> None:
     assert selected.count("e2e/person-profile-actions.layout.spec.ts") == 1
 
 
+def test_account_identity_changes_schedule_session_contracts() -> None:
+    import json
+
+    from web_ci_lane_fixture import _run
+
+    for changed in (
+        "hushh-webapp/lib/services/account-identity-service.ts",
+        "hushh-webapp/lib/services/account-identity-session.ts",
+    ):
+        code, calls, output = _run(
+            ROOT / "scripts/ci/web-targeted-check.sh",
+            {"WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": changed},
+        )
+        assert code == 0, output[-2000:]
+        assert calls.count("run verify:account-session") == 1, (changed, calls)
+    scripts = json.loads((ROOT / "hushh-webapp/package.json").read_text(encoding="utf-8"))["scripts"]
+    assert "__tests__/services/account-identity-session.test.ts" in scripts["verify:account-session"]
+
+
 def main() -> int:
     tests = (
         test_ci_smoke_and_uat_share_the_selector,
@@ -599,6 +618,7 @@ def main() -> int:
         test_web_targeted_voice_check_uses_locked_protocol_runtime,
         test_web_targeted_layout_check_tracks_people_fixture_inputs,
         test_financial_packet_inputs_schedule_existing_connections_pack,
+        test_account_identity_changes_schedule_session_contracts,
     )
     for test in tests:
         test()

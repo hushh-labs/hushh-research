@@ -29,7 +29,7 @@ export function RetainedAgentBar({ children }: { children: ReactNode }) {
   }, []);
   const voiceSeat = useMemo(() => ({ host: seat, registerPress }), [seat, registerPress]);
   return <VoiceSeatContext.Provider value={voiceSeat}>
-    <div data-agent-bar-shell className="flex w-full min-w-0 flex-col gap-2">
+    <div data-agent-bar-shell data-agent-bar-retained className="flex w-full min-w-0 flex-col">
       {children}
       <AgentBarSurface retained data-testid="one-voice-agent-bar" data-agent-dock="one-agent-dock" role="group" aria-label="Agent One"
         onPointerDown={event => press.current?.(event)}>
@@ -62,6 +62,7 @@ export function AgentBarSurface({ className, children, embedded = false, retaine
     <div
       {...props}
       data-agent-dock-surface={dock ? (composerVisible ? "text" : "voice") : undefined}
+      data-native-dock-owned={nativeOwned || undefined}
       data-agent-dock-embedded={embedded || undefined}
       hidden={suppressed || props.hidden}
       inert={suppressed || props.inert || nativeOwned}
@@ -70,7 +71,7 @@ export function AgentBarSurface({ className, children, embedded = false, retaine
       className={cn(
         !embedded && !nativeOwned && "bottom-chrome-surface",
         "pointer-events-auto relative flex min-h-11 items-center overflow-hidden rounded-full",
-        dock && "min-h-[3.75rem] rounded-[1.5rem]",
+        dock && "min-h-[var(--agent-dock-resting-height)] rounded-[1.625rem]",
         BOTTOM_CHROME_COLUMN_CLASSNAME,
         className,
         suppressed && "hidden",

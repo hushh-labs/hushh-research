@@ -157,9 +157,10 @@ export function useCustomConnectorSettings({ access, enabled = true, isAccessCur
       updateDraft(emptyDraft()); editorVisit.current = null; setEditing(false);
       return true;
     })();
-    morphyToast.promise(operation, {
+    morphyToast.promiseText(operation, {
       loading: "Checking connector…", success: "Connector added.",
       error: (error) => setupFailure(error, endpoint),
+      isCurrent: current,
     });
     try { return await operation === true; } catch (error) { if (current()) setError(setupFailure(error, endpoint)); return false; }
     finally { finish(current); }

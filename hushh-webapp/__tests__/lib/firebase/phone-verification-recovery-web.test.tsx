@@ -9,7 +9,7 @@ import { ApiError } from "@/lib/services/api-client";
 
 function LinkedDeletionProbe() {
   const { confirmPhoneLinkedDeletion } = useAuth();
-  return <button onClick={() => void confirmPhoneLinkedDeletion({ operationId: "op-1", phoneNumber: "+12025550101" }).catch(() => undefined)}>Delete with verified phone</button>;
+  return <button onClick={() => void confirmPhoneLinkedDeletion({ operationId: "op-1", phoneNumber: "+12025550101" }, () => true).catch(() => undefined)}>Delete with verified phone</button>;
 }
 
 describe("@feature_auth_reliability @trace_loop web phone verification recovery", () => {

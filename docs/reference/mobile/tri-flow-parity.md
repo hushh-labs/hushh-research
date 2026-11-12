@@ -54,9 +54,10 @@ the native shells were finished tomorrow.
 **A gap is a route that should have a native surface and does not yet.** It is
 a property of the current state of the app, not of the route.
 
-> `/one/calendar` — GAP, not a permanent exclusion. Calendar is a first-class
-> One agent and should have a native surface; it does not have one yet.
-> Excluding it hides that. Revisit before the next native release.
+> `/one/calendar` — GAP, not a permanent exclusion. The route is native-required
+> and iOS/Android Google authorization already uses `HushhAuth.connectCalendar`.
+> The workspace content remains React-owned; complete native control, nested
+> state, operation-outcome and return-path qualification to close this gap.
 
 Say `GAP, not a permanent exclusion` in the reason, and name what would close
 it. A plausible-sounding justification is **worse** than a blank field, because

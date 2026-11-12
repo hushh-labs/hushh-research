@@ -179,7 +179,7 @@
   .adaptive :global([data-slot="sheet-drag-handle"]) { display: none; }
   .adaptive:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 24px; }
   .adaptive:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 16px; }
-  :global(html.native-reserved-chrome:not([data-session-check-active])) .adaptive.adaptive[data-sheet-side="bottom"] {
+  :global(html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active])) .adaptive.adaptive[data-sheet-side="bottom"] {
     top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
     bottom: auto;
     max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 32px);

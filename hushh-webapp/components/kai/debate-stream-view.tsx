@@ -9,7 +9,7 @@ import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { type DecisionResult } from "./views/decision-card";
 import { RoundTabsCard } from "./views/round-tabs-card";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import {
   Card as MorphyCard,
   CardContent as MorphyCardContent,

@@ -174,16 +174,7 @@ private struct NativeProfilePricingField: UIViewRepresentable {
         field.isEnabled = model.canEdit
         field.textColor = .label
         field.tintColor = model.accent
-        // Theme/validation acknowledgements must not replace an active IME
-        // composition, selection or undo stack.
-        if field.markedTextRange == nil && field.text != model.text {
-            let range = field.selectedTextRange
-            let offset = range.map { field.offset(from: field.beginningOfDocument, to: $0.start) }
-            field.text = model.text
-            if let offset, let position = field.position(from: field.beginningOfDocument, offset: min(offset, model.text.utf16.count)) {
-                field.selectedTextRange = field.textRange(from: position, to: position)
-            }
-        }
+        NativeTextFieldProjection.apply(model.text, to: field)
     }
     func makeCoordinator() -> Coordinator { Coordinator(model) }
     static func dismantleUIView(_ field: UITextField, coordinator: Coordinator) {

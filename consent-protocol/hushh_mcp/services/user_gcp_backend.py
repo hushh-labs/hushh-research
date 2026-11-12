@@ -337,16 +337,14 @@ class UserGcpBackend:
         self._require_private_admission = require_private_admission
         self._tenancy = "user-owned"
         if private_deployment is not None:
-            frozen_operation = getattr(require_private_admission, "operation", None) in {
-                "inspect",
-                "cleanup",
-            }
-            if (
-                frozen_operation
-                and getattr(require_private_admission, "deployment", None) != private_deployment
-            ):
-                raise ValueError("Managed controller differs from its deployment assignment")
-            private_deployment.validate(frozen=frozen_operation)
+            from hushh_mcp.services.hosted_gcp_authority import HostedGcpAuthority
+
+            retained_operation = (
+                isinstance(require_private_admission, HostedGcpAuthority)
+                and require_private_admission.deployment == private_deployment
+                and require_private_admission.operation in {"cleanup", "inspect"}
+            )
+            private_deployment.validate(frozen=retained_operation)
             if (
                 private_deployment.hosting_mode != "hussh_hosted"
                 or private_deployment.environment != "dev"

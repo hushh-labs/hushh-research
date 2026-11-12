@@ -16597,7 +16597,10 @@
       ],
       "search_keywords": [
         "profile",
-        "account"
+        "account",
+        "native interface",
+        "experimental interface",
+        "appearance"
       ],
       "meaning": "Navigates to profile landing route.",
       "speaker_persona": "one",
@@ -35735,12 +35738,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/holdings"
+          "/one/kai/portfolio/holdings",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_holdings"
+          "kai_portfolio_holdings",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],
@@ -35761,7 +35766,9 @@
         "path": "route",
         "target": "/one/kai/portfolio/holdings"
       },
-      "control_ids": [],
+      "control_ids": [
+        "show_portfolio_holdings"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -35839,12 +35846,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/allocation"
+          "/one/kai/portfolio/allocation",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_allocation"
+          "kai_portfolio_allocation",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],
@@ -35865,7 +35874,9 @@
         "path": "route",
         "target": "/one/kai/portfolio/allocation"
       },
-      "control_ids": [],
+      "control_ids": [
+        "show_portfolio_allocation"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -35944,12 +35955,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/performance"
+          "/one/kai/portfolio/performance",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_performance"
+          "kai_portfolio_performance",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],
@@ -35970,7 +35983,9 @@
         "path": "route",
         "target": "/one/kai/portfolio/performance"
       },
-      "control_ids": [],
+      "control_ids": [
+        "show_portfolio_performance"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -36154,12 +36169,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/sources"
+          "/one/kai/portfolio/sources",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_sources"
+          "kai_portfolio_sources",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],

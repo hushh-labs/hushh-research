@@ -55,12 +55,16 @@ function DrawerContent({
   className,
   children,
   showCloseButton = false,
+  respectNativePresentationRegions = false,
   overlayClassName,
   overlayStyle,
+  style,
   ref,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content> & {
   showCloseButton?: boolean
+  /** Fit a fullscreen surface between acknowledged native shell regions. */
+  respectNativePresentationRegions?: boolean
   /**
    * Surface-specific backdrop treatment. Most drawers keep the shared blurred
    * scrim; a credential hard gate may request an opaque canvas so persistent
@@ -75,6 +79,8 @@ function DrawerContent({
   overlayStyle?: React.CSSProperties
 }) {
   const contentRef = useNativeNavigationOverlayRef(ref)
+  const nativeRegionHeight =
+    "calc(100dvh - var(--native-workspace-top, 0px) - max(var(--native-workspace-bottom, 0px), var(--kb-height, 0px)))"
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay className={overlayClassName} style={overlayStyle} />
@@ -95,6 +101,14 @@ function DrawerContent({
           "data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=left]:border-r data-[vaul-drawer-direction=left]:sm:max-w-sm",
           className
         )}
+        style={respectNativePresentationRegions ? {
+          ...style,
+          top: "var(--native-workspace-top, 0px)",
+          bottom: "max(var(--native-workspace-bottom, 0px), var(--kb-height, 0px))",
+          marginTop: 0,
+          height: nativeRegionHeight,
+          maxHeight: nativeRegionHeight,
+        } : style}
         {...props}
       >
         <div data-slot="drawer-drag-handle" className="bg-muted mx-auto mt-4 hidden h-2 w-[100px] shrink-0 rounded-full group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />

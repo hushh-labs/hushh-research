@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { AuthStep } from "@/components/onboarding/AuthStep";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";

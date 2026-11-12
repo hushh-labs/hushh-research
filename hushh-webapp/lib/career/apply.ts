@@ -30,6 +30,7 @@ export async function applyWithSavedResume(params: {
     shared: { name: resume.name, location: resume.location, resume_chars: resumeText.length, ...links },
   });
   const result = await CareerService.applyToRole({
+    expectedUserId: write.userId,
     role,
     firstName: first,
     lastName: last,
@@ -48,7 +49,7 @@ export async function applyWithSavedResume(params: {
     shared: { name: resume.name, location: resume.location, resume_chars: resumeText.length },
   };
   const receiptSaved = await CareerPkmService.recordApplication({ ...write, receipt }).then(
-    () => true,
+    value => value.success,
     () => false,
   );
   return { result, receipt, receiptSaved };

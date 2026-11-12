@@ -30,7 +30,7 @@ export function LocationRequestDurationHeader() {
 }
 
 /** What the header switch currently means, in words. */
-function locationHeaderStatusText(vm: LocationHeaderViewModel): string {
+export function locationHeaderStatusText(vm: LocationHeaderViewModel): string {
   if (vm.locationAcquiring) return "Finding you\u2026";
   const status = locationStatusLabel({
     readiness: vm.locationBlocked

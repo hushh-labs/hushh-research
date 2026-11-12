@@ -1,5 +1,8 @@
 "use client";
 
+import { NativeLocationLayer, useNativeLocationEnabled } from "./native-location-workspace";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   useCallback,
   useEffect,
@@ -98,11 +101,21 @@ export function SosPanel({
   onStopSos,
   stopBusy,
   onEditContacts,
+  onClose,
 }: SosPanelProps) {
+  const native = useNativeLocationEnabled();
+  const [nativeSafetyRevision, setNativeSafetyRevision] = useState(0);
+  const [nativeMessageEditing, setNativeMessageEditing] = useState(false);
+
   const [customMessage, setCustomMessage] = useState("");
   const [holdTarget, setHoldTarget] = useState<"sms" | "composer" | null>(null);
   const [tapCountdownActive, setTapCountdownActive] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  useBackLayer(ROUTES.ONE_LOCATION, native && (nativeMessageEditing || stopConfirmOpen) ? 4 : 0, () => {
+    if (stopConfirmOpen) { if (!stopBusy) setStopConfirmOpen(false); }
+    else setNativeMessageEditing(false);
+    return true;
+  }, { action: "sos" });
 
   /**
    * The message that actually went out, held for as long as the alert is live.
@@ -388,8 +401,21 @@ export function SosPanel({
   const quickPill =
     "ui-text-compact-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
 
+  const nativeSections = active ? [
+    { key: "active", rows: [{ key: "active", label: "Save My Soul is active", detail: alertedSummary }, ...(sentMessage !== null ? [{ key: "sent", label: "Sent message", detail: sentMessage || "No message" }] : []),
+      { key: "stop", label: "Stop sharing", destructive: true, enabled: !stopBusy, pending: stopBusy, run: () => setStopConfirmOpen(true) }] },
+    { key: "close", rows: [{ key: "close", label: "Back", run: onClose }] },
+  ] : [
+    { key: "contacts", rows: [{ key: "contacts", label: recipientCountLabel, detail: recipientsLoading ? "Checking emergency contacts…" : noContacts ? "Add emergency contacts before sending an alert." : "Your emergency contacts receive your live location." }, { key: "edit-contacts", label: "Edit emergency contacts", enabled: !busy, run: onEditContacts }] },
+    ...(!nativeMessageEditing ? [{ key: "message", rows: [...QUICK_MESSAGES.map(message => ({ key: message, label: message, selected: customMessage === message, enabled: !hardDisabled, run: () => { cancelHold(); setNativeSafetyRevision(value => value + 1); setCustomMessage(message); } })),
+      { key: "edit-message", label: customMessage ? "Edit message" : "Add a message", detail: customMessage || "Optional", enabled: !busy, run: () => setNativeMessageEditing(true) },
+    ] }, { key: "activation", rows: [{ key: `sos-trigger:${nativeSafetyRevision}`, label: selectedMessage ? "Send alert" : "Save My Soul", sosActivation: selectedMessage ? "countdown" as const : "hold" as const, enabled: !disabled, run: fireTrigger },
+      ...(customMessageInvalid ? [{ key: "message-error", label: "Message is too long", detail: `${customMessageLength} / ${ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}` }] : []),
+      { key: "close", label: "Cancel", enabled: !busy, run: onClose },
+    ] }] : []),
+  ];
   return (
-    <section
+    <NativeLocationLayer flow="sos" title="Save My Soul" viewKey={nativeMessageEditing ? "sos:message" : active ? "sos:active" : "sos:ready"} sections={nativeSections} textEditor={nativeMessageEditing && !active ? { key: "sos-message", label: "Optional message", placeholder: "What should they know?", maximum: ONE_LOCATION_SHARE_NOTE_MAX_LENGTH, value: customMessage, change: setCustomMessage, enabled: !customMessageInvalid, busy, submitLabel: "Done", submit: () => setNativeMessageEditing(false), cancel: () => setNativeMessageEditing(false) } : undefined} confirmation={stopConfirmOpen ? { title: "Stop sharing?", description: "End the live location sharing started by this alert.", confirm: { key: "stop-sos", label: "Stop sharing", destructive: true, enabled: !stopBusy, pending: stopBusy, run: () => { setStopConfirmOpen(false); onStopSos(); } }, cancelLabel: "Keep sharing", cancel: () => setStopConfirmOpen(false) } : undefined}><section
       data-testid="sms-safety-screen"
       className="mx-auto flex w-full max-w-[560px] flex-col px-4 pb-6 pt-4 sm:px-0 sm:pt-8"
     >
@@ -650,7 +676,7 @@ export function SosPanel({
         </>
       )}
 
-      <AlertDialog open={stopConfirmOpen} onOpenChange={setStopConfirmOpen}>
+      <AlertDialog open={stopConfirmOpen && !native} onOpenChange={setStopConfirmOpen}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Stop SMS alert?</AlertDialogTitle>
@@ -676,6 +702,6 @@ export function SosPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </section></NativeLocationLayer>
   );
 }

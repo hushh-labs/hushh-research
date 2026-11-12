@@ -88,7 +88,7 @@ export type PhoneVerificationFlowProps = {
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmVerification: (otp: string) => Promise<User>;
   confirmTransfer?: () => Promise<User>;
-  confirmLinkedDeletion?: (input: LinkedDeletionInput) => Promise<User>;
+  confirmLinkedDeletion?: (input: LinkedDeletionInput, isCurrent: () => boolean) => Promise<User>;
   prepareLinkedDeletion?: (phoneNumber: string) => Promise<LinkedDeletionPreparation>;
   cancelLinkedDeletion?: (operation: string) => Promise<unknown>;
   recoverPreviousAccount?: (phoneNumber: string) => Promise<void> | void;
@@ -201,7 +201,9 @@ export function usePhoneVerificationFlow({
   // `step` read from an effect that must not re-run when it changes.
   const stepRef = useRef(step);
   const changeStep = useCallback((next: VerificationStep) => { stepRef.current = next; setStep(next); }, []);
-  const deletion = usePhoneLinkedDeletion({ phone: submittedPhoneNumber, conflict, busy, guard: deletionGuard, current,
+  const deletionEntryIsCurrent = useCallback(() => current() && visit.entryRevision === entryRevision && allowedOperation.current?.() !== false,
+    [current, visit, entryRevision]);
+  const deletion = usePhoneLinkedDeletion({ phone: submittedPhoneNumber, conflict, busy, guard: deletionGuard, current, entryIsCurrent: deletionEntryIsCurrent,
     inFlight: phoneFlowInFlightRef, setBusy, setConflict, setError: setOperationError,
     prepare: prepareLinkedDeletion, cancel: cancelLinkedDeletion, confirm: confirmLinkedDeletion,
     fallback: () => performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError),

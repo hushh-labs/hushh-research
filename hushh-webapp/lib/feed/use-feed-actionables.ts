@@ -173,6 +173,8 @@ export interface FeedActionButton {
   disabled?: boolean;
   /** Irreversible action — the row requires a second confirming tap. */
   confirm?: boolean;
+  /** Existing rich form must retire a native collection before it opens. */
+  presentation?: "web";
   /**
    * Show only this icon on a phone (the label stays the accessible name and
    * returns from `sm` up). Used for a row's quiet Details action, so the two
@@ -209,6 +211,7 @@ export interface FeedActionable {
   href?: string | null;
   /** Whole-row imperative action (e.g. resume a running debate). */
   onSelect?: () => void;
+  onSelectPresentation?: "web";
   chevron?: boolean;
   actions: FeedActionButton[];
   /** Phone controls for the same actions or their existing full review surface. */
@@ -1577,12 +1580,14 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         ...row,
         description: "Requested a document",
         onSelect: openStep,
+        ...(setup === "drive" ? { onSelectPresentation: "web" as const } : {}),
         actions: [
           {
             key: `setup-${setup}`,
             label: documentRequestSetupLabel(setup, true),
             tone: "primary",
             run: openStep,
+            ...(setup === "drive" ? { presentation: "web" as const } : {}),
           },
         ],
       });
@@ -1889,6 +1894,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
                   : []),
                 {
                   key: "allow",
+                  presentation: "web",
                   label: documentDecision.priceOnly ? "Set price" : "Allow",
                   tone: "success",
                   disabled: !vaultOwnerToken,

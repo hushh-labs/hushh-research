@@ -70,7 +70,7 @@ function OwnerRuntimeConfigurationPage({
       mountedRef.current = false;
     };
   }, []);
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked, getVaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(
     setupMode ? true : null,
   );
@@ -236,6 +236,7 @@ function OwnerRuntimeConfigurationPage({
       userId={ownerId}
       vaultKey={vaultKey}
       vaultOwnerToken={vaultOwnerToken}
+      getCurrentVaultOwnerToken={getVaultOwnerToken}
       needsVaultCreation={needsVaultCreation}
       needsUnlock={needsUnlock}
       onRequestVaultCreation={() => setUnlockOpen(true)}

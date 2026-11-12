@@ -144,13 +144,7 @@ struct NativePhoneAction: Equatable {
     func updateUIView(_ view: UITextField, context: Context) {
         view.isEnabled = model.canEdit; view.tintColor = model.accent; view.textColor = .label
         let text = code ? model.draft.code : model.draft.number
-        if view.markedTextRange == nil && view.text != text {
-            let selection = view.selectedTextRange.map { view.offset(from: view.beginningOfDocument, to: $0.start) }
-            view.text = text
-            if let selection, let start = view.position(from: view.beginningOfDocument, offset: min(selection, text.utf16.count)) {
-                view.selectedTextRange = view.textRange(from: start, to: start)
-            }
-        }
+        NativeTextFieldProjection.apply(text, to: view)
     }
     func makeCoordinator() -> Coordinator { Coordinator(model, code) }
     static func dismantleUIView(_ view: UITextField, coordinator: Coordinator) {

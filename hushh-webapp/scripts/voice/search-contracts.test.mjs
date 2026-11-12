@@ -86,6 +86,7 @@ test('independent UI source snapshots compose without blocking combined structur
     await fs.writeFile(contract, authored);
     await fs.writeFile(path.join(root, 'lib/navigation/app-route-layout.contract.json'), JSON.stringify([{route:'/',shellVerification:{file:'app/page.tsx'}}]));
     await syncSearchContracts(root);
+    await fs.writeFile(path.join(root, '.gitignore'), 'tmp/\n');
     git('init', '-b', 'baseline');
     git('config', 'user.name', 'UI fixture');
     git('config', 'user.email', 'ui-fixture@example.test');
@@ -101,10 +102,11 @@ test('independent UI source snapshots compose without blocking combined structur
     git('checkout', 'a');
     git('merge', '--no-edit', 'b');
     assert.equal(git('diff', '--name-only', '--diff-filter=U').toString(), '');
-    const receipts = await fs.readdir(path.join(root,'contracts/ui-review/search'));
-    assert.equal(receipts.length, 3);
+    const receiptFile = path.join(root,'tmp/ui-review/search.json');
+    const receipts = await fs.readFile(receiptFile, 'utf8');
+    assert.equal(git('ls-files','tmp').toString(), '');
     await assert.doesNotReject(syncSearchContracts(root,true));
-    assert.deepEqual(await fs.readdir(path.join(root,'contracts/ui-review/search')), receipts);
+    assert.equal(await fs.readFile(receiptFile,'utf8'), receipts);
     await syncSearchContracts(root);
     await syncSearchContracts(root,true);
     assert.equal(await fs.readFile(contract,'utf8'), authored);
@@ -113,24 +115,41 @@ test('independent UI source snapshots compose without blocking combined structur
 
 test('optional source snapshots stay immutable and checks never create evidence', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-receipt-'));
+  const previousEnv = { CI: process.env.CI, GITHUB_ACTIONS: process.env.GITHUB_ACTIONS };
   try {
+    process.env.CI = 'false';
+    process.env.GITHUB_ACTIONS = 'false';
     const revision = 'a'.repeat(64);
     for (const kind of ['back','search']) {
       await assert.doesNotReject(syncReviewReceipt(root,kind,revision,{source_module_count:2},true));
-      await assert.rejects(fs.access(path.join(root,'contracts/ui-review',kind,`${revision}.json`)));
+      await assert.rejects(fs.access(path.join(root,'tmp/ui-review',`${kind}.json`)));
       await syncReviewReceipt(root,kind,revision,{source_module_count:2});
       await syncReviewReceipt(root,kind,revision,{source_module_count:2});
       await syncReviewReceipt(root,kind,revision,{source_module_count:2},true);
-      const receipt = path.join(root,'contracts/ui-review',kind,`${revision}.json`);
+      const receipt = path.join(root,'tmp/ui-review',`${kind}.json`);
       const original = await fs.readFile(receipt,'utf8');
       await fs.writeFile(receipt,original.replaceAll('\n','\r\n'));
       await syncReviewReceipt(root,kind,revision,{source_module_count:2},true);
       await assert.rejects(syncReviewReceipt(root,kind,revision,{source_module_count:3},true), /Invalid immutable/);
       await assert.rejects(syncReviewReceipt(root,kind,revision,{source_module_count:3}), /Invalid immutable/);
       await assert.doesNotReject(syncReviewReceipt(root,kind,'b'.repeat(64),{source_module_count:2},true));
+      // Hosted checks ignore local cache contents and never create or alter evidence.
+      process.env.CI = 'true';
+      process.env.GITHUB_ACTIONS = 'true';
+      const cached = await fs.readFile(receipt, 'utf8');
+      await assert.doesNotReject(syncReviewReceipt(root,kind,revision,{source_module_count:3},true));
+      assert.equal(await fs.readFile(receipt, 'utf8'), cached);
+      process.env.CI = 'false';
+      process.env.GITHUB_ACTIONS = 'false';
     }
     await assert.rejects(syncReviewReceipt(root,'back','../invalid',{}), /Invalid UI/);
-  } finally { await fs.rm(root,{recursive:true,force:true}); }
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await fs.rm(root,{recursive:true,force:true});
+  }
 });
 
 test('source snapshots stay optional across changed, untracked and unrelated histories', async () => {
@@ -176,7 +195,7 @@ test('source snapshots stay optional across changed, untracked and unrelated his
     await fs.writeFile(process.env.GITHUB_EVENT_PATH, '{}');
     for (const kind of ['back', 'search']) await assert.doesNotReject(check(kind));
     process.env.UI_CONTRACT_BASE_SHA = targetBase;
-    await assert.rejects(fs.access(path.join(root, 'contracts/ui-review')));
+    await assert.rejects(fs.access(path.join(root, 'tmp/ui-review')));
     for (const file of [...inputs, 'lib/navigation/app-route-layout.contract.json']) {
       const original = await fs.readFile(path.join(root, file), 'utf8');
       await fs.writeFile(path.join(root, file), original + '\nchanged');

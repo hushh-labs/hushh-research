@@ -120,6 +120,7 @@ function echoUrl(tab: string) {
 }
 
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/one/kai",
   useRouter: () => ({ replace: url.replace, push: vi.fn() }),
   useSearchParams: () => {
     const tab = useSyncExternalStore(
@@ -268,6 +269,15 @@ describe("Finance tab switch — URL echo lags the pane", () => {
     expect(embla.target).toBe(-SLIDE_WIDTH);
     expect(embla.scrollTo.mock.calls).toEqual([[1, undefined]]);
     expect(replaced()).toEqual(["/one/kai?tab=portfolio"]);
+  });
+
+  it("supersedes a pending tab request when returning before its URL echo", () => {
+    render(<KaiMarketHubPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "Portfolio" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Market" }));
+    finishPaneMotion();
+    expect(selectedTab()).toBe("Market");
+    expect(replaced()).toEqual(["/one/kai?tab=portfolio", "/one/kai?tab=market"]);
   });
 
   it("still commits a finger swipe to the URL exactly once", () => {

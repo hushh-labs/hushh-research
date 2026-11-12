@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => {
   };
   return {
     user,
+    native: false,
+    workspace: null as Parameters<typeof import("@/lib/capacitor/use-native-workspace").useNativeWorkspace>[0] | null,
     // Who useAuth reports; a test switches it to sign out or change account.
     currentUser: user as typeof user | null,
     listRequests: vi.fn(),
@@ -78,7 +80,16 @@ vi.mock("next/navigation", () => ({
   // pathname to scope its route lease. Without this the whole tree throws
   // before any Clear behaviour runs.
   usePathname: () => "/one/feed",
+  useSearchParams: () => new URLSearchParams(),
 }));
+
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => mocks.native }));
+vi.mock("@/lib/capacitor/use-native-workspace", () => ({
+  useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return "native"; },
+  useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: "native", reason: "active", held: false } }),
+}));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true }) }));
+vi.mock("@/components/consent/payouts/use-payout-snapshot", () => ({ usePayoutSnapshot: () => ({ token: null, data: null, failed: false }) }));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -191,6 +202,7 @@ vi.mock("@/components/feed/feed-shared-files-sheet", () => ({
 
 vi.mock("@/components/feed/feed-push-prompt", () => ({
   FeedPushPrompt: () => null,
+  useFeedPushPrompt: () => null,
 }));
 
 vi.mock("@/components/feed/feed-actionable-row", () => ({
@@ -228,8 +240,11 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 
 import { FeedPage } from "@/components/feed/feed-page";
 import { CacheService } from "@/lib/services/cache-service";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 beforeEach(() => {
+  mocks.native = false;
+  mocks.workspace = null;
   CacheService.getInstance().clear();
   mocks.resourceMissing = false;
   mocks.historyLoading = false;
@@ -731,6 +746,35 @@ describe("Feed history interactions", () => {
     expect(screen.queryByText("row-5")).toBeNull();
   });
 
+  it("routes native history through the same confirmed removal and Undo callbacks", async () => {
+    mocks.native = true;
+    await renderAfterAutomaticRead();
+    const tap = async (label: string) => {
+      const state = mocks.workspace!;
+      const row = state.content.sections.flatMap(section => section.rows).find(row => row.label === label);
+      expect(row, label).toBeDefined();
+      await act(async () => { await state.actions.get(row!.id)!({} as never); });
+    };
+    await waitFor(() => expect(mocks.workspace!.content.sections.some(section => section.rows.some(row => row.chevron))).toBe(true));
+    const label = mocks.workspace!.content.sections.flatMap(section => section.rows).find(row => row.chevron)!.label;
+    await tap(label);
+    expect(mocks.workspace!.content.backEnabled).toBe(false);
+    await act(async () => { expect(unwindBackLayer("/one/feed")).toBe(true); });
+    expect(mocks.workspace!.content.sections.flatMap(section => section.rows).some(row => row.label === "Remove from Feed")).toBe(false);
+    await tap(label);
+    await tap("Remove from Feed");
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await tap("Cancel");
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await tap("Remove from Feed");
+    await tap("Confirm remove from Feed");
+    expect(mocks.dismiss).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ userId: "feed-user", itemId: "5" }));
+    const notice = mocks.toastSuccess.mock.calls.find(call => call[0] === "Removed from Feed")![1];
+    await act(async () => { notice.action.onClick(); });
+    await waitFor(() => expect(mocks.restore).toHaveBeenCalledOnce());
+    expect(mocks.workspace!.content.backEnabled).toBe(false);
+  });
+
   it("removes only after server acknowledgement and restores through Undo", async () => {
     mocks.useActionTestRow = true;
     let confirmDismiss: (() => void) | undefined;
@@ -879,18 +923,18 @@ describe("Feed history interactions", () => {
 
   it("retires a pending Undo when the account signs out", async () => {
     mocks.useActionTestRow = true;
-    mocks.toastSuccess.mockReturnValueOnce("undo-toast");
+    mocks.toastSuccess.mockImplementationOnce((_message, data) => data.id);
     const view = await renderAfterAutomaticRead();
     fireEvent.click(screen.getByRole("button", { name: "row-5" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "row-5" })).toBeNull());
     const undo = mocks.toastSuccess.mock.calls.find((call) => call[0] === "Removed from Feed")?.[1] as
-      | { action?: { onClick?: () => void } }
+      | { id: string; action?: { onClick?: () => void } }
       | undefined;
 
     try {
       mocks.currentUser = null;
       await act(async () => view.rerender(<FeedPage />));
-      expect(mocks.toastDismiss).toHaveBeenCalledWith("undo-toast");
+      expect(mocks.toastDismiss).toHaveBeenCalledWith(undo!.id);
       mocks.currentUser = { uid: "next-user", getIdToken: vi.fn().mockResolvedValue("next-token") };
       await act(async () => view.rerender(<FeedPage />));
       await act(async () => { undo?.action?.onClick?.(); });

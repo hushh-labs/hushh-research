@@ -6730,7 +6730,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/ria/clients/${REVIEWER_UID}?tab=overview&test_profile=1",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6746,9 +6746,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/ria/clients/[userId]/accounts/[accountId]",
@@ -6781,7 +6779,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/ria/clients/${REVIEWER_UID}/accounts/acct_demo_taxable_main?test_profile=1",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Faccounts%2Facct_demo_taxable_main",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6797,9 +6795,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/ria/clients/[userId]/requests/[requestId]",
@@ -6832,7 +6828,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/ria/clients/${REVIEWER_UID}/requests/request_demo_kai_specialized_bundle?test_profile=1",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Frequests%2Frequest_demo_kai_specialized_bundle",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6848,9 +6844,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/ria/onboarding",
@@ -7298,5 +7292,5 @@
       ]
     }
   ],
-  "content_sha256": "1861d3639d2dd5c13fb2166e43207188c6b843344410374ae491510ceae9fbf7"
+  "content_sha256": "17c240addb207f56e58fd1d355732fa6f1434d68b121016a51b208de58732e22"
 }

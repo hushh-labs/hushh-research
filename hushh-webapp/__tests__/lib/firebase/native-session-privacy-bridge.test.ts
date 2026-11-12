@@ -37,6 +37,23 @@ describe("native privacy bridge state validation", () => {
     } finally { uuid.mockRestore(); }
   });
 
+  it("uses the document identity injected by the native bootstrap", async () => {
+    const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";
+    const original = Object.getOwnPropertyDescriptor(window, key);
+    Object.defineProperty(window, key, {
+      configurable: true,
+      value: Object.freeze({ contractVersion: 1, documentId: "native-document-fixture" }),
+    });
+    try {
+      vi.resetModules();
+      const privacy = await import("@/lib/capacitor/session-privacy");
+      expect(privacy.nativeDocumentId()).toBe("native-document-fixture");
+    } finally {
+      if (original) Object.defineProperty(window, key, original);
+      else Reflect.deleteProperty(window, key);
+    }
+  });
+
   it.each([
     {}, { ...active, generation: 0 }, { ...active, cause: "unknown" },
     { ...active, appIsActive: undefined }, { ...active, generation: 1.5 },

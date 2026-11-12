@@ -5,12 +5,17 @@ type KeyboardHandler = (info: { keyboardHeight?: number }) => void;
 const handlers = new Map<string, KeyboardHandler>();
 const native = vi.hoisted(() => ({ platform: "android" }));
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    isNativePlatform: () => true,
-    getPlatform: () => native.platform,
-  },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: {
+      ...actual.Capacitor,
+      isNativePlatform: () => true,
+      getPlatform: () => native.platform,
+    },
+  };
+});
 
 vi.mock("@capacitor/keyboard", () => ({
   Keyboard: {

@@ -10,6 +10,8 @@ export type NativeOwnedScenePort<I, P, E, A> = {
   confirm: (action: A) => Promise<{ valid: boolean }>;
   settle: (action: A, saved?: boolean) => Promise<{ valid: boolean }>;
   retire: (identity: I) => Promise<NativeOwnedSceneReceipt<I>>;
+  /** Identity-scoped readback for ports that expose terminal presentation state. */
+  read?: (identity: I) => Promise<NativeOwnedSceneReceipt<I>>;
   edits: (callback: (event: E) => void) => Promise<PluginListenerHandle>;
   choices: (callback: (event: A) => void) => Promise<PluginListenerHandle>;
 };
@@ -31,6 +33,7 @@ export class NativeOwnedScenePresentation<I, P extends I & OwnedEditorState, E e
   private highestUpdate = 0;
   private seenAction = 0;
   private disposed = false;
+  get retired(): boolean { return this.disposed; }
   private listening = false;
   private ready = false;
   private withdrawal: Promise<boolean> | null = null;
@@ -166,9 +169,13 @@ export class NativeOwnedScenePresentation<I, P extends I & OwnedEditorState, E e
     let retired = false;
     try {
       const receipt = await acknowledged(this.port.retire(this.identity));
-      retired = !!receipt && this.same(receipt, this.identity) &&
-        receipt.phase === "retired" && Number.isSafeInteger(receipt.updateSequence) &&
-        receipt.updateSequence >= 0 && receipt.updateSequence <= this.highestUpdate;
+      retired = this.confirmsRetirement(receipt);
+    } catch { /* A later exact-state read may resolve an uncertain bridge result. */ }
+    if (!retired && this.port.read) {
+      try { retired = this.confirmsRetirement(await acknowledged(this.port.read(this.identity))); }
+      catch { retired = false; }
+    }
+    try {
       if (retired) await acknowledged(reconcileNativeDrawerIsolation(this.port.source));
       return retired;
     } catch { return false; }
@@ -178,5 +185,13 @@ export class NativeOwnedScenePresentation<I, P extends I & OwnedEditorState, E e
         else retainNativeDrawerIsolation(this.port.source, isolation);
       }
     }
+  }
+
+  private confirmsRetirement(receipt: unknown): receipt is NativeOwnedSceneReceipt<I> {
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) return false;
+    const candidate = receipt as NativeOwnedSceneReceipt<I>;
+    return this.same(candidate, this.identity) && candidate.phase === "retired" &&
+      Number.isSafeInteger(candidate.updateSequence) && candidate.updateSequence >= 0 &&
+      candidate.updateSequence <= this.highestUpdate;
   }
 }

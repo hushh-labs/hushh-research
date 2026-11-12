@@ -31,7 +31,7 @@ import {
   UsersRound,
 } from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { LocationMapCloseControl, LocationMapCheckInControl, LocationMapLocateControl } from "./location-map-stationary-controls";
 import {

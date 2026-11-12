@@ -12,6 +12,7 @@ import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { useWalletCardImageShare } from "./wallet-card-image-share-button";
 import { useNativeWalletImages } from "./use-native-wallet-images";
 import type { WalletPanelProjection } from "./native-wallet-payment-panel";
+import { useNativeProfilePortrait } from "@/components/profile/use-native-profile-portrait";
 
 /** Native presentation of the existing Wallet Profile owner, including its
  * editor and confirmations. Services, payload validation and pass handoff stay
@@ -23,6 +24,13 @@ export function NativeWalletIdentityPanel({ model, variant, handle, publish, onC
   const live = useRef(model);
   useLayoutEffect(() => { live.current = model; });
   const editing = model.stage === "edit";
+  const previewCard = model.stage === "preview" && model.visitorPreview.status === "ready" ? model.visitorPreview.card : null;
+  const portrait = useNativeProfilePortrait(model.userId, model.stage === "preview", previewCard?.avatarUrl ?? null);
+  const visitor = model.stage === "preview" ? {
+    name: previewCard?.fullName ?? "", headline: previewCard?.headline ?? "", organisation: previewCard?.organisation ?? "",
+    location: previewCard?.locationLabel ?? "", summary: previewCard?.summary ?? "", skills: previewCard?.skills ?? [],
+    ...(portrait ? { portraitData: portrait } : {}),
+  } : undefined;
   const entry = useMemo(() => {
     if (!editing) return null;
     let revision = 0, pending = false, draft: NativeWalletProfileDraft | undefined;
@@ -40,12 +48,12 @@ export function NativeWalletIdentityPanel({ model, variant, handle, publish, onC
     };
   }, [editing]);
   const sharing = useWalletCardImageShare({ cardId: variant === "nws" ? "agent-one-nws" : "agent-one-profile", profile: model.imageShareProfile,
-    disabled: model.card?.status !== "active" || !model.shareLink || model.saving || model.busyAction !== null });
+    disabled: model.card?.status !== "active" || !model.shareLink || model.saving || model.busyAction !== null, nativePresentation: true });
   const images = useNativeWalletImages(model.card?.status === "active" ? model.shareLink?.shareUrl : null, sharing.ready);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const sections: NativeDrawerSection[] = [];
   const busy = model.saving || model.busyAction !== null || sharing.sharing;
-  const row = (key: string, label: string, action?: () => void | Promise<unknown>, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
+  const row = (key: string, label: string, action?: (choice: NativeWorkspaceChoice) => void | Promise<unknown>, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
     const id = handle(key); if (action) actions.set(id, action);
     return { id, label, enabled: !busy, ...(!action ? { readOnly: true } : {}), ...extra };
   };
@@ -72,14 +80,9 @@ export function NativeWalletIdentityPanel({ model, variant, handle, publish, onC
     else if (preview.status !== "ready") group("preview-loading", [row("preview-loading", "Loading preview…")]);
     else {
       const card = preview.card;
-      group("preview", [
-        ["fullName", "Name"], ["headline", "Headline"], ["organisation", "Organisation"], ["locationLabel", "Location"], ["summary", "About"],
-
-      ].flatMap(([key, label]) => { const value = card[key as keyof typeof card]; return typeof value === "string" && value ? [row(`preview-${key}`, label!, undefined, { detail: value })] : []; }));
       const contacts = walletPublicCardActions(card);
       if (contacts.length) group("contacts", contacts.map(contact => row(`contact-${contact.id}`, contact.label,
-        () => contact.external ? openExternalUrl(contact.href) : assignWindowLocation(contact.href), { artworkId: contact.id === "email" ? "account-mail" : contact.id === "phone" ? "account-phone" : "world-model", chevron: true })), "Contact");
-      if (card.skills.length) group("skills", [row("skills", "Skills", undefined, { detail: card.skills.join(", ") })]);
+        () => contact.external ? openExternalUrl(contact.href) : assignWindowLocation(contact.href), { artworkId: contact.id === "email" ? "account-mail" : contact.id === "phone" ? "account-phone" : "world-model", chevron: true })), "Connect");
     }
     group("preview-actions", [...(model.previewOrigin === "setup" ? [model.applePassSupported ? row("setup-apple-wallet", WALLET_CARD_OWNER_COPY.addToWallet, model.addToWallet, { enabled: !busy && !!model.shareLink, artworkId: "account-wallet" }) : row("setup-share", "Share card", sharing.share, { enabled: !busy && !!(sharing.ready || sharing.failed), artworkId: "invite" })] : []), row("preview-edit", WALLET_CARD_OWNER_COPY.editInformation, model.startEdit), row("preview-done", "Done", () => { model.closeLocalStage(); })]);
   } else if (model.stage === "manage" && model.card) {
@@ -114,6 +117,6 @@ export function NativeWalletIdentityPanel({ model, variant, handle, publish, onC
       onSaved: () => {}, onCancel: () => { live.current.closeLocalStage(); },
     };
   }
-  useLayoutEffect(() => publish({ title, busy, sections, actions, back, editor, ...(!editing && !model.confirm ? images : {}) }));
+  useLayoutEffect(() => publish({ title, busy, sections, actions, back, editor, visitor: !model.confirm ? visitor : undefined, collectionNavigation: model.stage === "manage" && !model.confirm, ...(!editing && !model.confirm ? images : {}) }));
   return null;
 }

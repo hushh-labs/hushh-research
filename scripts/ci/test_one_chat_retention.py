@@ -13,17 +13,7 @@ from unittest import mock
 maintenance = importlib.import_module("uat-retention-maintenance")
 
 
-class OneChatRetentionTest(unittest.TestCase):
-    def test_retired_history_uses_repository_bound_numeric_identity(self):
-        endpoint = "workflows/deploy-uat-one-chat.yml/runs?per_page=100"
-        with mock.patch.object(maintenance, "command", return_value='{"workflow_runs": []}') as command:
-            self.assertEqual(maintenance.api("hushh-labs/hushh-research", endpoint), {"workflow_runs": []})
-            command.assert_called_once_with(
-                "gh", "api", "repos/hushh-labs/hushh-research/actions/workflows/382099846/runs?per_page=100")
-            with self.assertRaises(maintenance.retention.UnsafeState):
-                maintenance.api("other/repository", endpoint)
-            self.assertEqual(command.call_count, 1)
-
+class OneChatRetentionFixture:
     def setUp(self) -> None:
         self.backend = "consent-protocol-02121-abc"
         self.old_backend = "consent-protocol-02118-yed"
@@ -89,6 +79,7 @@ class OneChatRetentionTest(unittest.TestCase):
                 )
                 return release
 
+class OneChatReceiptRetentionTest(OneChatRetentionFixture, unittest.TestCase):
     def test_replayed_release_composes_independent_backend_and_frontend_provenance(self):
         release = self.load(self.report)
         self.assertEqual(release["final"]["backend_revision"], self.backend)
@@ -152,6 +143,18 @@ class OneChatRetentionTest(unittest.TestCase):
                         else:
                             with self.assertRaises(maintenance.retention.UnsafeState):
                                 self.load(report)
+
+class OneChatHistoryRetentionTest(OneChatRetentionFixture, unittest.TestCase):
+    def test_retired_history_uses_repository_bound_numeric_identity(self):
+        endpoint = "workflows/deploy-uat-one-chat.yml/runs?per_page=100"
+        with mock.patch.object(maintenance, "command", return_value='{"workflow_runs": []}') as command:
+            self.assertEqual(maintenance.api("hushh-labs/hushh-research", endpoint), {"workflow_runs": []})
+            command.assert_called_once_with(
+                "gh", "api", "repos/hushh-labs/hushh-research/actions/workflows/382099846/runs?per_page=100")
+            with self.assertRaises(maintenance.retention.UnsafeState):
+                maintenance.api("other/repository", endpoint)
+            self.assertEqual(command.call_count, 1)
+
 
     def test_latest_one_chat_source_wins_over_older_standard_release(self):
         standard = {

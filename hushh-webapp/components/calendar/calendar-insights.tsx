@@ -1,5 +1,7 @@
 "use client";
 
+import { NativeCalendarLayer, useNativeCalendarEnabled, type CalendarNativeSection, type CalendarNativeRow } from "./native-calendar-workspace";
+import { shiftCalendarDate } from "./calendar-schedule-presentation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -69,6 +71,8 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   followupRequestId?: string | null;
   onFollowupIntentHandled?: () => void;
 }) {
+  const nativeEnabled = useNativeCalendarEnabled();
+  const [nativePage, setNativePage] = useState({ key: "", page: 0 });
   const [view, setView] = useState<"overview" | "followups" | "library" | "meeting">(initialLibrary ? "library" : "overview");
   const [day, setDay] = useState(initialLibrary?.day || today);
   const previousToday = useRef(today);
@@ -465,7 +469,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   </button>;
   const errorCard = error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null;
 
-  return <div className={styles.insights} data-view={view} aria-busy={loading}>
+  const content = <div className={styles.insights} data-view={view} aria-busy={loading}>
     {refreshControl === "inline" ? <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
       disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); }}>Refresh</Button></div> : null}
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
@@ -545,4 +549,54 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       </SectionCard> : null}
     </>}
   </div>;
+  if (!nativeEnabled) return content;
+  const sections: CalendarNativeSection[] = [];
+  if (refreshControl === "inline") sections.push({ key: "insights-refresh", rows: [{ key: "refresh-insights", label: "Refresh", enabled: !loading && canRefresh, run: () => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); } }] });
+  if (!canRefresh) sections.push({ key: "paused", rows: [{ key: "paused", label: "Updates paused while this page is hidden or offline." }] });
+  if (error) sections.push({ key: "insights-error", rows: [{ key: "error", label: error }, { key: "retry", label: "Try again", run: refresh }] });
+  if (canRefresh && loading && view !== "followups" && (view === "overview" ? !overview : view === "library" ? !library : !detail)) sections.push({ key: "insights-loading", rows: [{ key: "loading", label: "Insights loading", pending: true }] });
+  const pageRows = (key: string, title: string, rows: CalendarNativeRow[]) => {
+    const page = nativePage.key === key ? Math.min(nativePage.page, Math.max(0, Math.ceil(rows.length / 20) - 1)) : 0;
+    const visible = rows.slice(page * 20, (page + 1) * 20);
+    if (page > 0) visible.push({ key: `${key}:previous`, label: "Previous entries", run: () => setNativePage({ key, page: page - 1 }) });
+    if ((page + 1) * 20 < rows.length) visible.push({ key: `${key}:next`, label: "More entries", run: () => setNativePage({ key, page: page + 1 }) });
+    if (visible.length) sections.push({ key, title, rows: visible });
+  };
+  if (view === "overview") {
+    sections.push({ key: "snapshot", title: "Executive snapshot", rows: overview ? [
+      { key: "scheduled", label: `${overview.meeting_count} scheduled events`, detail: "This week · scheduled time, not attendance statistics" },
+      { key: "time", label: `${hours(overview.meeting_minutes)} scheduled time` },
+      { key: "recurring-time", label: `${hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))} recurring time` },
+      ...(!overview.complete ? [{ key: "partial", label: "Partial calendar coverage. Totals include only loaded events." }] : []),
+    ] : [{ key: "snapshot-loading", label: "Snapshot loading", pending: true }] });
+    if (overview) pageRows("weekly-time", "Your week at a glance", overview.days.map(day => ({ key: `day:${day.date}`, label: day.date, detail: `${day.meetings} meetings · ${day.minutes} scheduled minutes` })));
+    sections.push({ key: "risks", title: "Schedule risks", rows: [{ key: "risks", label: overview ? `${overview.overlaps} overlapping pairs · ${overview.back_to_back} back-to-back pairs` : "Schedule risks have not been checked.", detail: "Based on scheduled, timed events in calendars you can read." }] });
+    pageRows("recurring", "Recurring commitments", overview?.recurring.length ? overview.recurring.map((row, index) => ({ key: `recurring:${index}`, label: row.title, detail: `${hours(row.minutes)}/week` })) : [{ key: "no-recurring", label: "No recurring commitments in the loaded events." }]);
+    sections.push({ key: "library-entry", rows: [{ key: "recordings-notes", label: "Recordings & Notes", detail: "Find recordings and notes by meeting day", run: () => { autoAdvance.current = 0; setCursor(null); setView("library"); } }] });
+    pageRows("focus", "Focus opportunities", overview?.focus.length ? overview.focus.map((window, index) => ({ key: `focus:${index}`, label: `${new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–${new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}`, detail: "Weekdays, 9 AM–5 PM · at least one hour" })) : [{ key: "no-focus", label: "No verified focus windows to show." }]);
+  } else if (view === "library") {
+    sections.push({ key: "library-navigation", rows: [{ key: "back-insights", label: "Back to Insights", run: back },
+      { key: "previous-day", label: "Previous day", run: () => changeDay(shiftCalendarDate(day, -1)) },
+      { key: "today", label: "Today", run: () => changeDay(today) },
+      { key: "next-day", label: "Next day", run: () => changeDay(shiftCalendarDate(day, 1)) },
+    ] }, { key: "library-filters", rows: (["all", "recording", "notes"] as const).map(value => ({ key: `filter:${value}`, label: value === "all" ? "All" : value === "recording" ? "Recordings" : "Notes", selected: filter === value, run: () => changeFilter(value) })) });
+    const statusRows: CalendarNativeRow[] = [{ key: "library-scope", label: "Every timed meeting on this day, with file access checked separately." }];
+    if (library) statusRows.push({ key: "library-count", label: `${query ? "Search results: " : ""}${library.meetings.length} meetings loaded · ${availableMeetings.length} Available · ${unavailableMeetings.length} Not available yet.`, detail: !library.calendar_complete ? "Calendar coverage is incomplete; totals reflect loaded meetings only." : undefined });
+    if (loading && library) statusRows.push({ key: "checking", label: "Checking for updates…", pending: true });
+    if (filter !== "all") statusRows.push({ key: "filter-detail", label: `All meetings remain listed. The ${filter === "recording" ? "recording" : "notes"} filter focuses the file detail.` });
+    if (library?.limitations.length) statusRows.push({ key: "limitations", label: limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked." });
+    else if (library && !library.complete && !library.next_cursor) statusRows.push({ key: "incomplete", label: "This check is incomplete. Refresh to try again." });
+    if (library?.meeting_file_access === "missing" && onAllowMeetingFiles) statusRows.push({ key: "allow-files", label: "Allow recording and notes access", web: true, run: () => onAllowMeetingFiles(account.account_id, { accountId: account.account_id, day, timeZone: zone, filter, query }) });
+    if (library?.calendar_complete && !library.meetings.length && !loading && !error) statusRows.push({ key: "library-empty", label: query ? "No matching meetings for this day. Clear search to see all meetings." : "No timed meetings for this day." });
+    sections.push({ key: "library-status", rows: statusRows });
+    pageRows(`meetings:${libraryKey}`, "Meetings", [...availableMeetings, ...unavailableMeetings].map(meeting => ({ key: `meeting:${meeting.occurrence_id}`, label: meeting.title,
+      detail: [meetingTime(meeting, zone), `Organizer: ${meeting.organizer?.displayName || meeting.organizer?.email || "Unavailable"}`, requestStatus(meeting) || focusedStatus(meeting, filter)].filter(Boolean).join(" · "),
+      web: true, run: () => { lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting"); },
+    })));
+    if (library?.next_cursor) sections.push({ key: "library-next", rows: [{ key: "continue-checking", label: "Continue checking this day", detail: "More Calendar pages remain. Continue this day for complete totals.", enabled: !loading, run: () => setCursor(library.next_cursor) }] });
+  }
+  return <NativeCalendarLayer key={view} active contentPresentation={view === "overview" ? "rich" : "native"} title={view === "overview" ? "Insights" : "Recordings & Notes"} sections={sections}
+    search={view === "library" ? { query, label: "Search meetings on this day", change: changeQuery } : undefined}
+    calendarDate={view === "library" ? { key: "library", label: "Recording and notes date", value: day, timeZone: zone, enabled: true, change: changeDay } : undefined}
+    webChild={view === "meeting"} fallback={content} />;
 }

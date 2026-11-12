@@ -4,8 +4,8 @@ import { TaskSurfaceHeader, TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFoot
 import { SheetSearch } from "@/components/app-ui/sheet-parts";
 import { connectPersonName } from "@/lib/connections/person-label";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Button } from "@/components/ui/button";
 import { EmptyStateCard } from "@/components/one-location/redesign/contact-picker/atoms";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
@@ -36,6 +36,7 @@ export type CreateCirclePeopleProps = {
 };
 export function useCreateCirclePeopleModel({ circleId, active, onLoad, onAdd, onComplete, onSavingChange }: CreateCirclePeopleProps) {
   const [query, setQuery] = useState("");
+  const [lookupVersion, setLookupVersion] = useState(0);
   const [page, setPage] = useState(1);
   const [retry, setRetry] = useState(0);
   const [people, setPeople] = useState<OneLocationCircleEligibleConnection[]>([]);
@@ -46,6 +47,14 @@ export function useCreateCirclePeopleModel({ circleId, active, onLoad, onAdd, on
   const [failed, setFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
+  const selectionRef = useRef<string[]>(selected);
+  const pagingRef = useRef(false);
+  // Invalidate displayed results synchronously, before React commits a new
+  // search or an earlier request's completion can reach the current owner.
+  const lookup = useRef({ circleId, query: "", revision: 0, ownerEpoch: 0 });
+  const [owner, setOwner] = useState({ circleId, epoch: 0 });
+  const renderedRevision = lookupVersion;
+  const ownsCurrentCircle = () => owner.circleId === circleId && lookup.current.circleId === circleId && owner.epoch === lookup.current.ownerEpoch;
   const mountedRef = useRef(true);
   const current = useCallback(() => mountedRef.current, []);
   const mutationPending = useCallback(() => inFlight.current, []);
@@ -58,42 +67,53 @@ export function useCreateCirclePeopleModel({ circleId, active, onLoad, onAdd, on
     return () => { mountedRef.current = false; };
   }, []);
   useEffect(() => { if (active) headingRef.current?.focus(); }, [active]);
-  useEffect(() => {
-    setQuery(""); setPage(1); setPeople([]); setSelected([]); setCapacity(0); setHasMore(false); setFailed(false);
+  useLayoutEffect(() => {
+    if (lookup.current.circleId !== circleId) {
+      lookup.current = { circleId, query: "", revision: lookup.current.revision + 1, ownerEpoch: lookup.current.ownerEpoch + 1 };
+      selectionRef.current = [];
+      pagingRef.current = false;
+      setOwner({ circleId, epoch: lookup.current.ownerEpoch });
+      setLookupVersion(lookup.current.revision);
+    }
+    setQuery(""); setPage(1); setPeople([]); setSelected(selectionRef.current); setCapacity(0); setHasMore(false); setFailed(false);
   }, [circleId]);
 
   useEffect(() => {
     if (!circleId) { setLoading(false); return; }
+    if (owner.circleId !== circleId || lookup.current.circleId !== circleId || owner.epoch !== lookup.current.ownerEpoch || lookup.current.revision !== lookupVersion) return;
     let active = true;
+    const revision = lookup.current.revision;
+    const currentLookup = () => active && lookup.current.circleId === circleId && lookup.current.query === query && lookup.current.revision === revision;
     setLoading(true);
     setFailed(false);
     const timer = window.setTimeout(() => {
       void loaderRef.current(circleId, { page, limit: 50, query: query.trim() || undefined })
         .then((result) => {
-          if (!active) return;
+          if (!currentLookup()) return;
           setPeople((current) => page === 1 ? result.eligibleConnections : [
             ...new Map([...current, ...result.eligibleConnections].map((person) => [person.userId, person])).values(),
           ]);
           setCapacity(result.remainingCapacity);
           setHasMore(result.hasMore);
         })
-        .catch(() => { if (active) setFailed(true); })
-        .finally(() => { if (active) setLoading(false); });
+        .catch(() => { if (currentLookup()) setFailed(true); })
+        .finally(() => { if (currentLookup()) { pagingRef.current = false; setLoading(false); } });
     }, query ? 200 : 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [circleId, page, query, retry]);
+  }, [circleId, page, query, retry, lookupVersion, owner]);
 
   const limit = circleInviteSelectionLimit(capacity);
   const finish = async (addSelected: boolean) => {
-    if (inFlight.current || (addSelected && (!selected.length || selected.length > limit))) return;
+    if (!mountedRef.current || !ownsCurrentCircle() || selectionRef.current !== selected || inFlight.current || (addSelected && (!selected.length || selected.length > limit))) return;
+    const ownerEpoch = owner.epoch;
     inFlight.current = true;
     setSaving(true);
     onSavingChange(true);
     try {
       if (addSelected) await onAdd(circleId, selected);
-      if (mountedRef.current) onComplete(circleId);
+      if (mountedRef.current && lookup.current.circleId === circleId && lookup.current.ownerEpoch === ownerEpoch) onComplete(circleId);
     } catch {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || lookup.current.circleId !== circleId || lookup.current.ownerEpoch !== ownerEpoch) return;
       toast.error("Could not add those people. Try again or add people later.");
     } finally {
       inFlight.current = false;
@@ -105,16 +125,21 @@ export function useCreateCirclePeopleModel({ circleId, active, onLoad, onAdd, on
   };
 
   const changeQuery = (next: string) => {
-    if (inFlight.current) return;
-    setQuery(next); setPage(1); setPeople([]); setHasMore(false);
+    if (!mountedRef.current || !ownsCurrentCircle() || inFlight.current || lookup.current.query === next) return;
+    lookup.current = { ...lookup.current, query: next, revision: lookup.current.revision + 1 };
+    pagingRef.current = false;
+    setQuery(next); setLookupVersion(lookup.current.revision); setPage(1); setPeople([]); setHasMore(false); setLoading(true);
   };
   const add = (id: string) => {
-    if (!inFlight.current && people.some(person => person.userId === id))
-      setSelected(current => current.includes(id) || current.length >= limit ? current : [...current, id]);
+    if (mountedRef.current && ownsCurrentCircle() && lookup.current.revision === renderedRevision && !inFlight.current && people.some(person => person.userId === id)) {
+      const current = selectionRef.current;
+      if (!current.includes(id) && current.length < limit) { selectionRef.current = [...current, id]; setSelected(selectionRef.current); }
+    }
   };
-  const remove = (id: string) => { if (!inFlight.current) setSelected(current => current.filter(value => value !== id)); };
+  const remove = (id: string) => { if (mountedRef.current && ownsCurrentCircle() && !inFlight.current) { selectionRef.current = selectionRef.current.filter(value => value !== id); setSelected(selectionRef.current); } };
   return { query, page, people, selected, capacity, limit, hasMore, loading, failed, saving, headingRef, finish,
-    changeQuery, add, remove, retry: () => setRetry(value => value + 1), more: () => { if (!inFlight.current && !loading && hasMore) setPage(value => value + 1); },
+    changeQuery, add, remove, retry: () => { if (ownsCurrentCircle() && lookup.current.revision === renderedRevision) setRetry(value => value + 1); },
+    more: () => { if (ownsCurrentCircle() && lookup.current.revision === renderedRevision && !inFlight.current && !pagingRef.current && !loading && hasMore) { pagingRef.current = true; setPage(value => value + 1); } },
     current, mutationPending };
 }
 export type CreateCirclePeopleModel = ReturnType<

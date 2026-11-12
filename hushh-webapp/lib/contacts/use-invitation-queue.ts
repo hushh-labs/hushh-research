@@ -7,7 +7,7 @@ import {
   useState,
   type SetStateAction,
 } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import {
   MAX_INVITATION_RECIPIENTS,
   isInvitePhone,

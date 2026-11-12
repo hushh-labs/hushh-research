@@ -39,7 +39,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
           <div><dt><BarChart3 aria-hidden="true" />Investment return</dt><dd>Unavailable</dd></div>
         </dl>
         <p className={styles.description}>Balance changes can include cash flows; investment return is unavailable.</p>
-        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
+        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="show_portfolio_performance" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
       <SurfaceCard className={styles.insightShell}><SurfaceCardContent className={styles.insightCard}>
         <div className="flex items-baseline justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Allocation</SectionLabel><span className={styles.description}>% of portfolio</span></div>
@@ -47,11 +47,11 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
           {allocationTotal <= denominator * 1.001 ? <div className={styles.portfolioAllocation} aria-hidden="true">{allocations.map(item => <span key={item.name} style={{ width: `${item.value / denominator * 100}%`, background: allocationColor(item.name) }} />)}</div> : null}
           <dl className={styles.portfolioList}>{allocations.map(item => <div className={styles.portfolioListRow} key={item.name}><dt className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full" style={{ background: allocationColor(item.name) }} />{item.name}</dt><dd className="text-sm font-semibold tabular-nums">{(item.value / denominator * 100).toFixed(1)}%</dd></div>)}</dl>
         </> : <p className={styles.description}>Allocation is unavailable for this source.</p>}
-        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" onClick={() => onOpenSection("allocation")}>View allocation</ShellActionSurface></div>
+        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="show_portfolio_allocation" onClick={() => onOpenSection("allocation")}>View allocation</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
     </div>
     <SurfaceCard><SurfaceCardContent className="space-y-2 p-5 sm:p-6">
-      <div className="flex items-center justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Holdings</SectionLabel><ShellActionSurface variant="pill" className="min-h-11" onClick={() => onOpenSection("holdings")}>All {model.hero.holdingsCount}</ShellActionSurface></div>
+      <div className="flex items-center justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Holdings</SectionLabel><ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="show_portfolio_holdings" onClick={() => onOpenSection("holdings")}>All {model.hero.holdingsCount}</ShellActionSurface></div>
       {positions.length ? <div className={styles.portfolioList}>{positions.slice(0, 3).map(position => <button type="button" className={`${styles.portfolioListRow} relative isolate w-full overflow-hidden rounded-sm text-left`} key={position.id} onClick={() => onOpenSection("holdings")}>
         <span className="flex min-w-0 items-center gap-3"><span aria-hidden="true" className={styles.portfolioHoldingMark}>{(position.displaySymbol || position.name).slice(0, 2).toUpperCase()}</span><span className="min-w-0"><span className="block truncate text-sm font-semibold">{position.name || position.displaySymbol}</span><span className={styles.description}>{position.displaySymbol}{position.sector ? ` · ${position.sector}` : ""}</span></span></span>
         <span className="text-right text-sm font-semibold tabular-nums">{money(position.marketValue)}{model.hero.totalValue > 0 ? <span className={`block ${styles.description}`}>{(position.marketValue / model.hero.totalValue * 100).toFixed(1)}% of portfolio</span> : null}</span>

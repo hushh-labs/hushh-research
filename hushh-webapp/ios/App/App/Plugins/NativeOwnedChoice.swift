@@ -28,6 +28,16 @@ struct NativeOwnedChoiceOption: Decodable, Identifiable, Equatable {
     var valid: Bool { NativeDrawerIdentity.identifier(handle) && !label.isEmpty && label.utf16.count <= 256 && (artworkId == nil || NativeProfileArtwork.resolve(artworkId!) != nil) }
 }
 
+struct NativeOwnedChoiceAnchor: Decodable, Equatable {
+    let x: Double; let y: Double; let width: Double; let height: Double
+    let viewportWidth: Double; let viewportHeight: Double
+    var valid: Bool {
+        [x, y, width, height, viewportWidth, viewportHeight].allSatisfy(\.isFinite) &&
+            x >= 0 && y >= 0 && width > 0 && height > 0 && viewportWidth > 0 && viewportHeight > 0 &&
+            x + width <= viewportWidth && y + height <= viewportHeight
+    }
+}
+
 struct NativeOwnedChoiceProjection: Decodable, Equatable {
     let documentId: String
     let ownerEpoch: String
@@ -38,12 +48,13 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
     let updateSequence: Int
     var title: String
     var showTitle: Bool? = nil
+    var anchor: NativeOwnedChoiceAnchor? = nil
     var options: [NativeOwnedChoiceOption]
     let appearance: String
     let accentHex: String
     let foregroundHex: String
     static let keys = NativeOwnedChoiceIdentity.keys.union([
-        "privacyGeneration", "updateSequence", "title", "options", "showTitle", "appearance", "accentHex", "foregroundHex"])
+        "privacyGeneration", "updateSequence", "title", "options", "showTitle", "anchor", "appearance", "accentHex", "foregroundHex"])
     var identity: NativeOwnedChoiceIdentity {
         NativeOwnedChoiceIdentity(documentId: documentId, ownerEpoch: ownerEpoch,
             ownerGeneration: ownerGeneration, visitId: visitId, revision: revision)
@@ -56,7 +67,7 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
             max(privacyGeneration, updateSequence) <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
             !title.isEmpty && title.utf16.count <= 256 && options.count <= 256 &&
             options.allSatisfy(\.valid) && Set(options.map(\.handle)).count == options.count &&
-            options.filter(\.selected).count <= 1 && theme != nil
+            options.filter(\.selected).count <= 1 && (anchor == nil || anchor!.valid) && theme != nil
     }
     func receipt(_ phase: String, sequence: Int? = nil) -> [String: Any] {
         ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration,
@@ -64,7 +75,10 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
          "updateSequence": sequence ?? updateSequence, "phase": phase]
     }
     static func closed(_ value: [String: Any]) -> Bool {
-        Set(value.keys).isSubset(of: keys) && (value["options"] as? [[String: Any]])?.allSatisfy {
+        if let raw = value["anchor"] {
+            guard let anchor = raw as? [String: Any], Set(anchor.keys) == ["x", "y", "width", "height", "viewportWidth", "viewportHeight"] else { return false }
+        }
+        return Set(value.keys).isSubset(of: keys) && (value["options"] as? [[String: Any]])?.allSatisfy {
             Set($0.keys).isSubset(of: ["handle", "label", "disabled", "selected", "artworkId"])
         } == true
     }
@@ -73,12 +87,13 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
 @MainActor private final class OwnedChoiceModel: ObservableObject {
     @Published var title: String
     let showTitle: Bool
+    let anchored: Bool
     @Published var options: [NativeOwnedChoiceOption]
     @Published var accent: UIColor
     @Published var enabled = true
     var choose: ((String?) -> Void)?
     init(_ state: NativeOwnedChoiceProjection) {
-        showTitle = state.showTitle ?? true; title = state.title; options = state.options; accent = state.theme!.accent
+        anchored = state.anchor != nil; showTitle = state.showTitle ?? true; title = state.title; options = state.options; accent = state.theme!.accent
     }
     func clear() { enabled = false; title = ""; options = []; choose = nil }
 }
@@ -90,8 +105,10 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
             HStack {
                 if model.showTitle { Text(model.title).font(.headline).accessibilityAddTraits(.isHeader) }
                 Spacer(minLength: 12)
-                Button("Cancel") { model.choose?(nil) }.frame(minWidth: 44, minHeight: 44)
-                    .disabled(!model.enabled)
+                if !model.anchored {
+                    Button("Cancel") { model.choose?(nil) }.frame(minWidth: 44, minHeight: 44)
+                        .disabled(!model.enabled)
+                }
             }.padding(.horizontal, 20).padding(.top, 8)
             List(model.options) { option in
                 Button {
@@ -110,11 +127,11 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
                     }.frame(minHeight: 44)
                 }.disabled(!model.enabled || option.disabled)
                     .accessibilityAddTraits(option.selected ? .isSelected : [])
-            }.listStyle(.insetGrouped)
+            }.listStyle(.plain).scrollContentBackground(.hidden)
         }.tint(Color(uiColor: model.accent))
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(model.anchored ? Color.clear : Color(uiColor: .systemGroupedBackground))
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(model.title).accessibilityIdentifier("native-owned-choice")
+            .accessibilityLabel(model.title)
     }
 }
 
@@ -204,9 +221,23 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
         let host = UIHostingController(rootView: OwnedChoiceBody(model: model))
         host.view.accessibilityIdentifier = "native-owned-choice"
         host.overrideUserInterfaceStyle = next.theme!.style; host.view.tintColor = next.theme!.accent
-        host.modalPresentationStyle = .pageSheet
-        host.sheetPresentationController?.detents = next.options.count <= 6 ? [.medium(), .large()] : [.large()]
-        host.sheetPresentationController?.prefersGrabberVisible = true
+        if let anchor = next.anchor {
+            host.modalPresentationStyle = .popover
+            let scaleX = parent.view.bounds.width / CGFloat(anchor.viewportWidth)
+            let scaleY = parent.view.bounds.height / CGFloat(anchor.viewportHeight)
+            host.popoverPresentationController?.sourceView = parent.view
+            host.popoverPresentationController?.sourceRect = CGRect(x: CGFloat(anchor.x) * scaleX, y: CGFloat(anchor.y) * scaleY,
+                width: CGFloat(anchor.width) * scaleX, height: CGFloat(anchor.height) * scaleY)
+            host.popoverPresentationController?.permittedArrowDirections = [.up, .down]
+            host.preferredContentSize = CGSize(width: min(360, max(260, CGFloat(anchor.width) * scaleX)),
+                height: min(parent.view.bounds.height * 0.65,
+                    CGFloat(next.options.count) * max(44, UIFont.preferredFont(forTextStyle: .body).lineHeight + 24) + 52))
+            host.view.backgroundColor = .clear
+        } else {
+            host.modalPresentationStyle = .pageSheet
+            host.sheetPresentationController?.detents = next.options.count <= 6 ? [.medium(), .large()] : [.large()]
+            host.sheetPresentationController?.prefersGrabberVisible = true
+        }
         let session = Session(next, controller: host, model: model, call: call)
         let presenter = HushhNativeChromePresenter(parent: parent, controller: host,
             updateSequence: 1, animatedDismissal: true, privacyShield: privacyShield, onChoice: { _, _ in })

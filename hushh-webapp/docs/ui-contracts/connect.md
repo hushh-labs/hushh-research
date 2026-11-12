@@ -928,3 +928,11 @@ Behavioral evidence: `person-profile-preview.test.tsx`, `network-people-list.tes
 and `connections-service.test.ts` in the nearest frontend suites. These prove the
 shared callbacks in jsdom; shipped browser/native gesture acceptance remains a
 separate runtime check.
+
+## Experimental native presentation
+
+On supported iPhones with Native interface enabled, the shared workspace maps Connections/Circles, directory selection, independent search, paging, relationship actions, owned/joined groups, optional ideas and Circle creation. The route and services retain queries, capabilities and writes. One Circle creation model owns both renderers, including normalized custom types, saved-ID reuse and the paged people step; a vault-session change clears that model and rejects late results.
+
+Shell Back unwinds a selected person or Circle summary before leaving the route. Rich permission/contact review, nearby directories, grouped invite-code review and the complete Circle roster/chat/editor layer retain explicit React presentations. The native owner confirms retirement before revealing those layers, then readmits the native collection after return. These handoffs preserve their existing validation, permission checks, confirmation, chat privacy and mutation callbacks. Native creation Cancel is a draft-only operation. Renderer-off keeps the existing complete React route.
+
+Runtime qualification and fixture limits are recorded in the adoption plan; implementation alone is not visual acceptance.

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 
+import { NativeFinanceLayer, useNativeFinancePaneActive } from "@/components/kai/native-finance-workspace";
+import type { NativeWorkspaceSurfaceSection, NativeWorkspaceSurfaceRow } from "@/lib/capacitor/native-workspace-surface";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
@@ -83,7 +85,13 @@ export function RiaPicksList({
   loadQuote,
   toolbarActions,
   news = [],
+  nativeStatus = [],
+  onHistory,
+  historyOpen = false,
 }: {
+  nativeStatus?: NativeWorkspaceSurfaceRow[];
+  onHistory?: () => void;
+  historyOpen?: boolean;
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
   activeSourceId?: string;
@@ -97,6 +105,7 @@ export function RiaPicksList({
   toolbarActions?: ReactNode;
   news?: KaiHomeNewsItem[];
 }) {
+  const nativeActive = useNativeFinancePaneActive("analysis");
   const isMobile = useIsMobile();
   void controlMode;
   const pageSizeOptions: readonly number[] = isMobile
@@ -266,7 +275,7 @@ export function RiaPicksList({
     setPage(Math.max(1, Math.min(totalPages, nextPage)));
   };
 
-  return (
+  const content = (
     <div className={cn(styles.detail, "space-y-4")}>
       <StockListToolbar query={query} setQuery={setQuery} tier={tierFilter} setTier={setTierFilter}
         sector={sectorFilter} setSector={setSectorFilter} sectors={sectors}
@@ -467,6 +476,25 @@ export function RiaPicksList({
       </KaiControlSurface>
     </div>
   );
+
+  if (!nativeActive) return content;
+  const filters: NativeWorkspaceSurfaceRow[] = [];
+  if (availableSources.length > 1) filters.push({ key: "list-source", label: "List source", enabled: Boolean(onSourceChange), choices: availableSources.map(source => ({ key: source.id, label: `${source.label}${source.state === "ready" ? "" : ` · ${source.state}`}`, selected: source.id === activeSource?.id, run: () => onSourceChange?.(source.id) })) });
+  filters.push({ key: "tier", label: "Tier", choices: ["all", "ACE", "KING", "QUEEN", "JACK"].map(value => ({ key: value, label: value === "all" ? "All tiers" : value, selected: tierFilter === value, run: () => setTierFilter(value) })) });
+  if (sectors.length) filters.push({ key: "sector", label: "Sector", choices: ["all", ...sectors].map(value => ({ key: value, label: value === "all" ? "All sectors" : value, selected: sectorFilter === value, run: () => setSectorFilter(value) })) });
+  filters.push({ key: "page-size", label: "Rows per page", choices: pageSizeOptions.map(value => ({ key: String(value), label: `${value} rows`, selected: pageSize === value, run: () => setPageSize(value) })) });
+  const companies: NativeWorkspaceSurfaceRow[] = currentPageRows.map((row, index) => {
+    const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
+    const change = typeof row.change_pct === "number" && Number.isFinite(row.change_pct) ? `${row.change_pct >= 0 ? "+" : ""}${row.change_pct.toFixed(2)}%` : "Change unavailable";
+    return { key: `company:${row.quote_symbol || row.symbol}:${index}`, label: `${row.symbol} · ${row.company_name || row.symbol}`, detail: [row.sector, row.tier || "CORE", typeof cap === "number" && cap > 0 ? `${formatCompactNumber(cap)} cap` : "Cap unavailable", formatCurrency(row.price), change, row.degraded ? "Delayed" : null].filter(Boolean).join(" · "), web: true, run: () => setSelectedRow(row) };
+  });
+  if (!companies.length) companies.push({ key: "no-stocks", label: rows.length ? "No stocks match the current filters." : `No stocks are available in ${activeSource?.label || "this list"}.` });
+  const sections: NativeWorkspaceSurfaceSection[] = [
+    { key: "stock-controls", rows: [...nativeStatus, ...(onHistory ? [{ key: "history", label: "History", web: true, run: onHistory }] : []), ...filters] },
+    { key: "companies", title: `${visibleStart}–${visibleEnd} of ${filteredRows.length} companies`, rows: companies },
+    { key: "pages", rows: [{ key: "page", label: `Page ${page} of ${totalPages}` }, { key: "previous", label: "Previous companies", enabled: page > 1, run: () => goToPage(page - 1) }, { key: "next", label: "Next companies", enabled: page < totalPages, run: () => goToPage(page + 1) }] },
+  ];
+  return <NativeFinanceLayer active contentPresentation="rich" title="Stocks" sections={sections} viewKey={`${activeSourceId}:${page}:${pageSize}:${tierFilter}:${sectorFilter}`} search={{ query, label: "Search stocks", change: setQuery }} webChild={Boolean(selectedRow) || historyOpen} fallback={content} />;
 }
 
 export const RenaissanceMarketList = RiaPicksList;

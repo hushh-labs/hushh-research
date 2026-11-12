@@ -21,6 +21,27 @@ export type NativePresentationRegions = {
   initialDrawerPoseApplied?: boolean;
 };
 
+// Native keyboard events join the acknowledged chrome snapshot here. Native
+// scroll views still manage focus/avoidance locally; this bounds the web seat.
+let keyboardInset = 0;
+function publishWorkspaceGeometry() {
+  if (!accepted) return;
+  const root = document.documentElement;
+  for (const [name, value] of [["--native-workspace-top", accepted.top],
+    ["--native-workspace-bottom", Math.max(accepted.bottom, keyboardInset)],
+    ["--native-workspace-paint-bottom", keyboardInset]] as const) {
+    if (root.style.getPropertyValue(name) !== `${value}px`) {
+      // perf-lint: allow root-custom-property-write -- Acknowledged chrome or keyboard transition only.
+      root.style.setProperty(name, `${value}px`);
+    }
+  }
+}
+export function setNativePresentationKeyboardInset(inset: number) {
+  if (!customNativePresentationEnabled() || !Number.isFinite(inset)) return;
+  keyboardInset = Math.max(0, inset);
+  publishWorkspaceGeometry();
+}
+
 let revision = 0;
 let accepted: NativePresentationRegions | undefined;
 let acceptedKey: string | undefined;
@@ -130,6 +151,7 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
     if (capability.atomicDrawerCoverage && measured.drawer && drawerSources.get(measured.drawer) !== currentSource) return false;
     accepted = projection;
     acceptedKey = key;
+    publishWorkspaceGeometry();
     const root = document.documentElement;
     const top = projection.covered ? 0 : projection.top;
     const bottom = projection.covered ? 0 : projection.bottom;
