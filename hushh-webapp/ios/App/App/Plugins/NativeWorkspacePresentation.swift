@@ -1081,79 +1081,11 @@ private struct NativeWorkspaceCollectionRow: View {
         Group {
         if model.state.wallet != nil { NativeWalletWorkspaceBody(model: model) } else {
         VStack(spacing: 0) {
-            if model.state.workspace != "memory" && model.state.workspace != "consent" && model.state.workspace != "feed" && model.state.workspace != "connect" && model.state.workspace != "email" && model.state.workspace != "mail" && model.state.workspace != "calendar" && model.state.workspace != "finance" && model.state.workspace != "career" && model.state.workspace != "location" && model.state.workspace != "setup" {
-                HStack {
-                    if model.state.backEnabled {
-                        Button { model.choice("back") } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
-                            .buttonStyle(.glass).buttonBorderShape(.circle).accessibilityLabel("Back").accessibilityIdentifier("native-workspace-back")
-                    }
-                    Text(model.state.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader)
-                }.padding(.horizontal, model.state.frame.gutter).padding(.vertical, 8)
-            }
-            if model.state.isLocationRoot, let header = model.state.sections.first {
-                NativeLocationHeader(rows: header.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
-                    .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
-            }
-            if let tabs = model.state.tabs {
-                NativeWorkspaceTabStrip(tabs: tabs, model: model, identifier: "native-workspace-tabs")
-                    .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
-            }
-            if let tabs = model.state.secondaryTabs {
-                NativeWorkspaceTabStrip(tabs: tabs, model: model, identifier: "native-workspace-secondary-tabs")
-                    .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
-            }
-            if let search = model.state.search, search.afterSection == nil {
-                NativeWorkspaceSearchField(model: model, search: search).padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
-            }
+            workspaceChrome
             if let editor = model.editor {
                 NativeWorkspaceCircleForm(model: editor, gutter: model.state.frame.gutter).padding(.bottom, model.state.frame.bottomClearance)
             } else {
-            ScrollViewReader { position in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    if let search = model.state.search, search.afterSection == 0 {
-                        NativeWorkspaceSearchField(model: model, search: search)
-                    }
-                    if let date = model.state.calendarDate { NativeWorkspaceCalendarDatePicker(model: model, control: date) }
-                    if let taskEditor = model.taskEditor { NativeWorkspaceTaskForm(model: taskEditor.model) }
-                    if let memoryEditor = model.memoryEditor {
-                        NativeWorkspaceMemoryForm(model: memoryEditor.model)
-                    }
-                    if let launcher = model.state.launcher { NativeWorkspaceAgentRoster(model: model, launcher: launcher) }
-                    ForEach(Array(model.state.sections.enumerated()).filter { !(model.state.isLocationRoot && $0.offset == 0) }, id: \.element.id) { sectionIndex, section in
-                        VStack(alignment: .leading, spacing: 6) {
-                            if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
-                            if section.layout == "tiles" {
-                                NativeLocationActionTiles(rows: section.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
-                            } else {
-                            VStack(spacing: section.layout == "cards" ? 10 : 0) {
-                                ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
-                                    NativeWorkspaceCollectionRow(row: row, model: model).background(section.layout == "cards" ? Color(uiColor: .secondarySystemGroupedBackground) : .clear, in: RoundedRectangle(cornerRadius: 18))
-                                    if section.layout == nil && index < section.rows.count - 1 && !(row.formattedText != nil && section.rows[index + 1].formattedText != nil) { Divider().padding(.horizontal, 16) }
-                                }
-                            }.background(section.layout == "cards" ? .clear : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-                            }
-                        }
-                        if let search = model.state.search, search.afterSection == sectionIndex + 1 {
-                            NativeWorkspaceSearchField(model: model, search: search)
-                        }
-                    }
-                    if let textEditor = model.textEditor { NativeWorkspaceTextForm(model: textEditor.model) }
-                }.id("native-workspace-content-top").padding(.horizontal, model.state.frame.gutter).padding(.top, 8).padding(.bottom, 24 + model.state.frame.bottomClearance)
-            }.background(Color(uiColor: model.canvasColor))
-                .id(model.state.navigation?.id ?? "workspace-content")
-                .transition(.asymmetric(
-                    insertion: .move(edge: model.navigationForward ? .trailing : .leading),
-                    removal: .move(edge: model.navigationForward ? .leading : .trailing)))
-                .scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-workspace-scroll")
-                .contentMargins(.bottom, model.state.frame.bottomClearance, for: .scrollIndicators)
-                .onScrollPhaseChange { _, phase in scrollingFromPerson = phase == .interacting || phase == .decelerating }
-                .onScrollGeometryChange(for: CGFloat.self, of: { max(0, $0.contentOffset.y + $0.contentInsets.top) }) { _, value in model.scrolled?(value, scrollingFromPerson) }
-                .onChange(of: model.state.sections.first(where: { $0.layout == "cards" })?.rows.first?.id) { _, _ in
-                    position.scrollTo("native-workspace-content-top", anchor: .top)
-                }
-            }.clipped()
-                .animation(UIAccessibility.isReduceMotionEnabled ? nil : .snappy(duration: 0.24), value: model.state.navigation?.id)
+            scrollingContent
             }
         }
         }
@@ -1171,6 +1103,86 @@ private struct NativeWorkspaceCollectionRow: View {
             .tint(Color(uiColor: HushhNativeControlAppearance.color(model.state.accentHex) ?? .label))
             .preferredColorScheme(model.state.appearance == "dark" ? .dark : .light)
             .disabled(!model.active || !model.state.enabled)
+    }
+
+    private var scrollingContent: some View {
+        ScrollViewReader { position in
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if let search = model.state.search, search.afterSection == 0 {
+                    NativeWorkspaceSearchField(model: model, search: search)
+                }
+                if let date = model.state.calendarDate { NativeWorkspaceCalendarDatePicker(model: model, control: date) }
+                if let taskEditor = model.taskEditor { NativeWorkspaceTaskForm(model: taskEditor.model) }
+                if let memoryEditor = model.memoryEditor {
+                    NativeWorkspaceMemoryForm(model: memoryEditor.model)
+                }
+                if let launcher = model.state.launcher { NativeWorkspaceAgentRoster(model: model, launcher: launcher) }
+                ForEach(Array(model.state.sections.enumerated()).filter { !(model.state.isLocationRoot && $0.offset == 0) }, id: \.element.id) { sectionIndex, section in
+                    sectionContent(section)
+                    if let search = model.state.search, search.afterSection == sectionIndex + 1 {
+                        NativeWorkspaceSearchField(model: model, search: search)
+                    }
+                }
+                if let textEditor = model.textEditor { NativeWorkspaceTextForm(model: textEditor.model) }
+            }.id("native-workspace-content-top").padding(.horizontal, model.state.frame.gutter).padding(.top, 8).padding(.bottom, 24 + model.state.frame.bottomClearance)
+        }.background(Color(uiColor: model.canvasColor))
+            .id(model.state.navigation?.id ?? "workspace-content")
+            .transition(.asymmetric(
+                insertion: .move(edge: model.navigationForward ? .trailing : .leading),
+                removal: .move(edge: model.navigationForward ? .leading : .trailing)))
+            .scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-workspace-scroll")
+            .contentMargins(.bottom, model.state.frame.bottomClearance, for: .scrollIndicators)
+            .onScrollPhaseChange { _, phase in scrollingFromPerson = phase == .interacting || phase == .decelerating }
+            .onScrollGeometryChange(for: CGFloat.self, of: { max(0, $0.contentOffset.y + $0.contentInsets.top) }) { _, value in model.scrolled?(value, scrollingFromPerson) }
+            .onChange(of: model.state.sections.first(where: { $0.layout == "cards" })?.rows.first?.id) { _, _ in
+                position.scrollTo("native-workspace-content-top", anchor: .top)
+            }
+        }.clipped()
+            .animation(UIAccessibility.isReduceMotionEnabled ? nil : .snappy(duration: 0.24), value: model.state.navigation?.id)
+    }
+
+    @ViewBuilder private var workspaceChrome: some View {
+        if model.state.workspace != "memory" && model.state.workspace != "consent" && model.state.workspace != "feed" && model.state.workspace != "connect" && model.state.workspace != "email" && model.state.workspace != "mail" && model.state.workspace != "calendar" && model.state.workspace != "finance" && model.state.workspace != "career" && model.state.workspace != "location" && model.state.workspace != "setup" {
+            HStack {
+                if model.state.backEnabled {
+                    Button { model.choice("back") } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
+                        .buttonStyle(.glass).buttonBorderShape(.circle).accessibilityLabel("Back").accessibilityIdentifier("native-workspace-back")
+                }
+                Text(model.state.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader)
+            }.padding(.horizontal, model.state.frame.gutter).padding(.vertical, 8)
+        }
+        if model.state.isLocationRoot, let header = model.state.sections.first {
+            NativeLocationHeader(rows: header.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
+                .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
+        }
+        if let tabs = model.state.tabs {
+            NativeWorkspaceTabStrip(tabs: tabs, model: model, identifier: "native-workspace-tabs")
+                .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
+        }
+        if let tabs = model.state.secondaryTabs {
+            NativeWorkspaceTabStrip(tabs: tabs, model: model, identifier: "native-workspace-secondary-tabs")
+                .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
+        }
+        if let search = model.state.search, search.afterSection == nil {
+            NativeWorkspaceSearchField(model: model, search: search).padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
+        }
+    }
+
+    private func sectionContent(_ section: NativeDrawerSection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
+            if section.layout == "tiles" {
+                NativeLocationActionTiles(rows: section.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
+            } else {
+            VStack(spacing: section.layout == "cards" ? 10 : 0) {
+                ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
+                    NativeWorkspaceCollectionRow(row: row, model: model).background(section.layout == "cards" ? Color(uiColor: .secondarySystemGroupedBackground) : Color.clear, in: RoundedRectangle(cornerRadius: 18))
+                    if section.layout == nil && index < section.rows.count - 1 && !(row.formattedText != nil && section.rows[index + 1].formattedText != nil) { Divider().padding(.horizontal, 16) }
+                }
+            }.background(section.layout == "cards" ? Color.clear : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            }
+        }
     }
 }
 /// Both navigation levels use the same native control; React supplies the
