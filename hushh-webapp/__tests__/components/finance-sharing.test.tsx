@@ -116,7 +116,7 @@ it("opens the existing advisor, sharing and access-management flows from Portfol
   await waitFor(() => expect(mocks.history).toHaveBeenCalled());
 });
 
-it.each([false, true])("uses the same controls for an advisor, with Always available (model review: %s)", async allowModel => {
+it("uses the same controls for an advisor, with Always available and no Agent One review option", async () => {
   mocks.recipients.mockResolvedValue({ items: [
     { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
     { userId: "other", publicPersonRef: "other", keyId: "other-key", publicKeyJwk: {}, displayName: "Other person", isFinanceAdvisor: false },
@@ -129,11 +129,11 @@ it.each([false, true])("uses the same controls for an advisor, with Always avail
   expect(screen.getByRole("checkbox", { name: /^Other person/ })).toBeTruthy();
   goToAccess();
   fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: "until_stopped" } });
-  if (allowModel) fireEvent.click(screen.getByRole("checkbox", { name: "Allow their Agent One to review" }));
+  expect(screen.queryByRole("checkbox", { name: /Agent One/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
   fireEvent.click(await screen.findByRole("button", { name: "Share with 1 person" }));
   await waitFor(() => expect(mocks.publish).toHaveBeenCalled());
-  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null, sections: ["allocation", "performance"], showAmounts: false, model_processing: { allowed: allowModel } });
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null, sections: ["allocation", "performance"], showAmounts: false, model_processing: { allowed: false } });
 });
 
 it("supports a custom connection duration and blocks invalid values before preview", async () => {
@@ -179,7 +179,7 @@ it("requires the exact preview and explicit confirmation, with synchronous dupli
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
   goToAccess();
   expect(screen.getByRole("checkbox", { name: /^Show dollar amounts/ })).not.toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /^Allow their Agent One/ })).not.toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: /Agent One/ })).toBeNull();
   expect(mocks.publish).not.toHaveBeenCalled();
   openPreview();
   const send = await screen.findByRole("button", { name: "Share with 1 person" });

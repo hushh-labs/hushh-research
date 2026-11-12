@@ -113,7 +113,6 @@ export function useFinanceShareFlow({
     duration === null
       ? "When you stop sharing"
       : `After ${durationCount} ${durationNoun}${durationCount === 1 ? "" : "s"}`;
-  const [allowModel, setAllowModel] = useState(false);
   const [people, setPeople] = useState<OneLocationRecipient[]>([]);
   const [selected, setSelected] = useState<OneLocationRecipient[]>([]);
   const [query, setQuery] = useState("");
@@ -180,7 +179,6 @@ export function useFinanceShareFlow({
         note: "",
       },
     );
-    setAllowModel(initialShare?.grant.policy.model_processing.allowed ?? false);
     setMode(initialShare?.grant.policy.mode ?? "snapshot");
     const previousDuration = initialShare?.grant.policy.durationSeconds;
     setDurationChoice(
@@ -372,7 +370,7 @@ export function useFinanceShareFlow({
             mode,
             sections: selection.sections,
             showAmounts: selection.showAmounts,
-            model_processing: { version: 1 as const, allowed: allowModel },
+            model_processing: { version: 1 as const, allowed: false },
             durationSeconds: duration,
           },
           selected,
@@ -459,8 +457,6 @@ export function useFinanceShareFlow({
     setCustomUnit,
     durationValid,
     durationLabel,
-    allowModel,
-    setAllowModel,
     people,
     selected,
     setSelected,

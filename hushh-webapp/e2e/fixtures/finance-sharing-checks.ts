@@ -82,9 +82,8 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await expect(edit.getByRole("heading", { name: "Access", exact: true })).toBeFocused();
     expect((await edit.boundingBox())!.height).toBeCloseTo(frameHeight, 0);
     const dollars = edit.getByRole("checkbox", { name: /Show dollar amounts/ });
-    const model = edit.getByRole("checkbox", { name: /Allow their Agent One to review/ });
     await expect(dollars).not.toBeChecked();
-    await expect(model).not.toBeChecked();
+    await expect(edit.getByRole("checkbox", { name: /Agent One/ })).toHaveCount(0);
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
     const forward = edit.getByRole("button", { name: "Preview", exact: true });
     const manage = edit.getByRole("button", { name: "Back", exact: true });

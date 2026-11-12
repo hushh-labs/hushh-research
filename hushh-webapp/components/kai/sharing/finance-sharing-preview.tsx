@@ -11,12 +11,17 @@ const money = (value: number, currency = "USD") => new Intl.NumberFormat(undefin
 const percent = (value: number) => `${value.toFixed(1)}%`;
 
 /** Renders the already filtered recipient object. Never receives the owner's model. */
-export function FinanceSharingPreview({ projection, section }: { projection: FinanceProjection; section?: "portfolio" | "allocation" | "stocks" }) {
+export function FinanceSharingPreview({ projection, section, compact = false }: { projection: FinanceProjection; section?: "portfolio" | "allocation" | "stocks"; compact?: boolean }) {
   const chartId = `finance-share-${useId().replace(/:/g, "")}`;
   const performance = projection.performance;
   const formatValue = (value: number) => performance?.unit === "USD" ? money(value) : percent(value);
-  return <div className={styles.section}>
-    {performance && (!section || section === "portfolio") ? <section className={styles.group} aria-label="Shared performance">
+  return <div className={compact ? styles.compactSections : styles.section}>
+    {performance && compact && (!section || section === "portfolio") ? <section className={styles.group} aria-label="Shared performance">
+      <h3 className="text-sm font-semibold">Performance</h3>
+      {performance.total ? <div className={styles.row}><span>Value</span><span className={styles.value}>{money(performance.total.value, performance.total.currency)}</span></div> : null}
+      <div className={styles.row}><span className="text-muted-foreground">Change</span><span className="tabular-nums">{performance.balanceChangePct === null ? "Unavailable" : `${performance.balanceChangePct > 0 ? "+" : ""}${percent(performance.balanceChangePct)}`}</span></div>
+    </section> : null}
+    {performance && !compact && (!section || section === "portfolio") ? <section className={styles.group} aria-label="Shared performance">
       <h3 className="text-sm font-semibold">Performance</h3>
       {performance.total ? <p className={styles.value}>{money(performance.total.value, performance.total.currency)}</p> : null}
       <p className="mt-1 text-sm tabular-nums">{performance.balanceChangePct === null ? "Change unavailable" : `${performance.balanceChangePct > 0 ? "+" : ""}${percent(performance.balanceChangePct)} over the period`}</p>
@@ -31,7 +36,13 @@ export function FinanceSharingPreview({ projection, section }: { projection: Fin
         </AreaChart>
       </ChartContainer> : <p className={`${styles.caption} mt-4`}>No history</p>}
     </section> : null}
-    {projection.allocation && (!section || section === "allocation") ? <section className={styles.group} aria-label="Shared allocation">
+    {projection.allocation && compact && (!section || section === "allocation") ? <section className={styles.group} aria-label="Shared allocation">
+      <h3 className="mb-2 text-sm font-semibold">Allocation</h3>
+      <div className={styles.bar} aria-hidden="true">{projection.allocation.map((row, i) => <span key={row.name} style={{ width: `${Math.max(0, row.percent)}%`, background: colors[i % colors.length] }} />)}</div>
+      {projection.allocation.map((row, i) => <div key={row.name} className={styles.row}><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: colors[i % colors.length] }} />{row.name}</span><span className="text-right tabular-nums">{percent(row.percent)}{row.amount ? ` · ${money(row.amount.value, row.amount.currency)}` : ""}</span></div>)}
+      {projection.sectors?.length ? <details className={styles.compactDetails}><summary>Show {projection.sectors.length} equity sectors</summary>{projection.sectors.map(row => <div key={row.name} className={styles.row}><span>{row.name}</span><span className="tabular-nums">{percent(row.percent)}</span></div>)}</details> : null}
+    </section> : null}
+    {projection.allocation && !compact && (!section || section === "allocation") ? <section className={styles.group} aria-label="Shared allocation">
       <h3 className="mb-4 text-sm font-semibold">Allocation</h3>
       <div className={styles.bar} aria-hidden="true">{projection.allocation.map((row, i) => <span key={row.name} style={{ width: `${Math.max(0, row.percent)}%`, background: colors[i % colors.length] }} />)}</div>
       {projection.allocation.map((row, i) => <div key={row.name} className={styles.row}><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: colors[i % colors.length] }} />{row.name}</span><span className="text-right tabular-nums">{row.amount ? <>{money(row.amount.value, row.amount.currency)}<br /></> : null}{percent(row.percent)}</span></div>)}

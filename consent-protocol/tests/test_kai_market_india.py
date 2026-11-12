@@ -126,3 +126,28 @@ def test_india_cache_key_is_outside_every_us_session_gated_prefix():
         "movers:",
     )
     assert not "india_home:v1:7".startswith(tuple(gated))
+
+
+def test_india_news_is_newest_first_deduplicated_and_carries_a_publisher_logo():
+    rss = """<rss><channel>
+    <item><title>Stock Market Holiday Today - NDTV</title><link>https://n.example/1</link>
+      <pubDate>Mon, 10 Nov 2026 01:14:00 GMT</pubDate><source url="https://www.ndtv.com">NDTV</source></item>
+    <item><title>Sensex ends above 81,900 - DD News</title><link>https://n.example/2</link>
+      <pubDate>Thu, 12 Nov 2026 11:17:00 GMT</pubDate><source url="https://ddnews.gov.in">DD News</source></item>
+    <item><title>Sensex ends above 81,900 - DD News</title><link>https://n.example/3</link>
+      <pubDate>Thu, 12 Nov 2026 11:18:00 GMT</pubDate><source url="https://ddnews.gov.in">DD News</source></item>
+    <item><title>No publisher link</title><link>https://n.example/4</link>
+      <pubDate>Wed, 11 Nov 2026 09:00:00 GMT</pubDate><source url="javascript:alert(1)">Odd</source></item>
+    </channel></rss>"""
+    rows = india_market.parse_india_news(rss)
+    assert [row["title"] for row in rows] == [
+        "Sensex ends above 81,900",
+        "No publisher link",
+        "Stock Market Holiday Today",
+    ]
+    assert (
+        rows[0]["source_logo_url"]
+        == "https://www.google.com/s2/favicons?domain=ddnews.gov.in&sz=128"
+    )
+    assert rows[1]["source_logo_url"] is None  # an unusable publisher URL never becomes a logo link
+    assert all(row["symbol"] == "MARKET" for row in rows)

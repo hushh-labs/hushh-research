@@ -77,7 +77,7 @@
 .recipientList { margin-top: 12px; }
 .optionBody { margin-top: 12px; }
 .optionBody .privacy { margin-top: 12px; padding: 0; background: transparent; }
-.reviewPanel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.reviewPanel { flex: 1 1 auto; display: grid; gap: 12px; align-content: start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .toolbar > span > button { min-height: 44px; }
 .forward { margin-inline-start: auto; }
 .primaryAction { background: var(--app-accent) !important; border-color: transparent !important; color: var(--app-accent-fg) !important; box-shadow: none !important; }
@@ -85,3 +85,24 @@
 .recipientList::-webkit-scrollbar, .optionBody::-webkit-scrollbar { width: 6px; }
 .recipientList::-webkit-scrollbar-thumb, .optionBody::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--border); }
 .footnote { padding-inline: 19px; }
+
+/* Review before sharing: summary first, compact sections, and a phone sheet that fits its content. */
+.reviewSummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; border-radius: 12px; background: var(--muted); }
+.reviewSummary > div { min-width: 0; padding: 9px 12px; }
+.reviewSummary > div:nth-child(even) { border-inline-start: 1px solid var(--border); }
+.reviewSummary > div:nth-child(n + 3) { border-block-start: 1px solid var(--border); }
+.reviewSummary dt { font-size: 11px; line-height: 16px; color: var(--muted-foreground); }
+.reviewSummary dd { margin: 1px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; font-weight: 550; }
+.compactSections { display: grid; gap: 10px; min-width: 0; }
+.compactSections .group { padding: 11px 13px; border-radius: 14px; }
+.compactSections .row { min-height: 36px; padding-block: 7px; font-size: 13px; line-height: 20px; }
+.compactSections .compactDetails { margin-top: 6px; }
+@media (min-width: 640px) {
+  .reviewSummary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .reviewSummary > div:nth-child(n) { border-block-start: 0; }
+  .reviewSummary > div + div { border-inline-start: 1px solid var(--border); }
+  .compactSections { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+@media (max-width: 639px) {
+  .reviewFrame.reviewFrame { height: auto !important; max-height: min(78dvh, calc(100dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; }
+}

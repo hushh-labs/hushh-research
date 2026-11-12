@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ExternalLink, Loader2, Newspaper, RefreshCcw } from "@/components/icons";
+import { useIndiaMarketHome } from "@/lib/kai/use-india-market-home";
 
 import {
   AppPageContentRegion,
@@ -124,8 +126,14 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
         {primarySymbol ? (
           <SymbolAvatar symbol={primarySymbol} size="md" className="mt-0.5 shrink-0" />
         ) : (
-          <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-muted text-muted-foreground">
-            <Newspaper className="h-5 w-5" aria-hidden="true" />
+          <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-muted text-muted-foreground">
+            <Newspaper className="col-start-1 row-start-1 h-5 w-5" aria-hidden="true" />
+            {item.source_logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={item.source_logo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
+                className="col-start-1 row-start-1 h-full w-full bg-muted object-contain p-1.5"
+                onError={(event) => { event.currentTarget.style.display = "none"; }} />
+            ) : null}
           </span>
         )}
         <span className="min-w-0 flex-1">
@@ -182,6 +190,11 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
  * issues a second provider fanout just because the person pressed Load more.
  */
 export function KaiMarketNewsPage() {
+  const params = useSearchParams();
+  return params?.get("market") === "IN" ? <KaiIndiaMarketNewsPage /> : <UsMarketNewsPage />;
+}
+
+function UsMarketNewsPage() {
   const { user, userId: ownerId, loading: authLoading } = useAuth();
   const { vaultOwnerToken } = useVault();
   const userId = ownerId ?? "";
@@ -383,6 +396,67 @@ export function KaiMarketNewsPage() {
         {(firstPageResource.error || firstPageResource.data?.stale) && rows.length ? (
           <p className="mt-3 text-sm text-muted-foreground">Showing saved headlines. Refresh for the latest coverage.</p>
         ) : null}
+      </AppPageContentRegion>
+    </AppPageShell>
+  );
+}
+
+/**
+ * All India headlines. The India view has no cursor-paged feed, so this lists the
+ * newest headlines its market payload carries; the US news page is untouched.
+ */
+function KaiIndiaMarketNewsPage() {
+  const { user, userId, loading: authLoading } = useAuth();
+  const india = useIndiaMarketHome(userId, true);
+  const rows = Array.isArray(india.data?.news_tape) ? india.data.news_tape : [];
+  const dataState = authLoading || india.loading ? "loading" : india.error ? "error" : "loaded";
+
+  if (authLoading || !user) return null;
+
+  return (
+    <AppPageShell
+      width="reading"
+      className="app-type-compact pb-32"
+      nativeTest={{ routeId: ROUTES.KAI_NEWS, marker: "native-route-kai-news", authState: "authenticated", dataState }}
+    >
+      <KaiWorkspaceHeader
+        workspace="market"
+        title="Market news"
+        description="Latest India market headlines."
+        actions={
+          <Button type="button" variant="none" effect="fade" size="sm" loading={india.refreshing}
+            onClick={() => void india.refresh({ force: true })} icon={{ icon: RefreshCcw }}>
+            Refresh
+          </Button>
+        }
+      />
+      <AppPageContentRegion>
+        <section aria-labelledby="india-news-title"
+          className="overflow-hidden rounded-[var(--app-radius-xl)] border border-[color:var(--app-card-border-standard)] bg-card shadow-[var(--app-card-shadow-soft)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3 sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
+              <Newspaper className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
+              <h2 id="india-news-title" className="text-sm font-semibold text-foreground">India headlines</h2>
+            </div>
+            {india.refreshing ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating
+              </span>
+            ) : null}
+          </div>
+          {india.loading && !rows.length ? (
+            <div className="space-y-3 px-4 py-5 sm:px-5" aria-label="Loading market news">
+              {[0, 1, 2, 3].map((slot) => <div key={slot} className="h-16 animate-pulse rounded-xl bg-muted/60" />)}
+            </div>
+          ) : rows.length ? (
+            <div>{rows.map((item) => <MarketNewsRow key={`${item.url}:${item.title}`} item={item} />)}</div>
+          ) : (
+            <div className="px-4 py-6 text-center sm:px-5">
+              <p className="text-sm font-medium text-foreground">No India headlines are available yet.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Try refreshing in a moment.</p>
+            </div>
+          )}
+        </section>
       </AppPageContentRegion>
     </AppPageShell>
   );

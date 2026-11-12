@@ -1251,6 +1251,8 @@ export interface KaiHomeNewsItem {
   summary?: string | null;
   image_url?: string | null;
   image_thumbnail_url?: string | null;
+  /** The publisher's mark, for feeds that carry no article image (India). */
+  source_logo_url?: string | null;
   url: string;
   published_at: string;
   source_name: string;
