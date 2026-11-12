@@ -4698,7 +4698,7 @@ class OneLocationAgentService:
         )
 
     def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
-        return cast(set[str], active_directory_user_ids(user_ids))
+        return cast(set[str], active_directory_user_ids(user_ids, use_cache=False))
 
     def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
         return cast(dict[str, dict[str, str]], directory_auth_profiles(user_ids))
