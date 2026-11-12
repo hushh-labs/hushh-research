@@ -165,7 +165,9 @@ def test_one_time_charge_binds_checkout_offer_amount_and_advisor(monkeypatch):
     assert checkout.create_checkout(provider, "test-key", request_id, payment) == session
     kwargs = create.call_args.kwargs
     assert kwargs["mode"] == "payment"
-    assert kwargs["idempotency_key"] == f"advisor-payment:{request_id}:2:1"
+    assert kwargs["idempotency_key"] == f"advisor-payment:{request_id}:2:1:dynamic-methods-v1"
+    # Stripe rejects the retired explicit list with a 400, so the one-time Pay button failed.
+    assert "payment_method_types" not in kwargs
     assert kwargs["payment_intent_data"]["transfer_data"] == {"destination": "acct_advisor"}
     assert "recurring" not in kwargs["line_items"][0]["price_data"]
     with pytest.raises(AdvisorReviewError, match="UNCONFIRMED"):
