@@ -341,6 +341,10 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
 
+The managed One chat root can retry a timeout once with the same Vertex model
+and location before the adapter receives a model response. Both attempts share
+the 60-second first-output budget. Each attempt checks current owner authority.
+
 Personal Cloud Run backend sandboxes may explicitly set
 `HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai`. This is accepted only on
 `backend-dev-<handle>` services in `development`/`local`, with owner-pod mode off.
