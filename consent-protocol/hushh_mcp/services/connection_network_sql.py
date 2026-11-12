@@ -56,7 +56,6 @@ SELECT peer.user_id,
       THEN 1 ELSE 2 END AS degree
 FROM actor_profiles target CROSS JOIN actor_profiles peer
 WHERE target.user_id = :target AND target.public_profile_status = 'active'
-  AND target.connection_list_shared = TRUE
   AND peer.user_id = ANY(CAST(:target_peer_ids AS TEXT[])) AND peer.public_profile_status = 'active'
   AND EXISTS (SELECT 1 FROM connections direct WHERE direct.status = 'active'
       AND ((direct.user_a_id = :viewer AND direct.user_b_id = :target)
@@ -79,7 +78,7 @@ SELECT p.connection_list_shared,
        COALESCE(m.mutual_count, 0) AS mutual_count, m.preview_user_id,
        EXISTS (SELECT 1 FROM actor_profiles peer WHERE peer.user_id = :preview
                  AND peer.public_profile_status = 'active') AS preview_active,
-       CASE WHEN p.connection_list_shared AND CAST(:target_peer_ids AS TEXT[]) IS NOT NULL THEN (
+       CASE WHEN CAST(:target_peer_ids AS TEXT[]) IS NOT NULL THEN (
            SELECT LEAST(COUNT(*), :connection_count_limit)
            FROM ({QUALIFIED_TARGET_ROWS_SQL}) shared
            JOIN actor_profiles profile ON profile.user_id = shared.user_id
