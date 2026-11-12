@@ -387,7 +387,11 @@ async def sync_contacts(
         ) from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
+    except (
+        ConnectionsError,
+        ActorIdentitySyncUnavailableError,
+        DirectoryIdentityUnavailableError,
+    ) as exc:
         raise _handle(exc) from None
     except Exception as exc:  # noqa: BLE001 - SQL exceptions can contain submitted phone proofs
         # SQLAlchemy includes bound parameters in exception text/tracebacks.

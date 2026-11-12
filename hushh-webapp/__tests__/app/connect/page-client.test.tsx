@@ -976,6 +976,30 @@ describe("Connect — People", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
+  it("shows a safe label for a contact-synced connection whose name is an SSO account ID", async () => {
+    const ssoAccountId = "sso_0123456789abcdef0123456789abcdef";
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-sso",
+        userId: ssoAccountId,
+        publicPersonRef: "person-ref-sso",
+        displayName: ssoAccountId,
+        photoUrl: null,
+        createdAt: null,
+        connectedFromContacts: true,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+
+    const list = await screen.findByTestId("connect-my-connections-group");
+    const openProfile = await within(list).findByRole("button", { name: "Open Hussh member's profile" });
+    expect(within(list).queryByText(ssoAccountId)).toBeNull();
+    fireEvent.click(openProfile);
+    expect(mocks.routerPush).toHaveBeenCalledWith("/people/person-ref-sso?from=%2Fone%2Fconnect");
+  });
+
   it("opens a connection's person profile from My connections", async () => {
     mocks.listConnections.mockResolvedValue([
       {

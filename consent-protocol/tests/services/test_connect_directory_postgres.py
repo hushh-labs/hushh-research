@@ -221,7 +221,14 @@ def _requested(conn: Connection, requester: str, addressee: str, status: str = "
     )
 
 
-def test_deleted_people_are_excluded_before_connections_pagination(connection, monkeypatch):
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "retirement",
+    ["local", "provider", "local_during_page", "local_during_legacy", "local_during_profile"],
+)
+async def test_deleted_people_are_excluded_before_connections_pagination(
+    connection, monkeypatch, retirement
+):
     connection.execute(
         text("""
         ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
@@ -256,26 +263,54 @@ def test_deleted_people_are_excluded_before_connections_pagination(connection, m
     monkeypatch.setattr(
         profile, "_execute_one", lambda sql, params: next(iter(execute_many(sql, params)), None)
     )
-    monkeypatch.setattr(
-        "hushh_mcp.services.person_profile_service.active_directory_user_ids",
-        lambda owners, **_: set(owners),
-    )
+    provider_active = {"retired", "active"}
+    retire_on_lookup = False
+
+    def mark_deleted():
+        connection.execute(
+            text("INSERT INTO account_deletion_tombstones (user_id_hash) VALUES (:hash)"),
+            {"hash": account_deletion_user_hash("retired")},
+        )
+
+    def active_accounts(owners, **_):
+        nonlocal retire_on_lookup
+        if retire_on_lookup and "retired" in owners:
+            retire_on_lookup = False
+            mark_deleted()
+        return set(owners) & provider_active
+
+    for service in ("connections_service", "person_profile_service"):
+        monkeypatch.setattr(
+            f"hushh_mcp.services.{service}.active_directory_user_ids", active_accounts
+        )
 
     # An active control proves the same rows and pagination really were eligible.
     assert graph.list_connections_page(OWNER, limit=1)["items"][0]["userId"] == "retired"
     assert profile.get_public_profile(retired_ref)["displayName"] == "Aardvark Person"
-    connection.execute(
-        text("INSERT INTO account_deletion_tombstones (user_id_hash) VALUES (:hash)"),
-        {"hash": account_deletion_user_hash("retired")},
-    )
+    if retirement == "provider":
+        provider_active.remove("retired")
+    elif retirement == "local":
+        mark_deleted()
+    else:
+        retire_on_lookup = True
 
+    if retirement == "local_during_legacy":
+        assert [row["userId"] for row in graph.list_connections(OWNER)] == ["active"]
+    if retirement == "local_during_profile":
+        with pytest.raises(PersonProfileNotFoundError):
+            profile.get_public_profile(retired_ref)
     page = graph.list_connections_page(OWNER, limit=1)
     assert [row["userId"] for row in page["items"]] == ["active"]
     assert page["totalCount"] == 1
     assert page["hasMore"] is False
     assert [row["userId"] for row in graph.list_connections(OWNER)] == ["active"]
+    search = graph.list_connections_page(OWNER, query="aardvark")
+    assert search["items"] == [] and search["totalCount"] == 0
+    assert graph.list_connections_page("unconnected")["items"] == []
     with pytest.raises(PersonProfileNotFoundError):
         profile.get_public_profile(retired_ref)
+    with pytest.raises(PersonProfileNotFoundError):
+        await profile.get_viewer_profile(viewer_user_id=OWNER, public_person_ref=retired_ref)
     assert profile.get_public_profile(active_ref)["displayName"] == "Zebra Person"
 
 

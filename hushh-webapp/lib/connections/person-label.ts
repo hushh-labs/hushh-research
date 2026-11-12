@@ -9,13 +9,15 @@ export type ConnectPersonIdentity = Partial<Pick<
 // Both server mask formats, plus contact-only email labels in partial previews.
 const CONTACT_ONLY_NAME = /^(?:\d{2}\*+\d{2}|\*{3,}\d{1,4}|[^\s@]+@[^\s@]+)$/;
 
+const ACCOUNT_ID_LABEL = /^(?:sso|acct)_[a-f0-9]{32}$/i;
+
 /** Presentation only: the shared directory can use a contact as its missing-name fallback. */
 export function connectPersonName(
   person: ConnectPersonIdentity,
   fallback = "Hussh member",
 ): string {
   const name = person.displayName?.trim();
-  if (!name || CONTACT_ONLY_NAME.test(name)) return fallback;
+  if (!name || CONTACT_ONLY_NAME.test(name) || ACCOUNT_ID_LABEL.test(name)) return fallback;
   const normalizedName = name.toLowerCase();
   const isContactFallback = [person.email, person.maskedEmail, person.maskedPhone]
     .some((contact) => contact?.trim().toLowerCase() === normalizedName);

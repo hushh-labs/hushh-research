@@ -15,6 +15,14 @@ from hushh_mcp.services.connections_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def stub_connection_account_status(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service.active_directory_user_ids",
+        lambda ids, **_: set(ids),
+    )
+
+
 def _svc():
     service = ConnectionsService.__new__(ConnectionsService)
     service._directory_profiles = lambda viewer, ids: []
@@ -2390,8 +2398,8 @@ def test_list_connections_annotates_ria_status_per_row():
             "created_at": "2026-07-08T00:00:00Z",
         },
     ]
-    # Second call is _verified_ria_user_ids: only the advisor comes back.
-    db = _RecordingDB([connection_rows, [{"user_id": "user-advisor"}]])
+    # After account admission and the row read, only the advisor is annotated.
+    db = _RecordingDB([connection_rows, connection_rows, [{"user_id": "user-advisor"}]])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.list_connections("user-a")
 
@@ -2417,13 +2425,13 @@ def test_list_connections_uses_the_same_verified_gate_as_the_directory():
             "created_at": "2026-07-09T00:00:00Z",
         }
     ]
-    db = _RecordingDB([connection_rows, []])
+    db = _RecordingDB([connection_rows, connection_rows, []])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         svc.list_connections("user-a")
 
     from hushh_mcp.services.ria_iam_service import RIAIAMService
 
-    annotation_sql = db.calls[1][0]
+    annotation_sql = db.calls[2][0]
     assert "ria_profiles" in annotation_sql
     for status in RIAIAMService._RIA_VERIFIED_STATUSES:
         assert f"'{status}'" in annotation_sql, f"annotation gate omits '{status}'"
@@ -2456,7 +2464,7 @@ def test_list_connections_stringifies_a_real_driver_datetime():
             "created_at": datetime(2026, 7, 9, 0, 0, 0, tzinfo=timezone.utc),
         }
     ]
-    db = _RecordingDB([rows, []])
+    db = _RecordingDB([rows, rows, []])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.list_connections("user-a")
     assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
