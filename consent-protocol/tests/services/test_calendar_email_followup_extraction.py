@@ -176,3 +176,33 @@ async def test_the_model_is_given_the_owners_received_day_to_resolve_dates_like_
     )
     # 10 Oct 00:00 UTC is still the evening of 9 Oct for this owner.
     assert seen["message_received_on"] == "2026-10-09 Friday"
+
+
+@pytest.mark.asyncio
+async def test_section_call_limit_exceeds_the_genes_declared_p95():
+    """A 30 s limit equalled the declared p95 and cancelled about half of the UAT calls.
+
+    Each cancelled call was replayed, so a pass spent 61 s assessing nothing.
+    """
+    message = _message("Please send the agenda before 12 October.")
+    seen: dict[str, float] = {}
+
+    async def fake_gene(**kwargs):
+        seen["timeout"] = kwargs["timeout_seconds"]
+        return {"candidates": [], "updates": []}
+
+    async def current():
+        return None
+
+    await assess_section(
+        message=message,
+        section=message.sections[0],
+        user_id="synthetic-owner",
+        consent_token=_SYNTHETIC_CONSENT,
+        owner_time_zone="America/Los_Angeles",
+        prior_requests=[],
+        evidence_key=b"synthetic-evidence",
+        require_current=current,
+        gene_runner=fake_gene,
+    )
+    assert seen["timeout"] > 30

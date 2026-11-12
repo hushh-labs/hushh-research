@@ -140,6 +140,33 @@ export function ConnectDirectoryPersonRow({
 }
 
 /**
+ * Up to two overlapping portraits of the people two members have in common.
+ * Decorative: the count beside it is the accessible name, so it is hidden from
+ * assistive technology. Renders nothing when there is nobody to show.
+ */
+export function MutualAvatarStack({
+  previews,
+  reserveWidth = false,
+}: {
+  previews: ReadonlyArray<ConnectPersonIdentity & { photoUrl?: string | null; publicPersonRef?: string | null }>;
+  reserveWidth?: boolean;
+}) {
+  if (!previews.length) return null;
+  return (
+    <span className={cn("isolate inline-flex shrink-0 items-center -space-x-1", reserveWidth && "min-w-9")} data-testid="mutual-avatar-stack" aria-hidden="true">
+      {previews.slice(0, 2).map((peer, index) => <ConnectionPersonAvatar
+        key={peer.publicPersonRef ?? index}
+        size="compact"
+        className="!size-5 shrink-0 ring-1 ring-card"
+        fallbackClassName="bg-foreground/10 text-[9px]"
+        photoUrl={peer.photoUrl}
+        label={connectPersonName(peer)}
+      />)}
+    </span>
+  );
+}
+
+/**
  * The server-backed mutual-connection count under a directory row's text, with
  * the named preview only as an avatar and an accessible name. Renders nothing
  * when there are no mutual connections. The profile-opening control is a
@@ -164,16 +191,7 @@ export function DirectoryMutualLine({
   const label = count === 1 ? "Mutual connection" : `${count} mutual connections`;
   const content = (
     <>
-      {previews.length ? <span className={cn("isolate inline-flex shrink-0 items-center -space-x-1", networkPersonRef && "min-w-9")} data-testid="mutual-avatar-stack" aria-hidden="true">
-        {previews.map((peer, index) => <ConnectionPersonAvatar
-          key={peer.publicPersonRef ?? index}
-          size="compact"
-          className="!size-5 shrink-0 ring-1 ring-card"
-          fallbackClassName="bg-foreground/10 text-[9px]"
-          photoUrl={peer.photoUrl}
-          label={connectPersonName(peer)}
-        />)}
-      </span> : null}
+      <MutualAvatarStack previews={previews} reserveWidth={Boolean(networkPersonRef)} />
       <span data-slot="settings-row-description" className="min-w-0 [overflow-wrap:anywhere]">
         {label}
       </span>

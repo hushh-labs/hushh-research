@@ -40,11 +40,15 @@ export function SheetPersonRow({ avatar, name, detail, checked, disabled, onChec
   onCheckedChange: (checked: boolean) => void; label: string;
 }) {
   const detailId = React.useId();
-  return <label className={styles.person} data-selected={checked} data-disabled={disabled || undefined}>
+  const checkId = React.useId();
+  // A label without `htmlFor` activates its FIRST labelable descendant. When the
+  // avatar is a profile button that is the avatar, so tapping anywhere on the
+  // row opened the profile instead of selecting. Bind the row to its checkbox.
+  return <label htmlFor={checkId} className={styles.person} data-selected={checked} data-disabled={disabled || undefined}>
     {avatar}
     <span className={styles.personLabel}><span className={styles.personName} dir="auto">{name}</span>
       {detail ? <span id={detailId} className={styles.personDetail} dir="auto">{detail}</span> : null}</span>
-    <Checkbox className={styles.check} checked={checked} disabled={disabled} aria-label={label}
+    <Checkbox id={checkId} className={styles.check} checked={checked} disabled={disabled} aria-label={label}
       aria-describedby={detail ? detailId : undefined}
       onCheckedChange={value => onCheckedChange(value === true)} />
   </label>;

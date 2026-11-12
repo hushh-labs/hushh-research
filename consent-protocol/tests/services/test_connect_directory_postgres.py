@@ -708,6 +708,36 @@ def test_shared_network_summary_counts_only_browsable_profiles(connection):
     assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 1
 
 
+def test_network_summary_previews_two_mutuals_and_keeps_the_first_as_the_single_preview(connection):
+    network = _network(connection)
+    for uid in (OWNER, "target", "mutual_a", "mutual_b", "mutual_c"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    for peer in ("mutual_a", "mutual_b", "mutual_c"):
+        _network_edge(connection, OWNER, peer)
+        _network_edge(connection, peer, "target")
+
+    summary = network.summary(OWNER, target_ref)
+
+    assert summary["mutualConnectionCount"] == 3
+    assert [item["displayName"] for item in summary["mutualConnectionPreviews"]] == [
+        "Person mutual_a",
+        "Person mutual_b",
+    ]
+    assert summary["mutualConnectionPreview"] == summary["mutualConnectionPreviews"][0]
+
+
 def test_shared_network_display_cap_preserves_pagination(connection):
     network = _network(connection)
     _person(connection, OWNER, "Viewer")

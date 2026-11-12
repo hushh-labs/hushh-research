@@ -7,6 +7,7 @@ import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { networkDegreeLabel } from "@/components/connect/network-people-list";
+import { MutualAvatarStack } from "@/components/connect/connect-person-row";
 
 export function PersonNetworkSummary({ personRef, onReady }: { personRef: string; onReady?: () => void }) {
   const { user, userId } = useAuth();
@@ -63,6 +64,9 @@ function SummarySession({ personRef, onReady }: { personRef: string; onReady?: (
   const countLabel = count == null ? "View connections"
     : count > 500 ? "500+ connections"
     : `${count} ${count === 1 ? "connection" : "connections"}`;
+  const previews = summary?.mutualConnectionPreviews?.length
+    ? summary.mutualConnectionPreviews
+    : summary?.mutualConnectionPreview ? [summary.mutualConnectionPreview] : [];
   if (!canBrowse && !degree && mutualCount === 0 && !error) return null;
 
   return (
@@ -80,7 +84,7 @@ function SummarySession({ personRef, onReady }: { personRef: string; onReady?: (
         </button>
       ) : null}
       {degree ? <span className="rounded-full bg-muted px-3 py-1">{degree} connection</span> : null}
-      {mutualCount > 0 ? <button type="button" data-voice-control-id="person-network-mutuals" className="min-h-11 rounded-md text-primary hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring" disabled={opening} onClick={event => void openMutual(event.currentTarget)}>{mutualCount} mutual {mutualCount === 1 ? "connection" : "connections"}</button> : null}
+      {mutualCount > 0 ? <button type="button" data-voice-control-id="person-network-mutuals" data-connect-role="description" className="inline-flex min-h-11 items-center gap-1.5 rounded-md text-start text-muted-foreground hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring" disabled={opening} onClick={event => void openMutual(event.currentTarget)}><MutualAvatarStack previews={previews} />{mutualCount} mutual {mutualCount === 1 ? "connection" : "connections"}</button> : null}
       {error ? <span role="status" className="text-muted-foreground">{error} <button type="button" className="min-h-11 px-2 underline" onClick={() => setRevision(value => value + 1)}>Retry</button></span> : null}
     </section>
   );

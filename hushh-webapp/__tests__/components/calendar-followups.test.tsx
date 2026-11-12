@@ -214,6 +214,25 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
   });
 
+  it("says the email is synced once when the check finishes, not on every load", async () => {
+    service.status.mockResolvedValue(status("account_synced", {
+      scan_state: "partial",
+      coverage: { coverage: "catching_up", attention: null, waiting_source_count: 1, exhausted_source_count: 0, unreadable_count: 0 },
+    }));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_synced" });
+    const view = render(<CalendarFollowups {...props("account_synced")} />);
+    expect(await screen.findByText("Catching up on your email…")).toBeInTheDocument();
+    expect(screen.queryByText("Your email is synced.")).not.toBeInTheDocument();
+    view.unmount();
+    service.status.mockResolvedValue(status("account_synced"));
+    const finished = render(<CalendarFollowups {...props("account_synced")} />);
+    expect(await screen.findByText("Your email is synced.")).toBeInTheDocument();
+    finished.unmount();
+    render(<CalendarFollowups {...props("account_synced")} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByText("Your email is synced.")).not.toBeInTheDocument();
+  });
+
   it("has no settings menu and keeps the last verified list when a reload fails", async () => {
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);

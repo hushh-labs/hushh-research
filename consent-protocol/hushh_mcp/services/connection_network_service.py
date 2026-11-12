@@ -307,12 +307,12 @@ class ConnectionNetworkService:
         return {str(row["user_id"]): int(row["degree"]) for row in rows}
 
     def summary(self, viewer: str, person_ref: str) -> dict[str, Any]:
-        from hushh_mcp.services.connection_mutuals import MUTUAL_CONNECTIONS_SQL
+        from hushh_mcp.services.connection_mutuals import PAGE_MUTUAL_CONNECTIONS_SQL
 
         target = self.target(viewer, person_ref)
         uid = target["userId"]
         mutuals = self.connections._execute_many(
-            MUTUAL_CONNECTIONS_SQL, {"user_id": viewer, "page_user_ids": [uid]}
+            PAGE_MUTUAL_CONNECTIONS_SQL, {"user_id": viewer, "page_user_ids": [uid]}
         )
         mutual = mutuals[0] if mutuals else {}
         direct = bool(
@@ -323,14 +323,20 @@ class ConnectionNetworkService:
                 {"viewer": viewer, "target": uid},
             )
         )
-        preview_id = str(mutual.get("preview_user_id") or "")
-        preview = self.profiles(viewer, [preview_id]) if preview_id else []
+        # Up to two previews, the same pair the directory rows show; the first is
+        # the one this summary has always carried.
+        preview_ids = [str(user_id) for user_id in (mutual.get("preview_user_ids") or [])]
+        order = {user_id: index for index, user_id in enumerate(preview_ids)}
+        preview = sorted(
+            self.profiles(viewer, preview_ids),
+            key=lambda person: order.get(str(person.get("userId")), len(order)),
+        )
         count = max(0, int(mutual.get("mutual_count") or 0))
         degree = 1 if direct else 2 if count and preview else None
         if degree is None:
             degree = self.degrees(viewer).get(uid)
         else:
-            self._admitted = [viewer, uid, *([preview_id] if preview else [])]
+            self._admitted = [viewer, uid, *preview_ids]
         visible_peers = (
             self._visible_shared_peer_ids(viewer, uid) if direct and target["shared"] else None
         )
@@ -343,7 +349,7 @@ class ConnectionNetworkService:
                 "user_id": viewer,
                 "owner_user_id": viewer,
                 "target": uid,
-                "preview": preview_id,
+                "previews": preview_ids,
                 "admitted": self._admitted,
                 "candidates": [uid],
                 "page_user_ids": [uid],
@@ -363,8 +369,8 @@ class ConnectionNetworkService:
             final["overflow"]
             or final["degree"] != degree
             or int(final["mutual_count"]) != count
-            or str(final.get("preview_user_id") or "") != preview_id
-            or (preview and not final["preview_active"])
+            or [str(user_id) for user_id in (final.get("preview_user_ids") or [])] != preview_ids
+            or int(final["previews_active"]) < len(preview)
         ):
             raise self.unavailable()
         can_browse = degree == 1 and bool(final["connection_list_shared"])
@@ -375,15 +381,16 @@ class ConnectionNetworkService:
             and len(visible_peers or []) >= SHARED_CONNECTION_COUNT_LIMIT > visible_count
         ):
             visible_count = None
+        previews = [
+            {k: person.get(k) for k in ("publicPersonRef", "displayName", "photoUrl")}
+            for person in preview
+        ]
         return {
             "person": {"publicPersonRef": person_ref, "displayName": target.get("displayName")},
             "networkDegree": degree,
             "mutualConnectionCount": count,
-            "mutualConnectionPreview": {
-                k: preview[0].get(k) for k in ("publicPersonRef", "displayName", "photoUrl")
-            }
-            if preview
-            else None,
+            "mutualConnectionPreview": previews[0] if previews else None,
+            "mutualConnectionPreviews": previews,
             "canBrowseConnections": can_browse,
             "visibleConnectionCount": visible_count,
         }

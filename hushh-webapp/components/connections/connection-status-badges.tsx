@@ -46,13 +46,17 @@ export function ConnectionStatusBadge({ verified, interactive = true, className,
           </span>
         )}
       </TooltipTrigger>
+      {/* Opens below the icon, so it never covers the row above it; Radix still
+          flips it up when the icon sits at the very bottom of the screen. The
+          advisor badge is self-explanatory, so its tooltip is only its name. */}
       <TooltipContent
-        sideOffset={4}
+        side="bottom"
+        sideOffset={6}
         collisionPadding={12}
         className="max-w-[min(14rem,calc(100vw_-_1.5rem))] text-left"
       >
         <span className="block font-semibold">{label}</span>
-        <span className="mt-0.5 block">{description}</span>
+        {verified ? null : <span className="mt-0.5 block">{description}</span>}
       </TooltipContent>
     </Tooltip>
   );
