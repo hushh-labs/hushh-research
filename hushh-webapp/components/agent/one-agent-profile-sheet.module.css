@@ -30,10 +30,9 @@
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
   container: one-profile-content / inline-size;
-  padding: 12px var(--page-inline-gutter-standard)
-    max(24px, var(--app-safe-area-bottom-effective, 0px));
+  padding: 0 0 max(24px, var(--app-safe-area-bottom-effective, 0px));
 }
 .hero {
   display: flex;
@@ -71,6 +70,9 @@
   min-height: 0;
   min-width: 0;
   flex: 1;
+  margin-inline: var(--page-inline-gutter-standard);
+  border-radius: var(--app-card-radius-standard);
+  background: var(--app-card-surface-default-solid);
   gap: 0;
   overflow: hidden;
 }
@@ -78,15 +80,28 @@
   flex: none;
   padding: 0 var(--page-inline-gutter-standard) 12px;
 }
+.tabRail {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  /* Match the scrollport's reserved space without moving the tab controls. */
+  scrollbar-gutter: stable both-edges;
+}
 .tabList {
   flex: none;
   width: auto;
-  margin-inline: var(--page-inline-gutter-standard);
+  margin-inline: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .tabList button {
   min-height: 44px;
+  padding-inline: 4px;
 }
 .feed,
 .todo,

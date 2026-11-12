@@ -2513,6 +2513,55 @@ test.describe("One profile artwork and animated presence", () => {
       const rail = panel.getByRole("tablist", { name: "One profile sections" });
       const initial = (await rail.boundingBox())!;
       const frame = (await panel.boundingBox())!;
+      const expectAlignedProfileContent = async () => {
+        const geometry = await panel.evaluate(element => {
+          const rail = element.querySelector('[role="tablist"]')!;
+          const group = element.querySelector('[role="tabpanel"][data-state="active"] [data-slot="settings-group-shell"]')!;
+          const railBox = rail.getBoundingClientRect();
+          const groupBox = group.getBoundingClientRect();
+          const frameBox = element.getBoundingClientRect();
+          const scrollBox = element.querySelector('[data-one-profile-scroll]')!.getBoundingClientRect();
+          const surface = rail.closest('[data-slot="tabs"]')!;
+          const surfaceBox = surface.getBoundingClientRect();
+          const surfaceStyle = getComputedStyle(surface);
+          const rowStyle = getComputedStyle(group.querySelector('[data-testid="feed-row"] [data-person-row-action]')!.parentElement!);
+          return {
+            left: Math.abs(railBox.left - groupBox.left),
+            right: Math.abs(railBox.right - groupBox.right),
+            centered: Math.abs((railBox.left - frameBox.left) - (frameBox.right - railBox.right)),
+            separation: scrollBox.top - railBox.bottom,
+            viewportEdges: Math.max(Math.abs(scrollBox.left - surfaceBox.left),
+              Math.abs(scrollBox.right - surfaceBox.right), Math.abs(scrollBox.bottom - surfaceBox.bottom)),
+            continuousSurface: surfaceStyle.backgroundColor === rowStyle.backgroundColor &&
+              !['transparent', 'rgba(0, 0, 0, 0)'].includes(surfaceStyle.backgroundColor),
+            roundedFrame: [surfaceStyle.borderTopLeftRadius, surfaceStyle.borderTopRightRadius,
+              surfaceStyle.borderBottomLeftRadius, surfaceStyle.borderBottomRightRadius]
+              .every(radius => parseFloat(radius) > 0) && surfaceStyle.overflow === 'hidden',
+            labelsFit: Array.from(rail.querySelectorAll('[role="tab"]')).every(tab => {
+              const box = tab.getBoundingClientRect();
+              const span = tab.querySelector('span')!;
+              const label = span.getBoundingClientRect();
+              return label.left >= box.left && label.right <= box.right &&
+                span.scrollWidth <= span.clientWidth + 1 && tab.scrollWidth <= tab.clientWidth + 1;
+            }),
+          };
+        });
+        expect(geometry.left).toBeLessThanOrEqual(1);
+        expect(geometry.right).toBeLessThanOrEqual(1);
+        expect(geometry.centered).toBeLessThanOrEqual(1);
+        expect(geometry.separation).toBeCloseTo(0, 1);
+        expect(geometry.viewportEdges).toBeLessThanOrEqual(1);
+        expect(geometry.continuousSurface).toBe(true);
+        expect(geometry.roundedFrame).toBe(true);
+        expect(geometry.labelsFit).toBe(true);
+      };
+      await expectAlignedProfileContent();
+      // One filled rounded frame must continue behind the stationary tabs and
+      // scrolling rows, including at an arbitrary middle position.
+      await panel.locator('[data-one-profile-scroll]').evaluate(element => { element.scrollTop = 137; });
+      await expectAlignedProfileContent();
+      expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+      await page.screenshot({ path: test.info().outputPath("one-profile-mid-scroll.png") });
       const scroll = await panel.getByRole("tabpanel", { name: "Feed" }).evaluate(element => {
         let node = element.parentElement;
         while (node && !["auto", "scroll"].includes(getComputedStyle(node).overflowY)) node = node.parentElement;
@@ -2522,8 +2571,13 @@ test.describe("One profile artwork and animated presence", () => {
       });
       expect(scroll).toBeGreaterThan(80);
       expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+      await expectAlignedProfileContent();
       for (let i = 0; i < 3; i += 1) {
         if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
+        await panel.getByRole("tab", { name: "To-do", exact: true }).click();
+        await expect(panel.getByRole("tabpanel", { name: "To-do", exact: true })).toBeVisible();
+        expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+        expect(await panel.locator('[data-one-profile-scroll]').evaluate(element => element.scrollTop)).toBe(0);
         await panel.getByRole("tab", { name: "Profile", exact: true }).click();
         // This read-only fixture has a locked vault. Live Mirror replaces the
         // former static card and must not expose an unlocked Memory link.
@@ -2532,6 +2586,7 @@ test.describe("One profile artwork and animated presence", () => {
         await panel.getByRole("tab", { name: "Feed", exact: true }).click();
         await expect(panel.getByTestId("feed-row").first()).toBeVisible();
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
+        await expectAlignedProfileContent();
       }
       expect(frame.x).toBeGreaterThan(0);
       expect(frame.x + frame.width).toBeLessThanOrEqual(viewport.width);
