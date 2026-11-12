@@ -2409,7 +2409,7 @@ describe("OneLocationAgentPage", () => {
     expect(headerRowForStatus, "the status escaped the toggle group").toBe(
       headerActions.closest('[data-slot="page-header-row"]'),
     );
-    expect(status).toHaveClass("block", "whitespace-normal", "text-right");
+    expect(status).toHaveClass("block", "whitespace-normal", "text-center");
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
     expect(

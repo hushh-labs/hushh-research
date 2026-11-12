@@ -970,7 +970,7 @@ describe("Connect — People", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.click(riaBadge);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Advisor verified by Hussh.");
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Verified Advisor$/);
     fireEvent.keyDown(riaBadge, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();

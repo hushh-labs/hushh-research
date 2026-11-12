@@ -119,6 +119,35 @@ export function coverageNotice(coverage: FollowupCoverage | null | undefined, va
   return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
 }
 
+/** Said once when the email check has finished, so "Catching up" visibly ends. */
+export const SYNCED_NOTICE = "Your email is synced.";
+
+const SYNCED_SEEN_PREFIX = "one:followups-synced:";
+
+/**
+ * Whether this account's "synced" line was already shown. It is a per-browser
+ * convenience, so an unavailable store (private window, blocked site data) just
+ * means the line may appear again; it never blocks the card.
+ */
+export function syncedNoticeSeen(userId: string, accountId: string): boolean {
+  try {
+    return window.localStorage.getItem(`${SYNCED_SEEN_PREFIX}${userId}:${accountId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Remember the line was shown (`true`), or arm it again for the next finish (`false`). */
+export function rememberSyncedNotice(userId: string, accountId: string, seen: boolean): void {
+  try {
+    const key = `${SYNCED_SEEN_PREFIX}${userId}:${accountId}`;
+    if (seen) window.localStorage.setItem(key, "1");
+    else window.localStorage.removeItem(key);
+  } catch {
+    /* a convenience only */
+  }
+}
+
 /**
  * What the card says when a request fails. A locked vault is the owner's to fix
  * and says so; it is never reported as a failed check.

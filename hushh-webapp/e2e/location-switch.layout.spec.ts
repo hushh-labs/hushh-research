@@ -220,9 +220,10 @@ for (const width of [320, 393, 430, 1440]) {
       range.selectNodeContents(node);
       const text = range.getBoundingClientRect();
       const track = node.closest("label")!.querySelector("[role=switch]")!.getBoundingClientRect();
-      return { textRight: text.right, trackLeft: track.left };
+      return { textTop: text.top, trackBottom: track.bottom };
     });
-    expect(alignment.textRight).toBeLessThan(alignment.trackLeft);
+    // The status reads under the switch, not beside it.
+    expect(alignment.textTop).toBeGreaterThanOrEqual(alignment.trackBottom - 1);
     await status.click();
     await expect(toggle).toBeChecked();
     await expect.poll(() => toggle.evaluate(node => {
@@ -248,9 +249,10 @@ for (const width of [320, 393, 430, 1440]) {
     const share = page.getByRole("button", { name: "Share location", exact: true });
     const caption = page.getByText("Choose a Circle or contact.", { exact: true });
     const shareTitle = page.getByText("You're not sharing", { exact: true });
+    // The card title shares the Ask / Check In tiles' Connect v14 row role.
     await expect(shareTitle).toHaveCSS("font-size", "14px");
-    await expect(shareTitle).toHaveCSS("line-height", "22px");
-    await expect(shareTitle).toHaveCSS("font-weight", "600");
+    await expect(shareTitle).toHaveCSS("line-height", "21px");
+    await expect(shareTitle).toHaveCSS("font-weight", "550");
     await expect(caption).toHaveCSS("font-size", "12px");
     if (width < 640) expect(Math.abs((await share.boundingBox())!.x - (await caption.boundingBox())!.x)).toBeLessThanOrEqual(1);
     await share.click();

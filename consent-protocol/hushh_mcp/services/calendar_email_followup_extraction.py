@@ -383,6 +383,14 @@ async def assess_complete_message(
     return merge_sections(validated, drops)
 
 
+# One section's model call. The gene declares a 30 s p95, and measured UAT
+# latency on the managed model sits at 25-35 s, so a 30 s limit cancelled about
+# half the calls; each cancelled call was replayed once, so a pass ended after
+# 61 s with nothing assessed and the account then backed off. Twice the declared
+# p95 lets a normal call finish while still bounding a hung one.
+ASSESSMENT_TIMEOUT_SECONDS = 60.0
+
+
 async def assess_section(
     *,
     message: CompleteMailMessage,
@@ -421,7 +429,7 @@ async def assess_section(
         user_id=user_id,
         consent_token=consent_token,
         output_schema=FollowupChunkAssessmentV1,
-        timeout_seconds=30,
+        timeout_seconds=ASSESSMENT_TIMEOUT_SECONDS,
     )
     await require_current()
     return validate_chunk(

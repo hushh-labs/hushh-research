@@ -143,6 +143,21 @@ describe("network permission and journey return @feature_connected_profiles", ()
     } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
   });
 
+  it("shows up to two mutual portraits beside the Profile's mutual count, like a connection row", async () => {
+    const previews = [{ publicPersonRef: "mutual-a", displayName: "A", photoUrl: null }, { publicPersonRef: "mutual-b", displayName: "B", photoUrl: null }];
+    state.summary.mockResolvedValue({ person: { publicPersonRef: "target" }, mutualConnectionCount: 4, mutualConnectionPreview: previews[0], mutualConnectionPreviews: previews, networkDegree: 1, canBrowseConnections: false });
+    const view = render(<PersonNetworkSummary personRef="target" />);
+    const button = await screen.findByRole("button", { name: "4 mutual connections" });
+    // The portraits are decorative: the count stays the accessible name.
+    expect(button.querySelector('[data-testid="mutual-avatar-stack"]')?.children).toHaveLength(2);
+    view.unmount();
+    // An older server sends one preview and no list: still one portrait, not none.
+    state.summary.mockResolvedValue({ person: { publicPersonRef: "target" }, mutualConnectionCount: 4, mutualConnectionPreview: previews[0], networkDegree: 1, canBrowseConnections: false });
+    render(<PersonNetworkSummary personRef="target" />);
+    const single = await screen.findByRole("button", { name: "4 mutual connections" });
+    expect(single.querySelector('[data-testid="mutual-avatar-stack"]')?.children).toHaveLength(1);
+  });
+
   it("invalidates network rows and summaries for the canonical recreated account owner", async () => {
     state.summary.mockResolvedValue({ person: { publicPersonRef: "target" }, mutualConnectionCount: 2, networkDegree: 1, canBrowseConnections: true });
     render(<><NetworkPeopleList mode="discovery" visitKey="canonical-owner" /><PersonNetworkSummary personRef="target" /></>);

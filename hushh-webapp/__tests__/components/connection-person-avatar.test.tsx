@@ -54,13 +54,17 @@ describe("canonical person avatar", () => {
     );
 
     fireEvent.pointerMove(contact, { pointerType: "mouse" });
+    // Via contacts keeps its title and explanation, and opens below the icon.
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "Matched from your contacts.",
     );
+    expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveAttribute("data-side", "bottom");
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
     fireEvent.pointerMove(verification, { pointerType: "mouse" });
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Advisor verified by Hussh.");
+    // Verified Advisor is its own explanation: the title alone, also below.
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/^Verified Advisor$/);
+    expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveAttribute("data-side", "bottom");
   });
 
   it("opens a compact profile from its larger target without activating the parent row", () => {

@@ -233,6 +233,7 @@ async def _assess_sections(
     while checkpoint["section_index"] < len(message.sections) and consumed < sections_left:
         section = message.sections[checkpoint["section_index"]]
         drops = dict(checkpoint["partial_drops"])
+        started = time.monotonic()
         try:
             found, changed = await assess_section(
                 message=message,
@@ -259,8 +260,16 @@ async def _assess_sections(
                 now=now,
             )
             return consumed, True
-        except Exception:
-            # The model failed or answered in a shape that did not validate.
+        except Exception as exc:
+            # The model failed or answered in a shape that did not validate. The
+            # class and elapsed time are value-free; without them a model that is
+            # timing out looks exactly like one that is returning bad output.
+            logger.warning(
+                "calendar_followup_assessment_failed error_type=%s elapsed_ms=%d section=%d",
+                type(exc).__name__,
+                int((time.monotonic() - started) * 1000),
+                checkpoint["section_index"],
+            )
             await _fail_message(
                 monitor=monitor, checkpoint=checkpoint, store=store, message=message, now=now
             )
