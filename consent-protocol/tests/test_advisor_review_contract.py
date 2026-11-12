@@ -96,6 +96,28 @@ def test_terminal_requests_never_return_ciphertext_even_if_old_storage_remains(s
         assert value["snapshotAvailable"] is False and "envelope" not in value
 
 
+def test_only_a_settled_payment_is_shown_and_both_people_see_it():
+    settled = datetime.now(UTC)
+    for status in ("paid", "partially_refunded", "refunded"):
+        paid = {
+            **row("accepted"),
+            "payment_status": status,
+            "payment_amount_cents": 50,
+            "payment_paid_at": settled,
+        }
+        for viewer in ("owner", "advisor"):
+            assert project(paid, viewer)["payment"] == {
+                "status": status,
+                "amountCents": 50,
+                "paidAt": settled.isoformat(),
+            }
+    # Open, processing and expired checkouts have no paid_at and must never read as paid.
+    for status in ("preparing", "checkout_pending", "processing", "expired"):
+        unsettled = {**row("accepted"), "payment_status": status, "payment_amount_cents": 50}
+        assert "payment" not in project(unsettled, "owner")
+    assert "payment" not in project(row("accepted"), "owner")
+
+
 def test_server_expiry_denies_snapshot_before_async_cleanup():
     expired = row("accepted")
     expired["expires_at"] = expired["server_now"] - timedelta(seconds=1)

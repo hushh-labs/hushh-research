@@ -162,6 +162,15 @@ export const advisorReviewSchema = z
     pastMeetings: z.array(advisorMeetingSchema).optional(),
     plan: planSchema.nullable(),
     planRevision: z.number().int().nonnegative(),
+    // Present only once Stripe has confirmed the current plan's payment.
+    payment: z
+      .object({
+        status: z.enum(["paid", "partially_refunded", "refunded"]),
+        amountCents: z.number().int().min(0).max(100000),
+        paidAt: instant,
+      })
+      .strict()
+      .optional(),
     envelope: recipientEnvelopeSchema.optional(),
   })
   .strict();

@@ -282,6 +282,7 @@ def test_one_time_checkout_reuses_open_session_and_preserves_prior_payment(advis
     first = billing.checkout("alice", request_id, consent)
     assert billing.checkout("alice", request_id, consent) == first
     create.assert_called_once()
+    assert "payment" not in service.view("alice", request_id)  # an open checkout is not paid
     with pytest.raises(AdvisorReviewError, match="BILLING_IN_PROGRESS"):
         billing.offer("bob", request_id, plan)
     session.update(
@@ -308,9 +309,16 @@ def test_one_time_checkout_reuses_open_session_and_preserves_prior_payment(advis
         },
     )
     assert billing.reconcile("alice", request_id)["status"] == "paid"
+    # Both people see the settled payment in their request lists.
+    settled = {"status": "paid", "amountCents": 2500, "paidAt": "2025-10-09T08:53:20+00:00"}
+    for viewer in ("alice", "bob"):
+        assert service.view(viewer, request_id)["payment"] == settled
+        assert service.history(viewer)["items"][0]["payment"] == settled
     with pytest.raises(AdvisorReviewError, match="ALREADY_PAID"):
         billing.checkout("alice", request_id, consent)
     billing.offer("bob", request_id, plan.model_copy(update={"amountCents": 3500}))
+    # A new, unpaid plan revision does not inherit the earlier payment's badge.
+    assert "payment" not in service.view("alice", request_id)
     assert billing.reconcile("alice", request_id) == {
         "mode": "test",
         "status": "not_started",
