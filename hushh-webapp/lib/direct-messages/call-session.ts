@@ -3,6 +3,7 @@ import { CallMedia } from "./call-media";
 import { callSignalContext, digest, openCallSignal, sealCallSignal, verifyCallProof, type CommunicationDevice } from "./call-crypto";
 import { canonicalJson } from "@/lib/services/owner-pod-crypto";
 import { apiErrorCode } from "@/lib/services/api-client";
+import { smsMicrophoneReady, type SmsCallIntent } from "./sms-call-escalation";
 
 export type CallView = { call: DirectCall | null; error: string | null; muted: boolean; mediaConnected: boolean };
 const finished = new Set(["declined", "cancelled", "ended", "expired"]);
@@ -124,19 +125,24 @@ export class DirectCallSession {
     this.leaseTimer = setTimeout(() => void renew(), 10_000);
   }
 
-  async start(conversationId: string | null, personRef?: string | null): Promise<void> {
-    if (this.starting || (this.call && !finished.has(this.call.state))) return;
+  async start(conversationId: string | null, personRef?: string | null, sms?: SmsCallIntent): Promise<boolean> {
+    if (this.starting || (this.call && !finished.has(this.call.state))) return false;
     this.starting = true;
     const generation = ++this.generation;
+    let startedCallId: string | undefined;
     try {
+      if (sms && (!this.service.identity || !await smsMicrophoneReady())) return false;
       if (!this.service.identity) await this.service.initialize();
       this.current(generation);
-      const call = await this.service.create(conversationId, crypto.randomUUID(),personRef);
+      const call = sms
+        ? await this.service.create(null, sms.callId, null, sms)
+        : await this.service.create(conversationId, crypto.randomUUID(), personRef);
+      startedCallId = call.id;
       await this.adopt(call, generation);
       await this.loadDevices(call.conversationId, generation);
       const configuration = await this.service.relay(call.id);
       if (generation !== this.generation || this.disposed) throw new Error("The call was cancelled.");
-      await this.media.open(configuration, () => void this.connected(), () => void this.end());
+      await this.media.open(configuration, () => void this.connected(), () => void this.end(), sms ? smsMicrophoneReady : undefined);
       this.current(generation);
       const description = await this.media.description("offer");
       const identity = this.service.identity!;
@@ -146,8 +152,23 @@ export class DirectCallSession {
       if (generation !== this.generation || this.disposed) throw new Error("The call was cancelled.");
       await this.adopt(await this.service.offer(call.id, offers), generation);
       this.schedule();
+      return true;
     } catch (error) {
-      if (generation === this.generation) await this.fail(error);
+      if (generation === this.generation) {
+        if (sms && apiErrorCode(error) === "SMS_CALL_SETTLED") {
+          if (this.call && this.call.id === startedCallId) {
+            this.call = { ...this.call, state: "cancelled" };
+            await this.end(false, startedCallId);
+          }
+          return true;
+        }
+        if (sms) {
+          if (startedCallId) await this.end(false, startedCallId);
+        } else if (!this.call || this.call.id === startedCallId) {
+          await this.fail(error);
+        }
+      }
+      return false;
     } finally { this.starting = false; }
   }
 
@@ -225,12 +246,12 @@ export class DirectCallSession {
 
   private async poll(): Promise<void> {
     if (this.disposed || !this.service.identity) return;
-    if (isHidden()) { this.schedule(); return; }
+    if (this.starting || isHidden()) { this.schedule(); return; }
     const generation = this.generation;
     try {
       if (!this.call || finished.has(this.call.state)) {
         const inbox = await this.service.inbox();
-        if (generation !== this.generation || this.disposed) return;
+        if (generation !== this.generation || this.disposed || this.starting) return;
         if (inbox.items[0] && !this.ignored.has(inbox.items[0].id) && !isHidden()) {
           this.call = inbox.items[0]; this.emit();
         }

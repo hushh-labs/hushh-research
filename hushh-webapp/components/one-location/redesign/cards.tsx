@@ -492,6 +492,7 @@ export function SharedWithMeCard({
   onAskReshare,
   askReshareBusy,
   shareLanes,
+  smsAcknowledgement,
 }: {
   userId?: string;
   name: string;
@@ -538,6 +539,7 @@ export function SharedWithMeCard({
    * about one of them.
    */
   shareLanes?: ReactNode;
+  smsAcknowledgement?: ReactNode;
 }) {
   const warningRole = roleClasses("warning");
   const canOpenMap = Boolean(previewExpanded && mapHref);
@@ -710,6 +712,10 @@ export function SharedWithMeCard({
             />
           </button>
         </div>
+      ) : null}
+
+      {smsAcknowledgement ? (
+        <div className="px-3.5 pb-2.5 sm:px-4 sm:pb-3">{smsAcknowledgement}</div>
       ) : null}
 
       <div id={previewRegionId} hidden={!isPreviewExpanded}>

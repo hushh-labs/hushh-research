@@ -36,6 +36,25 @@ function fixture(incoming = false, verifyPeer: () => Promise<boolean> = async ()
 afterEach(() => { vi.useRealTimers(); });
 
 describe("call session concurrency", () => {
+  it("keeps a new incoming call available when the concurrent outgoing attempt fails", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const incoming = { ...base, id: "incoming-call" };
+    f.service.inbox.mockResolvedValue({ items: [incoming] });
+    let rejectCreate!: (error: ApiError) => void;
+    f.service.create.mockImplementationOnce(() => new Promise((_, reject) => { rejectCreate = reject; }));
+    await f.session.initialize();
+    const outgoing = f.session.start("conversation");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.service.inbox).not.toHaveBeenCalled();
+    rejectCreate(new ApiError("Call busy", 409, { code: "CALL_BUSY" }));
+    expect(await outgoing).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.service.action).not.toHaveBeenCalled();
+    expect(f.publish.mock.lastCall?.[0].call?.id).toBe(incoming.id);
+    f.session.dispose();
+  });
+
   it("does not create a call after cancellation while device initialization is pending", async () => {
     const f = fixture();
     Object.assign(f.service, { identity: null });

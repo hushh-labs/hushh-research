@@ -253,6 +253,9 @@ def build_push_message(
                 aps=messaging.Aps(
                     alert=messaging.ApsAlert(title=title, body=body),
                     sound=(ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND if is_sms_emergency else "default"),
+                    custom_data={"interruption-level": "time-sensitive"}
+                    if is_sms_emergency
+                    else None,
                     badge=chat_badge if is_chat else 1,
                     mutable_content=True if is_chat or is_sms_created else None,
                     category=(

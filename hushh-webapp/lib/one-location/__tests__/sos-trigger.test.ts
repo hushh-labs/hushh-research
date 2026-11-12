@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     createGrant: vi.fn(),
+    getPermissionState: vi.fn(),
+    queueSmsIncident: vi.fn(),
   },
 }));
 
@@ -28,6 +30,7 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import {
+  queueConfirmedSms,
   isSosShareReadyRecipient,
   runSosPanic,
   selectSmsRecipients,
@@ -36,6 +39,43 @@ import {
   sosRecipientReadinessMessage,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
+import { ApiError } from "@/lib/services/api-client";
+
+describe("confirmed SMS dispatch", () => {
+  beforeEach(() => {
+    vi.mocked(OneLocationService.getPermissionState).mockReset();
+    vi.mocked(OneLocationService.queueSmsIncident).mockReset();
+  });
+
+  it("queues while the location promise is pending and reuses the incident ID on retry", async () => {
+    vi.mocked(OneLocationService.getPermissionState).mockResolvedValue({ state: "granted" });
+    const grant = makeGrant("grant-1", "contact");
+    vi.mocked(OneLocationService.queueSmsIncident)
+      .mockRejectedValueOnce(new ApiError("Temporarily unavailable", 503))
+      .mockImplementationOnce(async (_, incidentId) => ({
+        incidentId, startedAt: "2026-11-11T10:00:00Z", grants: [grant], skippedCount: 0,
+      }));
+    const resolvePoint = vi.fn(() => new Promise<PlainLocationPoint>(() => undefined));
+    const result = await queueConfirmedSms({
+      ownerUserId: "sender", vaultOwnerToken: "test-token", resolvePoint,
+    });
+    expect(result?.incident.grantIds).toEqual(["grant-1"]);
+    expect(resolvePoint).toHaveBeenCalledOnce();
+    const calls = vi.mocked(OneLocationService.queueSmsIncident).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][1]).toBe(calls[1][1]);
+  });
+
+  it("denies dispatch and skips capture when location access is denied", async () => {
+    vi.mocked(OneLocationService.getPermissionState).mockResolvedValue({ state: "denied" });
+    const resolvePoint = vi.fn(async () => makePoint());
+    await expect(queueConfirmedSms({
+      ownerUserId: "sender", vaultOwnerToken: "test-token", resolvePoint,
+    })).rejects.toThrow("Enable location access");
+    expect(resolvePoint).not.toHaveBeenCalled();
+    expect(OneLocationService.queueSmsIncident).not.toHaveBeenCalled();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

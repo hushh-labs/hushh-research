@@ -56,6 +56,10 @@ class VoIPPayload(Strict):
     environment: Literal["sandbox", "production"]
 
 
+class FCMPayload(Strict):
+    tokenHash: str | None = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class DirectoryPayload(Strict):
     conversationId: UUID
 
@@ -64,10 +68,17 @@ class CreatePayload(Strict):
     callId: UUID
     conversationId: UUID | None = None
     recipientPersonRef: str | None = Field(default=None, min_length=1, max_length=64)
+    smsIncidentId: UUID | None = None
 
     @model_validator(mode="after")
     def one_recipient(self):
-        if bool(self.conversationId) == bool(self.recipientPersonRef):
+        if (
+            sum(
+                bool(value)
+                for value in (self.conversationId, self.recipientPersonRef, self.smsIncidentId)
+            )
+            != 1
+        ):
             raise ValueError("Choose one conversation or connected person.")
         return self
 
@@ -115,6 +126,7 @@ _PAYLOADS: dict[str, type[Strict]] = {
     "inbox": InboxPayload,
     "offer": OfferPayload,
     "register-voip": VoIPPayload,
+    "register-fcm": FCMPayload,
 }
 
 
@@ -140,6 +152,7 @@ async def command(
         "inbox",
         "offer",
         "register-voip",
+        "register-fcm",
     ],
     body: Command,
     user: str = Depends(require_firebase_auth),
@@ -157,7 +170,9 @@ async def command(
         result = await run_in_threadpool(
             getattr(DirectCallsService(), method), user, payload, body.proof.model_dump(mode="json")
         )
-        if operation == "offer" and direct_call_voip.available():
+        if operation == "offer" and (
+            direct_call_voip.available() or direct_call_voip.android_enabled()
+        ):
             background_tasks.add_task(direct_call_voip.deliver_after_offer)
         return result
     except CallError as exc:

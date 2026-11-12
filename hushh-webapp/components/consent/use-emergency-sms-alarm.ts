@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { HushhNotifications } from "@/lib/capacitor";
 import { OneLocationService } from "@/lib/one-location/service";
+import { apiErrorCode } from "@/lib/services/api-client";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -13,11 +14,15 @@ import {
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import {
   acknowledgeSmsAlarm,
+  confirmSmsAcknowledgement,
   isSmsAlarmAcknowledged,
+  isSmsAlarmSilenced,
   pendingSmsAlarms,
   rememberSmsAlarm,
   SMS_ALARM_ACKNOWLEDGED_EVENT,
   SMS_ALERTS_CHANGED_EVENT,
+  silenceSmsAlarm,
+  unconfirmedSmsAcknowledgements,
 } from "@/lib/one-location/sms-alarm-state";
 import {
   isOneLocationGrantOpened,
@@ -104,6 +109,79 @@ export function useEmergencySmsDeliveryRecovery({
   }, [isNativePlatform, userId]);
 }
 
+const GRANT_ID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+
+function useSmsAcknowledgementSync(
+  userId: string | undefined,
+  getIdToken: (() => Promise<string>) | undefined,
+  getCurrentOwner: () => string | undefined,
+) {
+  const readToken = useEffectEvent(() => getIdToken?.());
+  useEffect(() => {
+    if (!userId) return;
+    const abort = new AbortController();
+    let requested = false;
+    let running = false;
+    const current = () => !abort.signal.aborted && getCurrentOwner() === userId;
+    const refresh = async () => {
+      requested = true;
+      if (running) return;
+      running = true;
+      try {
+        while (requested && current()) {
+          requested = false;
+          const queued = unconfirmedSmsAcknowledgements(userId).filter((id) => GRANT_ID.test(id)).slice(0, 32);
+          const pending = pendingSmsAlarms(userId).filter((id) => GRANT_ID.test(id)).slice(0, 32);
+          if (!queued.length && !pending.length) continue;
+          const token = await readToken();
+          if (!token || !current()) return;
+          for (const grantId of queued) {
+            if (!current()) return;
+            try {
+              await OneLocationService.acknowledgeSmsAlert(token, grantId, abort.signal);
+            } catch (error) {
+              // A retired grant has no remaining server-side alert to acknowledge.
+              if (apiErrorCode(error) !== "SMS_ALERT_NOT_FOUND") continue;
+            }
+            if (current()) confirmSmsAcknowledgement(userId, grantId);
+          }
+          if (pending.length && current()) {
+            const acknowledged = await OneLocationService.getSmsAcknowledgements(token, pending, abort.signal);
+            if (current()) for (const grantId of acknowledged) acknowledgeSmsAlarm(userId, grantId, false);
+          }
+        }
+      } catch {
+        // Keep local receipts for the next reconnect, focus or retry.
+      } finally {
+        running = false;
+      }
+    };
+    const onOwnerEvent = (event: Event) => {
+      if ((event as CustomEvent<{ userId: string }>).detail?.userId === userId) void refresh();
+    };
+    const retry = window.setInterval(() => {
+      if (unconfirmedSmsAcknowledgements(userId).length) void refresh();
+    }, 10_000);
+    window.addEventListener(SMS_ALARM_ACKNOWLEDGED_EVENT, onOwnerEvent);
+    window.addEventListener(SMS_ALERTS_CHANGED_EVENT, onOwnerEvent);
+    window.addEventListener("online", refresh);
+    window.addEventListener("focus", refresh);
+    const releaseLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") void refresh();
+    });
+    void refresh();
+    return () => {
+      abort.abort();
+      window.clearInterval(retry);
+      releaseLifecycle();
+      window.removeEventListener(SMS_ALARM_ACKNOWLEDGED_EVENT, onOwnerEvent);
+      window.removeEventListener(SMS_ALERTS_CHANGED_EVENT, onOwnerEvent);
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [getCurrentOwner, userId]);
+}
+
 function useEmergencySmsAcknowledgements(
   userId: string | undefined,
   isNativePlatform: boolean,
@@ -119,7 +197,10 @@ function useEmergencySmsAcknowledgements(
     let nativeListener: { remove(): Promise<void> } | undefined;
     if (isNativePlatform && typeof HushhNotifications.addListener === "function") {
       void HushhNotifications.addListener("emergencySmsAcknowledged", (event) => {
-        if (!disposed && event.userId === userId && activeToasts.has(event.grantId)) dismiss(event.grantId);
+        if (disposed || event.userId !== userId || getCurrentOwner() !== userId) return;
+        dismiss(event.grantId);
+        if (event.explicit) acknowledgeSmsAlarm(userId, event.grantId);
+        else silenceSmsAlarm(userId, event.grantId);
       }).then((listener) => {
         if (disposed) void listener.remove();
         else nativeListener = listener;
@@ -165,6 +246,7 @@ export function useEmergencySmsAlarm(
   isNativePlatform: boolean,
   nativeSessionRevision: string | null = null,
   nativeDeliveryDetail: string | null = null,
+  getIdToken?: () => Promise<string>,
 ) {
   const useAppAudio = !isNativePlatform ||
     nativeSessionRevision === "push_not_requested" ||
@@ -182,13 +264,23 @@ export function useEmergencySmsAlarm(
   const dismissEmergencySms = useCallback((grantId: string) => {
     stopEmergencySms(grantId);
     toast.dismiss(`one-location-share:${grantId}`);
-    if (userId && !isSmsAlarmAcknowledged(userId, grantId)) acknowledgeSmsAlarm(userId, grantId);
-  }, [stopEmergencySms, userId]);
+  }, [stopEmergencySms]);
+  const acknowledgeEmergencySms = useCallback((grantId: string) => {
+    dismissEmergencySms(grantId);
+    if (userId) acknowledgeSmsAlarm(userId, grantId);
+    if (!isNativePlatform) {
+      void navigator.serviceWorker?.getRegistration().then((registration) =>
+        registration?.getNotifications({ tag: `one-location-share:${grantId}` })
+      ).then((notifications) => notifications?.forEach((notification) => notification.close())).catch(() => undefined);
+    }
+  }, [dismissEmergencySms, isNativePlatform, userId]);
 
   useEmergencySmsAcknowledgements(userId, isNativePlatform, activeToastsRef, getCurrentOwner, dismissEmergencySms);
+  useSmsAcknowledgementSync(userId, getIdToken, getCurrentOwner);
 
   const startEmergencySms = useCallback((grantId: string) => {
-    if (!userId || isSmsAlarmAcknowledged(userId, grantId)) return false;
+    if (!userId || isSmsAlarmAcknowledged(userId, grantId) || isSmsAlarmSilenced(userId, grantId) ||
+        isOneLocationGrantOpened(userId, grantId) || isOneLocationGrantUnwatched(userId, grantId)) return false;
     rememberSmsAlarm(userId, grantId);
     activeToastsRef.current.add(grantId);
     // App audio covers an active session even when device notifications are off.
@@ -204,15 +296,19 @@ export function useEmergencySmsAlarm(
       grantId,
       expiresAt: Date.now() + 2000,
     }).then((result) => {
-      if (result.acknowledged) dismissEmergencySms(grantId);
+      if (result.acknowledged && getCurrentOwner() === userId) {
+        silenceSmsAlarm(userId, grantId);
+        dismissEmergencySms(grantId);
+      }
     }).catch(() => undefined);
     return false;
-  }, [dismissEmergencySms, useAppAudio, userId]);
+  }, [dismissEmergencySms, getCurrentOwner, useAppAudio, userId]);
 
   useEffect(() => {
     if (!userId) return;
     const restore = (grantId: string, play = true) => {
-      if (isSmsAlarmAcknowledged(userId, grantId) || isOneLocationGrantOpened(userId, grantId) || isOneLocationGrantUnwatched(userId, grantId)) {
+      if (isSmsAlarmAcknowledged(userId, grantId) || isSmsAlarmSilenced(userId, grantId) ||
+          isOneLocationGrantOpened(userId, grantId) || isOneLocationGrantUnwatched(userId, grantId)) {
         dismissEmergencySms(grantId);
         return;
       }
@@ -222,10 +318,10 @@ export function useEmergencySmsAlarm(
       activeToastsRef.current.add(grantId);
       toast("Unacknowledged SMS alert", {
         id: `one-location-share:${grantId}`,
-        description: "An SMS alert needs your attention. Dismiss the alarm to acknowledge it.",
+        description: "An SMS alert needs your attention.",
         duration: Infinity,
         dismissible: false,
-        action: { label: "Dismiss alarm", onClick: () => dismissEmergencySms(grantId) },
+        action: { label: "Acknowledge", onClick: () => acknowledgeEmergencySms(grantId) },
       });
     };
     for (const grantId of pendingSmsAlarms(userId)) restore(grantId, !isNativePlatform);
@@ -237,7 +333,8 @@ export function useEmergencySmsAlarm(
       void HushhNotifications.getPendingEmergencySmsAlarms({ userId, grantIds: [...activeToastsRef.current] })
         .then((state) => {
           if (disposed) return;
-          for (const grantId of state.acknowledgedGrantIds) dismissEmergencySms(grantId);
+          for (const grantId of state.explicitlyAcknowledgedGrantIds ?? []) acknowledgeSmsAlarm(userId, grantId);
+          for (const grantId of state.acknowledgedGrantIds) silenceSmsAlarm(userId, grantId);
           for (const grantId of new Set([...pendingSmsAlarms(userId), ...state.grantIds])) {
             if (typeof grantId === "string" && grantId && !isSmsAlarmAcknowledged(userId, grantId)) restore(grantId);
           }
@@ -254,7 +351,7 @@ export function useEmergencySmsAlarm(
     // Native auth/key custody admits playback. Network registration may fail
     // offline; its completion only gives us another chance to restore receipts
     // if the initial bridge call preceded native key preparation.
-  }, [dismissEmergencySms, isNativePlatform, nativeSessionRevision, startEmergencySms, useAppAudio, userId]);
+  }, [acknowledgeEmergencySms, dismissEmergencySms, isNativePlatform, nativeSessionRevision, startEmergencySms, useAppAudio, userId]);
 
-  return { startEmergencySms, stopEmergencySms, dismissEmergencySms };
+  return { startEmergencySms, stopEmergencySms, dismissEmergencySms, acknowledgeEmergencySms };
 }

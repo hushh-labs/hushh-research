@@ -2,7 +2,7 @@ import CryptoKit
 import CoreFoundation
 import Foundation
 
-enum CallingError: Error { case unavailable, invalid, cancelled, verificationRequired, microphoneBusy, enrollmentRequired }
+enum CallingError: Error { case unavailable, invalid, cancelled, verificationRequired, microphoneBusy, enrollmentRequired, smsSettled }
 
 struct CallingAccountPrincipal: Equatable {
     let firebaseUid: String

@@ -32,7 +32,7 @@ public final class HushhCallingPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard let api = CallingCoordinator.shared.api, api.identity.owner == owner else { throw CallingError.cancelled }
                 try api.check()
                 self.owner = owner
-                call.resolve(["available": true])
+                call.resolve(["available": true, "deviceId": api.identity.deviceId])
                 CallingCoordinator.shared.publish()
             } catch { call.resolve(["available": false]) }
         }
@@ -46,7 +46,14 @@ public final class HushhCallingPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @objc func start(_ call: CAPPluginCall) {
-        perform(call) { engine in try await engine.start(conversation: call.getString("conversationId"), person: call.getString("personRef")) }
+        let sms = call.getObject("sms")
+        perform(call) { engine in
+            if sms != nil, (sms?["callId"] as? String == nil || sms?["incidentId"] as? String == nil) {
+                throw CallingError.invalid
+            }
+            try await engine.start(conversation: call.getString("conversationId"), person: call.getString("personRef"),
+                                   smsCallId: sms?["callId"] as? String, smsIncidentId: sms?["incidentId"] as? String)
+        }
     }
     private func performCall(_ call: CAPPluginCall, action: @escaping @MainActor (CallingCoordinator) async throws -> Void) {
         guard let id = call.getString("callId"), UUID(uuidString: id) != nil else { call.reject("Missing call."); return }

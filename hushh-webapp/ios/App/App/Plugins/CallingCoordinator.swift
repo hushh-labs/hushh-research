@@ -28,7 +28,7 @@ final class CallingCoordinator {
     var leaseWatchdog: Task<Void, Never>?
     private var authListener: AuthStateDidChangeListenerHandle?
     private var pushToken: String?
-    private var starting = false
+    private(set) var starting = false
     var answering = false
     var connectedReported = false
     var shuttingDown = false
@@ -164,24 +164,37 @@ final class CallingCoordinator {
                 throw CallingError.cancelled
             }
             try current(epoch, api)
-            guard remote["state"] as? String == "ringing", remote["isCaller"] as? Bool == false,
+            guard !starting, call == nil || call?["id"] as? String == id,
+                  remote["state"] as? String == "ringing", remote["isCaller"] as? Bool == false,
                   remote["calleeDeviceId"] is NSNull, (remote["expiresAt"] as? Int ?? 0) == expiry else { throw CallingError.invalid }
             call = remote; publish(); monitor()
         } catch {
             if epoch == generation || call?["id"] as? String != id { system.finish(uuid, reason: .failed) }
         }
     }
-    func start(conversation: String?, person: String?) async throws {
+    func start(conversation: String?, person: String?, smsCallId: String? = nil, smsIncidentId: String? = nil) async throws {
         guard !shuttingDown, !starting, call == nil, let api else { throw CallingError.unavailable }
         starting = true; generation += 1
         let epoch = generation
+        let id = smsCallId ?? UUID().uuidString.lowercased()
+        let automatic = smsIncidentId != nil
         defer { starting = false }
         do {
-            guard await microphonePermission() else { throw CallingError.unavailable }
+            let ready = {
+                UIApplication.shared.applicationState == .active &&
+                    AVAudioSession.sharedInstance().recordPermission == .granted
+            }
+            if automatic {
+                guard ready(), smsCallId.flatMap({ UUID(uuidString: $0) }) != nil,
+                      smsIncidentId.flatMap({ UUID(uuidString: $0) }) != nil else { throw CallingError.unavailable }
+            } else {
+                guard await microphonePermission() else { throw CallingError.unavailable }
+            }
             try current(epoch, api)
-            let id = UUID().uuidString.lowercased()
             var payload: [String: Any] = ["callId": id]
-            if let conversation { payload["conversationId"] = conversation } else if let person { payload["recipientPersonRef"] = person }
+            if let smsIncidentId { payload["smsIncidentId"] = smsIncidentId }
+            else if let conversation { payload["conversationId"] = conversation }
+            else if let person { payload["recipientPersonRef"] = person }
             let created = try await api.command("create", payload)
             do { try current(epoch, api) } catch {
                 _ = try? await api.command("action", ["callId": id, "action": "end", "revision": created["revision"] ?? 0]); throw error
@@ -190,7 +203,9 @@ final class CallingCoordinator {
             devices = try await api.directory(CallingWire.string(created, "conversationId"))
             try current(epoch, api)
             let relay = try await api.command("credentials", ["callId": id])
-            try current(epoch, api); try media.open(relay)
+            try current(epoch, api)
+            if automatic && !ready() { throw CallingError.cancelled }
+            try media.open(relay)
             try await system.outgoing(UUID(uuidString: id)!)
             try current(epoch, api)
             let description = try await media.description("offer")
@@ -199,9 +214,23 @@ final class CallingCoordinator {
                 try CallingWire.seal(device: peer, context: CallingWire.context(call: created, from: api.identity.deviceId,
                             to: CallingWire.string(peer, "deviceId"), kind: "offer", sequence: 0), description: description)
             }
-            call = try await api.command("offer", ["callId": id, "offers": offers])
-            try current(epoch, api); publish(); monitor()
-        } catch { if epoch == generation { end(error: "The call could not connect.") }; throw error }
+            if automatic && !ready() { throw CallingError.cancelled }
+            let offered = try await api.command("offer", ["callId": id, "offers": offers])
+            try current(epoch, api)
+            call = offered; publish(); monitor()
+        } catch CallingError.smsSettled {
+            if epoch == generation, call?["id"] as? String == id {
+                call?["state"] = "cancelled"
+                end()
+            }
+        } catch {
+            if epoch == generation, call?["id"] as? String == id {
+                end(error: automatic ? nil : "The call could not connect.")
+            } else if epoch == generation, call == nil, !automatic {
+                publish(error: "The call could not connect.")
+            }
+            throw error
+        }
     }
     func setMuted(_ value: Bool) { muted = value; media.mute(value); publish() }
     func confirm(fingerprint: String, accepted: Bool) throws {

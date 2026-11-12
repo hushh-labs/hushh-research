@@ -15,15 +15,22 @@ export class CallMedia {
     audio: () => new Audio(),
   }) {}
 
-  async open(configuration: RTCConfiguration, onConnected: () => void, onEnded: () => void): Promise<RTCPeerConnection> {
+  async open(configuration: RTCConfiguration, onConnected: () => void, onEnded: () => void,
+    preauthorized?: () => Promise<boolean>): Promise<RTCPeerConnection> {
     this.stop();
     if (configuration.iceTransportPolicy !== "relay" || !configuration.iceServers?.length) throw new Error("A verified calling relay is required.");
     const generation = this.generation;
-    this.lease = appInteractionCoordinator.acquireVoiceLease({ owner: "direct-message-call", onRevoked: () => {
+    this.lease = appInteractionCoordinator.acquireVoiceLease({ owner: "direct-message-call",
+      ...(preauthorized ? { preserveExisting: true } : {}), onRevoked: () => {
       if (generation === this.generation) { this.stop(); onEnded(); }
     } });
     let stream: MediaStream;
-    try { stream = await this.ports.capture(); }
+    try {
+      if (preauthorized && (!await preauthorized() || generation !== this.generation)) {
+        throw new Error("Microphone access is unavailable for this SMS call.");
+      }
+      stream = await this.ports.capture();
+    }
     catch (error) { if (generation === this.generation) this.stop(); throw error; }
     if (generation !== this.generation) {
       stream.getTracks().forEach(track => track.stop());
