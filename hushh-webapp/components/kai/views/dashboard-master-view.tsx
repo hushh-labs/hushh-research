@@ -9,7 +9,6 @@ import { groupHoldingPositions, prepareHoldingEntryEdit } from "@/lib/kai/holdin
 import { applyStatementHoldingsEdit } from "@/lib/kai/brokerage/statement-holdings-edit";
 import {
   Building2,
-  ChevronDown,
   Plus,
   Save,
   Search,
@@ -29,18 +28,19 @@ import {
 import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
 import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sharing-history-action";
-import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
+import dynamic from "next/dynamic";
+import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
+import { PerformanceStrip } from "@/components/kai/performance/performance-strip";
+import { PortfolioDetailPlaceholder } from "@/components/kai/performance/performance-placeholder";
+import { sinceBought } from "@/lib/kai/portfolio-performance";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
 import { SavedPortfolioBriefing } from "@/components/kai/views/portfolio-briefing";
 import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
-import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
-import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
 import { formatCurrency } from "@/lib/kai/market-value-format";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
-import { StatementCashflowChart } from "@/components/kai/charts/statement-cashflow-chart";
 import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
 import { finiteNumber, toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 import { HoldingGainLoss } from "@/components/kai/holdings/holding-gain-loss";
@@ -63,11 +63,6 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { DataTable } from "@/components/app-ui/data-table";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -361,6 +356,11 @@ function buildManagedHoldingsFromSource(sourceHoldings: PortfolioHolding[]): {
   return { managed, baselineBySource };
 }
 
+const PortfolioDetailCards = dynamic(
+  () => import("@/components/kai/performance/performance-cards").then((module) => module.PortfolioDetailCards),
+  { ssr: false, loading: () => <PortfolioDetailPlaceholder /> },
+);
+
 export function DashboardMasterView({
   userId,
   vaultOwnerToken,
@@ -446,7 +446,6 @@ export function DashboardMasterView({
   const [selectedAllocationName, setSelectedAllocationName] = useState<
     string | null
   >(null);
-  const [portfolioDetailOpen, setPortfolioDetailOpen] = useState(false);
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -999,24 +998,6 @@ export function DashboardMasterView({
       },
     ].filter((row) => typeof row.value === "number");
   }, [model.summaryMetrics]);
-
-  const statementChartData = useMemo(
-    () =>
-      statementSnapshotRows.map((row) => ({
-        key: row.key,
-        label: row.label.replace(" (Period)", "").replace(" (YTD)", " YTD"),
-        value: Number(row.value || 0),
-        tone:
-          row.key === "fees"
-            ? ("negative" as const)
-            : row.key === "investment-results" && Number(row.value || 0) < 0
-              ? ("negative" as const)
-              : row.key.includes("income") || row.key === "investment-results"
-                ? ("positive" as const)
-                : ("neutral" as const),
-      })),
-    [statementSnapshotRows],
-  );
 
   const closeHoldingModal = useCallback(() => {
     setHoldingValidationIssue(null);
@@ -2091,9 +2072,20 @@ export function DashboardMasterView({
 
         {section === "performance" ? (
           <section className="space-y-4">
-            <PortfolioValueCard source={sourceDisplayLabel} value={model.hero.totalValue}
-              {...overviewFacts(model, displayedPortfolio)} period={model.hero.statementPeriod || "Current portfolio snapshot"}
-              history={model.quality.historyReady ? model.history : []} />
+            <PerformanceStrip
+              value={model.hero.totalValue}
+              sinceBought={sinceBought(model.canonicalModel.positions)}
+              invested={overviewFacts(model, displayedPortfolio).invested}
+              cash={overviewFacts(model, displayedPortfolio).cash}
+              period={model.hero.statementPeriod || "Current portfolio snapshot"}
+            />
+            {model.quality.historyReady && model.history.length >= 2 ? (
+              <SurfaceCard className="min-w-0">
+                <SurfaceCardContent className="p-4">
+                  <PortfolioHistoryChart data={model.history} height={220} />
+                </SurfaceCardContent>
+              </SurfaceCard>
+            ) : null}
             <p className={financeStyles.description}>
               {model.hero.holdingsCount} positions · {model.hero.portfolioConcentrationLabel}
               {isPlaidView ? ` · ${freshness?.itemCount || 0} items · ${freshness?.accountCount || 0} accounts · Read-only brokerage snapshot` : ""}
@@ -2347,54 +2339,27 @@ export function DashboardMasterView({
             model.quality.concentrationReady ||
             (activeSource === "statement" &&
               statementSnapshotRows.length > 0)) ? (
-            <Collapsible
-              open={portfolioDetailOpen}
-              onOpenChange={setPortfolioDetailOpen}
-            >
-              <SurfaceCard className="min-w-0">
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex min-h-11 w-full items-center justify-between gap-3 px-4 text-left"
-                  >
-                    <span>
-                      <span className="block text-[15px] font-medium text-foreground">
-                        Portfolio detail
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        Concentration, gains, and statement evidence.
-                      </span>
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-decelerate)] motion-reduce:transition-none",
-                        portfolioDetailOpen && "rotate-180",
-                      )}
-                    />
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <SurfaceCardContent className="grid gap-3 px-4 pb-4 pt-0 sm:grid-cols-2">
-                    {model.quality.concentrationReady ? (
-                      <HoldingsConcentrationChart
-                        className="min-w-0"
-                        data={model.concentration}
-                      />
-                    ) : null}
-                    {model.quality.gainLossReady ? (
-                      <GainLossDistributionChart
-                        className="min-w-0"
-                        data={model.gainLossDistribution}
-                      />
-                    ) : null}
-                    {activeSource === "statement" &&
-                    statementSnapshotRows.length > 0 ? (
-                      <StatementCashflowChart data={statementChartData} />
-                    ) : null}
-                  </SurfaceCardContent>
-                </CollapsibleContent>
-              </SurfaceCard>
-            </Collapsible>
+            <>
+              <PortfolioDetailCards
+                concentration={model.quality.concentrationReady ? model.concentration : []}
+                concentrationLabel={model.hero.portfolioConcentrationLabel}
+                bands={model.quality.gainLossReady ? model.gainLossDistribution : []}
+                positions={model.canonicalModel.positions}
+                metrics={model.summaryMetrics}
+                showStatementMetrics={activeSource === "statement" && statementSnapshotRows.length > 0}
+                onOpenHolding={setSelectedHoldingId}
+              />
+              <HoldingDetailsDrawer
+                open={Boolean(selectedHolding) && !isModalOpen}
+                holding={selectedHolding}
+                entries={selectedEntries}
+                canManageHoldings={false}
+                loadHistory={loadHoldingHistory}
+                onOpenChange={(open) => {
+                  if (!open) setSelectedHoldingId(null);
+                }}
+              />
+            </>
           ) : null}
         </div>
 
