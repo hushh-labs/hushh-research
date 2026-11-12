@@ -31,7 +31,10 @@ import {
 } from "@/components/one-location/redesign/location-action-styles";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
-import type { OneLocationOnboardingScreen } from "@/components/one-location/onboarding/one-location-onboarding-steps";
+import {
+  LOCATION_ONBOARDING_CIRCLE_TITLE,
+  type OneLocationOnboardingScreen,
+} from "@/components/one-location/onboarding/one-location-onboarding-steps";
 import {
   READY_CODE_CLASSNAME,
   READY_MAP_CLASSNAME,
@@ -705,13 +708,12 @@ function ReadyScreen({
       data-testid="one-location-onboarding-ready-surface"
     >
       <header className="col-span-full shrink-0">
-        <div className="flex h-11 items-center gap-3">
+        <div className="flex min-h-11 items-center gap-3">
           <button type="button" onClick={onBack} disabled={leaving || completing || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0} className={cn(SHELL_ICON_BUTTON_CLASSNAME, "!h-11 !w-11 shrink-0")} aria-label="Go back">
             <ArrowLeft className="h-5 w-5" aria-hidden />
           </button>
-          <h1 ref={headingRef} tabIndex={-1} data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)] outline-none" data-one-ready-title>Your people.</h1>
+          <h1 ref={headingRef} tabIndex={-1} data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)] outline-none" data-one-ready-title>{LOCATION_ONBOARDING_CIRCLE_TITLE}</h1>
         </div>
-        <p data-location-type-role="row-description" className="mb-3 mt-2 text-muted-foreground">Connect now. Share only when you choose.</p>
       </header>
       <OnboardingLiveMap point={mapPoint} emptyLabel={mapEmptyLabel} className={READY_MAP_CLASSNAME} />
 
@@ -1514,7 +1516,7 @@ export function OneLocationOnboardingFlow({
       // Onboarding is modal; nothing from the app shell belongs over it. Keep
       // it above elevated Talk to One / bottom-nav states without touching those
       // global controls.
-      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] dark:text-[color:var(--app-label)]"
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-white text-[#171d28] dark:bg-[color:var(--app-grouped-background)] dark:text-[color:var(--app-label)]"
       data-one-onboarding-design="location-agent-v3"
       data-location-type-scale="connect"
       data-location-type-context="flow"
@@ -1525,9 +1527,8 @@ export function OneLocationOnboardingFlow({
       <NativeTestBeacon {...nativeTest} />
       <section
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[color:var(--app-grouped-background)]",
-          // Feature content keeps a responsive rail; Ready owns its panel.
-          "max-w-none",
+          "flex h-full min-h-0 w-full flex-col items-center justify-center overflow-hidden",
+          screen === "ready" && "sm:bg-[color:var(--app-scrim-color)]",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >

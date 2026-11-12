@@ -21,14 +21,6 @@ import { Kbd } from "@/components/ui/kbd";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import { Button } from "@/lib/morphy-ux/button";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -163,9 +155,6 @@ export function ManagePortfolioView() {
   const { registerSteps, completeStep, reset } = useStepProgress();
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
   const activeHoldings = useMemo(
     () => holdings.filter((holding) => !holding.pending_delete),
     [holdings]
@@ -589,9 +578,8 @@ export function ManagePortfolioView() {
             {holdings.length > 0 ? (
               <>
                 {holdings
-                  .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                   .map((holding, index) => {
-                    const actualIndex = (currentPage - 1) * itemsPerPage + index;
+                    const actualIndex = index;
                     const gainLoss = holding.unrealized_gain_loss || 0;
                     const isPositive = gainLoss >= 0;
 
@@ -687,40 +675,6 @@ export function ManagePortfolioView() {
                       </Card>
                     );
                   })}
-
-                {holdings.length > itemsPerPage && (
-                  <div className="mt-6">
-                    <Pagination>
-                      <PaginationContent>
-                        <PaginationItem>
-                          <PaginationPrevious 
-                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                            className={cn("cursor-pointer", currentPage === 1 && "pointer-events-none opacity-50")}
-                          />
-                        </PaginationItem>
-                        
-                        {Array.from({ length: Math.ceil(holdings.length / itemsPerPage) }).map((_, i) => (
-                          <PaginationItem key={i}>
-                            <PaginationLink
-                              isActive={currentPage === i + 1}
-                              onClick={() => setCurrentPage(i + 1)}
-                              className="cursor-pointer"
-                            >
-                              {i + 1}
-                            </PaginationLink>
-                          </PaginationItem>
-                        ))}
-
-                        <PaginationItem>
-                          <PaginationNext 
-                            onClick={() => setCurrentPage(prev => Math.min(Math.ceil(holdings.length / itemsPerPage), prev + 1))}
-                            className={cn("cursor-pointer", currentPage === Math.ceil(holdings.length / itemsPerPage) && "pointer-events-none opacity-50")}
-                          />
-                        </PaginationItem>
-                      </PaginationContent>
-                    </Pagination>
-                  </div>
-                )}
               </>
             ) : (
               <Card variant="muted" effect="glass" showRipple={false}>

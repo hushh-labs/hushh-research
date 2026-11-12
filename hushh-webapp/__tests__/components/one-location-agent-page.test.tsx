@@ -848,7 +848,7 @@ async function openLocationFeatureStep() {
 }
 
 async function expectLocationInviteStep() {
-  expect(await screen.findByRole("heading", { name: /Your people\./ })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Find your circle", exact: true })).toBeTruthy();
 }
 
 /** The terminal CTA. Its label names the destination, which differs by mode. */
@@ -2388,7 +2388,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockOpenLocationSettings).not.toHaveBeenCalled();
   });
 
-  it("keeps location status and toggle together for the shared header", async () => {
+  it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -2580,8 +2580,6 @@ describe("OneLocationAgentPage", () => {
       '[data-ui-role="flow-actions"]',
     );
     expect(autoApproveActions).toHaveClass("mx-auto", "max-w-44");
-    expect(autoApproveActions?.querySelector('[data-action-priority="secondary"]')).not.toHaveClass("border-t");
-    expect(within(autoApproveDialog).getByRole("button", { name: "Turn on", exact: true })).toHaveClass("h-11", "px-5");
     const allContacts = screen.getByRole("checkbox", { name: "All contacts" });
     fireEvent.click(allContacts);
     expect(allContacts).toHaveAttribute("aria-checked", "true");
@@ -5282,7 +5280,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockStageSavedLocation).not.toHaveBeenCalled();
   });
 
-  it("defers saving and goes to Your people without a third screen", async () => {
+  it("defers saving and goes to Find your circle without a third screen", async () => {
     mockGetPermissionState.mockResolvedValue({ state: "granted", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();

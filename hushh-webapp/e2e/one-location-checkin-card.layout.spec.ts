@@ -67,7 +67,7 @@ for (const viewport of VIEWPORTS) {
     await page.getByRole("textbox", { name: "House or flat" }).fill("Flat 4B");
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Save & continue" }).click();
-    await expect(page.getByRole("heading", { name: "Your people." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Find your circle" })).toBeVisible();
     await page.getByRole("button", { name: "Go back" }).click();
     await expect(page.getByText("Place saved.", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
@@ -143,7 +143,7 @@ test("keeps actions reachable in a short landscape or zoomed viewport", async ({
   await openFixture(page);
   await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
   await page.getByRole("button", { name: "Save & continue" }).click();
-  await expect(page.getByRole("heading", { name: "Your people." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Find your circle" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open One Location" })).toBeInViewport({ ratio: 1 });
   await page.getByRole("button", { name: "Find contacts" }).scrollIntoViewIfNeeded();
   await page.getByRole("button", { name: "Find contacts" }).click();

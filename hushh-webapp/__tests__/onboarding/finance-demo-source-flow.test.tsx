@@ -142,10 +142,7 @@ it("starts at the questionnaire and shows Plaid confirmation before automatic se
   expect(screen.queryByRole("region", { name: "Meet Finance" })).toBeNull();
   expect(state.ready).toBe(false);
   expect(state.blocked).toBe(true);
-  for (const choice of screen.getAllByRole("radio", { name: "I’m not sure yet" })) {
-    fireEvent.click(choice);
-  }
-  fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(await screen.findByText("Real source workflow")).toBeTruthy();
   expect(state.bootstrap).not.toHaveBeenCalled();
   await act(async () => {
@@ -180,18 +177,18 @@ it("saves the original three starter preferences before import without overwriti
     expect(unwindBackLayer("/one/setup/finance")).toBe(false);
   });
   expect(screen.getAllByRole("group").map((group) => group.querySelector("legend")?.textContent)).toEqual([
-    "01How long will this stay invested?",
-    "02Portfolio down 20%, what's your move?",
-    "03Which feels more comfortable to you?",
+    "How long will this stay invested?",
+    "Portfolio down 20%, what's your move?",
+    "Which feels more comfortable to you?",
   ]);
   for (const label of [
     "Less than 3 years",
     "Invest more at lower prices",
     "Larger swings for higher potential returns",
   ]) {
-    fireEvent.click(screen.getByRole("radio", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: label }));
   }
-  fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(await screen.findByText("Real source workflow")).toBeVisible();
   expect(state.savePreferences).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -208,19 +205,22 @@ it("saves the original three starter preferences before import without overwriti
   expect(state.sourceBack).toBeTypeOf("function");
   act(() => state.sourceBack?.());
   expect(screen.getByRole("heading", { name: "Let’s build your financial persona" })).toBeVisible();
-  expect(screen.getByRole("radio", { name: "Invest more at lower prices" })).toBeChecked();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeVisible();
 });
 
-it("skips unanswered persona questions and continues to import with a locked vault", () => {
-  state.vaultLocked = true;
-  state.bootstrap.mockResolvedValue({ ...state.journey, hasVault: true });
+it("offers no skip-all and only three tappable answers per question", () => {
   render(<FinanceOnboardingSetupPage />);
-  fireEvent.click(screen.getByRole("radio", { name: "Less than 3 years" }));
-  fireEvent.click(screen.getByRole("button", { name: "Skip all" }));
-  expect(screen.getByText("Real source workflow")).toBeVisible();
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(state.bootstrap).not.toHaveBeenCalled();
-  expect(state.savePreferences).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Skip all" })).toBeNull();
+  expect(screen.queryByRole("radio")).toBeNull();
+  const short = screen.getByRole("button", { name: "Less than 3 years" });
+  const medium = screen.getByRole("button", { name: "3–7 years" });
+  fireEvent.click(short);
+  expect(short).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(medium);
+  expect(short).toHaveAttribute("aria-pressed", "false");
+  expect(medium).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(medium);
+  expect(medium).toHaveAttribute("aria-pressed", "false");
 });
 
 it("recovers the explicit completion screen from a verified persisted source callback", () => {

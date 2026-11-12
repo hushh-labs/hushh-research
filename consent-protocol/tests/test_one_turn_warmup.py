@@ -162,14 +162,15 @@ def test_warmup_reaches_the_model_without_opening_any_connection(monkeypatch, ca
 async def test_root_qualification_keeps_the_real_non_client_tool_roster(monkeypatch, caplog):
     from hushh_mcp.managed_ai_config import load_managed_runtime_policy
     from hushh_mcp.one_adk import agent_tree
-    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
+    from hushh_mcp.runtime_providers import managed_text as managed
     from scripts.probe_one_text_root import _root_contract
 
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
     monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
     monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+    monkeypatch.setattr(managed, "load_scoped_text_policy", lambda _: None)
     descriptor = load_managed_runtime_policy()["azure"]["one_text_root"]
-    model = ManagedPrimaryTextModel(
+    model = managed.ManagedPrimaryTextModel(
         model=descriptor["deployment"],
         endpoint="https://synthetic.openai.azure.com/openai/v1/",
         token_supplier=lambda: pytest.fail("qualification must not obtain a token"),

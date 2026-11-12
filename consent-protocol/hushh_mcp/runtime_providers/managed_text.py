@@ -10,15 +10,17 @@ import os
 from collections.abc import Awaitable, Callable
 from contextlib import aclosing
 from typing import Any, Literal, TypedDict, cast
-from uuid import UUID, uuid5
 
 from google.adk.agents import LlmAgent
 from pydantic import Field, model_validator
 
 from hushh_mcp.managed_ai_config import (
+    load_drive_text_policy,
     load_private_drive_text_policy,
     load_pwm_policy,
+    load_scoped_text_policy,
     profile_hash,
+    text_policy_generation,
 )
 from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 from hushh_mcp.runtime_providers.managed_text_attempt import fallback_reason as fallback_reason
@@ -38,7 +40,17 @@ class ManagedTextReceipt(TypedDict):
     location: str
 
 
-def managed_text_policy() -> dict | None:
+def _scoped_policy(scope: str) -> dict | None:
+    return (
+        load_drive_text_policy()
+        if scope == "drive_document_requests"
+        else load_scoped_text_policy(scope)
+    )
+
+
+def managed_text_policy(*, scope: str = "one_text_chat") -> dict | None:
+    if scope not in TEXT_SCOPES:
+        raise ValueError("Unsupported managed text processing scope")
     environment = (
         os.getenv("HUSHH_DEPLOY_ENV", "").strip() or os.getenv("ENVIRONMENT", "").strip()
     ).lower()
@@ -50,13 +62,20 @@ def managed_text_policy() -> dict | None:
     from hushh_mcp.managed_ai_config import selected_managed_provider
 
     selected = selected_managed_provider()
+    scoped = _scoped_policy(scope)
+    if scoped is not None:
+        return {
+            **policy,
+            "version": scoped["version"],
+            "selected_provider": scoped["provider"],
+            "generation": text_policy_generation(policy, scoped["provider"], scoped),
+        }
     if selected not in {policy["provider"], policy["alternate_provider"]}:
         raise ValueError("Invalid UAT managed text provider")
-    version = policy["version"] + (":vertex" if selected == "vertex" else "")
     return {
         **policy,
         "selected_provider": selected,
-        "generation": str(uuid5(UUID(policy["policy_id"]), version)),
+        "generation": text_policy_generation(policy, selected, None),
     }
 
 
@@ -81,6 +100,8 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
     processing_scope: str
     runtime_binding: Any = Field(default=None, exclude=True, repr=False)
     processing_fingerprint: str | None = None
+    vertex_thinking_level: Literal["low", "high"] | None = None
+    vertex_max_output_tokens: int | None = None
     primary_seconds: float = Field(default=30, gt=0, le=60)
     fallback_seconds: float = Field(default=20, gt=0, le=30)
 
@@ -125,7 +146,7 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                         "Managed Azure processing policy changed"
                     ) from None
                 raise
-        policy = managed_text_policy()
+        policy = managed_text_policy(scope=self.processing_scope)
         if policy is None or policy["generation"] != self.policy_generation:
             raise ManagedTextAuthorityError("UAT managed text processing policy changed")
         if self.processing_fingerprint is not None and (
@@ -258,7 +279,7 @@ def build_managed_text_model(
     """Reuse the configured transport; model choice grants no information authority."""
     if scope not in TEXT_SCOPES:
         raise ValueError("Unsupported managed text processing scope")
-    policy = managed_text_policy()
+    policy = managed_text_policy(scope=scope)
     if policy is None:
         raise ValueError("Managed Azure text policy is UAT only")
     from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
@@ -266,13 +287,15 @@ def build_managed_text_model(
     from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding, _credential_supplier
 
     config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
+    scoped = _scoped_policy(scope)
+    vertex_model = (
+        str(scoped["model"]) if scoped is not None else resolve_fleet_model_name("gemini-default")
+    )
 
     def fallback():
         # Explicit Vertex transport: the default managed factory may now select
         # Azure, which must never masquerade as the alternate provider.
-        return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
-            resolve_fleet_model_name("gemini-default")
-        )
+        return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(vertex_model)
 
     selected = provider or policy["selected_provider"]
     if selected not in {"azure_openai", "vertex"}:
@@ -284,33 +307,39 @@ def build_managed_text_model(
         raise ValueError("One chat requires the managed Azure processor")
 
     def azure_unavailable():
-        raise ManagedTextAuthorityError("Vertex chat cannot acquire Azure credentials")
+        raise ManagedTextAuthorityError("Vertex text cannot acquire Azure credentials")
 
     return ManagedPrimaryTextModel(
-        model=resolve_fleet_model_name("gemini-default")
-        if chat and selected == "vertex"
-        else config["primary_deployment"],
+        model=vertex_model if selected == "vertex" else config["primary_deployment"],
         endpoint=config["primary_endpoint"],
         token_supplier=azure_unavailable
-        if chat and selected == "vertex"
+        if selected == "vertex"
         else _credential_supplier(config["tenant_id"], config["client_id"]),
         require_current=require_current,
         fallback_factory=fallback,
-        allow_fallback=not chat or azure_chat,
+        allow_fallback=(not chat or azure_chat) and scoped is None,
         primary_provider=cast(ManagedProvider, selected),
         completion_observer=completion_observer,
         policy_generation=policy["generation"],
         processing_scope=scope,
         runtime_binding=binding,
         processing_fingerprint=managed_text_binding(scope=scope)["config_fingerprint"]
-        if chat
+        if chat or scoped is not None
         else None,
+        vertex_thinking_level=scoped["thinking_level"] if scoped is not None else None,
+        vertex_max_output_tokens=scoped["max_output_tokens"] if scoped is not None else None,
         # The outer first-output budget is independent of the SDK's read-idle
         # budget after output starts. Never kill a healthy stream at 10 seconds.
-        timeout_seconds=60 if chat else 30,
+        timeout_seconds=60 if chat or scoped is not None else 30,
         # Native Gemini may complete a unary tool-selection call before its
         # first event; give it the same bounded window as native Search.
-        primary_seconds=10 if azure_chat else ONE_NATIVE_FIRST_OUTPUT_SECONDS if chat else 30,
+        primary_seconds=10
+        if azure_chat
+        else 30
+        if selected == "azure_openai"
+        else ONE_NATIVE_FIRST_OUTPUT_SECONDS
+        if chat or scoped is not None
+        else 30,
         fallback_seconds=8 if chat else 20,
         default_reasoning_effort="minimal" if chat else None,
     )
@@ -357,7 +386,8 @@ async def probe_managed_text_model(
         require_current=synthetic_authority,
         provider=provider,
         completion_observer=completed.append,
-    ).model_copy(update={"allow_fallback": allow_fallback})
+    )
+    model = model.model_copy(update={"allow_fallback": allow_fallback and model.allow_fallback})
     if scope == "one_text_chat":
         model = one_chat_root_model(model)
     request = LlmRequest(
@@ -373,7 +403,9 @@ async def probe_managed_text_model(
                 "required": ["ready"],
                 "additionalProperties": False,
             },
-            max_output_tokens=256,
+            max_output_tokens=model.vertex_max_output_tokens
+            if model.primary_provider == "vertex" and model.vertex_max_output_tokens is not None
+            else 256,
             thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
         ),
     )
@@ -402,9 +434,23 @@ async def probe_managed_text_model(
 
 
 def managed_text_binding(*, scope: str = "drive_document_requests") -> dict:
-    policy = managed_text_policy()
+    policy = managed_text_policy(scope=scope)
     if policy is None:
         raise ValueError("Managed text binding is UAT only")
+    scoped = _scoped_policy(scope)
+    if scoped is not None:
+        from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+
+        binding = ManagedGeminiRuntimeBinding.from_environment()
+        return {
+            "provider": "gemini",
+            "deployment": scoped["model"],
+            "config_fingerprint": profile_hash(
+                {"policy": scoped, "project": binding.project, "locations": binding.locations}
+            ),
+            "approval_generation": policy["generation"],
+            "authorization_basis": "uat_policy",
+        }
     config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
     provider = policy["selected_provider"]
     deployment = config["primary_deployment"]

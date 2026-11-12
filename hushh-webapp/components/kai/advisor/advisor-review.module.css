@@ -116,9 +116,10 @@
 .scroll {
   max-height: 20rem;
   overflow: auto;
-  overscroll-behavior: contain;
 }
 .holding {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.5rem;
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -383,6 +384,7 @@
   overflow: hidden auto;
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
+  padding-inline: 2px;
 }
 .handshakePager > div > [role="tabpanel"]:first-child {
   scrollbar-gutter: auto;

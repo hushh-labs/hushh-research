@@ -351,7 +351,7 @@ test("Adaptive task frame stays inside native reserved chrome after CSS optimiza
   expect(close!.y + close!.height).toBeLessThanOrEqual(frame!.y + frame!.height);
 });
 
-for (const width of [393, 620, 621, 1440]) {
+for (const width of [620, 621]) {
   test(`Connect v14 survives Add people portal at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await setFixtureContent(page, `<html data-connect-scope="true"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);

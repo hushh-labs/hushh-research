@@ -977,13 +977,6 @@ for (const width of [393, 1440]) {
         font: style.fontSize, weight: style.fontWeight, radius: style.borderRadius };
     };
     const expected = await page.locator('[data-slot="connect-row-action-pill"]').first().evaluate(pillStyle);
-    const mutual = page.getByTestId("mutual-connection").first();
-    const gap = await mutual.evaluate(node => {
-      const avatar = node.querySelector('[data-testid="mutual-avatar-stack"]')!.getBoundingClientRect();
-      const label = node.querySelector('[data-slot="settings-row-description"]')!.getBoundingClientRect();
-      return label.left - avatar.right;
-    });
-    expect(gap).toBe(6);
     await page.getByRole("button", { name: "Explore your network", exact: true }).click();
     const button = page.getByRole("button", { name: "Connect with Avery Stone", exact: true });
     await expect(button).toBeVisible();

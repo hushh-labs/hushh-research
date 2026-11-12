@@ -5,6 +5,10 @@ import { ArrowLeft, Loader2, MapPin, Pencil } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface-base";
 import { OnboardingOptionSheet } from "./onboarding-option-sheet";
+import {
+  COMPACT_ONBOARDING_COLUMNS_CLASSNAME,
+  COMPACT_ONBOARDING_INSETS_CLASSNAME,
+} from "./save-location-sheet-layout";
 import { cn } from "@/lib/utils";
 
 export function OnboardingPlaceScreen({
@@ -49,7 +53,11 @@ export function OnboardingPlaceScreen({
   return (
     <div
       data-testid="one-location-onboarding-place-screen"
-      className={cn("flex h-full min-h-0 flex-col overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom,0px),12px)] pt-[max(var(--app-safe-area-top-effective,0px),8px)] sm:px-6", nativeMapShowing ? "bg-transparent" : "bg-[color:var(--app-grouped-background)]")}
+      className={cn(
+        "flex h-full min-h-0 flex-col overflow-y-auto",
+        COMPACT_ONBOARDING_INSETS_CLASSNAME,
+        nativeMapShowing ? "bg-transparent" : "bg-[color:var(--app-grouped-background)]",
+      )}
     >
       <header className="bg-[color:var(--app-grouped-background)] flex h-11 shrink-0 items-center gap-3">
         <button type="button" aria-label="Go back" onClick={onBack} disabled={busy} className={cn(SHELL_ICON_BUTTON_CLASSNAME, "!h-11 !w-11 shrink-0")}>
@@ -58,7 +66,10 @@ export function OnboardingPlaceScreen({
         <h1 data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)]">Your location</h1>
       </header>
       <p data-location-type-role="row-description" className="bg-[color:var(--app-grouped-background)] mb-3 mt-2 shrink-0 text-muted-foreground">Share live · Check in · SOS</p>
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(136px,1fr)_auto] gap-3 md:grid-cols-[minmax(0,1fr)_340px] md:grid-rows-1 md:gap-6">
+      <div className={cn(
+        "grid min-h-0 flex-1 grid-rows-[minmax(136px,1fr)_auto] gap-3 md:grid-rows-1",
+        COMPACT_ONBOARDING_COLUMNS_CLASSNAME,
+      )}>
         <div className="relative min-h-0 overflow-hidden rounded-[20px]" data-testid="onboarding-place-map">
           {hasPoint ? map : (
             <div role="status" aria-live="polite" className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-[20px] bg-[color:var(--app-secondary-surface)] px-5 text-center text-muted-foreground">
