@@ -54,7 +54,7 @@
   align-items: stretch;
   min-width: 0;
   gap: 6px;
-  padding: 20px var(--task-surface-pad) 18px;
+  padding: 20px var(--task-surface-pad) 12px;
   text-align: start;
 }
 

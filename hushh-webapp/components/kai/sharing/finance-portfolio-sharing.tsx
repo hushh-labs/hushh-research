@@ -12,17 +12,19 @@ import { FinanceSharingHistoryAction } from "./finance-sharing-history-action";
 
 export function FinancePortfolioSharing({ model, source }: { model?: DashboardViewModel; source?: FinanceSource }) {
   const [open, setOpen] = useState(false);
+  const [needsPortfolio, setNeedsPortfolio] = useState(false);
   const pathname = usePathname();
   const params = useSearchParams();
   const active = pathname !== "/one/kai" || params.get("tab") === "portfolio";
   useEffect(() => { if (!active) setOpen(false); }, [active]);
+  useEffect(() => { if (model && source) setNeedsPortfolio(false); }, [model, source]);
   return <SurfaceCard className="app-type-compact"><SurfaceCardContent className="space-y-3 p-5 sm:p-6">
     <SectionLabel role="heading" aria-level={2}>Sharing</SectionLabel>
     <div className="flex flex-wrap gap-2">
-      <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" disabled={!model || !source} onClick={() => setOpen(true)}>Share portfolio</ShellActionSurface>
+      <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => (model && source ? setOpen(true) : setNeedsPortfolio(true))}>Share portfolio</ShellActionSurface>
       <FinanceSharingHistoryAction label="Manage sharing" hasPortfolio={Boolean(model && source)} preferredSource={source} />
     </div>
-    {!model || !source ? <p className="ui-text-row-description">Add a portfolio to share.</p> : null}
+    {needsPortfolio && (!model || !source) ? <p role="status" className="ui-text-row-description">Add a portfolio to share.</p> : null}
     {model && source ? <FinanceShareFlow open={open && active} onOpenChange={setOpen} model={model} source={source} /> : null}
   </SurfaceCardContent></SurfaceCard>;
 }

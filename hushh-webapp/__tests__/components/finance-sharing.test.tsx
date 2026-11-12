@@ -74,7 +74,9 @@ it("allows a recipient without a portfolio to manage received access but not cre
   mocks.history.mockImplementation(async (_context, direction) => ({ items: direction === "received" ? [grant] : [], nextCursor: null }));
   render(<FinancePortfolioSharing />);
   expect(screen.queryByRole("button", { name: "Ask an advisor" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Share portfolio" })).toBeDisabled();
+  // The hint appears only once the person asks to share, not before.
+  expect(screen.queryByText("Add a portfolio to share.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Share portfolio" }));
   expect(screen.getByText("Add a portfolio to share.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
   expect(await screen.findByText("Owner")).toBeVisible();

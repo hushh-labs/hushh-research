@@ -1174,8 +1174,8 @@ export function KaiMarketPreviewView() {
 
               <section aria-label="Market news">
                 <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />
-                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
-                <OneMarketNewsBriefing rows={marketNewsRows} />
+                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.newsCardBody}>
+                <OneMarketNewsBriefing rows={marketNewsRows} loading={displayLoading} />
                 </SurfaceCardContent></SurfaceCard>
               </section>
             </div>
