@@ -115,11 +115,128 @@ def test_codeowners_use_the_protected_team_for_every_protected_path(module):
     content = (REPO_ROOT / ".github/CODEOWNERS").read_text()
     entries = {line.split()[0]: line.split()[1:] for line in content.splitlines()
                if line.strip() and not line.startswith("#")}
-    assert "*" not in entries
+    assert entries.pop("*") == ["@hushh-labs/allowed-maintainers-to-approve"]
     assert entries and all(owners == ["@hushh-labs/pipeline-editors"] for owners in entries.values())
     for rule in _policy()["main"]["protected_pipeline_paths"]:
         assert entries[f"/{rule}"] == ["@hushh-labs/pipeline-editors"]
     assert "@kushaltrivedi5" not in content and "@ankitkumarsingh1702" not in content
+
+
+def test_visible_review_routing_preserves_authority_and_humans(module):
+    import copy
+    from unittest.mock import patch
+    path = REPO_ROOT / ".agents/skills/repo-operations/scripts/pr_review_routing.py"
+    spec = importlib.util.spec_from_file_location("pr_review_routing", path)
+    route = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(route)
+    head = "a" * 40
+    for branch in ("main", "dev", "uat"):
+        for expected in route.TEAMS:
+            other = next(iter(route.TEAMS - {expected}))
+            current = {"state": "open", "draft": False, "head": {"sha": head},
+                       "base": {"sha": "b" * 40, "ref": branch, "repo": {"full_name": route.REPO}},
+                       "requested_teams": [{"slug": other}], "requested_reviewers": [{"login": "human-reviewer"}]}
+            writes = []
+            reviews = []
+            def read(endpoint):
+                if endpoint.endswith("/permission"): return {"permission": "maintain"}
+                if endpoint == "user": return {"login": "ordinary-maintainer"}
+                if endpoint.endswith("/heads/main"): return {"object": {"sha": "c" * 40}}
+                if "/reviews?" in endpoint: return reviews
+                return copy.deepcopy(current)
+            def write(endpoint, method, body):
+                writes.append((method, body))
+                assert body.get("reviewers", []) == []  # Never alter explicit humans.
+                assert set(body) == ({"reviewers", "team_reviewers"} if method == "DELETE" else {"team_reviewers"})
+                if method == "POST": current["requested_teams"].append({"slug": expected})
+                else: current["requested_teams"] = [t for t in current["requested_teams"] if t["slug"] != other]
+            kwargs = {"read": read, "write": write, "classify": lambda pr, authority: expected}
+            with patch.object(route, "read_teams", return_value={expected: ["eligible-reviewer"]}):
+                assert route.route(1, **kwargs)["add"] and not writes
+                assert route.route(1, apply=True, **kwargs)["applied"]
+                assert writes == [("POST", {"team_reviewers": [expected]}), ("DELETE", {"reviewers": [], "team_reviewers": [other]})]
+                writes.clear()
+                assert not route.route(1, apply=True, **kwargs)["applied"] and not writes
+                assert current["requested_reviewers"] == [{"login": "human-reviewer"}]
+                current["requested_teams"] = []
+                reviews.append({"state": "APPROVED", "user": {"login": "eligible-reviewer"}, "commit_id": head})
+                assert route.route(1, apply=True, **kwargs)["already_approved"] and not writes
+                reviews[0]["commit_id"] = "d" * 40
+                assert route.route(1, **kwargs)["add"]
+                reviews[0]["commit_id"] = head
+                with patch.object(route, "read_teams", return_value={expected: []}):
+                    assert route.route(1, **kwargs)["add"]  # Revoked membership is not an approval.
+
+
+def test_review_routing_refuses_changed_source_and_failed_lookup(module):
+    import copy
+    from unittest.mock import patch
+    path = REPO_ROOT / ".agents/skills/repo-operations/scripts/pr_review_routing.py"
+    spec = importlib.util.spec_from_file_location("pr_review_routing_refusals", path)
+    route = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(route)
+    current = {"state": "open", "draft": False, "head": {"sha": "a" * 40},
+               "base": {"sha": "b" * 40, "ref": "uat", "repo": {"full_name": route.REPO}},
+               "requested_teams": [], "requested_reviewers": []}
+    calls = 0
+    def read(endpoint):
+        nonlocal calls
+        if endpoint == "user": return {"login": "maintainer"}
+        if endpoint.endswith("/permission"): return {"permission": "write"}
+        if endpoint.endswith("/heads/main"): return {"object": {"sha": "c" * 40}}
+        if "/reviews?" in endpoint: return []
+        calls += 1
+        pr = copy.deepcopy(current)
+        if calls > 1: pr["head"]["sha"] = "d" * 40
+        return pr
+    with patch.object(route, "read_teams", return_value={"pipeline-editors": []}), patch.object(route, "write_request") as write:
+        try:
+            route.route(1, apply=True, read=read, write=write, classify=lambda *args: "pipeline-editors")
+        except route.Refused as error:
+            assert "changed" in str(error)
+        else:
+            raise AssertionError("Stale routing mutated current requests")
+        write.assert_not_called()
+    with patch.object(route, "read_teams", side_effect=route.Refused("lookup failed")), patch.object(route, "write_request") as write:
+        try:
+            route.route(1, apply=True, read=read, write=write, classify=lambda *args: "pipeline-editors")
+        except route.Refused as error:
+            assert "lookup" in str(error)
+        else:
+            raise AssertionError("Failed lookup allowed mutation")
+        write.assert_not_called()
+
+
+def test_review_routing_observes_approval_during_reconciliation(module):
+    import copy
+    from unittest.mock import patch
+    spec = importlib.util.spec_from_file_location("routing_approval_race", REPO_ROOT / ".agents/skills/repo-operations/scripts/pr_review_routing.py")
+    route = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(route)
+    pr = {"state": "open", "draft": False, "head": {"sha": "a" * 40},
+          "base": {"sha": "b" * 40, "ref": "dev", "repo": {"full_name": route.REPO}},
+          "requested_teams": [], "requested_reviewers": [{"login": "human"}]}
+    review = {"state": "APPROVED", "user": {"login": "editor"}, "commit_id": "a" * 40}
+    for withdrawn in (False, True):
+        pr["requested_teams"] = [{"slug": "allowed-maintainers-to-approve"}] if withdrawn else []
+        reads = 0
+        writes = []
+        def read(endpoint):
+            nonlocal reads
+            if "/reviews?" in endpoint:
+                reads += 1
+                return ([review] if reads == 1 else []) if withdrawn else ([] if reads == 1 else [review])
+            if endpoint == "user": return {"login": "maintainer"}
+            if endpoint.endswith("/permission"): return {"permission": "write"}
+            if endpoint.endswith("/heads/main"): return {"object": {"sha": "c" * 40}}
+            return copy.deepcopy(pr)
+        def write(endpoint, method, body):
+            writes.append(method)
+            if method == "POST": pr["requested_teams"].append({"slug": "pipeline-editors"})
+            if method == "DELETE": pr["requested_teams"] = [{"slug": "pipeline-editors"}]
+        with patch.object(route, "read_teams", return_value={"pipeline-editors": ["editor"]}):
+            route.route(1, apply=True, read=read, write=write, classify=lambda *args: "pipeline-editors")
+            assert writes == (["POST", "DELETE"] if withdrawn else [])
 
 
 def _policy() -> dict:
