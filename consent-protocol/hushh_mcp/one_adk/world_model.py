@@ -410,7 +410,8 @@ async def run_world_model(
         model=model,
         mode="task",
         instruction=task.system_instruction,
-        include_contents="none",
+        # Fresh isolated task: retain its scoped receipts and originating input.
+        include_contents="default",
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
         tools=[search_public_web, assess_identity, record_findings],
@@ -497,7 +498,7 @@ async def run_world_model(
                 "no report finding but the supplied evidence does not establish "
                 "absence, say unavailable. Do not invent facts or searches."
             ),
-            include_contents="none",
+            include_contents="default",
             tools=[],
             output_schema=CoverageRepair,
             before_model_callback=before_model,
