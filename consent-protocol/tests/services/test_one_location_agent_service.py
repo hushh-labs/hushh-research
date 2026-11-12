@@ -4439,6 +4439,38 @@ def test_directory_scan_timeout_is_retryable_not_an_empty_success(
         service.search_directory_candidates(owner_user_id="owner")
 
 
+def test_directory_rechecks_a_warm_positive_provider_status_after_account_removal(monkeypatch):
+    from collections import OrderedDict
+
+    from hushh_mcp.services import directory_identity_service as directory
+
+    app = SimpleNamespace(project_id="synthetic", name="warm-worker")
+    monkeypatch.setattr(directory, "_STATUS_CACHE", OrderedDict())
+    monkeypatch.setattr(directory, "get_firebase_auth_app", lambda: app)
+    monkeypatch.setattr(
+        directory, "firebase_uids_for_owner_reads", lambda owners: {uid: uid for uid in owners}
+    )
+    monkeypatch.setattr(directory, "publish_connection_account_visibility_changes", lambda _: None)
+    enabled = True
+    calls = []
+
+    def lookup(identifiers, **_):
+        calls.append([identifier.uid for identifier in identifiers])
+        return SimpleNamespace(
+            users=[SimpleNamespace(uid="peer", disabled=False)] if enabled else [],
+            not_found=set() if enabled else set(identifiers),
+        )
+
+    monkeypatch.setattr(directory.auth, "get_users", lookup)
+    assert directory.active_directory_user_ids(["peer"]) == {"peer"}
+    enabled = False
+    # This worker still holds an unexpired positive result.
+    assert directory.active_directory_user_ids(["peer"]) == {"peer"}
+    service = OneLocationAgentService.__new__(OneLocationAgentService)
+    assert service._active_directory_user_ids(["peer"]) == set()
+    assert calls == [["peer"], ["peer"]]
+
+
 def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
