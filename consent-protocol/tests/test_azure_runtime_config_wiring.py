@@ -113,3 +113,36 @@ def test_hydration_gives_the_azure_services_their_settings(monkeypatch):
     assert azure_image_source.release_source("gcr.io/p/i@sha256:" + "b" * 64).startswith(
         "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/"
     )
+
+
+@pytest.mark.parametrize(
+    ("environment", "project"),
+    [
+        ("uat", "hushh-pda-uat"),
+        ("uat", "hushh-pda"),
+        ("production", "hushh-pda-uat"),
+        ("dev", "hushh-pda-dev"),
+    ],
+)
+def test_website_pwm_runtime_connection_is_uat_only(monkeypatch, environment, project):
+    values = dict.fromkeys(_CONFIG_ARGS, "")
+    values.update(
+        environment=environment, project=project, app_frontend_origin="https://dev.one.hushh.ai"
+    )
+    config = _load_sync_module()._build_backend_runtime_config(argparse.Namespace(**values))
+    expected = {
+        "website_pwm_worker_audience": "https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/internal/website-pwm/run",
+        "website_pwm_worker_identity": "website-runtime@hushh-ai-uat.iam.gserviceaccount.com",
+        "website_pwm_grant_url": "https://hushh-search-console-api-2hph5fpttq-uc.a.run.app/api/profile-research/internal/one-grant",
+    }
+    if environment == "uat" and project == "hushh-pda-uat":
+        assert {key: config[key] for key in expected} == expected
+        monkeypatch.setattr(runtime_settings.os, "environ", runtime_settings.os.environ.copy())
+        monkeypatch.setenv(runtime_settings.BACKEND_RUNTIME_CONFIG_JSON_ENV, json.dumps(config))
+        runtime_settings.hydrate_runtime_environment()
+        for key, value in expected.items():
+            assert (
+                runtime_settings.os.environ[runtime_settings._BACKEND_RUNTIME_ENV_MAP[key]] == value
+            )
+    else:
+        assert not set(expected) & set(config)

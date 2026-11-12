@@ -12,6 +12,7 @@ from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.azure_workload_identity import azure_openai_token_provider
 from hushh_mcp.one_adk.world_model_azure import run_world_model_azure
 from hushh_mcp.runtime_settings import get_app_runtime_settings, one_profile_research_enabled
+from hushh_mcp.services.owner_placement_guard import hub_content_check
 from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
 from hushh_mcp.services.world_model_preferences import AZURE_TAVILY_CONSENT_VERSION
 from hushh_mcp.services.world_model_service import fresh_owner_record
@@ -48,10 +49,11 @@ async def run_website_research_slice(
     ):
         raise PermissionError("Website PWM research is unavailable for this grant")
 
-    async def require_access() -> None:
+    async def check_grant() -> None:
         if grant.expires_at <= datetime.now(timezone.utc) or await read_active_grant() != grant:
             raise PermissionError("Website research grant is no longer active")
 
+    require_access = hub_content_check(grant.owner_id, check_grant)
     await require_access()
     record = await fresh_owner_record(grant.owner_id)
     identity = await resolve_profile_research_identity(grant.owner_id, record)

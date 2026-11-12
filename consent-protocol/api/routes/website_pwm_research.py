@@ -49,7 +49,12 @@ async def run_website_pwm(body: WorkReference, request: Request):
         claims = await run_in_threadpool(verify_token, authorization[7:], audience)
     except Exception:
         raise HTTPException(403, "Worker authentication required", headers=NO_STORE) from None
-    if claims.get("email") != caller or claims.get("email_verified") is not True:
+    if (
+        claims.get("iss") not in {"https://accounts.google.com", "accounts.google.com"}
+        or claims.get("aud") != audience
+        or claims.get("email") != caller
+        or claims.get("email_verified") is not True
+    ):
         raise HTTPException(403, "Worker authentication required", headers=NO_STORE)
 
     token = await run_in_threadpool(fetch_id_token, GoogleRequest(), callback)

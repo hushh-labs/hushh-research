@@ -383,6 +383,19 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.environment == "uat":
         config.update(dict.fromkeys(_runtime_config_retention["UAT_PLG_FLAGS"], False))
+        if args.project == "hushh-pda-uat":
+            config.update(
+                website_pwm_worker_audience=(
+                    "https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/internal/website-pwm/run"
+                ),
+                website_pwm_worker_identity=(
+                    "website-runtime@hushh-ai-uat.iam.gserviceaccount.com"
+                ),
+                website_pwm_grant_url=(
+                    "https://hushh-search-console-api-2hph5fpttq-uc.a.run.app"
+                    "/api/profile-research/internal/one-grant"
+                ),
+            )
     return _scope_commerce_runtime_policy()["apply_policy"](
         _drop_empty(config), getattr(args, "scope_commerce_policy", {})
     )
