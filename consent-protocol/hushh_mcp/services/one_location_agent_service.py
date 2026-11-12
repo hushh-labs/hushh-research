@@ -4402,7 +4402,7 @@ class OneLocationAgentService:
                 "Could not verify these accounts. Try again.",
                 status_code=503,
             ) from None
-        return exclude_retired_account_ids(sorted(active), self._execute_many)
+        return cast(set[str], exclude_retired_account_ids(sorted(active), self._execute_many))
 
     def _assert_location_accounts_active(self, *user_ids: str) -> None:
         try:

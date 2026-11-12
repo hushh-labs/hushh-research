@@ -1857,7 +1857,8 @@ def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> 
 
 class FourUserMemoryService(OneLocationAgentService):
     def _live_location_account_ids(self, user_ids) -> set[str]:
-        return set(user_ids) & self.identities.keys()
+        # A missing local identity cache entry can be repaired for an active account.
+        return set(user_ids)
 
     def __init__(self) -> None:
         self.identities = {
