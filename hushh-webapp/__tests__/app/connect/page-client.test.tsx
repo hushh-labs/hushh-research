@@ -597,7 +597,7 @@ describe("P0 connection reconciliation", () => {
         page: 1, hasMore: false, totalCount: accountCheck ? items.length : 2, audience: "all",
       }));
       render(<ConnectPageClient />);
-      fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+      fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
       await screen.findByText("Retired Friend");
       expect(screen.getByRole("tab", { name: /My connections 2/ })).toBeInTheDocument();
 
@@ -631,7 +631,7 @@ describe("P0 connection reconciliation", () => {
       page, hasMore: page === 1, totalCount: 2, audience: "all",
     }));
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("button", { name: "Load more connections" }));
     await screen.findByText("Friend on page 2");
 
@@ -1073,7 +1073,7 @@ describe("Connect — People", () => {
     ]);
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     const list = await screen.findByTestId("connect-my-connections-group");
     const openProfile = await within(list).findByRole("button", { name: "Open Hussh member's profile" });
