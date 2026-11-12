@@ -146,11 +146,8 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await expect(received.getByRole("region", { name: "Shared allocation" })).toBeVisible();
     await received.getByRole("tab", { name: "Portfolio" }).click();
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-reviews");
-    await received.getByRole("button", { name: "Review with Agent One", exact: true }).click();
-    await expect(received.getByText(/^Synthetic review:/)).toBeVisible();
     await page.evaluate(() => { document.body.dataset.financeEnded = "true"; window.dispatchEvent(new Event("finance-sharing-changed")); });
     await expect(page.getByRole("dialog", { name: "Shared Finance", exact: true }).getByText("The owner stopped sharing this information.", { exact: true })).toBeVisible();
-    await expect(page.getByText(/^Synthetic review:/)).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Shared allocation" })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);

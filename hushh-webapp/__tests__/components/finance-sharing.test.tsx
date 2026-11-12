@@ -206,29 +206,15 @@ it("unwinds the reviewed sharing layer before Portfolio and releases it on unmou
   expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(false);
 });
 
-it.each(["expired", "stopped"])("clears decrypted contents and derived review when a viewed share becomes %s", async status => {
+it.each(["expired", "stopped"])("clears decrypted contents when a viewed share becomes %s", async status => {
   vi.useFakeTimers();
   render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
   expect(screen.getByText(/decrypted-sentinel/)).toBeVisible();
-  expect(mocks.review).not.toHaveBeenCalled();
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
-  expect(screen.getByText("derived-review-sentinel")).toBeVisible();
   mocks.view.mockResolvedValue({ ...grant, status });
   await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
   expect(screen.queryByText(/decrypted-sentinel/)).toBeNull();
-  expect(screen.queryByText("derived-review-sentinel")).toBeNull();
   expect(screen.getByRole("alert")).toHaveTextContent(status === "expired" ? "expired" : "stopped");
-});
-
-it("renders the Agent One review as formatted text instead of raw markdown", async () => {
-  mocks.review.mockResolvedValue(["Here is the snapshot:", "", "- **Mostly equities**: 80% stocks", "- **Known limit**: history is incomplete"].join("\n"));
-  render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
-  await screen.findByText(/decrypted-sentinel/);
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
-  expect(screen.getByText("Mostly equities").tagName).toBe("STRONG");
-  expect(screen.getAllByRole("listitem")).toHaveLength(2);
-  expect(document.body.textContent).not.toContain("**");
 });
 
 it("returns from allocation to the portfolio before closing the shared view", async () => {

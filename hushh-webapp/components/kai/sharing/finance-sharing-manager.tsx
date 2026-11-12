@@ -424,7 +424,7 @@ export function FinanceSharingManager({
           if (!value) setStopping(null);
         }}
         title={`Stop sharing with ${stopping?.recipientName || "this person"}?`}
-        description="Access to this shared view and its Agent One review will end. Other shares keep their own access."
+        description="Access to this shared view will end. Other shares keep their own access."
         surfaceClassName={finance.detail}
         footer={
           <div className={styles.toolbar}>
