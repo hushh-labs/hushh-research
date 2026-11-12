@@ -13,11 +13,11 @@ import time
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
+from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
 from api import database_listener_lifecycle as _listener_lifecycle
 from api.email_router_lifecycle import warm_email_router_for_startup
 from hushh_mcp.runtime_settings import get_app_runtime_settings, pod_mode  # noqa: E402
-from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
 # Configure logging.
 #
@@ -152,11 +152,11 @@ from api.routes import (  # noqa: E402
     hushh_tech,
     notifications,
     pwm_notification_drain,
-    website_pwm_research,
     referral_scoring_drain,
     session,
     sse,
     trust,
+    website_pwm_research,
 )
 from api.routes.connector_routes import register_connector_routes  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402

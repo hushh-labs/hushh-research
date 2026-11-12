@@ -54,6 +54,7 @@ async def run_website_pwm(body: WorkReference, request: Request):
 
     token = await run_in_threadpool(fetch_id_token, GoogleRequest(), callback)
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+
         async def grant_request(action: str, **payload):
             response = await client.post(
                 callback,
@@ -93,5 +94,7 @@ async def run_website_pwm(body: WorkReference, request: Request):
                 checkpoint=initial.get("checkpoint"),
             )
         except PermissionError:
-            raise HTTPException(409, "Website research authority changed", headers=NO_STORE) from None
+            raise HTTPException(
+                409, "Website research authority changed", headers=NO_STORE
+            ) from None
     return JSONResponse(result, headers=NO_STORE)

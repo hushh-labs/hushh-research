@@ -49,10 +49,7 @@ async def run_website_research_slice(
         raise PermissionError("Website PWM research is unavailable for this grant")
 
     async def require_access() -> None:
-        if (
-            grant.expires_at <= datetime.now(timezone.utc)
-            or await read_active_grant() != grant
-        ):
+        if grant.expires_at <= datetime.now(timezone.utc) or await read_active_grant() != grant:
             raise PermissionError("Website research grant is no longer active")
 
     await require_access()
@@ -97,9 +94,12 @@ async def run_website_research_slice(
         search_provider="tavily",
     )
     await require_access()
-    if await resolve_profile_research_identity(
-        grant.owner_id, await fresh_owner_record(grant.owner_id)
-    ) != identity:
+    if (
+        await resolve_profile_research_identity(
+            grant.owner_id, await fresh_owner_record(grant.owner_id)
+        )
+        != identity
+    ):
         raise PermissionError("Website research identity changed")
     await require_access()
     response = {
