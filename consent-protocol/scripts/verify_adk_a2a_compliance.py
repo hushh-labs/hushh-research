@@ -14,7 +14,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PINNED_ADK_VERSION = "2.9.0"
+PINNED_ADK_VERSION = "2.14.0"
 ADK_A2A_SDK_RANGE = ">=0.3.4,<2"
 REQUIRED_A2A_V1_SDK_VERSION = "1.1.0"
 

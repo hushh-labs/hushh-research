@@ -156,3 +156,27 @@ it.each(["ok", "event-bytes", "event-depth", "event-items", "error-bytes", "erro
     }
   },
 );
+
+
+it("preserves approved legacy summaries without exposing reasoning to the SDK", async () => {
+  const { HttpAgent } = await import("@ag-ui/client");
+  const { boundAgentResponse } = await import("@/lib/services/agent-event-boundary");
+  const { publicAgentOutput } = await import("@/lib/services/agent-output-privacy");
+  const events: unknown[] = [];
+  const finished = vi.fn();
+  const summary = vi.fn();
+  const wire = [
+    { type: "RUN_STARTED", threadId: "thread", runId: "run" },
+    { type: "REASONING_MESSAGE_CONTENT", messageId: "private", delta: "private reasoning", metadata: { signature: "private-signature" } },
+    { type: "REASONING_MESSAGE_CONTENT", messageId: "summary", delta: "Public summary. ".repeat(200), metadata: { husshThoughtSummary: true, signature: "private-signature" }, rawEvent: { signature: "private-signature" } },
+    { type: "RUN_FINISHED", threadId: "thread", runId: "run" },
+  ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+  const agent = new HttpAgent({ url: "/fixture", fetch: async () => boundAgentResponse(new Response(wire, { headers: { "content-type": "text/event-stream" } })) }).use(publicAgentOutput(summary));
+  await agent.runAgent({}, { onEvent: ({ event }) => { events.push(event); }, onRunFinishedEvent: finished });
+  expect(finished).toHaveBeenCalledOnce();
+  expect(summary.mock.calls).toEqual([[undefined], ["Public summary. ".repeat(200).slice(0, 2048)]]);
+  expect(JSON.stringify(events)).not.toContain("private reasoning");
+  expect(JSON.stringify(events)).not.toContain("private-signature");
+  expect(events.some(event => String((event as { type: string }).type).startsWith("REASONING_"))).toBe(false);
+  expect(agent.messages.some(message => message.role === "reasoning")).toBe(false);
+});

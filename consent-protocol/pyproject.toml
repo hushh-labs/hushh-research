@@ -21,17 +21,17 @@ dependencies = [
     # ADK 2.x: Task API runtime for One's orchestration.
     # Deliberately WITHOUT the gcp extra: that keeps google-cloud-aiplatform
     # (which pins google-genai<2) out of the graph so genai 2.x can resolve.
-    # Official ADK A2A adapter support. google-adk 2.9.0 declares
-    # a2a-sdk[http-server]>=0.3.4,<2 (2.4.0 declared <0.4); the lock still
+    # Official ADK A2A adapter support. google-adk 2.14.0 declares
+    # a2a-sdk[http-server]>=0.3.4,<2 (older ADK versions declared <0.4); the lock still
     # resolves a2a-sdk 0.3.26. Whether an a2a-sdk 1.x pair is usable is
     # re-evaluated by scripts/verify_adk_a2a_compliance.py and
     # tests/test_adk_pin_contract.py, never assumed from the declared range.
-    "google-adk[a2a]==2.9.0",
+    "google-adk[a2a]==2.14.0",
     "google-api-core==2.29.0",
-    # Explicit floor: google-adk 2.9.0 requires google-genai>=2.19,<3. All
+    # Explicit floor: google-adk 2.14.0 requires google-genai>=2.30,<3. All
     # first-party call sites use GenerateContent/types surfaces that are
     # unchanged from 1.x (2.0's breaking changes were Interactions-API-only).
-    "google-genai>=2.19,<3",
+    "google-genai>=2.30,<3",
     "google-auth>=2.14.1",
     "google-cloud-secret-manager>=2.20.0",
     "google-cloud-storage>=2.18.2",
@@ -42,11 +42,11 @@ dependencies = [
     "httpx[http2]>=0.27.1,<0.29",
     "httpcore>=1.0.9,<2",
     "mcp==1.30.0",
-    "opentelemetry-api>=1.33.0",
+    "opentelemetry-api>=1.45.1",
     "opentelemetry-exporter-gcp-trace>=1.8.0",
     "opentelemetry-instrumentation-fastapi>=0.54b0",
     "opentelemetry-instrumentation-httpx>=0.54b0",
-    "opentelemetry-sdk>=1.33.0",
+    "opentelemetry-sdk>=1.45.1",
     "pdfplumber==0.11.10",
     "pillow>=13.0.0",
     "proto-plus==1.27.0",
