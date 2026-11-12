@@ -1,9 +1,12 @@
 """Real chat provider switching preserves history, authority and client ownership."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from ag_ui.core import Tool
+from ag_ui_adk.client_proxy_toolset import ClientProxyToolset
 from google.adk.agents import LlmAgent
 from google.adk.apps import App
 from google.adk.events import Event
@@ -12,6 +15,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES, receipt_tool_declaration
 from hushh_mcp.runtime_providers import lifecycle
 from hushh_mcp.runtime_providers import managed_text as managed
 from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
@@ -82,6 +86,58 @@ async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
             agent.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.LOW
         )
     forbidden.assert_not_called()
+
+
+async def test_vertex_chat_preserves_live_receipt_proxies_and_isolates_attempt_payload(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    event_queue = asyncio.Queue()
+    toolset = ClientProxyToolset(
+        [Tool(**receipt_tool_declaration(name)) for name in sorted(RECEIPT_TOOL_NAMES)],
+        event_queue,
+    )
+    proxies = await toolset.get_tools()
+    original = request()
+    original.append_tools(proxies)
+    original_payload = original.model_dump()
+
+    async def generate(attempt, stream=False):
+        assert stream
+        assert attempt.tools_dict is not original.tools_dict
+        for proxy in proxies:
+            assert attempt.tools_dict[proxy.name] is proxy
+            assert proxy.event_queue is event_queue
+        assert {fn.name for tool in attempt.config.tools for fn in tool.function_declarations} == (
+            RECEIPT_TOOL_NAMES
+        )
+        # The provider can update its own payload and tool registration.
+        attempt.tools_dict.clear()
+        attempt.contents[0].parts[0].text = "Provider-local content"
+        attempt.config.tools[0].function_declarations.clear()
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="Vertex answered")]),
+            turn_complete=True,
+        )
+
+    native = SimpleNamespace(
+        model=resolve_fleet_model_name("gemini-default"), generate_content_async=generate
+    )
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
+    vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
+    # The open SSE stream is already waiting on the same queue when the model runs.
+    reader = asyncio.create_task(event_queue.get())
+    try:
+        await asyncio.sleep(0)
+        answers = [r async for r in vertex.generate_content_async(original, stream=True)]
+        assert [r.content.parts[0].text for r in answers] == ["Vertex answered"]
+        assert original.model_dump() == original_payload
+        assert original.tools_dict == {proxy.name: proxy for proxy in proxies}
+        assert not reader.done()
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
 
 
 def _completed_azure_history():
