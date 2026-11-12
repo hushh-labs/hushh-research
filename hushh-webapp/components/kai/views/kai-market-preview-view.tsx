@@ -385,21 +385,32 @@ export function OneMarketIndexStrip({
   );
 }
 
-export function OneMarketMovers({ groups, linkable = true, note, onSelect }: {
+/** How many rows each column shows: 3, or fewer when a side has fewer names, always equal. */
+export function balancedMoverCount(groups: Record<OneMarketMoverTab, readonly unknown[]>): number {
+  return Math.min(3, groups.gain.length, groups.lose.length);
+}
+
+export function OneMarketMovers({ groups, linkable = true, note, onSelect, balanced = false }: {
   groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]>;
   /** False for markets whose stocks have no analysis screen (India). */
   linkable?: boolean;
   note?: string;
   onSelect?: (row: OneMarketDisplayRow) => void;
+  /** Show 1x1, 2x2 or 3x3 and never a placeholder row: both columns always match. */
+  balanced?: boolean;
 }) {
   const id = useId();
+  const slots = balanced ? balancedMoverCount(groups) : 3;
   const columns = [
-    { key: "gain", title: "Gainers", rows: groups.gain.slice(0, 3) },
-    { key: "lose", title: "Losers", rows: groups.lose.slice(0, 3) },
+    { key: "gain", title: "Gainers", rows: groups.gain.slice(0, slots) },
+    { key: "lose", title: "Losers", rows: groups.lose.slice(0, slots) },
   ] as const;
   const shown = columns.flatMap((column) => column.rows);
   const commonAsOf = shown[0]?.asOf ?? null;
   const sharedTime = shown.length > 0 && shown.every((row) => row.asOf === commonAsOf);
+  if (balanced && slots === 0) {
+    return <p data-market-mover-none className="ui-text-row-description px-2 py-3 text-muted-foreground">Movers are not available right now.</p>;
+  }
   return (
     <div>
       <div className={marketBriefingStyles.moverGroups}>
@@ -411,7 +422,7 @@ export function OneMarketMovers({ groups, linkable = true, note, onSelect }: {
                 <Direction className={cn("size-4 shrink-0", marketBriefingStyles.moverAccent)} aria-hidden="true" />
                 <span className={marketBriefingStyles.moverAccent}>{title}</span>
               </h3>
-              {Array.from({ length: 3 }, (_, rank) => {
+              {Array.from({ length: slots }, (_, rank) => {
                 const row = rows[rank];
                 // A slot with no row yet is a placeholder shaped like a mover, not text.
                 if (!row) return <div key={rank} data-market-mover-empty aria-busy="true"
@@ -1231,7 +1242,7 @@ export function KaiMarketPreviewView() {
                 <section className="min-w-0" aria-label="Market movers">
                   <OneMarketSectionHeader title="Market movers" />
                   <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
-                  <OneMarketMovers groups={moverGroups} linkable={!inIndia} onSelect={row => setSelectedMover({ row, market: inIndia ? "IN" : "US" })}
+                  <OneMarketMovers groups={moverGroups} linkable={!inIndia} balanced={inIndia} onSelect={row => setSelectedMover({ row, market: inIndia ? "IN" : "US" })}
                     note={inIndia && effectivePayload?.movers?.universe_size ? `Among ${effectivePayload.movers.universe_size} large NSE stocks` : undefined} />
                   </SurfaceCardContent></SurfaceCard>
                 </section>
