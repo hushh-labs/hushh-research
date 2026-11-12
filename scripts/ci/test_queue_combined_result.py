@@ -371,6 +371,61 @@ def test_owner_queue_request_refuses_incomplete_review_inventory():
         guard.require_uncontested_owner_approval("hushh-labs/hushh-research", 1, HEAD1, read=lambda _: rows)
 
 
+def test_large_pr_inventory_keeps_protected_paths_beyond_github_api_limit(tmp_path, monkeypatch):
+    import argparse
+    import process_group
+
+    guard = queue._module("verify-protected-pipeline-edits.py", "large_pr_inventory")
+    repository = "hushh-labs/hushh-research"
+    paths = [f"artifacts/{index}.json" for index in range(3000)] + ["scripts/ci/retired.py", "app/replacement.py"]
+    pr = {"number": 1, "changed_files": 3001,
+          "base": {"sha": BASE, "repo": {"full_name": repository}}, "head": {"sha": HEAD1}}
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"repository": {"full_name": repository}, "pull_request": pr}))
+    for key, value in {"GITHUB_EVENT_PATH": str(event), "GITHUB_EVENT_NAME": "pull_request",
+                       "GITHUB_REPOSITORY": repository, "GH_TOKEN": "fixture"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(guard, "authored_change_base", lambda base, head, **kw: FIRST)
+    args = argparse.Namespace(files=None, event_name=None, pr_number=None, repo=None)
+    with patch.object(process_group, "bounded_stdout", return_value=("\0".join(paths) + "\0").encode()) as read, \
+         patch.object(guard, "_fetch_pr_files", side_effect=AssertionError("API inventory is truncated")):
+        selected = guard._files_from_event(args)
+    assert selected == paths
+    argv = read.call_args.args[0]
+    assert argv[-4:] == ["-z", FIRST, HEAD1, "--"]
+    assert "--no-renames" in argv
+    assert read.call_args.kwargs == {"max_bytes": 1024 * 1024, "timeout": 30}
+    code, _ = guard.evaluate(changed_files=selected, actor="ordinary", allowed_users=["owner"], protected_paths=["scripts/ci/"])
+    assert code == 1
+    for key, value in (("repo", "foreign/repository"), ("pr_number", 2)):
+        setattr(args, key, value)
+        with pytest.raises(guard.GuardResolutionError, match="event's repository and PR"):
+            guard._files_from_event(args)
+        setattr(args, key, None)
+
+
+@pytest.mark.parametrize("case", ["truncated", "unterminated", "over_paths", "over_bytes", "invalid_sha", "over_count"])
+def test_large_pr_inventory_fails_closed(case, monkeypatch):
+    import process_group
+
+    guard = queue._module("verify-protected-pipeline-edits.py", "large_pr_inventory_refusal")
+    pr = {"changed_files": 3000, "base": {"sha": BASE}, "head": {"sha": HEAD1}}
+    if case == "invalid_sha":
+        pr["head"]["sha"] = "--invalid"
+    elif case == "over_count":
+        pr["changed_files"] = 8193
+    else:
+        monkeypatch.setattr(guard, "authored_change_base", lambda *args, **kw: FIRST)
+    size = 8193 if case == "over_paths" else 3000 if case == "unterminated" else 2999
+    raw = ("\0".join(f"artifacts/{i}.json" for i in range(size)) + "\0").encode()
+    if case == "unterminated":
+        raw = raw[:-1]
+    with patch.object(process_group, "bounded_stdout", return_value=raw,
+                      side_effect=process_group.BoundedReadError("limit") if case == "over_bytes" else None):
+        with pytest.raises(guard.GuardResolutionError):
+            guard.authored_pr_files(pr)
+
+
 def receipt_fixture():
     state = {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}
     validation = {"run": 5, "attempt": 2, "number": 1, "head": HEAD1}
