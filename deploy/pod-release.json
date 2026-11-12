@@ -1,10 +1,11 @@
 {
-  "version": "2026.11-dev.37",
+  "version": "2026.11-dev.38",
   "channel": "dev",
   "summary": "Reliable restarts and private chat.",
   "notes": {
     "improvements": [
-      "Your private agent keeps its identity and saved information through restarts."
+      "Your private agent keeps its identity and saved information through restarts.",
+      "Your private agent can prepare approved sharing answers with its connected model."
     ],
     "fixes": [
       "Unavailable tools no longer prevent your private agent from answering.",
@@ -15,7 +16,6 @@
     ]
   },
   "supportedUpgradeDigests": [
-    "sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423",
-    "sha256:5d8f7243ff5d10c1f3596fdb66f95c337c3637afcd997808fe62cf13152b46aa"
+    "sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610"
   ]
 }
