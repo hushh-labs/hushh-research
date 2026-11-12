@@ -648,6 +648,17 @@ signed admission. Remove any bounded operator impersonation grant afterward.
 This is same-image configuration maintenance, not software-update approval.
 Record its receipt separately from the owner's durable update operation.
 
+**Owner-feed verification after an update.** Existing-image updates must carry
+`OWNER_FEED_ED25519_PUBLIC_KEYS` through the same frozen public-configuration
+receipt as connector callbacks. Initial setup already renders this public map;
+preserving an older environment without backfilling it leaves private answer
+preparation unavailable. Never copy the feed signing key into a pod. Reject
+conflicting, duplicate or secret-reference verifier entries; retain the exact
+smaller configuration contract when observing historical acknowledgements.
+An already-completed image update is not authority for another replacement:
+qualify any same-image maintenance separately with the handoff and identity
+checks above, and retain its own intent, acknowledgement and native readback.
+
 For a standalone Hermes relay, an HTTPS admission success does not prove WSS
 trust configuration. Use the relay's verified CA context (configured trust store
 or its pinned certificate bundle); never disable certificate or hostname checks.

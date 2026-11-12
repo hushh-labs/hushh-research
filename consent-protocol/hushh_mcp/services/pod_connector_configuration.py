@@ -1,4 +1,4 @@
-"""Public connector configuration within the existing approved pod update.
+"""Public connector and owner-feed configuration in the existing approved update.
 
 This port only fills missing deployment-owned values. It cannot change an
 owner's information policy, credentials, cloud placement or existing binding.
@@ -6,19 +6,33 @@ owner's information policy, credentials, cloud placement or existing binding.
 
 from __future__ import annotations
 
+import base64
 import copy
+import json
 import os
 from typing import Any
 
 from hushh_mcp.runtime_environment import pod_connector_public_environment
 
+_OWNER_FEED_KEYS = "OWNER_FEED_ED25519_PUBLIC_KEYS"
 _NAMES = frozenset(
-    {"APP_FRONTEND_ORIGIN", "SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "SCOPE_COMMERCE_STRIPE_LIVEMODE"}
+    {
+        "APP_FRONTEND_ORIGIN",
+        "SCOPE_COMMERCE_STRIPE_ACCOUNT_ID",
+        "SCOPE_COMMERCE_STRIPE_LIVEMODE",
+        _OWNER_FEED_KEYS,
+    }
 )
 
 
 def expected_connector_environment() -> list[dict[str, str]]:
-    return pod_connector_public_environment(os.environ)
+    from hushh_mcp.consent.token_signing import OWNER_FEED, public_verification_keys
+
+    entries = pod_connector_public_environment(os.environ)
+    keys = public_verification_keys(OWNER_FEED)
+    if keys:
+        entries.append({"name": _OWNER_FEED_KEYS, "value": json.dumps(keys, separators=(",", ":"))})
+    return entries
 
 
 def validate_connector_environment(expected: Any) -> list[dict[str, str]]:
@@ -39,6 +53,23 @@ def validate_connector_environment(expected: Any) -> list[dict[str, str]]:
         values[item["name"]] = item["value"]
     try:
         canonical = pod_connector_public_environment(values)
+        if _OWNER_FEED_KEYS in values:
+            keys = json.loads(values[_OWNER_FEED_KEYS])
+            if (
+                not isinstance(keys, dict)
+                or not keys
+                or any(
+                    not isinstance(kid, str)
+                    or not kid
+                    or not isinstance(key, str)
+                    or len(base64.b64decode(key, validate=True)) != 32
+                    for kid, key in keys.items()
+                )
+            ):
+                raise ValueError("Owner feed verification keys are invalid.")
+            canonical.append(
+                {"name": _OWNER_FEED_KEYS, "value": json.dumps(keys, separators=(",", ":"))}
+            )
     except ValueError:
         raise RuntimeError("Connector configuration receipt is invalid.") from None
     if expected != canonical:
