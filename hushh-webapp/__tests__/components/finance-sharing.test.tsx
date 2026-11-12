@@ -80,6 +80,9 @@ it("allows a recipient without a portfolio to manage received access but not cre
   expect(screen.getByText("Add a portfolio to share.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
   expect(await screen.findByText("Owner")).toBeVisible();
+  // The manager is terse: no subtitle, no share-count chip, no Agent One review line.
+  expect(screen.queryByText(/person by person|Agent One review|^\d+ shares?$/)).toBeNull();
+  expect(screen.getByText(/Real time|Snapshot/)).toBeVisible();
   expect(screen.queryByRole("tab", { name: "Shared by you" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "View", exact: true }));
   expect(await screen.findByText(/decrypted-sentinel/)).toBeVisible();
@@ -116,7 +119,7 @@ it("opens the existing advisor, sharing and access-management flows from Portfol
   await waitFor(() => expect(mocks.history).toHaveBeenCalled());
 });
 
-it.each([false, true])("uses the same controls for an advisor, with Always available (model review: %s)", async allowModel => {
+it("uses the same controls for an advisor, with Always available and no Agent One review option", async () => {
   mocks.recipients.mockResolvedValue({ items: [
     { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
     { userId: "other", publicPersonRef: "other", keyId: "other-key", publicKeyJwk: {}, displayName: "Other person", isFinanceAdvisor: false },
@@ -129,11 +132,11 @@ it.each([false, true])("uses the same controls for an advisor, with Always avail
   expect(screen.getByRole("checkbox", { name: /^Other person/ })).toBeTruthy();
   goToAccess();
   fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: "until_stopped" } });
-  if (allowModel) fireEvent.click(screen.getByRole("checkbox", { name: "Allow their Agent One to review" }));
+  expect(screen.queryByRole("checkbox", { name: /Agent One/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
   fireEvent.click(await screen.findByRole("button", { name: "Share with 1 person" }));
   await waitFor(() => expect(mocks.publish).toHaveBeenCalled());
-  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null, sections: ["allocation", "performance"], showAmounts: false, model_processing: { allowed: allowModel } });
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null, sections: ["allocation", "performance"], showAmounts: false, model_processing: { allowed: false } });
 });
 
 it("supports a custom connection duration and blocks invalid values before preview", async () => {
@@ -179,7 +182,7 @@ it("requires the exact preview and explicit confirmation, with synchronous dupli
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
   goToAccess();
   expect(screen.getByRole("checkbox", { name: /^Show dollar amounts/ })).not.toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /^Allow their Agent One/ })).not.toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: /Agent One/ })).toBeNull();
   expect(mocks.publish).not.toHaveBeenCalled();
   openPreview();
   const send = await screen.findByRole("button", { name: "Share with 1 person" });
@@ -203,29 +206,15 @@ it("unwinds the reviewed sharing layer before Portfolio and releases it on unmou
   expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(false);
 });
 
-it.each(["expired", "stopped"])("clears decrypted contents and derived review when a viewed share becomes %s", async status => {
+it.each(["expired", "stopped"])("clears decrypted contents when a viewed share becomes %s", async status => {
   vi.useFakeTimers();
   render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
   expect(screen.getByText(/decrypted-sentinel/)).toBeVisible();
-  expect(mocks.review).not.toHaveBeenCalled();
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
-  expect(screen.getByText("derived-review-sentinel")).toBeVisible();
   mocks.view.mockResolvedValue({ ...grant, status });
   await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
   expect(screen.queryByText(/decrypted-sentinel/)).toBeNull();
-  expect(screen.queryByText("derived-review-sentinel")).toBeNull();
   expect(screen.getByRole("alert")).toHaveTextContent(status === "expired" ? "expired" : "stopped");
-});
-
-it("renders the Agent One review as formatted text instead of raw markdown", async () => {
-  mocks.review.mockResolvedValue(["Here is the snapshot:", "", "- **Mostly equities**: 80% stocks", "- **Known limit**: history is incomplete"].join("\n"));
-  render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
-  await screen.findByText(/decrypted-sentinel/);
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
-  expect(screen.getByText("Mostly equities").tagName).toBe("STRONG");
-  expect(screen.getAllByRole("listitem")).toHaveLength(2);
-  expect(document.body.textContent).not.toContain("**");
 });
 
 it("returns from allocation to the portfolio before closing the shared view", async () => {
@@ -318,11 +307,11 @@ it("appends repeat shares under one person while retaining each approved view an
     { ...grant, id: "newer", ownerUserId: "owner", direction: "outgoing", createdAt: "2026-10-28T00:00:00Z" },
   ] : [], nextCursor: null }));
   render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
-  await screen.findByText("Earlier shares (1)");
+  await screen.findByText("Earlier (1)");
   expect(screen.getAllByTestId("finance-sharing-person")).toHaveLength(1);
   expect(screen.getAllByRole("heading", { name: "Recipient" })).toHaveLength(1);
   expect(screen.getAllByRole("button", { name: "View", exact: true })).toHaveLength(1);
-  fireEvent.click(screen.getByText("Earlier shares (1)"));
+  fireEvent.click(screen.getByText("Earlier (1)"));
   expect(document.querySelectorAll("[data-finance-grant]")).toHaveLength(2);
 });
 

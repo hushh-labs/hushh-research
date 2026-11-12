@@ -9,12 +9,15 @@ Google News RSS, bounded, and the caller owns caching.
 
 import asyncio
 import math
+import re
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
+from defusedxml import ElementTree as DefusedET
 
 INDIA_INDICES: tuple[tuple[str, str], ...] = (
     ("NIFTY 50", "^NSEI"),
@@ -40,7 +43,7 @@ INDIA_SECTORS: dict[str, str] = {
 }
 
 INDIA_NEWS_QUERY = "NIFTY OR SENSEX OR NSE OR BSE"
-INDIA_NEWS_LIMIT = 8
+INDIA_NEWS_LIMIT = 20
 
 
 def india_symbols() -> list[str]:
@@ -134,9 +137,69 @@ def build_india_sectors(quotes: dict[str, dict[str, Any]]) -> tuple[list[dict[st
     return rows, "ok" if len(rows) == len(INDIA_SECTORS) else "partial"
 
 
+def _publisher_logo(url: str | None) -> str | None:
+    """Google News carries no article images, so each headline gets its publisher's mark."""
+    host = urllib.parse.urlsplit(str(url or "")).hostname or ""
+    if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}", host.lower()):
+        return None
+    return f"https://www.google.com/s2/favicons?domain={host.lower()}&sz=128"
+
+
+def parse_india_news(xml_text: str) -> list[dict[str, Any]]:
+    """Newest first, one row per headline, publisher suffix removed from the title."""
+    try:
+        root = DefusedET.fromstring(xml_text)
+    except DefusedET.ParseError:
+        return []
+    rows: list[tuple[datetime, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for item in root.findall(".//item"):
+        raw_title = (item.findtext("title") or "").strip()
+        url = (item.findtext("link") or "").strip()
+        source_node = item.find("source")
+        source_name = ((source_node.text if source_node is not None else "") or "").strip()
+        title = raw_title
+        # Google appends " - Publisher" to every title; the row already shows the publisher.
+        if source_name and raw_title.endswith(f" - {source_name}"):
+            title = raw_title[: -len(source_name) - 3].strip()
+        key = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+        if not title or not url or key in seen:
+            continue
+        seen.add(key)
+        try:
+            published = parsedate_to_datetime((item.findtext("pubDate") or "").strip())
+            published = published if published.tzinfo else published.replace(tzinfo=UTC)
+        except (TypeError, ValueError):
+            published = datetime.fromtimestamp(0, tz=UTC)
+        rows.append(
+            (
+                published,
+                {
+                    # MARKET marks a story that is not about one company, so the client shows no
+                    # ticker chip or company logo for it.
+                    "symbol": "MARKET",
+                    "title": title,
+                    "url": url,
+                    "published_at": published.astimezone(UTC).isoformat(),
+                    "source_name": source_name or "Google News",
+                    "source_logo_url": _publisher_logo(
+                        source_node.get("url") if source_node is not None else None
+                    ),
+                    "provider": "google_news_rss",
+                    "image_url": None,
+                    "image_thumbnail_url": None,
+                    "sentiment_hint": None,
+                    "degraded": False,
+                },
+            )
+        )
+    rows.sort(key=lambda row: row[0], reverse=True)
+    return [row for _, row in rows[:INDIA_NEWS_LIMIT]]
+
+
 async def fetch_india_news(days_back: int = 7) -> list[dict[str, Any]]:
     """India edition of Google News for the NIFTY / SENSEX conversation."""
-    from hushh_mcp.operons.kai.fetchers import _parse_google_news_rss, record_provider_request
+    from hushh_mcp.operons.kai.fetchers import record_provider_request
 
     query = urllib.parse.quote_plus(f"{INDIA_NEWS_QUERY} when:{max(1, days_back)}d")
     url = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
@@ -147,22 +210,7 @@ async def fetch_india_news(days_back: int = 7) -> list[dict[str, Any]]:
     ) as client:
         response = await client.get(url)
         response.raise_for_status()
-        articles = _parse_google_news_rss(response.text or "", "NIFTY")
-    return [
-        {
-            "symbol": "NIFTY",
-            "title": str(article.get("title") or "").strip(),
-            "url": str(article.get("url") or "").strip(),
-            "published_at": str(article.get("publishedAt") or datetime.now(UTC).isoformat()),
-            "source_name": str((article.get("source") or {}).get("name") or "Google News"),
-            "provider": "google_news_rss",
-            "image_url": None,
-            "image_thumbnail_url": None,
-            "sentiment_hint": None,
-            "degraded": False,
-        }
-        for article in articles[:INDIA_NEWS_LIMIT]
-    ]
+    return parse_india_news(response.text or "")
 
 
 def _provider_state(outcome: object) -> str:

@@ -23,18 +23,15 @@
 .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--muted); }
 .value { font-size: 14px; line-height: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .toolbar { width: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.grantRow { padding-block: 22px; border-bottom: 1px solid var(--border); }
+.grantRow { padding-block: 12px; border-bottom: 1px solid var(--border); }
 .grantRow:last-child { border-bottom: 0; }
 .grantHeader, .grantPerson { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .grantHeader { justify-content: space-between; }
 .grantPerson h3 { overflow-wrap: anywhere; }
 .grantAvatar { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--muted); color: var(--muted-foreground); font-size: 14px; font-weight: 550; }
-.grantInfo { display: grid; gap: 12px; padding-top: 16px; }
-.grantDates { display: grid; gap: 4px; font-size: 12px; line-height: 18px; }
-.grantDates > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-.grantDates dt { color: var(--muted-foreground); flex: none; }
-.grantDates dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
-.grantActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 16px; }
+.grantSummary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.grantActionsInline { display: flex; flex: none; gap: 8px; }
+.grantActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
 .sharedSheet.sharedSheet { width: min(100%, 728px); margin-inline: auto; height: min(620px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; }
 .managerSheet.managerSheet { width: min(100%, 728px); margin-inline: auto; height: min(620px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important; }
 @media (min-width: 640px) {
@@ -48,7 +45,6 @@
 .sharedPager > div > [role="tabpanel"] { overflow: hidden auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; padding-inline: 2px; }
 .compactDetails { margin-top: 16px; }
 .compactDetails > summary { cursor: pointer; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
-@media(min-width: 768px) { .grantInfo { grid-template-columns: minmax(0, 1fr) minmax(240px, .9fr); gap: 24px; } }
 @media(min-width: 1024px) {
   .layout { grid-template-columns: minmax(0,1.05fr) minmax(0,1fr); align-items: start; gap: 28px; }
   .surface { max-width: min(1040px,calc(100vw - 80px)) !important; }
@@ -77,7 +73,7 @@
 .recipientList { margin-top: 12px; }
 .optionBody { margin-top: 12px; }
 .optionBody .privacy { margin-top: 12px; padding: 0; background: transparent; }
-.reviewPanel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.reviewPanel { flex: 1 1 auto; display: grid; gap: 12px; align-content: start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .toolbar > span > button { min-height: 44px; }
 .forward { margin-inline-start: auto; }
 .primaryAction { background: var(--app-accent) !important; border-color: transparent !important; color: var(--app-accent-fg) !important; box-shadow: none !important; }
@@ -85,3 +81,24 @@
 .recipientList::-webkit-scrollbar, .optionBody::-webkit-scrollbar { width: 6px; }
 .recipientList::-webkit-scrollbar-thumb, .optionBody::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--border); }
 .footnote { padding-inline: 19px; }
+
+/* Review before sharing: summary first, compact sections, and a phone sheet that fits its content. */
+.reviewSummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; border-radius: 12px; background: var(--muted); }
+.reviewSummary > div { min-width: 0; padding: 9px 12px; }
+.reviewSummary > div:nth-child(even) { border-inline-start: 1px solid var(--border); }
+.reviewSummary > div:nth-child(n + 3) { border-block-start: 1px solid var(--border); }
+.reviewSummary dt { font-size: 11px; line-height: 16px; color: var(--muted-foreground); }
+.reviewSummary dd { margin: 1px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; font-weight: 550; }
+.compactSections { display: grid; gap: 10px; min-width: 0; }
+.compactSections .group { padding: 11px 13px; border-radius: 14px; }
+.compactSections .row { min-height: 36px; padding-block: 7px; font-size: 13px; line-height: 20px; }
+.compactSections .compactDetails { margin-top: 6px; }
+@media (min-width: 640px) {
+  .reviewSummary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .reviewSummary > div:nth-child(n) { border-block-start: 0; }
+  .reviewSummary > div + div { border-inline-start: 1px solid var(--border); }
+  .compactSections { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+@media (max-width: 639px) {
+  .reviewFrame.reviewFrame { height: auto !important; max-height: min(78dvh, calc(100dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px))) !important; }
+}

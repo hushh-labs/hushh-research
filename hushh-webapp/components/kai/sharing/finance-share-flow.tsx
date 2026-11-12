@@ -1,7 +1,6 @@
 "use client";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { SectionLabel } from "@/components/app-ui/typography";
 import { FinanceSharingPreview } from "./finance-sharing-preview";
 import { FinanceSharingManager } from "./finance-sharing-manager";
 import { FinanceShareEditor } from "./finance-share-editor";
@@ -24,7 +23,6 @@ export function FinanceShareFlow(props: FinanceShareFlowProps) {
     selection,
     mode,
     durationLabel,
-    allowModel,
     selected,
     busy,
     error,
@@ -67,7 +65,8 @@ export function FinanceShareFlow(props: FinanceShareFlowProps) {
         }
         presentation="sheet"
         bodyClassName={styles.flowBody}
-        surfaceClassName={`${finance.detail} ${styles.flowSurface}`}
+        description={step === "review" && selected.length ? `${selected.map((person) => person.displayName).join(", ")} will see this` : undefined}
+        surfaceClassName={`${finance.detail} ${styles.flowSurface}${step === "edit" ? "" : ` ${styles.reviewFrame}`}`}
         footer={
           <div className={styles.toolbar}>
             {step === "edit" ? (
@@ -126,6 +125,9 @@ export function FinanceShareFlow(props: FinanceShareFlowProps) {
                 </ShellActionSurface>
                 <ShellActionSurface
                   variant="pill"
+                  rippleEffect="fill"
+                  wrapperClassName="min-w-0 flex-1 sm:flex-none"
+                  className={`${styles.primaryAction} w-full justify-center sm:w-auto`}
                   disabled={busy || !ready}
                   onClick={() => void share()}
                 >
@@ -139,6 +141,7 @@ export function FinanceShareFlow(props: FinanceShareFlowProps) {
                 </ShellActionSurface>
                 <ShellActionSurface
                   variant="pill"
+                  wrapperClassName={`${styles.forward} hidden sm:block`}
                   disabled={busy}
                   onClick={() => setManage(true)}
                 >
@@ -192,53 +195,31 @@ export function FinanceShareFlow(props: FinanceShareFlowProps) {
         {step === "edit" ? (
           <FinanceShareEditor flow={flow} initialShare={initialShare} />
         ) : preview ? (
-          <div
-            className={`${styles.layout} ${styles.reviewPanel} motion-step-enter`}
-          >
-            <div>
-              <SectionLabel
-                role="heading"
-                aria-level={2}
-                className={`${styles.heading} mb-4`}
-              >
-                What they will see
-              </SectionLabel>
-              <FinanceSharingPreview projection={preview} />
-            </div>
-            <div className={styles.section}>
-              <section className={styles.group}>
-                <SectionLabel
-                  role="heading"
-                  aria-level={2}
-                  className={styles.heading}
-                >
-                  {step === "sent" ? "Shared with" : "Ready to share with"}
-                </SectionLabel>
-                {selected.map((person) => (
-                  <p className={styles.row} key={person.userId}>
-                    {person.displayName}
-                  </p>
-                ))}
-                <dl>
-                  <div className={styles.row}>
-                    <dt>Access</dt>
-                    <dd>{mode === "snapshot" ? "Snapshot" : "Real time"}</dd>
-                  </div>
-                  <div className={styles.row}>
-                    <dt>Ends</dt>
-                    <dd>{durationLabel}</dd>
-                  </div>
-                  <div className={styles.row}>
-                    <dt>Dollar amounts</dt>
-                    <dd>{selection.showAmounts ? "Included" : "Hidden"}</dd>
-                  </div>
-                  <div className={styles.row}>
-                    <dt>Agent One review</dt>
-                    <dd>{allowModel ? "Allowed" : "Not allowed"}</dd>
-                  </div>
-                </dl>
-              </section>
-            </div>
+          <div className={`${styles.reviewPanel} motion-step-enter`}>
+            <dl
+              className={styles.reviewSummary}
+              aria-label={step === "sent" ? "Shared with" : "Ready to share with"}
+            >
+              <div>
+                <dt>Access</dt>
+                <dd>{mode === "snapshot" ? "Snapshot" : "Real time"}</dd>
+              </div>
+              <div>
+                <dt>Ends</dt>
+                <dd title={durationLabel}>{durationLabel}</dd>
+              </div>
+              <div>
+                <dt>Dollar amounts</dt>
+                <dd>{selection.showAmounts ? "Included" : "Hidden"}</dd>
+              </div>
+              <div>
+                <dt>{step === "sent" ? "Shared with" : "Sharing with"}</dt>
+                <dd title={selected.map((person) => person.displayName).join(", ")}>
+                  {selected.map((person) => person.displayName).join(", ")}
+                </dd>
+              </div>
+            </dl>
+            <FinanceSharingPreview projection={preview} compact />
           </div>
         ) : step === "sent" ? (
           <p className="text-sm">

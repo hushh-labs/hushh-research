@@ -1231,7 +1231,7 @@ export function KaiMarketPreviewView() {
 
               <section aria-label="Market news">
                 {inIndia
-                  ? <OneMarketSectionHeader title="Market news" />
+                  ? <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={`${ROUTES.KAI_NEWS}?market=IN`} />
                   : <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />}
                 <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.newsCardBody}>
                 <OneMarketNewsBriefing rows={marketNewsRows} loading={displayLoading} />

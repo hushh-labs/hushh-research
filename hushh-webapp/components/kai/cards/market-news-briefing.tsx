@@ -66,15 +66,17 @@ export function OneMarketNewsCover({ row, className, thumbnail = false }: { row:
   const articleImage = marketNewsImageUrl(thumbnail ? row.image_thumbnail_url || row.image_url : row.image_url);
   const fallbackImage = marketNewsImageUrl(thumbnail ? row.image_url : row.image_thumbnail_url);
   const logo = shouldShowNewsCompanyLogo(row) ? getCompanyLogoUrl({ symbol: normalizeMarketSymbol(row.symbol) }) : null;
+  const publisherLogo = marketNewsImageUrl(row.source_logo_url);
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
-  const source = [articleImage, fallbackImage, logo].find((url) => url && !failedUrls.includes(url));
-  useEffect(() => { setFailedUrls([]); }, [articleImage, fallbackImage, logo]);
+  const source = [articleImage, fallbackImage, logo, publisherLogo].find((url) => url && !failedUrls.includes(url));
+  useEffect(() => { setFailedUrls([]); }, [articleImage, fallbackImage, logo, publisherLogo]);
   return (
     <div className={cn("relative flex items-center justify-center overflow-hidden bg-muted text-muted-foreground", className || "h-[140px]")}>
       {source ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={source} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
-          className={source !== logo ? "h-full w-full object-cover" : "h-12 w-12 object-contain"}
+          data-publisher-logo={source === publisherLogo ? "true" : undefined}
+          className={source !== logo && source !== publisherLogo ? "h-full w-full object-cover" : "h-12 w-12 object-contain"}
           onError={() => setFailedUrls((current) => [...current, source])} />
       ) : <Newspaper className="h-7 w-7" aria-hidden="true" />}
     </div>
@@ -108,7 +110,7 @@ export function OneMarketNewsBriefing({ rows, loading = false }: { rows: KaiHome
               <span className={marketBriefingStyles.newsMetadata}>{row.source_name || "Market news"} <span aria-hidden="true"> · </span> {formatHeadlinePublished(row.published_at)}</span>
               {row.summary ? <span className="mt-1 hidden text-xs leading-5 text-muted-foreground sm:line-clamp-1">{row.summary}</span> : null}
             </span>
-            <OneMarketNewsCover row={row} index={index} thumbnail className="h-14 w-14 shrink-0 rounded-lg [&_img]:!h-full [&_img]:!w-full [&_img]:object-cover sm:h-16 sm:w-16" />
+            <OneMarketNewsCover row={row} index={index} thumbnail className="h-14 w-14 shrink-0 rounded-lg [&_img]:!h-full [&_img]:!w-full [&_img]:object-cover [&_img[data-publisher-logo]]:!object-contain [&_img[data-publisher-logo]]:!p-3 sm:h-16 sm:w-16" />
             <MaterialRipple variant="none" effect="fade" className="z-10" />
           </button>
         </article>

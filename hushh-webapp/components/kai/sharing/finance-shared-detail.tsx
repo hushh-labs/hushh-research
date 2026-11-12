@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { usePathname } from "next/navigation";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -8,7 +8,6 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { FinanceSharingService } from "@/lib/services/finance-sharing-service";
 import type { FinanceGrant, FinanceProjection } from "@/lib/finance-sharing/contract";
-import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import { FinanceSharingPreview } from "./finance-sharing-preview";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -26,12 +25,8 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
   const [state, setState] = useState<{ grantId: string; session: string; grant: FinanceGrant; projection: FinanceProjection } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const [review, setReview] = useState<string | null>(null);
-  const [reviewBusy, setReviewBusy] = useState(false);
-  const [reviewError, setReviewError] = useState<string | null>(null);
   const [page, setPage] = useState("portfolio");
   const tabSetId = `shared-finance-${useId()}`;
-  const reviewController = useRef<AbortController | null>(null);
   const pathname = usePathname();
   useBackLayer(pathname, grantId ? 1 : 0, () => { onClose(); return true; });
   useBackLayer(pathname, grantId && page !== "portfolio" ? 2 : 0, () => {
@@ -40,12 +35,12 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
   });
   useEffect(() => {
     setPage("portfolio");
-    setState(null); setError(null); setReview(null); setReviewBusy(false); setReviewError(null); reviewController.current?.abort();
+    setState(null); setError(null);
     if (!grantId || !ready) return;
     const context = capture(); if (!context) return;
     let disposed = false, loading = false, ended = false, currentHash: string | null = null;
     let deadline: number | null = null;
-    const clear = (message: string) => { setState(null); setReview(null); setReviewBusy(false); setReviewError(null); reviewController.current?.abort(); currentHash = null; setError(message); };
+    const clear = (message: string) => { setState(null); currentHash = null; setError(message); };
     const read = async () => {
       if (disposed || ended || loading || document.hidden || !context.isCurrent()) return;
       loading = true;
@@ -56,7 +51,7 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
         deadline = grant.expiresAt ? started + Math.max(0, Date.parse(grant.expiresAt) - Date.parse(grant.serverNow)) : null;
         if (grant.status !== "active") { ended = true; clear(grant.status === "stopped" ? "The owner stopped sharing this information." : "This share has expired."); return; }
         if (grant.contentHash !== currentHash) {
-          setState(null); setReview(null); setReviewBusy(false); reviewController.current?.abort();
+          setState(null);
           const projection = await FinanceSharingService.decrypt(context, grant);
           if (disposed || !context.isCurrent() || document.hidden || (deadline !== null && performance.now() >= deadline)) return;
           currentHash = grant.contentHash; setState({ grantId, session, grant, projection }); setError(null);
@@ -73,20 +68,9 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("finance-sharing-changed", read);
     void read();
-    return () => { disposed = true; reviewController.current?.abort(); window.clearInterval(timer); window.clearInterval(expiry); document.removeEventListener("visibilitychange", visibility); window.removeEventListener("finance-sharing-changed", read); };
+    return () => { disposed = true; window.clearInterval(timer); window.clearInterval(expiry); document.removeEventListener("visibilitychange", visibility); window.removeEventListener("finance-sharing-changed", read); };
   }, [capture, grantId, ready, retry, session]);
   const visible = state?.session === session && state.grantId === grantId && ready ? state : null;
-  const ask = async () => {
-    const context = capture(); if (!context || !visible) return;
-    const controller = new AbortController();
-    reviewController.current?.abort(); reviewController.current = controller;
-    setReviewBusy(true); setReviewError(null); setReview(null);
-    try {
-      const text = await FinanceSharingService.review(context, visible.grant, visible.projection, controller.signal);
-      if (context.isCurrent() && !controller.signal.aborted) setReview(text);
-    } catch (e) { if (context.isCurrent() && !controller.signal.aborted) setReviewError(e instanceof Error ? e.message : "Review is unavailable."); }
-    finally { if (context.isCurrent() && !controller.signal.aborted) setReviewBusy(false); }
-  };
   return <KaiControlSurface open={Boolean(grantId)} onOpenChange={value => { if (!value) onClose(); }} title={visible ? `${visible.grant.direction === "received" ? visible.grant.senderName : visible.grant.recipientName} · Finance` : "Shared Finance"}
     description={visible ? `${visible.grant.policy.mode === "snapshot" ? "Snapshot" : "Real time"}${visible.grant.expiresAt ? ` · Ends ${new Date(visible.grant.expiresAt).toLocaleDateString()}` : ""}` : "Recipient-encrypted information"}
     presentation="sheet"
@@ -100,7 +84,6 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
         preserveControlActivationAfterSwipe>
       <div className={styles.section}>
       <FinanceSharingPreview projection={visible.projection} section="portfolio" />
-      {visible.grant.direction === "received" && visible.grant.policy.model_processing.allowed ? <section className={styles.group}><ShellActionSurface variant="pill" disabled={reviewBusy} onClick={() => void ask()}>{reviewBusy ? "Reviewing…" : "Review with Agent One"}</ShellActionSurface>{reviewError ? <p role="alert" className="mt-3 text-sm text-destructive">{reviewError}</p> : null}{review ? <div className="mt-4 text-sm leading-[21px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_p]:mt-2 [&_strong]:font-semibold"><SafeMarkdown markdown={review} linkPolicy="internal" /></div> : null}</section> : null}
       </div>
       <FinanceSharingPreview projection={visible.projection} section="allocation" />
       <FinanceSharingPreview projection={visible.projection} section="stocks" />
