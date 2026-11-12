@@ -292,9 +292,9 @@ describe("toMoverGroups", () => {
     expect(container.querySelector("time")).toBeNull();
     expect(container.textContent).not.toMatch(/time unavailable/i);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
-    expect(within(screen.getByRole("region", { name: "Gainers" })).getAllByText("Quote unavailable")).toHaveLength(3);
-    expect(within(screen.getByRole("region", { name: "Losers" })).getAllByText("Quote unavailable")).toHaveLength(3);
-    expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);
+    expect(screen.getByRole("status")).toHaveTextContent(/Movers are updating/);
+    expect(screen.queryByText("Quote unavailable")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(0);
     expect(container.querySelectorAll("button")).toHaveLength(0);
     expect(container.textContent).not.toMatch(/cached|[+-]\d/);
   });

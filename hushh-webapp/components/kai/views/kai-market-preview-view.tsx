@@ -399,6 +399,14 @@ export function OneMarketMovers({ groups, linkable = true, note }: {
   const shown = columns.flatMap((column) => column.rows);
   const commonAsOf = shown[0]?.asOf ?? null;
   const sharedTime = shown.length > 0 && shown.every((row) => row.asOf === commonAsOf);
+  // Nothing at all (usually a provider rate limit): one calm line, not six identical ones.
+  if (shown.length === 0) {
+    return (
+      <p role="status" data-market-mover-unavailable className="ui-text-row-description py-2 text-muted-foreground">
+        Movers are updating and will appear as soon as the data provider allows.
+      </p>
+    );
+  }
   return (
     <div>
       <div className={marketBriefingStyles.moverGroups}>

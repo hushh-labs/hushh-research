@@ -10,6 +10,7 @@ Google News RSS, bounded, and the caller owns caching.
 import asyncio
 import math
 import re
+import time
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -60,6 +61,9 @@ NSE_LARGE_CAPS: tuple[str, ...] = (
 )  # fmt: skip
 INDIA_MOVERS_CONCURRENCY = 5
 INDIA_MOVERS_DEADLINE_SECONDS = 12.0
+INDIA_MOVERS_STALE_SECONDS = 6 * 60 * 60
+# Last list that loaded, kept per process so a rate-limited refresh can still show it.
+_LAST_GOOD_MOVERS: dict[str, Any] = {}
 INDIA_NEWS_QUERY = "NIFTY OR SENSEX OR NSE OR BSE"
 INDIA_NEWS_LIMIT = 20
 
@@ -335,9 +339,17 @@ async def fetch_india_movers() -> dict[str, Any]:
         row = task.result()
         if row:
             rows.append(row)
-    if not rows:
-        raise RuntimeError("india_movers_unavailable")
-    return build_india_movers(rows)
+    if rows:
+        movers = build_india_movers(rows)
+        _LAST_GOOD_MOVERS.update(at=time.monotonic(), payload=movers)
+        return movers
+    # Nothing came back (usually the provider rate limit). Keep showing the last good list,
+    # marked degraded and stamped with its own session time, instead of a blank card.
+    reason = "rate_limited" if throttled.is_set() else "unavailable"
+    last = _LAST_GOOD_MOVERS.get("payload")
+    if last and time.monotonic() - _LAST_GOOD_MOVERS["at"] < INDIA_MOVERS_STALE_SECONDS:
+        return {**last, "degraded": True, "stale_reason": reason}
+    raise RuntimeError(f"india_movers_{reason}")
 
 
 def _provider_state(outcome: object) -> str:
