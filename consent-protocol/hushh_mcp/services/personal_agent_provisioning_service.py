@@ -1479,7 +1479,7 @@ class PersonalAgentProvisioningService:
             verified_approval = verified_upgrade_approval(approval)
             if verified_approval is not None:
                 updated["upgradeApproval"] = verified_approval
-            updated = merged_upgrade_metadata(updated, handle_metadata, spec=spec)
+            updated = merged_upgrade_metadata(updated, handle_metadata, spec=spec, row=row)
             release_metadata = approved_release(approval, target_image)
             if release_metadata is not None:
                 updated["installedRelease"] = release_metadata
@@ -1985,7 +1985,10 @@ class PersonalAgentProvisioningService:
             ):
                 raise RuntimeError("Files installation has not been verified")
             new_meta = merged_upgrade_metadata(
-                publication.claimed_metadata, handle_metadata, spec=spec
+                publication.claimed_metadata,
+                handle_metadata,
+                spec=spec,
+                row=publication.claimed_row,
             )
             if publication.persisted_acknowledgement is not None:
                 # Preserve the exact operation receipt already durably published by

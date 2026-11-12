@@ -479,3 +479,92 @@ def _mutate_metadata_host_field(pg, changed_field, _USER, pytest):
         return True
     pg.execute(update_sql, update_params)
     return False
+
+
+async def azure_terminal_direct_admission(pg, engine, changed, _row, owner, target, pytest):
+    """An Azure readback's external ingress must not undo exact owner admission."""
+    import json
+    from types import SimpleNamespace
+
+    from db.db_client import DatabaseClient, DatabaseExecutionError
+    from hushh_mcp.services.compute_backend import PodSpec
+    from hushh_mcp.services.personal_agent_upgrade_publication import (
+        UpgradePublication,
+        publish_hosted_files_terminal,
+    )
+    from hushh_mcp.services.pod_update_identity import merged_upgrade_metadata
+
+    _row(pg)
+    host = {
+        "service": "/subscriptions/synthetic/resourceGroups/owner/providers/Microsoft.App/containerApps/pod",
+        "serviceUid": "synthetic-incarnation",
+        "url": "https://owner.example.test",
+        "region": "westus",
+        "tenancy": "user-owned",
+        "runtime_principal_id": "synthetic-principal",
+        "runtime_client_id": "synthetic-client",
+    }
+    readiness = {
+        "verified": True,
+        "serviceUid": host["serviceUid"],
+        "url": host["url"],
+        "podKeyId": "podk_synthetic",
+    }
+    if changed == "readiness":
+        readiness["podKeyId"] = "podk_foreign"
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend='user_azure',deployment_target='user_azure',"
+        "user_cloud_tenant_id='11111111-1111-1111-1111-111111111111',"
+        "user_cloud_subscription_id='22222222-2222-2222-2222-222222222222',"
+        "user_cloud_resource_group='synthetic-owner',user_cloud_region='westus',"
+        "pod_key_id='podk_synthetic',backend_metadata=%s::jsonb WHERE user_id=%s",
+        (json.dumps({**host, "ingress": "direct", "directReadiness": readiness}), owner),
+    )
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    lease = await repo.claim_image_upgrade(
+        user_id=owner, target_image=target, observed=await repo.get(owner)
+    )
+    assert lease
+    row = await repo.get(owner)
+    metadata = row["backend_metadata"]
+    spec = PodSpec(
+        hushh_id=row["hushh_id"],
+        phone_e164_hash="synthetic",
+        pod_pubkey=row["pod_pubkey"],
+        deployment_target="user_azure",
+        expected_service_uid=host["serviceUid"],
+    )
+    handle = {**host, "ingress": "external", "image": target, "upgraded": True}
+    if changed in host:
+        handle[changed] = "foreign"
+    # The same assembly is used by immediate publication and observation-only recovery.
+    candidate = merged_upgrade_metadata(metadata, handle, spec=spec, row=row)
+    state = UpgradePublication(
+        registry=repo,
+        user_id=owner,
+        hushh_id=row["hushh_id"],
+        current_image=target,
+        lease=lease,
+        spec=spec,
+        backend=SimpleNamespace(),
+        claimed_metadata=metadata,
+        claimed_row=row,
+        files_executor=None,
+        files_capability=None,
+        approval_operation_id="synthetic-operation",
+        approval_release_id="synthetic-release",
+        approval_incarnation=host["serviceUid"],
+    )
+    if changed is not None:
+        with pytest.raises(DatabaseExecutionError):
+            await publish_hosted_files_terminal(state, candidate)
+        assert (await repo.get(owner))["backend_metadata"] == metadata
+    else:
+        await publish_hosted_files_terminal(state, candidate)
+        final = (await repo.get(owner))["backend_metadata"]
+        assert final["ingress"] == "direct" and final["directReadiness"] == readiness
+        assert (
+            final["image"] == target
+            and "upgradeLease" not in final
+            and "upgradeLeaseHost" not in final
+        )

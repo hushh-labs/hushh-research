@@ -497,3 +497,15 @@ async def test_host_binding_migration_blocks_legacy_and_guards_forward_rollback_
         _TARGET,
         pytest,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed", [None, "url", "serviceUid", "runtime_principal_id", "readiness"]
+)
+async def test_azure_terminal_publication_preserves_only_bound_direct_admission(
+    pg, engine, changed
+):
+    await _upgrade_lease_cases.azure_terminal_direct_admission(
+        pg, engine, changed, _row, _USER, _TARGET, pytest
+    )

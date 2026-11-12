@@ -218,6 +218,12 @@ is scoped to owner, environment and release on that installation, persists throu
 ordinary sign-out and is erased on account deletion. Web Locks serialize tabs
 where supported; cross-device acknowledgement is not a server guarantee.
 
+For Azure Container Apps, provider `external` ingress and admitted `direct`
+access describe different layers. Image publication and observation-only recovery
+preserve `direct` only for the same service, incarnation, URL and current-key
+readiness receipt. The host-bound SQL lease still rejects changed authority; an
+acknowledged installation is reconciled through observation rather than replayed.
+
 Pod completion uses `completedUpdate`, retained independently of later offers.
 It requires the exact successful owner operation, current incarnation and
 provider-recorded installed digest. Only validated installed metadata supplies

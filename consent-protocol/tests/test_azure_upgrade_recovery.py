@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from dataclasses import replace
 
 import pytest
 
@@ -114,7 +115,11 @@ class _Registry:
 
 async def _reconcile(arm, backend, row, uid):
     registry = _Registry(copy.deepcopy(row))
-    spec = _spec(expected_service_uid=uid, upgrade_target_image=TARGET)
+    spec = replace(
+        _spec(expected_service_uid=uid, upgrade_target_image=TARGET),
+        deployment_target="user_azure",
+        pod_pubkey=row.get("pod_pubkey") or "",
+    )
     service = PersonalAgentProvisioningService(registry=registry, grant=object())
     result = await service._reconcile_image_upgrade(
         user_id=OWNER, row=row, spec=spec, backend=backend, lease=LEASE
@@ -171,11 +176,26 @@ async def test_the_new_revision_serving_settles_the_update_and_releases_the_leas
             )
         assert not arm.writes()
         return
+    row.update(
+        backend="user_azure",
+        deployment_target="user_azure",
+        pod_key_id="podk_synthetic",
+        pod_pubkey="synthetic-public",
+    )
+    metadata = row["backend_metadata"]
+    readiness = {
+        "verified": True,
+        "serviceUid": uid,
+        "url": metadata["url"],
+        "podKeyId": row["pod_key_id"],
+    }
+    metadata.update(ingress="direct", directReadiness=readiness)
     result, registry = await _reconcile(arm, backend, row, uid)
     assert result["reconciled"] is True and result["upgraded"] is True
     saved = registry.row["backend_metadata"]
     assert "upgradeLease" not in saved and saved["image_digest"] == _NEW
     assert saved["upgradeAcknowledgement"]["outcome"] == "ready"
+    assert saved["ingress"] == "direct" and saved["directReadiness"] == readiness
 
 
 @pytest.mark.parametrize("verdict", ["revision_failed", "never_created"])
