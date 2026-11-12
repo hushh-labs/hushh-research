@@ -39,21 +39,29 @@ authority. Apply the same precedence on Main, Dev and UAT:
 | Ordinary Dev/UAT product work | Request `@hushh-labs/allowed-maintainers-to-approve` for visible routing; eligible maintainer self-service still needs no independent review after required checks |
 | Ordinary Main product work | Governed independent maintainer approval; Main requester must belong to the production merger cohort |
 
-CODEOWNERS auto-requests only protected owners. Do not add the ordinary team to
-a protected PR or request individual people merely to route it. Semantic
-protected edits still follow the pipeline-editor route when their containing file
-also allows ordinary changes. The existing classifier and native protected-path
-rules enforce that authority independently of the reviewer labels. Explicit
-owner-authored approval follows the bounded Admin procedure below; it does not
-waive CI. No review or merge implies permission to deploy.
+CODEOWNERS supplies the native maintainer default and protected path overrides.
+GitHub combines owners across changed files, so mixed PRs can initially display
+both Teams. Content-based protected edits can initially display the maintainer
+Team. These labels never replace native or queue approval enforcement.
 
-After creating a PR, the coding agent requests its routed Team with
-`gh pr edit <number> --add-reviewer hushh-labs/<team-slug>` and reads back
-`reviewRequests`. For a protected or mixed PR, remove the ordinary routing Team
-if present and request only `pipeline-editors`. Preserve unrelated human review
-requests. This notification does not change approval counts, live-team admission
-or self-service permission. No PR observer runs; PRs created outside this procedure
-need the same explicit routing step.
+After creating, updating or retargeting a ready PR, run:
+
+```bash
+./bin/hushh agents review-route --pr <number> --apply
+```
+
+The command uses the existing protected-edit classifier and the PR's authored
+merge base. It requests the expected Team, removes only the other managed Team
+and preserves individual review requests. Without `--apply` it is read-only.
+A completed eligible current-head review is not requested again merely to force
+a Team badge. GitHub still shows the actual person who approved.
+
+PRs opened outside this CLI get native CODEOWNERS defaults; their author or
+reviewer runs the same command for mixed/semantic precedence. No PR observer or
+extra Actions run is added. Routing grants no approval, self-service, merge or
+deployment permission; protected edits still require pipeline-editor authority.
+Explicit owner-authored approval follows the bounded Admin procedure below and
+never waives CI.
 
 ### 1. Preserve and refresh
 
