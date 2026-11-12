@@ -17,25 +17,42 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Dev PKM scope sharing — 11 November 2026
+## Dev PKM scope sharing — 12 November 2026
 
-**Question delivery and owner approval passed; paid-answer acceptance remains open.**
-The receiving-key fix [#9306](https://github.com/hushh-labs/hushh-research/pull/9306)
-and exact-leaf eligibility fix [#9311](https://github.com/hushh-labs/hushh-research/pull/9311)
-passed exact-source CI and governed Dev releases. The actual two-account interface
-verified isolated Dev identity, normal unlock, one synthetic question, its exact
-available PKM scope and a $1 owner approval. No payment was attempted.
+**The private writer is installed; paid-answer acceptance remains open.**
+[Dev release 43217475937](https://github.com/hushh-labs/hushh-research/actions/runs/43217475937)
+serves exact-tested application `94284e3344c5` on backend `00380-ccc` at 100%.
+Schema, candidate identity, runtime parity and settlement-scheduler checks passed.
+The pod image remains `da9e0dc9c1a1`, source `9368735abdac`; this release built
+only the backend. Migration 989 and the private composition implementation are
+already deployed, rather than an unshipped follow-up.
 
-The hub correctly refused private composition. The follow-up candidate reuses the
-writer through the existing owner-pod session and sealed consent feed, with
-provider/model-bound terms: Azure/OpenAI, GCP/Gemini and configured Shared runtime.
-It adds forward migration 989; this candidate is local and has not been released.
-The earlier Google-only approval requires fresh owner approval for Azure/OpenAI.
-Checkout, signed settlement, requester decryption and cold recovery remain pending.
+The actual two-account interface verified isolated Dev identity, normal unlock,
+one synthetic PKM question and exact-leaf eligibility. Its current approval names
+Azure OpenAI / `one-chat` and a $10 sandbox price. GCP uses Gemini; Shared uses its
+configured runtime. The owner's answer-payout account is ready in Stripe test
+mode. No checkout has been attempted and answer payments remain disabled.
+
+Two integration defects were repaired: [#9378](https://github.com/hushh-labs/hushh-research/pull/9378)
+preserves independently verified direct admission during Azure publication;
+[#9407](https://github.com/hushh-labs/hushh-research/pull/9407) carries public
+owner-feed verifier keys through the existing approved update configuration.
+The retained Azure update is verified. A separately qualified same-image
+maintenance installed the missing public verifier, retained identity and custody,
+and released its lease after native readiness. Its temporary operator grant is
+removed. The installed image and processing provider were not changed.
+
+Actual private answer preparation, checkout, signed settlement, requester-only
+decryption and cold-session recovery still need acceptance. The current cold
+browser rehearsal is held before session hydration; it does not prove lost
+Firebase identity or vault information. Source CI and native readiness alone do
+not establish a completed purchase.
+
 Canonical tasks: [paid scope sharing #7587](https://github.com/hushh-labs/hushh-research/issues/7587)
 and [owner pods #5507](https://github.com/hushh-labs/hushh-research/issues/5507).
 This is PKM scope sharing, not Drive/document sharing. Managed-pilot acceptance
-remains paused at 0/2; this work does not establish production readiness.
+remains paused at 0/2; no UAT/production deployment or production-readiness claim
+is included.
 
 ## Current decision — 9 November 2026
 
