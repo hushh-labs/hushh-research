@@ -63,9 +63,9 @@ export function OnboardingPlaceScreen({
         <button type="button" aria-label="Go back" onClick={onBack} disabled={busy} className={cn(SHELL_ICON_BUTTON_CLASSNAME, "!h-11 !w-11 shrink-0")}>
           <ArrowLeft className="h-5 w-5" aria-hidden />
         </button>
-        <h1 data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)]">Your place.</h1>
+        <h1 data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)]">Your location</h1>
       </header>
-      <p data-location-type-role="row-description" className="bg-[color:var(--app-grouped-background)] mb-3 mt-2 shrink-0 text-muted-foreground">Share live. Check in. Send an SOS.</p>
+      <p data-location-type-role="row-description" className="bg-[color:var(--app-grouped-background)] mb-3 mt-2 shrink-0 text-muted-foreground">Share live · Check in · SOS</p>
       <div className={cn(
         "grid min-h-0 flex-1 grid-rows-[minmax(136px,1fr)_auto] gap-3 md:grid-rows-1",
         COMPACT_ONBOARDING_COLUMNS_CLASSNAME,

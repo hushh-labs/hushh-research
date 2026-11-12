@@ -1855,7 +1855,7 @@ describe("SaveLocationModal", () => {
       fireEvent.click(screen.getByRole("button", { name: "Try saving again" }));
       await screen.findByRole("heading", { name: "Find your circle" });
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-      await screen.findByRole("heading", { name: "Your place." });
+      await screen.findByRole("heading", { name: "Your location" });
       fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
       await screen.findByRole("heading", { name: "Find your circle" });
       expect(onSave).toHaveBeenCalledTimes(2);

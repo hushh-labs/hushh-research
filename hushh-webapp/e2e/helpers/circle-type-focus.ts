@@ -1,7 +1,7 @@
 import { expect, type Locator } from "@playwright/test";
 
-export async function assertThinFocusedCircleType(type: Locator) {
-  await expect(type).toHaveCSS("font-size", "14px");
+export async function assertThinFocusedCircleType(type: Locator, fontSize = "14px") {
+  await expect(type).toHaveCSS("font-size", fontSize);
   await type.focus();
   const accent = await type.evaluate(element => {
     const reference = document.createElement("span");

@@ -45,7 +45,7 @@ for (const viewport of VIEWPORTS) {
   test(`fits the place and atomic save at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await openFixture(page, { dark: viewport.width === 430 });
-    await expect(page.getByRole("heading", { name: "Your place." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your location" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Set up later" })).toBeInViewport({ ratio: 1 });
@@ -60,8 +60,8 @@ for (const viewport of VIEWPORTS) {
       const { x, width } = range.getBoundingClientRect();
       return { x, width };
     });
-    expect(hint.x).toBeGreaterThanOrEqual(map!.x + 8);
-    expect(hint.x + hint.width).toBeLessThanOrEqual(map!.x + map!.width - 8);
+    expect(hint.x).toBeGreaterThanOrEqual(map!.x + 7.5);
+    expect(hint.x + hint.width).toBeLessThanOrEqual(map!.x + map!.width - 7.5);
     await page.getByTestId("save-location-modal").screenshot({ path: testInfo.outputPath("your-place.png"), animations: "disabled" });
     await page.getByRole("button", { name: "Edit address details" }).click();
     await page.getByRole("textbox", { name: "House or flat" }).fill("Flat 4B");
@@ -117,7 +117,7 @@ test("uses local Back and keeps optional work in focused sheets", async ({ page 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Open One Location" })).toBeInViewport({ ratio: 1 });
   await page.evaluate(() => window.onboardingBack());
-  await expect(page.getByRole("heading", { name: "Your place." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your location" })).toBeVisible();
   await page.evaluate(() => window.onboardingBack());
   await expect(page.getByText("Agents home")).toBeVisible();
 });

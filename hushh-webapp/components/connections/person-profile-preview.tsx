@@ -11,6 +11,8 @@ import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/
 import { PERSON_PROFILE_PREVIEW_EVENT, type PersonProfilePreviewIdentity } from "@/lib/connections/person-profile-preview";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { TypographyScopeProvider } from "@/lib/morphy-ux/ui/typography-scope";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
 import { cn } from "@/lib/utils";
 
@@ -162,7 +164,7 @@ export function PersonProfilePreview() {
   const networkMode = active?.networkList;
   const calendar = active?.presentation === "calendar";
   const title = networkMode === "discovery" ? "Your network" : networkMode === "mutuals" ? "Mutual connections" : networkMode === "connections" ? "Connections" : "Profile";
-  return <Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
+  return <TypographyScopeProvider className={active?.presentation === "connect" ? connectTypography.surface : undefined}><Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
     <DialogContent data-person-profile-preview data-connect-type-scale={calendar ? "page" : undefined} aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
       className={cn(calendar && calendarPresentation.portal, networkMode
         ? "!w-[calc(100%-1rem)] !max-w-[760px] !gap-0 !overflow-hidden !p-0 sm:!w-[calc(100%-2rem)]"
@@ -173,10 +175,10 @@ export function PersonProfilePreview() {
         <DialogTitle>{title}</DialogTitle>
       </div>
       <div ref={scroll} data-network-scroll-owner className="min-h-0 overflow-y-auto overscroll-contain py-4">
-        {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} /></Suspense></PreviewBoundary>
-          : active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded calendarPresentation={calendar} onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
-          : <p role={resolved?.key === active?.key ? "alert" : "status"} className="p-6">{resolved?.key === active?.key ? "This profile is unavailable." : "Loading profile…"}</p>}
+        {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p data-connect-role="description" role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} /></Suspense></PreviewBoundary>
+          : active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p data-connect-role="description" role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded calendarPresentation={calendar} onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
+          : <p data-connect-role="description" role={resolved?.key === active?.key ? "alert" : "status"} className="p-6">{resolved?.key === active?.key ? "This profile is unavailable." : "Loading profile…"}</p>}
       </div>
     </DialogContent>
-  </Dialog>;
+  </Dialog></TypographyScopeProvider>;
 }

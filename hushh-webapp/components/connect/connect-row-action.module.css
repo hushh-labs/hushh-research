@@ -1,0 +1,19 @@
+.pill {
+  min-width: 88px;
+  height: 44px;
+  border-radius: 999px;
+  padding-inline: 15px;
+  background: var(--app-card-surface-default-solid);
+  border-color: color-mix(
+    in srgb,
+    var(--app-accent) 32%,
+    var(--app-card-surface-default-solid)
+  );
+}
+
+@media (max-width: 620px) {
+  .pill { min-width: 78px; padding-inline: 11px; }
+}
+@media (max-width: 350px) {
+  .pill { min-width: 72px; padding-inline: 9px; }
+}

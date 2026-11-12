@@ -199,7 +199,7 @@ for (const width of [320, 393, 430, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await page.setContent(`<html><head><style>${css}</style></head><body data-compact="true"><div id="root"></div></body></html>`);
     await page.addScriptTag({ content: script });
-    const toggle = page.getByRole("switch");
+    const toggle = page.locator('[data-slot="top-bar-route-accessory"]').getByRole("switch");
     await expect(toggle).toHaveCSS("width", "54px");
     await expect(toggle).toHaveCSS("height", "24px");
     await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("width", "20px");
@@ -220,9 +220,9 @@ for (const width of [320, 393, 430, 1440]) {
       range.selectNodeContents(node);
       const text = range.getBoundingClientRect();
       const track = node.closest("label")!.querySelector("[role=switch]")!.getBoundingClientRect();
-      return { textCenter: text.left + text.width / 2, trackCenter: track.left + track.width / 2 };
+      return { textRight: text.right, trackLeft: track.left };
     });
-    expect(Math.abs(alignment.textCenter - alignment.trackCenter)).toBeLessThan(1);
+    expect(alignment.textRight).toBeLessThan(alignment.trackLeft);
     await status.click();
     await expect(toggle).toBeChecked();
     await expect.poll(() => toggle.evaluate(node => {

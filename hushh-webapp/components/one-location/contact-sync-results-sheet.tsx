@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { useEffect, useState } from "react";
 import { Check, Loader2, Send, ShieldAlert } from "@/components/icons";
 import { toast } from "sonner";
@@ -355,7 +356,7 @@ export function ContactSyncResultsSheet({
                               toast.error(
                                 error instanceof Error
                                   ? error.message
-                                  : "Could not send connection request.",
+                                  : "Could not send connection request.", { className: connectTypography.toast },
                               );
                             })
                             .finally(() => setRequestingUserId(null));

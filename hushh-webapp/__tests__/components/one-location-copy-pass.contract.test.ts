@@ -140,7 +140,7 @@ describe("One Location — link durations stay inside the server's ceiling", () 
 
     // The channel that survives, and the durable per-row telling that made the
     // banner redundant in the first place.
-    expect(PAGE_SOURCE).toContain("toast.success(LOCATION_REQUEST_SENT_TOAST)");
+    expect(PAGE_SOURCE).toContain("toast.success(LOCATION_REQUEST_SENT_TOAST, { className: connectTypography.toast })");
     expect(HUB_SOURCE).toContain("waiting on them");
   });
 });

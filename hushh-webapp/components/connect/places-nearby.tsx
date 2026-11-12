@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapPin } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
+  DirectoryEmptyState,
   DirectoryAttributionFooter,
   DirectoryLoadingRows,
   ExpandRadiusButton,
@@ -71,8 +72,10 @@ const hasPlaceRows = (groups: Record<string, PlaceCard[]>) =>
  */
 export function PlacesNearby({
   getIdToken,
+  filters,
 }: {
   getIdToken: () => Promise<string | null>;
+  filters?: ReactNode;
 }) {
   const location = useCurrentLocation();
 
@@ -308,6 +311,7 @@ export function PlacesNearby({
 
   if (!anchor) {
     return (
+      <div className="space-y-4">{filters}
       <LocationPrompt
         denied={
           location.status === "denied" || location.status === "unavailable"
@@ -325,17 +329,26 @@ export function PlacesNearby({
         postalLabel="Area or postcode"
         postalNumericOnly={false}
       />
+      </div>
     );
   }
 
   return (
     <div className="space-y-4" data-testid="places-nearby">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        {filters}
+        <div className="flex items-center gap-3 md:w-auto">
+          <span data-connect-role="description" className="text-muted-foreground">Within</span>
+          <div className="min-w-0 flex-1 md:w-64">
       <SegmentedTabs
         value={String(radiusMi)}
         onValueChange={(value) => setRadiusMi(Number(value))}
         options={RADIUS_OPTIONS}
         disabled={streaming && answered === 0}
       />
+          </div>
+        </div>
+      </div>
 
       {/* A rail rather than a segmented control: eleven segments would each be
           too narrow to read, and the rail is the pattern the check-in picker
@@ -415,12 +428,16 @@ export function PlacesNearby({
         // Coordinates can be perfectly good and still match nothing — a radius
         // of one mile in open country is an honest empty. Offer the two things
         // that help: a wider radius above, and a different place to look.
-        <QuietBlock
-          title="Nothing nearby"
-          subtitle="Try a wider radius, or another postcode."
+        <DirectoryEmptyState
+          title={`No places within ${radiusMi} mi`}
           testId="places-empty"
+          expandAction={
+            <ExpandRadiusButton
+              nextRadiusMi={nextRadiusMi}
+              onExpand={setRadiusMi}
+            />
+          }
         >
-          <div className="flex w-full flex-col items-center gap-4">
             <PostalCodeForm
               busy={streaming}
               initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
@@ -429,12 +446,7 @@ export function PlacesNearby({
               label="Area or postcode"
               numericOnly={false}
             />
-            <ExpandRadiusButton
-              nextRadiusMi={nextRadiusMi}
-              onExpand={setRadiusMi}
-            />
-          </div>
-        </QuietBlock>
+        </DirectoryEmptyState>
       ) : null}
 
       {!error &&

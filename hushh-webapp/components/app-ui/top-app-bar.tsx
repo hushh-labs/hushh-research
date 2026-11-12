@@ -18,6 +18,7 @@
  * evaluates correctly in both environments.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TopBarRouteAccessoryHost } from "./top-bar-route-accessory";
 import { OnboardingRouteActions } from "@/components/onboarding/onboarding-route-actions";
 import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
@@ -1252,6 +1253,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           </ShellActionSurface>
                         ) : null}
 
+                        <TopBarRouteAccessoryHost />
                         <OpenProfileAction avatarUrl={effectiveAvatarUrl} displayName={user?.displayName} />
                       </>
                     )}

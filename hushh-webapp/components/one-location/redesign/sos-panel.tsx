@@ -434,6 +434,7 @@ export function SosPanel({
             size="prominent"
             onClick={onEditContacts}
             data-location-action-fit=""
+            data-location-type-role="primary-action"
             className="h-auto min-h-[52px] w-full px-5 py-3"
           >
             Add emergency contacts

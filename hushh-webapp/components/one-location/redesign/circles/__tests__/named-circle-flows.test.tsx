@@ -1,3 +1,4 @@
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 // @vitest-environment jsdom
 import {
   act,
@@ -116,6 +117,15 @@ describe("named Circle flows", () => {
     expect(add.querySelector('[data-slot="settings-row-chevron"]')).toBeNull();
     fireEvent.click(add);
     expect(await screen.findByRole("dialog", { name: "Add people" })).toBeVisible();
+  });
+
+  it.each([false, true])("places Add people above an empty roster and beside Delete after a member joins (%s)", async (hasMember) => {
+    const detail = circle("family", "Family");
+    if (hasMember) { detail.members.push({ ...detail.members[0]!, userId: "friend", displayName: "Friend", role: "member" }); detail.memberCount = 2; }
+    render(<CircleDetailFlow circleId="family" {...detailProps(async () => detail)} />);
+    const add = await screen.findByRole("button", { name: "Add people", exact: true });
+    expect(Boolean(add.closest("[data-circle-member-actions]"))).toBe(hasMember);
+    expect(screen.getByRole("button", { name: "Delete circle", exact: true }).closest("[data-circle-member-actions]")).not.toBeNull();
   });
 
   it("retains the created ID if the server drops a custom type, then updates it on retry", async () => {
@@ -241,7 +251,7 @@ describe("named Circle flows", () => {
     expect(props.onAddPeople).not.toHaveBeenCalled();
     expect(props.onComplete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person", exact: true }));
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not add those people. Try again or add people later."));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not add those people. Try again or add people later.", { className: connectTypography.toast }));
     expect(screen.getByRole("button", { name: "Remove Asha Meena" })).toBeEnabled();
     expect(props.onComplete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person", exact: true }));
@@ -442,7 +452,7 @@ describe("named Circle flows", () => {
     expect(screen.queryByText("Connection details unavailable")).toBeNull();
     fireEvent.click(choice);
     fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again"));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again", { className: connectTypography.toast }));
     const retry = screen.getByRole("button", { name: "Add people", exact: true });
     await waitFor(() => expect(retry).toBeEnabled());
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
@@ -625,8 +635,8 @@ describe("named Circle flows", () => {
     expect(alex).toHaveAttribute("aria-checked", "true");
     await act(async () => finishRead());
     expect(alex).toHaveAttribute("aria-checked", "true");
-    expect(toast.success).toHaveBeenCalledWith("Circle members updated.");
-    expect(toast.error).not.toHaveBeenCalledWith("Could not add them.");
+    expect(toast.success).toHaveBeenCalledWith("Circle members updated.", { className: connectTypography.toast });
+    expect(toast.error).not.toHaveBeenCalledWith("Could not add them.", { className: connectTypography.toast });
     expect(screen.getByText("Roster temporarily unavailable")).toBeVisible();
   });
 
@@ -1035,7 +1045,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith("Circle limit reached."),
+      expect(toast.error).toHaveBeenCalledWith("Circle limit reached.", { className: connectTypography.toast }),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -2920,7 +2930,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith("Circle capacity changed."),
+      expect(toast.error).toHaveBeenCalledWith("Circle capacity changed.", { className: connectTypography.toast }),
     );
     expect(screen.getByRole("dialog", { name: "Add people" })).toBeTruthy();
   });

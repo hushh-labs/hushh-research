@@ -5,6 +5,7 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "@/components/icons"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
+import { useTypographyScope } from "@/lib/morphy-ux/ui/typography-scope"
 import { cn } from "@/lib/utils"
 import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 import { useNativeOverlayCollisionPadding } from "@/lib/capacitor/native-presentation-regions"
@@ -42,6 +43,7 @@ function DropdownMenuContent({
   collisionPadding,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  const typographyScope = useTypographyScope()
   const overlayRef = useNativeNavigationOverlayRef<HTMLDivElement>(ref)
   const nativePadding = useNativeOverlayCollisionPadding(collisionPadding)
   return (
@@ -49,9 +51,11 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         ref={overlayRef}
         data-slot="dropdown-menu-content"
+        data-typography-scope={typographyScope}
         sideOffset={sideOffset}
         collisionPadding={nativePadding}
         className={cn(
+          typographyScope,
           "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[side=bottom]:data-[state=closed]:slide-out-to-top-2 data-[side=left]:data-[state=closed]:slide-out-to-right-2 data-[side=right]:data-[state=closed]:slide-out-to-left-2 data-[side=top]:data-[state=closed]:slide-out-to-bottom-2 duration-100 ease-out z-(--z-transient) max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
           className
         )}
@@ -241,10 +245,13 @@ function DropdownMenuSubContent({
   className,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+  const typographyScope = useTypographyScope()
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
+        data-typography-scope={typographyScope}
       className={cn(
+          typographyScope,
         "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[side=bottom]:data-[state=closed]:slide-out-to-top-2 data-[side=left]:data-[state=closed]:slide-out-to-right-2 data-[side=right]:data-[state=closed]:slide-out-to-left-2 data-[side=top]:data-[state=closed]:slide-out-to-bottom-2 duration-100 ease-out z-(--z-transient) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border p-1 shadow-lg",
         className
       )}

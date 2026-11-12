@@ -40,7 +40,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
+import { useTypographyToast } from "@/lib/morphy-ux/ui/use-typography-toast";
 import { contactCountBucket } from "./contact-count-bucket";
 import { useGoogleContactSync, type GoogleContactSyncController } from "./use-google-contact-sync-session";
 
@@ -293,6 +293,7 @@ export type UseContactSync = {
 };
 
 export function useContactSync(options: UseContactSyncOptions): UseContactSync {
+  const toast = useTypographyToast();
   /**
    * Unknown until the probe below answers, and unknown renders nothing.
    *
@@ -507,7 +508,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         toast.info("Contacts synced. Refresh connections to see the latest list.");
       });
     }
-  }, [googleSync.result]);
+  }, [googleSync.result, toast]);
 
   /**
    * Share the app with the contacts a scan could not match.
@@ -577,7 +578,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       if (isShareCancellationError(error)) return;
       toast.error("Could not open the share sheet.");
     }
-  }, [invitations.enabled, invitations.candidates.length, setResultsOpen, openInvitations, prepareInvite]);
+  }, [invitations.enabled, invitations.candidates.length, prepareInvite, setResultsOpen, openInvitations, toast]);
 
   const requestConnection = useCallback(async (addresseeUserId: string) => {
     const { getIdToken, userId } = optionsRef.current;
@@ -807,16 +808,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       inFlightRef.current = false;
       markSyncing(false);
     }
-  }, [
-    googleFallback,
-    runGoogleSync,
-    googleSync.phase,
-    beginInviteSync,
-    setResultsOpen,
-    markSyncing,
-    requestContactCheck,
-    signal,
-  ]);
+  }, [requestContactCheck, googleFallback, googleSync.phase, beginInviteSync, toast, runGoogleSync, markSyncing, setResultsOpen, signal]);
 
   useEffect(() => {
     syncRef.current = sync;
@@ -840,7 +832,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     // the report singled out: "settings mein desired operation enable/disable
     // karne ke baad entry ka path bhi dete hain".
     toast.info("Turn on Contacts for Hushh, then come back — we'll pick up where you left off.");
-  }, [markAwaitingContactSettings]);
+  }, [markAwaitingContactSettings, toast]);
 
   /**
    * Is contact access on now?
@@ -867,7 +859,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     // person actually came back for.
     toast.success("Contact access is on. Syncing…");
     void syncRef.current?.();
-  }, [markAwaitingContactSettings]);
+  }, [markAwaitingContactSettings, toast]);
 
   useEffect(() => {
     openContactSettingsRef.current = openContactSettingsAndWatch;

@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { Button } from "@/lib/morphy-ux/button";
+import { CONNECT_ROW_ACTION_CLASSNAME, CONNECT_ROW_ACTION_PILL_CLASSNAME } from "./connect-row-action";
 import { DirectoryMutualLine } from "@/components/connect/connect-person-row";
 import { ConnectionsService, type NetworkPerson } from "@/lib/services/connections-service";
 import { connectPersonName } from "@/lib/connections/person-label";
 import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
-
-const rowActionClassName = "inline-flex min-h-11 w-20 items-center justify-center justify-self-end rounded-full border border-primary/40 px-2 py-1 text-center text-xs leading-tight font-medium text-primary focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 sm:w-24 sm:text-sm [@media(hover:hover)]:hover:bg-primary/5";
 
 /** Independent action/profile controls: connecting never opens or selects a profile. */
 export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connecting, connectionError }: {
@@ -61,9 +61,9 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
     >
       <ConnectionPersonAvatar label={name} photoUrl={person.photoUrl} size="list" className="!size-9 sm:!size-10" />
       <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-        <span dir="auto" className="min-w-0 text-sm leading-snug font-medium group-hover/network-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere] sm:text-base">{name}</span>
+        <span data-connect-role="name" dir="auto" className="min-w-0 text-sm leading-snug font-medium group-hover/network-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere] sm:text-base">{name}</span>
         {person.networkDegree ? (
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
+          <span data-connect-role="description" className="rounded-full bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
             {person.networkDegree === 1 ? "1st" : person.networkDegree === 2 ? "2nd" : "3rd"}
           </span>
         ) : null}
@@ -72,13 +72,13 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
     <DirectoryMutualLine
       person={person}
       networkPersonRef={person.publicPersonRef}
-      className="col-span-full row-start-2 ms-[2.875rem] min-h-11 justify-self-start text-xs leading-snug text-muted-foreground sm:col-span-1 sm:ms-[3.25rem]"
+      className="ui-text-row-description col-span-full row-start-2 ms-[2.875rem] min-h-11 justify-self-start text-xs leading-snug text-muted-foreground sm:col-span-1 sm:ms-[3.25rem]"
       onOpenMutual={element => void openMutual(element)}
     />
-    {status === "none" ? <button type="button" data-network-person={person.publicPersonRef} data-network-focus="connect" aria-label={`Connect with ${name}`} disabled={busy || connecting} className={cn(rowActionClassName, trailingClassName)} onClick={onConnect}>{connecting ? "Sending…" : "Connect"}</button>
-      : status === "pending_incoming" ? <button type="button" data-network-person={person.publicPersonRef} data-network-focus="request" className={cn(rowActionClassName, trailingClassName)} onClick={event => onOpen(event.currentTarget)}>View request</button>
-      : status === "connected" || status === "pending_outgoing" ? <span className={cn("w-20 text-end text-xs leading-snug text-muted-foreground sm:w-24", trailingClassName)}>{status === "connected" ? "Connected" : "Request sent"}</span> : null}
-    {error ? <p role="alert" className="col-span-full text-sm text-destructive">{error}</p> : null}
-    {connectionError ? <p role="alert" className="col-span-full text-sm text-destructive">{connectionError}</p> : null}
+    {status === "none" ? <Button variant="none" effect="fade" size="compact" type="button" data-network-person={person.publicPersonRef} data-network-focus="connect" aria-label={`Connect with ${name}`} disabled={busy || connecting} data-connect-role="action" className={cn(CONNECT_ROW_ACTION_CLASSNAME, trailingClassName)} onClick={onConnect}><span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>{connecting ? "Sending…" : "Connect"}</span></Button>
+      : status === "pending_incoming" ? <Button variant="none" effect="fade" size="compact" type="button" data-network-person={person.publicPersonRef} data-network-focus="request" data-connect-role="action" className={cn(CONNECT_ROW_ACTION_CLASSNAME, trailingClassName)} onClick={event => onOpen(event.currentTarget)}><span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>View request</span></Button>
+      : status === "connected" || status === "pending_outgoing" ? <span data-connect-role="description" className={cn("w-20 text-end text-xs leading-snug text-muted-foreground sm:w-24", trailingClassName)}>{status === "connected" ? "Connected" : "Request sent"}</span> : null}
+    {error ? <p data-connect-role="description" role="alert" className="col-span-full text-sm text-destructive">{error}</p> : null}
+    {connectionError ? <p data-connect-role="description" role="alert" className="col-span-full text-sm text-destructive">{connectionError}</p> : null}
   </li>;
 }
