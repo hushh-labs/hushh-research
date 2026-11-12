@@ -904,7 +904,7 @@ export function SavedLocationsSection() {
                       </button>
 
                       {expanded ? (
-                        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
+                        <div data-no-auto-fade="true" className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
                           {!location.address && (resolvedAddresses[location.id] === null || (!address && !findingAddress)) ? (
                             <button
                               type="button"

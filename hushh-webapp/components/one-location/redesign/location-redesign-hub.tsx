@@ -3318,6 +3318,7 @@ function LocationSettingsFlow({
 
           <DialogFooter>
             <FlowActionGroup
+              stacked
               separateSecondary={false}
               measure="decision"
               className="w-auto max-w-44"
