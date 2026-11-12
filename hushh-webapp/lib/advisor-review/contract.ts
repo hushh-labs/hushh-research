@@ -126,7 +126,7 @@ export const advisorMeetingSchema = z
 export type AdvisorMeeting = z.infer<typeof advisorMeetingSchema>;
 const planSchema = z
   .object({
-    amountCents: z.number().int().min(100).max(100000),
+    amountCents: z.number().int().min(50).max(100000),
     currency: z.literal("usd"),
     interval: z.enum(["one_time", "month"]),
     services: z.string().max(1500),
