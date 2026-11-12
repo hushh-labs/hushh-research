@@ -170,7 +170,9 @@ def test_workos_preserved_observation_keeps_fresh_database_and_inventory_gates(
     monkeypatch.setattr(module, "_capable", lambda *_: True)
     inventories = iter([{}, {"changed": {}} if failure == "inventory_changed" else {}])
     monkeypatch.setattr(module, "_revisions", lambda *_: next(inventories))
-    monkeypatch.setattr(module, "_document", lambda *_: [event])
+    monkeypatch.setattr(
+        module, "_document", lambda command: [] if "system_event" in command[3] else [event]
+    )
     database = MagicMock(return_value={"memberships_empty": True, "sso_receipts_empty": True})
     if failure == "database":
         database.side_effect = ValueError("workos_mutation_authority_already_exists")
@@ -252,7 +254,11 @@ def test_preserved_workos_observation_authenticates_exact_original_receipt(
         assert result["row"] == observation["row"]
         assert result["provenance"]["artifact_digest"] == historical.DIGEST
         owner.serving_reference.assert_called_once()
-        continuation.manual.assert_called_once_with(run)
+        assert (
+            owner.serving_reference.call_args.kwargs["manual_validator"]
+            is historical.historical_manual
+        )
+        continuation.manual.assert_not_called()
         assert continuation.fresh_run.call_count == 2
 
 
@@ -389,3 +395,105 @@ def test_retired_workos_observation_follows_authenticated_original_cold_pointer(
         if kind != "operational":
             proof.load.assert_called_once_with("42", 2, **module._ports(owner))
             continuation.archive_context.assert_called_once()
+
+
+@pytest.mark.parametrize("defect", [None, "missing_completion", "wrong_tag", "changed_template"])
+def test_recorded_inert_bridge_joins_activity_and_system_events(closed_workos, defect):
+    import workos_recovery_bridge as bridge
+
+    authority = bridge.contract()
+    marker = authority["REVISION"]
+    requests, completions = [], []
+    labels = {
+        "project_id": authority["PROJECT"],
+        "location": authority["REGION"],
+        "service_name": authority["BACKEND"],
+    }
+    for step in range(3):
+        routes = copy.deepcopy(bridge.BASE_TRAFFIC)
+        if step == 1:
+            routes.append({"revisionName": marker, "tag": authority["STARTUP_TAG"]})
+        template = authority["template"]()
+        meta = {"name": authority["BACKEND"], "namespace": bridge.NAMESPACE}
+        start = f"2026-11-11T08:58:{32 + 2 * step}.500000Z"
+        end = f"2026-11-11T08:58:{33 + 2 * step}.500000Z"
+        request = {
+            "metadata": {**meta, "resourceVersion": f"before-{step}"},
+            "spec": {"template": copy.deepcopy(template), "traffic": copy.deepcopy(routes)},
+        }
+        requests.append(
+            {
+                "timestamp": start,
+                "insertId": bridge.BIRTH[0] if not step else f"request-{step}",
+                "resource": {"labels": labels},
+                "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+                "protoPayload": {
+                    "serviceName": "run.googleapis.com",
+                    "methodName": "google.cloud.run.v1.Services.ReplaceService",
+                    "resourceName": f"namespaces/{bridge.NAMESPACE}/services/{authority['BACKEND']}",
+                    "authenticationInfo": {"principalEmail": bridge.DEPLOYER},
+                    "request": {"service": request},
+                },
+            }
+        )
+        template["metadata"]["labels"]["run.googleapis.com/startupProbeType"] = "Custom"
+        completions.append(
+            {
+                "timestamp": end,
+                "insertId": bridge.BIRTH[1] if not step else f"completion-{step}",
+                "resource": {"labels": labels},
+                "logName": bridge.COMPLETION_LOG,
+                "protoPayload": {
+                    "serviceName": "run.googleapis.com",
+                    "methodName": "/Services.ReplaceService",
+                    "resourceName": f"namespaces/{authority['PROJECT']}/services/{authority['BACKEND']}",
+                    "response": {
+                        "kind": "Service",
+                        "metadata": {
+                            **meta,
+                            "uid": authority["BACKEND_SERVICE_UID"],
+                            "generation": 316 + step,
+                            "resourceVersion": f"after-{step}",
+                        },
+                        "status": {"latestCreatedRevisionName": marker},
+                        "spec": {"template": template, "traffic": routes},
+                    },
+                },
+            }
+        )
+    if defect == "missing_completion":
+        completions.pop()
+    elif defect == "wrong_tag":
+        requests[1]["protoPayload"]["request"]["service"]["spec"]["traffic"][-1]["percent"] = 1
+    elif defect == "changed_template":
+        template["spec"]["containers"][0]["env"] = [{"name": "WORKOS_SSO_ENABLED", "value": "true"}]
+    inventory = authority["template"]()
+    inventory["metadata"].update(
+        uid=authority["OBSERVED_BRIDGE_UID"], creationTimestamp=requests[0]["timestamp"]
+    )
+    inventory["metadata"]["labels"]["serving.knative.dev/service"] = authority["BACKEND"]
+    inventory["metadata"]["labels"]["serving.knative.dev/serviceUid"] = authority[
+        "BACKEND_SERVICE_UID"
+    ]
+    inventory["status"] = {"imageDigest": authority["BACKEND_IMAGE"]}
+    rows = closed_workos.revision_inventory(
+        [inventory], check=lambda _: True, project=authority["PROJECT"]
+    )
+    assert rows[marker]["capable"] is False
+    arguments = {
+        "project": authority["PROJECT"],
+        "until": "2026-11-11T09:00:00Z",
+        "check": lambda _: True,
+        "bridge_completions": completions,
+    }
+    if defect:
+        with pytest.raises(ValueError, match="workos_recorded_bridge_audit_unqualified"):
+            closed_workos.review_history(requests, rows, **arguments)
+    else:
+        assert closed_workos.review_history(requests, rows, **arguments) == 3
+        assert closed_workos.review_history(requests, {}, **arguments) == 3
+        inventory["metadata"]["uid"] = "different-revision"
+        with pytest.raises(ValueError, match="workos_recorded_bridge_revision_unqualified"):
+            closed_workos.revision_inventory(
+                [inventory], check=lambda _: True, project=authority["PROJECT"]
+            )

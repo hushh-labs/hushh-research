@@ -77,6 +77,10 @@ class Ports:
         self.calls, self.mutations = [], []
         self.scanner = True
         self.config_state = "ENABLED"
+        self.provider_startup = True
+        self.replace_timeouts = set()
+        self.read_faults = {}
+        self.before_replace = None
 
     def run(self, command, **_kwargs):
         self.calls.append(command)
@@ -92,12 +96,35 @@ class Ports:
         args = [item for item in command[1:] if item != "--quiet"]
         if args[:3] == ["run", "services", "replace"]:
             self.replace(Path(args[3]))
+            if len(self.mutations) in self.replace_timeouts:
+                raise subprocess.TimeoutExpired(command, 120)
             return b"{}"
         result = self.read(args)
         return json.dumps(result).encode()
 
     def read(self, args):
         if args[:3] == ["run", "services", "describe"]:
+            reads = self.read_faults.get(len(self.mutations), [])
+            if reads:
+                fault = reads.pop(0)
+                value = copy.deepcopy(self.value)
+                if fault == "baseline":
+                    return copy.deepcopy(self.before_replace)
+                if fault == "generation":
+                    value["status"]["observedGeneration"] -= 1
+                elif fault == "traffic":
+                    value["status"]["traffic"] = (
+                        copy.deepcopy(self.mutations[-2]["spec"]["traffic"])
+                        if len(self.mutations) > 1
+                        else [{"revisionName": WORKER.RECORDED_SERVING, "percent": 100}]
+                    )
+                elif fault == "service_uid":
+                    value["metadata"]["uid"] = "foreign-service"
+                elif fault == "route":
+                    value["spec"]["traffic"][-1]["percent"] = 1
+                else:
+                    raise AssertionError(f"Unexpected provider lag: {fault}")
+                return value
             return self.value
         if args[:3] == ["run", "services", "get-iam-policy"]:
             return self.policy
@@ -122,23 +149,32 @@ class Ports:
 
     def replace(self, path):
         resource = json.loads(path.read_bytes())
+        self.before_replace = copy.deepcopy(self.value)
         assert resource["metadata"]["resourceVersion"] == self.value["metadata"]["resourceVersion"]
         self.mutations.append(resource)
         self.value["spec"] = resource["spec"]
         self.value["metadata"]["generation"] += 1
-        self.value["metadata"]["resourceVersion"] = "2"
+        self.value["metadata"]["resourceVersion"] = str(self.value["metadata"]["generation"])
         self.value["status"]["observedGeneration"] += 1
         template = resource["spec"]["template"]
-        metadata = {
-            **template["metadata"],
-            "uid": "candidate-uid",
-            "creationTimestamp": "2026-10-27T00:01:00Z",
-        }
-        self.revisions[metadata["name"]] = {
-            "metadata": metadata,
-            "spec": copy.deepcopy(template["spec"]),
-            "status": {"conditions": [{"type": "Ready", "status": "True"}]},
-        }
+        name = template["metadata"]["name"]
+        self.value["status"]["traffic"] = copy.deepcopy(resource["spec"]["traffic"])
+        if name not in self.revisions:
+            metadata = {
+                **template["metadata"],
+                "uid": "candidate-uid",
+                "creationTimestamp": "2026-10-27T00:01:00Z",
+            }
+            conditions = [{"type": "Ready", "status": "True"}]
+            self.value["status"]["latestCreatedRevisionName"] = name
+            if self.provider_startup:
+                conditions.append({"type": "ContainerHealthy", "status": "True"})
+                self.value["status"]["latestReadyRevisionName"] = name
+            self.revisions[name] = {
+                "metadata": metadata,
+                "spec": copy.deepcopy(template["spec"]),
+                "status": {"conditions": conditions},
+            }
 
 
 @pytest.fixture
@@ -164,6 +200,132 @@ def _stage(path, monkeypatch):
     monkeypatch.setenv("DRIVE_WORKER_STAGE_INTENT_SHA256", digest)
     WORKER.stage(path)
     return digest
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        "ready",
+        "timeouts_applied",
+        "unready",
+        "wrong_expired_uid",
+        "delayed_create",
+        "delayed_cleanup",
+        "delayed_unready",
+        "unresolved",
+        "foreign_service",
+        "cleanup_unresolved",
+        "candidate_replaced",
+        "foreign_route",
+    ],
+)
+def test_recorded_recovery_starts_the_private_candidate_and_clears_its_tag(
+    stage_ports, tmp_path, monkeypatch, result
+):
+    monkeypatch.setenv("DEPLOY_SHA", WORKER.RECOVERY["APPLICATION_SHA"])
+    live = stage_ports.value
+    old = stage_ports.revisions.pop(OLD)
+    old["metadata"].update(name=WORKER.RECORDED_SERVING, uid=WORKER.RECORDED_SERVING_UID)
+    stage_ports.revisions[WORKER.RECORDED_SERVING] = old
+    expired = copy.deepcopy(old)
+    expired["metadata"].update(
+        name=WORKER.RECORDED_EXPIRED,
+        uid=WORKER.RECORDED_EXPIRED_UID if result != "wrong_expired_uid" else "changed",
+    )
+    stage_ports.revisions[WORKER.RECORDED_EXPIRED] = expired
+    routes = [{"revisionName": WORKER.RECORDED_SERVING, "percent": 100}]
+    live["metadata"]["uid"] = WORKER.RECORDED_WORKER_UID
+    live["spec"]["traffic"] = copy.deepcopy(routes)
+    live["spec"]["template"] = {
+        "metadata": copy.deepcopy(expired["metadata"]),
+        "spec": copy.deepcopy(expired["spec"]),
+    }
+    live["status"].update(
+        latestCreatedRevisionName=WORKER.RECORDED_EXPIRED,
+        latestReadyRevisionName=WORKER.RECORDED_EXPIRED,
+        traffic=copy.deepcopy(routes),
+    )
+    stage_ports.provider_startup = result not in {
+        "unready",
+        "delayed_unready",
+        "candidate_replaced",
+    }
+    if result in {
+        "timeouts_applied",
+        "delayed_create",
+        "delayed_cleanup",
+        "delayed_unready",
+        "unresolved",
+        "foreign_service",
+        "cleanup_unresolved",
+    }:
+        stage_ports.replace_timeouts = {1, 2}
+    if result in {"delayed_create", "delayed_unready"}:
+        stage_ports.read_faults[1] = ["baseline", "generation", "traffic"]
+    if result == "delayed_cleanup":
+        stage_ports.read_faults[2] = ["generation", "traffic"]
+    if result == "unresolved":
+        stage_ports.read_faults[1] = ["generation"] * 30
+    if result == "cleanup_unresolved":
+        stage_ports.read_faults[2] = ["traffic"] * 30
+    if result == "foreign_service":
+        stage_ports.read_faults[1] = ["service_uid"] * 30
+    if result == "foreign_route":
+        stage_ports.read_faults[1] = ["route"] * 30
+    if result == "candidate_replaced":
+
+        def change_candidate(_seconds):
+            actual = stage_ports.revisions[NEW]
+            actual["metadata"]["uid"] = "foreign-candidate"
+            actual["status"]["conditions"].append({"type": "ContainerHealthy", "status": "True"})
+            live["status"]["latestReadyRevisionName"] = NEW
+
+        monkeypatch.setattr(WORKER.time, "sleep", change_candidate)
+    path = tmp_path / "intent.json"
+    if result == "wrong_expired_uid":
+        with pytest.raises(ValueError, match="expired_template_changed"):
+            WORKER.prepare(path)
+        assert not stage_ports.mutations
+        return
+    if result in {
+        "unresolved",
+        "foreign_service",
+        "candidate_replaced",
+        "foreign_route",
+        "cleanup_unresolved",
+    }:
+        expected = {
+            "unresolved": "repair_required",
+            "foreign_service": "service_uid_changed",
+            "candidate_replaced": "staged_revision_changed",
+            "foreign_route": "startup_route_changed",
+            "cleanup_unresolved": "repair_required",
+        }[result]
+        with pytest.raises(ValueError, match=expected):
+            _stage(path, monkeypatch)
+        assert len(stage_ports.mutations) == (2 if result == "cleanup_unresolved" else 1)
+        assert not path.with_suffix(".json.staged.json").exists()
+        assert path.exists()  # Original durable intent remains for operator reconciliation.
+        assert stage_ports.jobs == SNAPSHOT
+        assert live["spec"]["traffic"][0] == routes[0]
+        return
+    if result in {"unready", "delayed_unready"}:
+        with pytest.raises(ValueError, match="provider_startup_unqualified"):
+            _stage(path, monkeypatch)
+        assert not path.with_suffix(".json.staged.json").exists()
+    else:
+        _stage(path, monkeypatch)
+        staged = json.loads(path.with_suffix(".json.staged.json").read_bytes())
+        WORKER.validate(staged, path.with_suffix(".json.scheduler.json"), allow_retirement=True)
+        assert live["status"]["latestReadyRevisionName"] == NEW
+    assert len(stage_ports.mutations) == 2
+    initial = stage_ports.mutations[0]["spec"]
+    assert initial["traffic"] == [*routes, WORKER.startup_target({"candidate": NEW})]
+    assert (
+        initial["template"]["metadata"]["annotations"]["run.googleapis.com/health-check-disabled"]
+        == "false"
+    )
+    assert live["spec"]["traffic"] == live["status"]["traffic"] == routes
 
 
 def test_preparation_accepts_the_resolved_pinned_scanner(stage_ports, tmp_path):
