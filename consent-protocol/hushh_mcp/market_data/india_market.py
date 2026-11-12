@@ -328,11 +328,13 @@ async def fetch_india_movers() -> dict[str, Any]:
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
-    rows = [
-        task.result()
-        for task in done
-        if not task.cancelled() and task.exception() is None and task.result()
-    ]
+    rows: list[dict[str, Any]] = []
+    for task in done:
+        if task.cancelled() or task.exception() is not None:
+            continue
+        row = task.result()
+        if row:
+            rows.append(row)
     if not rows:
         raise RuntimeError("india_movers_unavailable")
     return build_india_movers(rows)
