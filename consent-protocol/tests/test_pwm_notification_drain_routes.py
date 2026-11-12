@@ -150,3 +150,80 @@ def test_scheduler_config_is_one_exact_authority(tmp_path, field, bad):
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError):
         load_pwm_policy(path)
+
+
+@pytest.mark.parametrize(
+    "defect", [None, "issuer", "audience", "account", "unverified", "token", "disabled", "revoked"]
+)
+def test_website_pwm_authenticates_before_loading_grant(monkeypatch, defect):
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from api.routes import website_pwm_research as website
+
+    audience = "https://synthetic.run.app/api/internal/website-pwm/run"
+    caller = "website@synthetic.iam.gserviceaccount.com"
+    callback = "https://website.run.app/api/profile-research/internal/one-grant"
+    for key, value in {
+        "WEBSITE_PWM_WORKER_AUDIENCE": audience,
+        "WEBSITE_PWM_WORKER_IDENTITY": caller,
+        "WEBSITE_PWM_GRANT_URL": callback,
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        website,
+        "get_app_runtime_settings",
+        lambda: SimpleNamespace(environment="production" if defect == "disabled" else "uat"),
+    )
+    verify = Mock(
+        return_value={
+            "iss": "https://other.test" if defect == "issuer" else "https://accounts.google.com",
+            "aud": "https://other.test" if defect == "audience" else audience,
+            "email": "other" if defect == "account" else caller,
+            "email_verified": defect != "unverified",
+        }
+    )
+    if defect == "token":
+        verify.side_effect = ValueError("synthetic invalid audience")
+    monkeypatch.setattr(website, "verify_token", verify)
+    mint = Mock(return_value="synthetic-callback-token")
+    monkeypatch.setattr(website, "fetch_id_token", mint)
+    payload = {"uid": "owner", "job_id": str(uuid4()), "lease": str(uuid4())}
+    post = AsyncMock(
+        return_value=Mock(
+            status_code=200,
+            json=lambda: {
+                "consent_version": "synthetic",
+                "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
+                "attempts_used": [],
+            },
+        )
+    )
+    if defect == "revoked":
+        post.return_value.status_code = 409
+    client = AsyncMock()
+    client.__aenter__.return_value.post = post
+    monkeypatch.setattr(website.httpx, "AsyncClient", lambda **_: client)
+    runner = AsyncMock(return_value={"status": "offered", "pkm_written": False})
+    monkeypatch.setattr(website, "run_website_research_slice", runner)
+    app = FastAPI()
+    app.include_router(website.router)
+    response = TestClient(app).post(
+        "/api/internal/website-pwm/run",
+        json=payload,
+        headers={"Authorization": "Bearer synthetic-token"},
+    )
+    assert response.headers["cache-control"] == "private, no-store"
+    if defect:
+        assert response.status_code == (
+            404 if defect == "disabled" else 409 if defect == "revoked" else 403
+        )
+        runner.assert_not_awaited()
+        if defect != "revoked":
+            mint.assert_not_called()
+            post.assert_not_awaited()
+    else:
+        assert response.status_code == 200
+        verify.assert_called_once_with("synthetic-token", audience)
+        runner.assert_awaited_once()
+        assert post.await_args.kwargs["json"] == {**payload, "action": "load"}
