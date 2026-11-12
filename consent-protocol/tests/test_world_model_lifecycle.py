@@ -387,7 +387,16 @@ async def test_public_source_review_preserves_successful_receipts_when_another_p
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "change", [None, "withdrawn", "expired", "private", "deleted", "private_after_read"]
+    "change",
+    [
+        None,
+        "withdrawn",
+        "expired",
+        "private",
+        "deleted",
+        "private_after_read",
+        "disabled_after_read",
+    ],
 )
 async def test_website_research_preserves_hub_and_grant_authority(
     monkeypatch, shared_hub_owner, active_account_lifecycle, change
@@ -409,7 +418,8 @@ async def test_website_research_preserves_hub_and_grant_authority(
     monkeypatch.setattr(
         website, "get_app_runtime_settings", lambda: SimpleNamespace(environment="uat")
     )
-    monkeypatch.setattr(website, "one_profile_research_enabled", lambda: True)
+    enabled = {"value": True}
+    monkeypatch.setattr(website, "one_profile_research_enabled", lambda: enabled["value"])
     monkeypatch.setattr(
         website,
         "load_pwm_policy",
@@ -429,6 +439,8 @@ async def test_website_research_preserves_hub_and_grant_authority(
     async def resolve(*_):
         if change == "private_after_read":
             shared_hub_owner.return_value = "byoc"
+        if change == "disabled_after_read":
+            enabled["value"] = False
         return identity
 
     monkeypatch.setattr(website, "resolve_profile_research_identity", resolve)
@@ -463,7 +475,7 @@ async def test_website_research_preserves_hub_and_grant_authority(
             await operation
         reserve.assert_not_awaited()
         checkpoint.assert_not_awaited()
-        if change != "private_after_read":
+        if change not in {"private_after_read", "disabled_after_read"}:
             runner.assert_not_awaited()
     else:
         result = await operation
