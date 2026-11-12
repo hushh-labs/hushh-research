@@ -67,17 +67,17 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), mutual count with up to two previews (`mutualConnectionPreviews`; `mutualConnectionPreview` is the first), `canBrowseConnections`, and nullable `visibleConnectionCount`. The count uses the unfiltered shared list's eligibility, excludes the viewer, and caps at 501 for the **500+** label. No internal identity, graph path, email, phone, or consent contents. |
 | `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance. `query` searches names (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. Viewer discovery with `degree=3&page=1&include_suggestions=true` adds up to four eligible public profiles outside the qualified graph in `suggestions`, with a `verified_advisor` or `name_match` reason. Suggestions do not affect graph pagination. |
-| `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
-| `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
+| `GET /api/one/connections/network/visibility` | The caller's own extended network discovery preference, retaining the compatibility key `shareConnectionList`. Missing or existing accounts default to false. This preference does not restrict accepted direct connections from viewing the caller's eligible connection count and list. |
+| `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's extended network discovery preference. Account reset clears this permission. |
 
-A wider list requires its owner's explicit opt-in and the viewer's current active
-direct connection. Every page rechecks owner permission, peer edges, profile
-lifecycle and blocks after directory work. Unavailable, blocked and unauthorized
+A person's connection count and list require the viewer's current accepted active
+direct connection, without a separate sharing opt-in. Every page rechecks that
+relationship, peer edges, profile lifecycle and blocks after directory work. Unavailable, blocked and unauthorized
 targets share a neutral 404. Mid-read invalidation returns retryable 503 instead
 of disclosing a stale page or silently thinning pagination.
 
-The summary applies the same sharing gate to its count. A zero means the viewer
-can browse a shared list with no eligible peers. A null means the count is
+The summary applies the same accepted direct relationship requirement to its count.
+A zero means the viewer can browse a list with no eligible peers. A null means the count is
 unavailable. List pagination continues past the display cap.
 
 Mutuals remain people directly connected to both viewer and target; their existing

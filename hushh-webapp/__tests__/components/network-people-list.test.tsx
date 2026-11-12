@@ -376,7 +376,7 @@ describe("network permission and journey return @feature_connected_profiles", ()
     let finish!: (value: unknown) => void;
     state.update.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const { rerender } = render(<NetworkVisibilitySetting />);
-    const toggle = screen.getByRole("switch", { name: "Share my connection list" });
+    const toggle = screen.getByRole("switch", { name: "Extended network discovery" });
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
     await waitFor(() => expect(finish).toBeDefined());
