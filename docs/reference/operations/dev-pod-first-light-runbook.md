@@ -73,7 +73,7 @@ Archive small sanitized evidence envelopes beside the existing release artifacts
 under `pod-releases/<image-source>/<prepare-run>/qualification-<kind>.json`.
 Retain original authenticated native execution observations and reviewed probe
 code. Do not replace those observations with authored success booleans.
-The offline `scripts/deploy/inspect-pod-release-evidence.py` inspector checks consistency
+The offline `scripts/ops/inspect-pod-release-evidence.py` inspector checks consistency
 of retained image, recovery and reviewed-envelope records. For metadata-only
 publication, supply both `--image-release-json` and `--image-preparation-json`
 for the original build alongside the current publication files. Its output

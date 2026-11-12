@@ -130,3 +130,38 @@ def test_changed_pinned_envelope_bytes_are_refused(case):
     (case.root / ref["object"]).write_text("changed")
     with pytest.raises(ValueError, match="bytes changed"):
         case.inspector.inspect(case.args)
+
+
+@pytest.mark.parametrize(
+    "object_url",
+    [
+        "https://example.test/evidence.json",
+        "https://storage.googleapis.com/storage/v1/b/hushh-pda-dev_cloudbuild/o/..%2Fescape.json",
+    ],
+)
+def test_offline_transport_refuses_other_hosts_and_path_escape(case, object_url):
+    session = case.inspector._local_session(case.root)
+    with pytest.raises(ValueError):
+        with session.get(
+            object_url,
+            params={"alt": "media", "generation": "1"},
+            timeout=30,
+            stream=True,
+            allow_redirects=False,
+        ):
+            pytest.fail("invalid offline evidence path was accepted")
+
+
+def test_offline_transport_refuses_oversized_archive(case):
+    (case.root / "oversized.json").write_bytes(b"x" * 65537)
+    session = case.inspector._local_session(case.root)
+    url = "https://storage.googleapis.com/storage/v1/b/hushh-pda-dev_cloudbuild/o/oversized.json"
+    with pytest.raises(ValueError, match="size bound"):
+        with session.get(
+            url,
+            params={"alt": "media", "generation": "1"},
+            timeout=30,
+            stream=True,
+            allow_redirects=False,
+        ):
+            pytest.fail("oversized offline evidence was accepted")

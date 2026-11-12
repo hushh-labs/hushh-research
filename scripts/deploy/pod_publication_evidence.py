@@ -171,10 +171,7 @@ def read_object(
     return bytes(raw)
 
 
-def verify_evidence(
-    session, pin: dict, release: dict, *, object_reader=None
-) -> list[dict]:
-    reader = read_object if object_reader is None else object_reader
+def verify_evidence(session, pin: dict, release: dict) -> list[dict]:
     prefix = f"pod-releases/{release['sourceRevision']}/"
     predecessors = set(release["descriptor"]["supportedUpgradeDigests"])
     recovered = set()
@@ -185,7 +182,7 @@ def verify_evidence(
             ref["object"],
         ):
             raise ValueError("Qualification is outside the prepared release archive")
-        raw = reader(session, ref["object"], generation=str(ref["generation"]))
+        raw = read_object(session, ref["object"], generation=str(ref["generation"]))
         if hashlib.sha256(raw).hexdigest() != ref["sha256"]:
             raise ValueError("Reviewed qualification bytes changed")
         observed = json.loads(raw)

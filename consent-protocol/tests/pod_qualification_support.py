@@ -135,7 +135,9 @@ def qualification_case(monkeypatch, root, release, service):
         entry=root / "entry.py",
         pin_path=root / "pin.json",
     )
-    case.inspector = load(monkeypatch, "qualification_inspector", "inspect-pod-release-evidence.py")
+    case.inspector = load(
+        monkeypatch, "qualification_inspector", "../ops/inspect-pod-release-evidence.py"
+    )
     case.writer = load(monkeypatch, "qualification_writer", "publish-pod-catalog.py")
     case.evidence = load(monkeypatch, "qualification_evidence", "pod_publication_evidence.py")
     case.execution = (

@@ -10,28 +10,37 @@ Native freshness, object generations and owner journeys remain separate gates.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import unquote
 
-import pod_publication_evidence as evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 LIMIT = 1_000_000
 
 
-def _reuse_contract():
+def _deploy_module(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(
-        "pod_reuse", ROOT / "scripts/deploy/reuse-pod-release.py"
+        name, ROOT / "scripts/deploy" / filename
     )
     if spec is None or spec.loader is None:
         raise ValueError("release validator unavailable")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+evidence = _deploy_module("offline_publication_evidence", "pod_publication_evidence.py")
+
+
+def _reuse_contract():
+    return _deploy_module("pod_reuse", "reuse-pod-release.py")
 
 
 def _read(path: Path, *, limit: int = LIMIT) -> bytes:
@@ -182,16 +191,32 @@ def _recovery(
     return executions
 
 
-def _reader(directory: Path):
+def _local_session(directory: Path):
     root = directory.resolve()
+    prefix = "https://storage.googleapis.com/storage/v1/b/hushh-pda-dev_cloudbuild/o/"
 
-    def read(_session, name: str, *, generation: str):
-        path = (root / name).resolve()
+    @contextmanager
+    def get(url, *, params, timeout, stream, allow_redirects):
+        if (
+            not url.startswith(prefix)
+            or params.get("alt") != "media"
+            or not params.get("generation")
+            or not stream
+            or allow_redirects
+        ):
+            raise ValueError("offline evidence transport rejected request")
+        path = (root / unquote(url[len(prefix) :])).resolve()
         if not path.is_relative_to(root):
             raise ValueError("evidence path escapes its directory")
-        return _read(path, limit=65536)
+        raw = _read(path, limit=65536)
+        yield SimpleNamespace(
+            status_code=200,
+            iter_content=lambda size: (
+                raw[i : i + size] for i in range(0, len(raw), size)
+            ),
+        )
 
-    return read
+    return SimpleNamespace(get=get)
 
 
 def _original_preparation(args, reuse, preparation_raw, preparation, release):
@@ -247,8 +272,8 @@ def _check_activation(
     if activation["baseline"] != baseline:
         raise ValueError("shared baseline differs from activation pin")
     try:
-        reader = _reader(args.evidence_dir)
-        evidence.verify_evidence(None, activation, release, object_reader=reader)
+        session = _local_session(args.evidence_dir)
+        evidence.verify_evidence(session, activation, release)
         platform_ref = next(
             ref for ref in activation["evidence"] if ref["kind"] == "platform"
         )
@@ -262,7 +287,9 @@ def _check_activation(
             if ref["kind"] != "recovery":
                 continue
             envelope = json.loads(
-                reader(None, ref["object"], generation=str(ref["generation"]))
+                evidence.read_object(
+                    session, ref["object"], generation=str(ref["generation"])
+                )
             )
             if (
                 str(envelope.get("predecessorImage", "")).rsplit("@", 1)[-1]
