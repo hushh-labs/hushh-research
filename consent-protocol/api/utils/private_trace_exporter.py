@@ -71,7 +71,7 @@ class _PrivateTracePropagator(TextMapPropagator):
 
 
 def protect_incoming_trace_context() -> None:
-    """Mitigate GHSA-xcq7-p3pf-p88h while ADK pins the affected OTEL family.
+    """Keep untrusted vendor state out of instrumentation and its diagnostics.
 
     Retain traceparent, baggage and outbound propagation. Install before any
     instrumentation, which otherwise parses tracestate outside app middleware.

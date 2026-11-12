@@ -97,7 +97,7 @@ def test_replayed_follow_ups_are_valid_azure_requests_without_placeholders(case_
     ]
 
 
-def test_without_history_hygiene_the_stored_turns_break_the_follow_up():
+def test_without_history_hygiene_private_placeholders_survive_sdk_pruning():
     from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_RECEIPT_ANSWER
 
     assert "content_redacted" in json.dumps(
@@ -106,8 +106,11 @@ def test_without_history_hygiene_the_stored_turns_break_the_follow_up():
     assert PRIVATE_RECEIPT_ANSWER in json.dumps(
         _wire("receipts.followup_after_spending_answer", hygiene=False)
     )
-    with pytest.raises(ValueError, match="complete tool results"):
-        _wire("receipts.unanswered_device_call_then_question", hygiene=False)
+    # ADK 2.14 prunes the unfinished call before provider projection; it no
+    # longer causes the old adapter error. That SDK change does not remove the
+    # private text placeholders above or authorize replay of the missing effect.
+    wire = _wire("receipts.unanswered_device_call_then_question", hygiene=False)
+    assert not any(item.get("type") == "function_call" for item in wire)
 
 
 def test_follow_up_fixture_names_only_real_tools_and_declared_fields():
