@@ -10,7 +10,7 @@
       "project": "hushh-pda-dev",
       "database_instance": "plg-qualification-pg",
       "connection_policy": {"database_max_connections": 100, "admission_limit": 80, "administrative_reserve": 10},
-      "non_database_services": ["consent-protocol", "dev-kai-redirect", "guard-api", "guard-console", "guard-dispatcher", "guard-writer", "hushh-webapp"],
+      "non_database_services": ["consent-protocol", "dev-kai-redirect", "guard-api", "guard-console", "guard-dispatcher", "guard-writer", "hushh-matrix-dashboard", "hushh-webapp"],
       "non_target_jobs": ["consent-protocol-genai-readiness", "files-proof-queue-recovery-20261001", "guard-observer", "marketplace-investor-replenisher", "obs-supabase-data-health"],
       "services": {
         "consent-protocol-plg-qual": {
