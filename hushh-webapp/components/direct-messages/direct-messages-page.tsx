@@ -4,7 +4,7 @@ import { PersonProfileLink } from "@/components/connections/person-profile-link"
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { formatMessageTime, formatMessageFeedMarker, formatConversationTime } from "@/lib/direct-messages/message-timestamps";
 import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
-import { beginReaction, settleReaction } from "@/lib/direct-messages/reaction-mutation";
+import { beginReaction, reconcileReactions, settleReaction } from "@/lib/direct-messages/reaction-mutation";
 import { VaultContext } from "@/lib/vault/vault-context";
 import { useMessageDraft } from "@/lib/direct-messages/use-message-draft";
 import { MessagesDraftService, MessageDraftSessionExpiredError } from "@/lib/services/messages-draft-service";
@@ -974,6 +974,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           return { ...history, items };
         };
         const reconcileHistory = (current: DirectMessage[], incoming: DirectMessage[]) => {
+          const currentById = new Map(current.map(message => [message.id, message]));
+          incoming = incoming.map(message => {
+            const previous = currentById.get(message.id);
+            return previous ? reconcileReactions(previous, message) : message;
+          });
           if (!snapshot.length) return sortMessages(incoming);
           const oldest = snapshot[0];
           return mergeMessages(current.filter((message) => !snapshotIds.has(message.id)
@@ -1575,7 +1580,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const replaceMessage = (updated: DirectMessage) => {
     reconcileReplyDrafts([updated]);
     setMessages((current) =>
-      current.map((message) => (message.id === updated.id && message.conversationId === updated.conversationId ? updated : message)),
+      current.map((message) => (message.id === updated.id && message.conversationId === updated.conversationId ? reconcileReactions(message, updated) : message)),
     );
   };
 
