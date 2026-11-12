@@ -27,9 +27,9 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
         {change !== null ? <p className={cn(styles.description, "mt-1")}>Period balance change · includes cash flows</p> : null}
       </div>
       {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : null}
-      {invested !== undefined || cash !== undefined ? <dl className={styles.summaryFacts}>
-        <div><dt>Invested</dt><dd>{money(invested ?? null)}</dd></div>
-        <div><dt>Cash</dt><dd>{money(cash ?? null)}</dd></div>
+      {typeof invested === "number" || typeof cash === "number" ? <dl className={styles.summaryFacts}>
+        {typeof invested === "number" ? <div><dt>Invested</dt><dd>{money(invested)}</dd></div> : null}
+        {typeof cash === "number" ? <div><dt>Cash</dt><dd>{money(cash)}</dd></div> : null}
       </dl> : null}
       <p className={styles.description}>{period}</p>
     </SurfaceCardContent>

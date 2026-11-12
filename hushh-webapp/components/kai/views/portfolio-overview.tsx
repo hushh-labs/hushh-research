@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { BarChart3, CalendarDays } from "@/components/icons";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
@@ -12,6 +11,7 @@ import type { StockHistoryLoader } from "@/components/kai/charts/stock-history-p
 import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 import { groupHoldingPositions } from "@/lib/kai/holding-positions";
+import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/kai/market-value-format";
 import { allocationColor } from "@/lib/kai/allocation-colors";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
@@ -19,6 +19,8 @@ import type { DashboardViewModel } from "./dashboard-data-mapper";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import type { KaiPortfolioSection } from "@/lib/navigation/routes";
 import { overviewFacts } from "./portfolio-display-facts";
+import { signedMoney, signedPercent, tone } from "@/components/kai/performance/performance-strip";
+import { sinceBought } from "@/lib/kai/portfolio-performance";
 
 export function PortfolioOverview({ model, portfolio, source, period, action, briefing, sharing, valuationKind, loadHistory, onImport, onOpenSection }: {
   model: DashboardViewModel; portfolio: PortfolioData; source: string;
@@ -33,6 +35,14 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
   const selectedEntries = selectedHolding?.entries.map((entry, index) => ({
     ...entry, client_id: entry.entry_id ?? String(index),
   }));
+  const since = sinceBought(model.canonicalModel.positions);
+  const metrics = model.summaryMetrics;
+  const reported = (label: string, value: number | null) => typeof value === "number" && Number.isFinite(value) ? [{ label, value: formatCurrency(value) }] : [];
+  const performanceRows = [
+    ...reported("Reported balance change", facts.change),
+    ...reported("Income", metrics.totalIncomePeriod),
+    ...reported("Fees", metrics.totalFees === null ? null : -Math.abs(metrics.totalFees)),
+  ];
   const totalValue = model.hero.totalValue;
   const allocations = model.allocation.filter(item => item.value > 0 && Number.isFinite(item.value));
   const allocationTotal = allocations.reduce((sum, item) => sum + item.value, 0);
@@ -45,12 +55,14 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
     <div className={styles.portfolioInsights}>
       <SurfaceCard data-testid="portfolio-performance"><SurfaceCardContent className={styles.insightCard}>
         <SectionLabel role="heading" aria-level={2}>Performance</SectionLabel>
-        <div><p className={styles.insightEyebrow}>Reported balance change</p><p className={facts.change === null ? styles.unavailableChange : styles.insightAmount}>{facts.change === null ? "Unavailable" : formatCurrency(facts.change)}</p></div>
-        <dl className={styles.insightFacts}>
-          <div><dt><CalendarDays aria-hidden="true" />Dated history</dt><dd>{model.quality.historyReady ? "Available" : "Not provided"}</dd></div>
-          <div><dt><BarChart3 aria-hidden="true" />Investment return</dt><dd>Unavailable</dd></div>
-        </dl>
-        <p className={styles.description}>Balance changes can include cash flows.</p>
+        {since ? <div>
+          <p className={styles.insightEyebrow}>Since you bought</p>
+          <p className={cn(styles.insightAmount, tone(since.gain))}>{signedMoney(since.gain)}{since.pct !== null ? ` · ${signedPercent(since.pct)}` : ""}</p>
+          {since.covered < since.eligible ? <p className={styles.description}>Unrealized, on {since.covered} of {since.eligible} positions</p> : null}
+        </div> : null}
+        {performanceRows.length ? <dl className={styles.insightFacts}>
+          {performanceRows.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}
+        </dl> : since ? null : <p className={styles.description}>No performance figures in this statement.</p>}
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
       <SurfaceCard><SurfaceCardContent className={styles.insightCard}>

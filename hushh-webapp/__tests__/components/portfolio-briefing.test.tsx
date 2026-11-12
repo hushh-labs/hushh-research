@@ -99,8 +99,9 @@ describe("portfolio briefing", () => {
     render(<PortfolioOverview model={model} portfolio={portfolio} source="Statement" period="Saved snapshot" onOpenSection={open} />);
     expect(screen.getByText("Example")).toBeTruthy();
     const performance = within(screen.getByTestId("portfolio-performance"));
-    expect(performance.getByText("Investment return").nextElementSibling?.textContent).toBe("Unavailable");
-    expect(performance.getByText("Reported balance change").nextElementSibling?.textContent).toBe("Unavailable");
+    expect(performance.queryByText("Unavailable")).toBeNull();
+    expect(performance.queryByText("Since you bought")).toBeNull();
+    expect(performance.queryByText("Reported balance change")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View performance" }));
     expect(open).toHaveBeenCalledWith("performance");
     fireEvent.click(screen.getByRole("button", { name: "View allocation" }));
@@ -115,9 +116,10 @@ describe("portfolio briefing", () => {
     render(<PortfolioOverview model={model} portfolio={portfolio} source="Statement" period="Saved snapshot" onOpenSection={vi.fn()}
       briefing={<PortfolioBriefing onOpen={vi.fn()} />} />);
     const performance = within(screen.getByTestId("portfolio-performance"));
-    expect(performance.getByText("Reported balance change").nextElementSibling?.textContent).toBe(change === null ? "Unavailable" : change === 0 ? "$0.00" : "-$25.00");
-    expect(performance.getByText("Investment return").nextElementSibling?.textContent).toBe("Unavailable");
-    expect(performance.getByText("Dated history").nextElementSibling?.textContent).toBe("Available");
+    if (change === null) expect(performance.queryByText("Reported balance change")).toBeNull();
+    else expect(performance.getByText("Reported balance change").nextElementSibling?.textContent).toBe(change === 0 ? "$0.00" : "-$25.00");
+    expect(performance.queryByText("Investment return")).toBeNull();
+    expect(performance.queryByText("Unavailable")).toBeNull();
   });
 
   it("shows a saved score and next step only for the matching portfolio", async () => {

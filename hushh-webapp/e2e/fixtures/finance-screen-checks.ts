@@ -91,7 +91,8 @@ export function registerFinanceScreenChecks(
         await expect(review.getByText("Separate the cash you’ll need from the cash you can invest.")).toBeVisible();
         const performance = overview.getByTestId("portfolio-performance");
         await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();
-        await expect(performance.getByText("Investment return", { exact: true }).locator("..")).toContainText("Unavailable");
+        await expect(performance.getByText("Investment return", { exact: true })).toHaveCount(0);
+        await expect(performance.getByText("Unavailable", { exact: true })).toHaveCount(0);
         if (width >= 1024) {
           // The workspace should use the available content width rather than
           // introducing a second, narrower reading measure below the tabs.
