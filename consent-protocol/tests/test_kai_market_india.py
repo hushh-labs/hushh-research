@@ -37,6 +37,25 @@ def _quotes() -> dict[str, dict]:
     return quotes
 
 
+def _mover_rows() -> list[dict]:
+    def row(symbol: str, change: float) -> dict:
+        return {
+            "symbol": symbol,
+            "company_name": symbol.title(),
+            "price": 100.0,
+            "change_pct": change,
+            "volume": 1_000.0,
+            "as_of": "2026-11-12T10:01:00+00:00",
+            "source_tags": ["Yahoo Finance", "NSE"],
+            "degraded": False,
+        }
+
+    return [
+        row("TATASTEEL", 3.1), row("SBIN", 1.8), row("HINDALCO", 2.6),
+        row("WIPRO", -1.4), row("INFY", -0.9), row("TECHM", -0.8), row("ITC", 0.0),
+    ]  # fmt: skip
+
+
 STATUS = {
     "label": "Market Status",
     "value": "Closed (after-hours)",
@@ -84,15 +103,23 @@ async def test_india_view_refreshes_while_the_us_session_is_closed(monkeypatch):
     monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
     monkeypatch.setattr(market_insights, "_us_market_is_open", lambda *_: False)
     monkeypatch.setattr(market_insights, "_fetch_market_status_for_exchange", status)
+
+    async def movers() -> dict:
+        return india_market.build_india_movers(_mover_rows())
+
     monkeypatch.setattr(india_market, "fetch_india_quotes", quotes)
     monkeypatch.setattr(india_market, "fetch_india_news", news)
+    monkeypatch.setattr(india_market, "fetch_india_movers", movers)
 
     payload = await market_insights._get_india_market_payload("user_a", 7)
 
     assert payload["market"] == "IN" and payload["meta"]["market"] == "IN"
     assert payload["market_overview"][0]["value"] == 25299.35
     assert payload["news_tape"][0]["title"] == "Nifty ends higher"
-    assert payload["sector_rotation"] and payload["movers"]["degraded"] is True
+    assert payload["sector_rotation"]
+    assert [row["symbol"] for row in payload["movers"]["gainers"]][:2] == ["TATASTEEL", "HINDALCO"]
+    assert [row["symbol"] for row in payload["movers"]["losers"]][:1] == ["WIPRO"]
+    assert payload["movers"]["universe"] == "nse_large_caps"
     # Metal had a single point, so the payload says one module is partial instead of healthy.
     assert payload["provider_status"]["india_sectors"] == "partial"
     assert payload["stale"] is False  # a partial sector set must not grey out healthy index levels
@@ -111,6 +138,7 @@ async def test_total_india_outage_returns_a_degraded_payload_instead_of_failing(
     monkeypatch.setattr(market_insights, "_fetch_market_status_for_exchange", status)
     monkeypatch.setattr(india_market, "fetch_india_quotes", down)
     monkeypatch.setattr(india_market, "fetch_india_news", down)
+    monkeypatch.setattr(india_market, "fetch_india_movers", down)
 
     payload = await market_insights._get_india_market_payload("user_a", 7)
 
@@ -151,3 +179,68 @@ def test_india_news_is_newest_first_deduplicated_and_carries_a_publisher_logo():
     )
     assert rows[1]["source_logo_url"] is None  # an unusable publisher URL never becomes a logo link
     assert all(row["symbol"] == "MARKET" for row in rows)
+
+
+def test_nse_stock_change_is_measured_from_the_previous_session_not_a_stale_close():
+    day = 86_400
+    base = 1_762_900_000  # an arbitrary IST early morning; every bar below falls on its own session date
+    chart = {
+        "meta": {
+            "regularMarketPrice": 1339.7,
+            "regularMarketTime": base + 2 * day,
+            "regularMarketVolume": 13_782_182,
+            "longName": "Reliance Industries Limited",
+            "exchangeTimezoneName": "Asia/Kolkata",
+            # Yahoo's own previous close here is the start of the range, not yesterday.
+            "chartPreviousClose": 1313.4,
+        },
+        "timestamp": [base, base + day, base + 2 * day, base + 2 * day + 3600],
+        "indicators": {"quote": [{"close": [1300.0, 1335.4, 1339.0, 1339.7]}]},
+    }
+    row = india_market.parse_nse_chart(chart, "RELIANCE")
+    # The duplicate live bar for the last session collapses, so the change is 1339.7 vs 1335.4.
+    assert row["change_pct"] == pytest.approx((1339.7 / 1335.4 - 1) * 100)
+    assert row["symbol"] == "RELIANCE" and row["company_name"] == "Reliance Industries Limited"
+    assert (
+        india_market.parse_nse_chart(
+            {**chart, "timestamp": [base], "indicators": {"quote": [{"close": [1300.0]}]}}, "X"
+        )
+        is None
+    )
+
+
+def test_india_movers_rank_gainers_and_losers_and_share_one_timestamp():
+    movers = india_market.build_india_movers(_mover_rows())
+    assert [row["symbol"] for row in movers["gainers"]][:3] == ["TATASTEEL", "HINDALCO", "SBIN"]
+    assert [row["symbol"] for row in movers["losers"]][:3] == ["WIPRO", "INFY", "TECHM"]
+    assert "ITC" not in [
+        row["symbol"] for row in (*movers["gainers"], *movers["losers"])
+    ]  # flat is neither
+    assert movers["universe_size"] == 7 and movers["degraded"] is False
+    assert {row["as_of"] for row in movers["gainers"]} == {"2026-11-12T10:01:00+00:00"}
+
+
+@pytest.mark.asyncio
+async def test_index_cards_draw_the_last_session_and_never_a_month_line_beside_a_day_change(
+    monkeypatch,
+):
+    from hushh_mcp.operons.kai import fetchers
+
+    month = _points(*range(100, 122))
+    session = [25301.0, 25310.0, 25299.0]
+
+    async def fake(symbols, *, range_period="1d"):
+        if range_period == "1d":
+            return [
+                {"ticker": symbol, "sparkline": session} for symbol in symbols if symbol != "^BSESN"
+            ]
+        return [_quote(symbol, 106, 0.18, month) for symbol in symbols]
+
+    monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", fake)
+    quotes = await india_market.fetch_india_quotes()
+    assert quotes["^NSEI"]["sparkline"] == session
+    assert quotes["^NSEI"]["change_percent"] == 0.18  # the day change still comes from daily closes
+    assert (
+        quotes["^BSESN"]["sparkline"] is None
+    )  # no intraday data: neutral guide, not a month line
+    assert len(quotes["^CNXAUTO"]["sparkline_points"]) == 22  # sector returns still use the month
