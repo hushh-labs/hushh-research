@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 MAX_NETWORK_NODES = 4000
 MAX_NETWORK_EDGES = 12000
+SUGGESTION_LIMIT = 4
 SHARED_CONNECTION_COUNT_LIMIT = 501
 
 # Each frontier is admitted before it can expand. UNION uses both indexed
@@ -387,6 +388,36 @@ class ConnectionNetworkService:
             "visibleConnectionCount": visible_count,
         }
 
+    def suggested_people(
+        self, viewer: str, query: str, network_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        query = query.strip()
+        if query and not any(character.isalnum() for character in query):
+            return []
+        people = self.directory().search_directory_candidates(
+            owner_user_id=viewer,
+            query=query,
+            audience="all" if query else "ria",
+            name_only=True,
+            exclude_network_user_ids=network_ids,
+            include_recommendations=False,
+            limit=SUGGESTION_LIMIT,
+        )["items"]
+        people = [person for person in people if person.get("publicPersonRef")]
+        metadata = ConnectionRowMetadata(self.connections, viewer, people, self.profiles).settle()
+        return [
+            {
+                "publicPersonRef": person["publicPersonRef"],
+                "displayName": person.get("displayName"),
+                "photoUrl": person.get("photoUrl"),
+                "relationship": row["relationship"],
+                "suggestionReason": "name_match" if query else "verified_advisor",
+            }
+            for person in people
+            if (row := metadata[str(person["userId"])])["relationship"] != "connected"
+            and row["mutualConnectionCount"] == 0
+        ]
+
     def browse(
         self,
         viewer: str,
@@ -396,6 +427,7 @@ class ConnectionNetworkService:
         query: str = "",
         page: int = 1,
         limit: int = 20,
+        include_suggestions: bool = False,
     ) -> dict[str, Any]:
         from hushh_mcp.services.connections_service import ConnectionsError
 
@@ -411,6 +443,11 @@ class ConnectionNetworkService:
         else:
             degrees = self.degrees(viewer, max_degree=degree or 3)
             ids = sorted(degrees)
+        suggestions = (
+            self.suggested_people(viewer, query, ids)
+            if include_suggestions and target is None and degree == 3 and page == 1
+            else None
+        )
         if degree:
             ids = [uid for uid in ids if degrees.get(uid) == degree]
         result = (
@@ -475,4 +512,5 @@ class ConnectionNetworkService:
             ],
             "page": result["page"],
             "hasMore": result["hasMore"],
+            **({"suggestions": suggestions} if suggestions is not None else {}),
         }

@@ -228,6 +228,7 @@ def browse_network(
     query: str = Query("", max_length=160),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
+    include_suggestions: bool = Query(False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     del request
@@ -241,6 +242,7 @@ def browse_network(
                 query=query,
                 page=page,
                 limit=limit,
+                include_suggestions=include_suggestions,
             )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

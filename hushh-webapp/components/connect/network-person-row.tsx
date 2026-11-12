@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -24,6 +24,7 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const name = connectPersonName(person);
+  const suggestionId = useId();
   const status = person.relationship ?? (person.networkDegree === 1 ? "connected" : undefined);
   const current = (generation: ReturnType<typeof getAuthSessionGeneration>) => mounted.current && generation === getAuthSessionGeneration();
   const openMutual = async (element: HTMLElement) => {
@@ -56,6 +57,7 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
       type="button"
       data-network-person={person.publicPersonRef}
       aria-label={`Open ${name}'s profile`}
+      aria-describedby={person.suggestionReason ? suggestionId : undefined}
       className="group/network-person col-span-full row-start-1 grid min-h-11 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-2.5 rounded-lg py-1 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:opacity-80 min-[300px]:col-span-1 sm:grid-cols-[2.5rem_minmax(0,1fr)] sm:gap-x-3"
       onClick={event => onOpen(event.currentTarget)}
     >
@@ -67,6 +69,9 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
             {person.networkDegree === 1 ? "1st" : person.networkDegree === 2 ? "2nd" : "3rd"}
           </span>
         ) : null}
+        {person.suggestionReason ? <span id={suggestionId} className="basis-full text-xs leading-snug text-muted-foreground">
+          Suggested · {person.suggestionReason === "verified_advisor" ? "Verified advisor" : "Name match"}
+        </span> : null}
       </span>
     </button>
     <DirectoryMutualLine
