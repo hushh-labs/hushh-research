@@ -318,7 +318,9 @@ def verify_preparation_attempt(command, run: dict, pin: dict, archive: bytes) ->
         or jobs.get("total_count") != len(rows)
     ):
         raise ValueError("Preparation job inventory is incomplete")
-    selected = [j for j in rows if j.get("name") == "Pod Release Publication"]
+    selected = [
+        j for j in rows if j.get("name") == "Publish pod / Pod Release Publication"
+    ]
     if (
         len(selected) != 1
         or selected[0].get("conclusion") != "success"
