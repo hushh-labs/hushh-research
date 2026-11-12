@@ -156,6 +156,7 @@ from api.routes import (  # noqa: E402
     session,
     sse,
     trust,
+    website_pwm_research,
 )
 from api.routes.connector_routes import register_connector_routes  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
@@ -376,6 +377,7 @@ register_connector_routes(app)
 # startup/background execution path.
 app.include_router(referral_scoring_drain.router)
 app.include_router(pwm_notification_drain.router)
+app.include_router(website_pwm_research.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)
