@@ -314,6 +314,54 @@ async def test_deleted_people_are_excluded_before_connections_pagination(
     assert profile.get_public_profile(active_ref)["displayName"] == "Zebra Person"
 
 
+@pytest.mark.asyncio
+async def test_account_visibility_hints_reach_all_connected_peers_after_commit(
+    connection, monkeypatch
+):
+    import asyncio
+    import json
+    from contextlib import nullcontext
+
+    import asyncpg
+
+    from api.consent_listener import USER_STATE_CHANNEL
+    from hushh_mcp.services.connection_graph_service import (
+        publish_connection_account_visibility_changes,
+        publish_connection_graph_events,
+    )
+
+    for a, b, status in (
+        ("a-peer", "retired", "active"),
+        ("retired", "z-peer", "active"),
+        ("ignored-peer", "retired", "revoked"),
+        ("other-peer", "z-peer", "active"),
+    ):
+        _network_edge(connection, a, b, status)
+    connection.commit()
+    monkeypatch.setattr("db.db_client.get_db_connection", lambda: nullcontext(connection))
+    dsn = os.environ["ONE_COMMAND_TEST_DATABASE_URL"].replace("postgresql+psycopg2:", "postgresql:")
+    listener = await asyncpg.connect(dsn)
+    messages: asyncio.Queue = asyncio.Queue()
+
+    def capture(_conn, _pid, _channel, payload):
+        messages.put_nowait(json.loads(payload))
+
+    try:
+        await listener.add_listener(USER_STATE_CHANNEL, capture)
+        publish_connection_graph_events(connection, {"rollback-peer"})
+        connection.rollback()
+        publish_connection_account_visibility_changes({"retired"})
+        assert messages.empty()
+        connection.commit()
+        delivered = [await asyncio.wait_for(messages.get(), timeout=2) for _ in range(2)]
+        assert delivered == [
+            {"type": "connection_graph_changed", "user_id": "a-peer"},
+            {"type": "connection_graph_changed", "user_id": "z-peer"},
+        ]
+    finally:
+        await listener.close()
+
+
 def _network(connection: Connection):
     from hushh_mcp.services.connection_network_service import ConnectionNetworkService
     from hushh_mcp.services.connections_service import ConnectionsService

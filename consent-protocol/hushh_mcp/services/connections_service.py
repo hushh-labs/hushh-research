@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -300,6 +300,7 @@ def _notify_connection_graph_changed(
     *,
     user_ids: set[str],
     connection_id: str = "",
+    publish_live: bool = True,
 ) -> None:
     """Post-commit, silent graph reconciliation for remote devices."""
 
@@ -316,6 +317,7 @@ def _notify_connection_graph_changed(
                 user_id,
                 transition_id=transition_id,
                 connection_id=connection_id,
+                publish_live=publish_live,
             )
         except Exception:  # noqa: BLE001 - one failed device must not fail the mutation
             logger.warning("connection.graph_sync_failed", exc_info=True)
@@ -3611,6 +3613,7 @@ class ConnectionsService:
         page: int = 1,
         limit: int = 50,
         audience: str = DIRECTORY_AUDIENCE_ALL,
+        account_check: Literal["observe", "reconcile"] | None = None,
     ) -> dict[str, Any]:
         """Return a stable bounded connection page without truncating legacy reads."""
 
@@ -3697,7 +3700,12 @@ class ConnectionsService:
         )
         # Verify the matched owner IDs in provider batches before ranking or
         # counting, so retired rows cannot shift the visible page boundary.
-        active_ids = active_directory_user_ids([str(row["user_id"]) for row in candidates])
+        # A reader responding to a live hint must not emit the same hint again.
+        active_ids = active_directory_user_ids(
+            [str(row["user_id"]) for row in candidates],
+            use_cache=account_check is None,
+            notify_connections=account_check != "reconcile",
+        )
         rows = self._execute_many(
             f"""
             {candidates_sql},

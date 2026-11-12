@@ -493,6 +493,7 @@ export class ConnectionsService {
     limit?: number;
     query?: string;
     audience?: ConnectionAudience;
+    accountCheck?: "observe" | "reconcile";
     /** A complete owner-memory scan must reject malformed 2xx pages, never normalize them to empty. */
     sourceRead?: boolean;
   }): Promise<ConnectionPage> {
@@ -502,6 +503,7 @@ export class ConnectionsService {
       audience: opts.audience ?? "all",
     });
     if (opts.query?.trim()) params.set("query", opts.query.trim());
+    if (opts.accountCheck) params.set("account_check", opts.accountCheck);
     const response = await ApiService.apiFetch(
       `/api/one/connections?${params.toString()}`,
       { method: "GET", headers: authHeaders(opts.idToken) },
