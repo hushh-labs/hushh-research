@@ -1,15 +1,14 @@
 "use client";
 
 import {
-  Bank, Bed, Briefcase, Buildings, Church, Coffee, FirstAid,
-  ForkKnife, GraduationCap, House, MapPin, ShoppingBag, Train, Tree,
-  type Icon,
-} from "@phosphor-icons/react";
+  Landmark as Bank, Bed, Briefcase, Building2 as Buildings, Church, Coffee, FirstAid,
+  ForkKnife, GraduationCap, Home as House, MapPin, ShoppingBag, Train, Tree,
+} from "@/components/icons";
 import type { SavedLocation } from "@/lib/one-location/saved-locations";
 import { normalizeCheckedInPlaceCategory, type CheckedInPlaceCategory } from "@/lib/one-location/nearby-places";
 import { cn } from "@/lib/utils";
 
-type CategoryPresentation = { Icon: Icon; background: string; symbol: string; color: string };
+type CategoryPresentation = { Icon: typeof MapPin; background: string; symbol: string; color: string };
 
 const CHECK_IN_CATEGORIES: Record<CheckedInPlaceCategory, CategoryPresentation> = {
   food_drink: { Icon: ForkKnife, background: "var(--app-warning)", symbol: "fork.knife", color: "#ff9500" },
