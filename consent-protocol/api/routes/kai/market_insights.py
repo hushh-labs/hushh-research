@@ -3149,16 +3149,42 @@ INDIA_MOVERS_FRESH_TTL_SECONDS = 300
 INDIA_MOVERS_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
+INDIA_MOVERS_KEY = "india_movers:v1"
+
+
+async def _refresh_india_movers() -> dict[str, Any]:
+    """Fetch the NSE movers, but never replace a complete list with a thin one.
+
+    A rate-limited round answers for only some of the names, and a list with fewer than three
+    gainers or losers would overwrite the last complete one. Raising keeps that list served from
+    the cache, the same rule the US movers follow, so the card always has real entries.
+    """
+    value = await india_market.fetch_india_movers()
+    if complete_movers(value):
+        return value
+    previous: Any = market_insights_cache.peek(INDIA_MOVERS_KEY)
+    previous_value = previous.value if previous else None
+    if previous_value is None:
+        try:
+            entry = await get_market_cache_store_service().get_entry(INDIA_MOVERS_KEY)
+            previous_value = entry.payload if entry else None
+        except Exception:
+            previous_value = None
+    if previous_value is not None and complete_movers(previous_value):
+        raise RuntimeError("india_movers_incomplete_refresh")
+    return value
+
+
 async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, Any]:
     """India market view. Its cache key is outside every US-gated prefix on purpose:
     NSE hours never overlap the US session, so a US-closed pause would freeze it."""
 
     async def movers() -> dict[str, Any]:
         value, *_ = await _get_or_refresh_public_module(
-            key="india_movers:v1",
+            key=INDIA_MOVERS_KEY,
             fresh_ttl_seconds=INDIA_MOVERS_FRESH_TTL_SECONDS,
             stale_ttl_seconds=INDIA_MOVERS_STALE_TTL_SECONDS,
-            fetcher=lambda: india_market.fetch_india_movers(),
+            fetcher=_refresh_india_movers,
             warm_source="india_market",
         )
         return dict(value)
