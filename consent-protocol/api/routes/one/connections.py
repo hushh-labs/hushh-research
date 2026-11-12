@@ -255,6 +255,7 @@ def list_connections(
     limit: int | None = Query(default=None, ge=1, le=100),
     query: str | None = Query(default=None, max_length=160),
     audience: str | None = Query(default=None, pattern="^(all|ria)$"),
+    account_check: Literal["observe", "reconcile"] | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -270,6 +271,7 @@ def list_connections(
             limit=limit or 50,
             query=query or "",
             audience=audience or "all",
+            **({"account_check": account_check} if account_check else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -387,7 +389,11 @@ async def sync_contacts(
         ) from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
+    except (
+        ConnectionsError,
+        ActorIdentitySyncUnavailableError,
+        DirectoryIdentityUnavailableError,
+    ) as exc:
         raise _handle(exc) from None
     except Exception as exc:  # noqa: BLE001 - SQL exceptions can contain submitted phone proofs
         # SQLAlchemy includes bound parameters in exception text/tracebacks.

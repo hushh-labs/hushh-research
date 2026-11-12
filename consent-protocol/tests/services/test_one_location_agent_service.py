@@ -37,6 +37,16 @@ from hushh_mcp.services.requester_identity import (
 
 from .one_location_workflow_contract_cases import run_four_user_location_workflow_contract
 
+
+@pytest.fixture(autouse=True)
+def _active_accounts_for_in_memory_location_workflows(monkeypatch):
+    # These SQL/workflow doubles model active accounts. Lifecycle filtering is
+    # exercised through the production helper on real PostgreSQL separately.
+    monkeypatch.setattr(
+        OneLocationAgentService, "_live_location_account_ids", lambda self, ids: set(ids)
+    )
+
+
 PUBLIC_LOCATION_SNAPSHOT = {
     "latitude": 28.6139,
     "longitude": 77.209,
@@ -1846,6 +1856,10 @@ def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> 
 
 
 class FourUserMemoryService(OneLocationAgentService):
+    def _live_location_account_ids(self, user_ids) -> set[str]:
+        # A missing local identity cache entry can be repaired for an active account.
+        return set(user_ids)
+
     def __init__(self) -> None:
         self.identities = {
             "user_a": {
@@ -2297,6 +2311,10 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
         params = params or {}
+        if "account_user_ids" in params:
+            return [
+                {"user_id": uid} for uid in params["account_user_ids"] if uid in self.identities
+            ]
         if "FROM one_location_sms_contacts sms" in sql:
             owner = params.get("owner_user_id") or params.get("user_id")
             active_connected_ids = {
@@ -4439,6 +4457,38 @@ def test_directory_scan_timeout_is_retryable_not_an_empty_success(
         service.search_directory_candidates(owner_user_id="owner")
 
 
+def test_directory_rechecks_a_warm_positive_provider_status_after_account_removal(monkeypatch):
+    from collections import OrderedDict
+
+    from hushh_mcp.services import directory_identity_service as directory
+
+    app = SimpleNamespace(project_id="synthetic", name="warm-worker")
+    monkeypatch.setattr(directory, "_STATUS_CACHE", OrderedDict())
+    monkeypatch.setattr(directory, "get_firebase_auth_app", lambda: app)
+    monkeypatch.setattr(
+        directory, "firebase_uids_for_owner_reads", lambda owners: {uid: uid for uid in owners}
+    )
+    monkeypatch.setattr(directory, "publish_connection_account_visibility_changes", lambda _: None)
+    enabled = True
+    calls = []
+
+    def lookup(identifiers, **_):
+        calls.append([identifier.uid for identifier in identifiers])
+        return SimpleNamespace(
+            users=[SimpleNamespace(uid="peer", disabled=False)] if enabled else [],
+            not_found=set() if enabled else set(identifiers),
+        )
+
+    monkeypatch.setattr(directory.auth, "get_users", lookup)
+    assert directory.active_directory_user_ids(["peer"]) == {"peer"}
+    enabled = False
+    # This worker still holds an unexpired positive result.
+    assert directory.active_directory_user_ids(["peer"]) == {"peer"}
+    service = OneLocationAgentService.__new__(OneLocationAgentService)
+    assert service._active_directory_user_ids(["peer"]) == set()
+    assert calls == [["peer"], ["peer"]]
+
+
 def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4460,9 +4510,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
             users=[
                 SimpleNamespace(uid="disabled", disabled=True),
                 SimpleNamespace(uid="enabled", disabled=False),
-            ]
+            ],
+            not_found={entry for entry in identifiers if entry.uid == "missing"},
         )
 
+    notifications = []
+    monkeypatch.setattr(
+        directory, "publish_connection_account_visibility_changes", notifications.append
+    )
     monkeypatch.setattr(directory.auth, "get_users", get_users)
 
     assert directory.active_directory_user_ids(["missing", "enabled", "disabled", "x" * 129]) == {
@@ -4473,9 +4528,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
     assert all(isinstance(entry[1], bool) for entry in directory._STATUS_CACHE.values())
     assert directory.active_directory_user_ids(["enabled", "disabled"]) == {"enabled"}
     assert len(calls) == 1
+    assert notifications == [{"missing", "disabled"}]
+    assert directory.active_directory_user_ids(["enabled", "disabled"], use_cache=False) == {
+        "enabled"
+    }
+    assert notifications == [{"missing", "disabled"}]
     app.project_id = "production"
     assert directory.active_directory_user_ids(["enabled"]) == {"enabled"}
-    assert len(calls) == 2
+    assert len(calls) == 3
     clock[0] = 61.0
     monkeypatch.setattr(
         directory.auth,
@@ -4485,6 +4545,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
 
     with pytest.raises(DirectoryIdentityUnavailableError):
         directory.active_directory_user_ids(["enabled"])
+    assert notifications == [{"missing", "disabled"}]
+
+    monkeypatch.setattr(directory.auth, "get_users", get_users)
+    assert (
+        directory.active_directory_user_ids(["missing"], use_cache=False, notify_connections=False)
+        == set()
+    )
+    assert notifications == [{"missing", "disabled"}]
 
 
 def test_directory_replacement_owner_projection_never_uses_external_uid_as_application_key(
@@ -4516,7 +4584,7 @@ def test_directory_replacement_owner_projection_never_uses_external_uid_as_appli
 
     def lookup(identifiers, **kwargs):
         calls.append([entry.uid for entry in identifiers])
-        return SimpleNamespace(users=[record])
+        return SimpleNamespace(users=[record], not_found=set())
 
     monkeypatch.setattr(directory.auth, "get_users", lookup)
     assert directory.active_directory_user_ids([owner, retired]) == {owner}
@@ -9369,3 +9437,85 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     assert received[sos["id"]]["recipientClearedAt"] == cleared_at.isoformat()
     assert "recipientClearedAt" not in owned[sos["id"]]
     assert all("recipientClearedAt" not in grant for grant in owned.values())
+
+
+@pytest.mark.parametrize("operation", ["share", "atomic_share", "request"])
+@pytest.mark.parametrize("missing", ["owner", "recipient"])
+def test_location_mutations_reject_retired_accounts_before_any_write(
+    monkeypatch, operation, missing
+):
+    service = OneLocationAgentService()
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {missing})
+
+    def no_write(*args, **kwargs):
+        pytest.fail("A retired account reached a domain write or key lookup")
+
+    monkeypatch.setattr(service, "_execute_one", no_write)
+    monkeypatch.setattr(service, "_recipient_key_row", no_write)
+    with pytest.raises(OneLocationAgentError) as failure:
+        if operation == "request":
+            service.request_access(requester_user_id="recipient", owner_user_id="owner")
+        elif operation == "share":
+            service.create_grant(
+                owner_user_id="owner",
+                recipient_user_id="recipient",
+                recipient_key_id="key",
+                duration_hours=1,
+            )
+        else:
+            service.create_grant_with_initial_envelope(
+                owner_user_id="owner",
+                recipient_user_id="recipient",
+                recipient_key_id="key",
+                duration_hours=1,
+                client_operation_id="operation",
+                confirmed_at=datetime.now(timezone.utc),
+                envelope={},
+            )
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    assert failure.value.status_code == 409
+
+
+def test_location_account_verification_outage_is_retryable(monkeypatch):
+    service = OneLocationAgentService()
+
+    def unavailable(ids):
+        raise DirectoryIdentityUnavailableError()
+
+    monkeypatch.setattr(service, "_live_location_account_ids", unavailable)
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.request_access(requester_user_id="recipient", owner_user_id="owner")
+    assert failure.value.status_code == 503
+
+
+def test_retired_requester_cannot_be_approved_from_a_stale_request(monkeypatch):
+    service = FourUserMemoryService()
+    request = service.request_access(requester_user_id="user_b", owner_user_id="user_a")
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=1,
+            approval_mode="manual",
+        )
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_public_link_rejects_retired_owner_but_treats_retired_phone_match_as_a_visitor(monkeypatch):
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    submitted = service.submit_public_invite_request(
+        public_token=created["publicToken"],
+        visitor_display_name="Visitor",
+        phone_number="+15550100002",
+    )
+    assert submitted["submission"]["status"] == "pending_identity"
+    assert not service.requests
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_a"})
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.resolve_public_invite(public_token=created["publicToken"])
+    assert failure.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"

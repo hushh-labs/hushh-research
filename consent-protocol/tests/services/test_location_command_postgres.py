@@ -18,6 +18,20 @@ from hushh_mcp.services.command_checkpoints import CommandCheckpointConflict, Co
 from tests.helpers.chat_keys import static_chat_cipher
 
 
+@pytest.fixture(autouse=True)
+def active_location_provider_accounts(monkeypatch):
+    # SQL fixtures own synthetic active identities, not a live Firebase project.
+    # Replace only the provider port: local tombstones, real lifecycle locks,
+    # relationship authorization, mutations and rollback remain production SQL.
+    from hushh_mcp.services import one_location_agent_service, one_location_circle_service
+
+    def active_accounts(user_ids, **_):
+        return set(user_ids)
+
+    monkeypatch.setattr(one_location_agent_service, "active_directory_user_ids", active_accounts)
+    monkeypatch.setattr(one_location_circle_service, "active_directory_user_ids", active_accounts)
+
+
 @pytest.fixture
 def db():
     supplied = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
@@ -762,6 +776,9 @@ def test_request_receipt_survives_approval_and_rolls_back_with_effect(db):
         def _execute_one(self, sql, params=None):
             row = self.connection.execute(text(sql), params or {}).mappings().first()
             return dict(row) if row else None
+
+        def _execute_many(self, sql, params=None):
+            return db.execute_raw(sql, params).data
 
         def _active_grant_between(self, **kwargs):
             return None
