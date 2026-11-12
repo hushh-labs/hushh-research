@@ -133,17 +133,71 @@ describe("commerce session and review authority", () => {
 
   it("allows one-cent reviewed purchase only on a human click with sufficient balance", () => {
     const purchase = vi.fn(async () => undefined); const reviewPrice = vi.fn(async () => undefined);
-    const { rerender } = render(<ScopeCommerceBuyerReview quote={quote} balance={0} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
+    const { rerender } = render(<ScopeCommerceBuyerReview requestId={requestId} refreshRequest={async () => undefined} quote={quote} balance={0} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
     expect(screen.getByText(/You need 1 Hussh coin \(\$0.01\) more/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "Add funds or manage payments in Payments and earnings" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Fund this sharing request" })).toBeVisible();
     expect(purchase).not.toHaveBeenCalled();
-    rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
-    expect(screen.queryByRole("link", { name: "Add funds or manage payments in Payments and earnings" })).toBeNull();
+    rerender(<ScopeCommerceBuyerReview requestId={requestId} refreshRequest={async () => undefined} quote={quote} balance={1} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
+    expect(screen.queryByRole("region", { name: "Fund this sharing request" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) }));
     expect(purchase).toHaveBeenCalledOnce();
-    rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
+    rerender(<ScopeCommerceBuyerReview requestId={requestId} refreshRequest={async () => undefined} quote={quote} balance={1} expired busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
     expect(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" })).toBeDisabled();
+  });
+
+  it("funds a scope shortfall in its request without automatically reserving access", async () => {
+    const refreshRequest = vi.fn(async () => undefined);
+    const popup = { close: vi.fn() };
+    const session = { url: "https://checkout.stripe.com/test", returnUrl: "https://one.hushh.ai/one/profile/payouts?commerceReturn=1&commerceAttemptId=opaque_attempt_12345", attemptId: "opaque_attempt_12345" };
+    mocks.openWindow.mockReturnValue(popup);
+    mocks.checkout.mockResolvedValue(session);
+    const returned = deferred<void>();
+    mocks.hosted.mockReturnValue(returned.promise);
+    const view = (balance: number) => <ScopeCommerceBuyerReview requestId={requestId} refreshRequest={refreshRequest} quote={quote} balance={balance} expired={false} busy={false} enabled reviewPrice={vi.fn()} purchase={mocks.purchase} />;
+    const { rerender } = render(view(0));
+    const checkout = await screen.findByRole("button", { name: "Continue to secure checkout" });
+    await waitFor(() => expect(checkout).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Add to balance (USD)"), { target: { value: "0.50" } });
+    fireEvent.click(checkout);
+    fireEvent.click(checkout);
+    await waitFor(() => expect(mocks.checkout).toHaveBeenCalledOnce());
+    expect(mocks.checkout).toHaveBeenCalledWith("owner-token", 50, expect.any(String));
+    expect(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) })).toBeDisabled();
+    await act(async () => returned.resolve());
+    await waitFor(() => expect(refreshRequest).toHaveBeenCalledOnce());
+    expect(mocks.purchase).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) })).toBeDisabled();
+    rerender(view(1));
+    expect(mocks.purchase).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) }));
+    expect(mocks.purchase).toHaveBeenCalledOnce();
+  });
+
+  it("keeps funding gated and rejects a late checkout return after vault retirement", async () => {
+    mocks.account.mockResolvedValue({ ...balanceAccount(), readiness: unavailable() });
+    const refreshRequest = vi.fn(async () => undefined);
+    const view = <ScopeCommerceBuyerReview requestId={requestId} refreshRequest={refreshRequest} quote={quote} balance={0} expired={false} busy={false} enabled reviewPrice={vi.fn()} purchase={mocks.purchase} />;
+    const { unmount } = render(view);
+    await screen.findByText(/Funding is unavailable/);
+    expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).toBeNull();
+    expect(mocks.checkout).not.toHaveBeenCalled();
+    unmount();
+    mocks.account.mockResolvedValue(balanceAccount());
+    mocks.openWindow.mockReturnValue({ close: vi.fn() });
+    mocks.checkout.mockResolvedValue({ url: "https://checkout.stripe.com/test", returnUrl: "https://one.hushh.ai/one/profile/payouts?commerceReturn=1&commerceAttemptId=opaque_attempt_12345", attemptId: "opaque_attempt_12345" });
+    const returned = deferred<void>();
+    mocks.hosted.mockReturnValue(returned.promise);
+    render(view);
+    const checkout = await screen.findByRole("button", { name: "Continue to secure checkout" });
+    fireEvent.click(checkout);
+    await waitFor(() => expect(mocks.hosted).toHaveBeenCalledOnce());
+    const signal = mocks.hosted.mock.calls[0][3] as AbortSignal;
+    act(() => advanceVaultSessionEpoch());
+    expect(signal.aborted).toBe(true);
+    await act(async () => returned.resolve());
+    expect(refreshRequest).not.toHaveBeenCalled();
+    expect(mocks.purchase).not.toHaveBeenCalled();
   });
 
   it("does not begin owner crypto after an account change while its identity token is pending", async () => {

@@ -48,7 +48,7 @@ export function ScopeCommerceRequestPanel({ requestId }: { requestId: string }) 
         {purchase && ["staged", "armed"].includes(purchase.status) ? <p data-consent-role="body" className="text-sm">Preparation is complete. Access remains unavailable until the scheduled start shown above.</p> : null}
         {request.tariff ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Base price {money(request.tariff.price_cents)} for {request.tariff.base_duration_seconds / 3600} hours. The final approved term is prorated by the server.</p> : null}
         {request.role === "owner" && !ended ? <ScopeCommerceOwnerReview key={purchase?.id || requestId} request={request} busy={busy} unlocked={Boolean(vaultKey)} prepare={state.prepare} /> : null}
-        {!ended && request.role === "payer" && purchase?.status === "awaiting_payment" ? <ScopeCommerceBuyerReview quote={quote} balance={state.availableBalance} expired={quoteExpired} busy={busy} enabled={enabled} reviewPrice={state.reviewPrice} purchase={state.purchase} /> : null}
+        {!ended && request.role === "payer" && purchase?.status === "awaiting_payment" ? <ScopeCommerceBuyerReview key={`${user.uid}:${requestId}`} requestId={requestId} refreshRequest={state.refresh} quote={quote} balance={state.availableBalance} expired={quoteExpired} busy={busy} enabled={enabled} reviewPrice={state.reviewPrice} purchase={state.purchase} /> : null}
         {canEnd ? <Button data-consent-role="compact-action" variant="outline" disabled={busy || (request.role === "owner" && !vaultKey)} onClick={() => setEndReview(true)}>{request.role === "owner" ? "End sharing" : "Cancel before activation"}</Button> : null}
       </> : null}
       <AlertDialog open={endReview} onOpenChange={setEndReview}>
