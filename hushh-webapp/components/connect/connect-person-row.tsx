@@ -164,7 +164,7 @@ export function DirectoryMutualLine({
   const label = count === 1 ? "Mutual connection" : `${count} mutual connections`;
   const content = (
     <>
-      {previews.length ? <span className="isolate inline-flex shrink-0 items-center -space-x-1" data-testid="mutual-avatar-stack" aria-hidden="true">
+      {previews.length ? <span className={cn("isolate inline-flex shrink-0 items-center -space-x-1", networkPersonRef && "min-w-9")} data-testid="mutual-avatar-stack" aria-hidden="true">
         {previews.map((peer, index) => <ConnectionPersonAvatar
           key={peer.publicPersonRef ?? index}
           size="compact"

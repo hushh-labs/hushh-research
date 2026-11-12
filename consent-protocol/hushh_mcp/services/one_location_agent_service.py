@@ -4781,6 +4781,7 @@ class OneLocationAgentService:
         verified_email_lookup: list[str] | None = None,
         mutual_target_user_id: str | None = None,
         network_user_ids: list[str] | None = None,
+        exclude_network_user_ids: list[str] | None = None,
         include_recommendations: bool = True,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
@@ -4922,6 +4923,8 @@ class OneLocationAgentService:
             raise ValueError("Directory profile lookup is limited to 100 people")
         if network_user_ids is not None and len(network_user_ids) > 4000:
             raise ValueError("Network discovery is limited to 4000 people")
+        if exclude_network_user_ids is not None and len(exclude_network_user_ids) > 4000:
+            raise ValueError("Network discovery is limited to 4000 exclusions")
 
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -5007,6 +5010,10 @@ class OneLocationAgentService:
         mutual_filter_clause = MUTUAL_DIRECTORY_FILTER_SQL if mutual_target_user_id else "TRUE"
         if network_user_ids is not None:
             mutual_filter_clause += " AND profile.user_id = ANY(CAST(:network_user_ids AS TEXT[]))"
+        if exclude_network_user_ids:
+            mutual_filter_clause += (
+                " AND profile.user_id <> ALL(CAST(:exclude_network_user_ids AS TEXT[]))"
+            )
 
         directory_sql = build_directory_candidate_statement(
             usable_name=usable_name,
@@ -5039,6 +5046,8 @@ class OneLocationAgentService:
         }
         if lookup_emails is not None:
             params["verified_emails"] = lookup_emails
+        if exclude_network_user_ids:
+            params["exclude_network_user_ids"] = exclude_network_user_ids
         # The cache is not account authority. Scan ordered SQL batches until
         # the requested logical page plus one current account is available.
         # Applying auth filtering after SQL OFFSET would permanently skip real

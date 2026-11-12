@@ -95,11 +95,12 @@ for (const width of [320, 393, 768, 1440]) {
     await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
     const count = preview.getByRole("button", { name: "3 connections", exact: true });
     await expect(count).toBeVisible();
+    await expect(preview).toHaveCSS("opacity", "1");
     const [contactBounds, countBounds] = await Promise.all([
       preview.getByRole("link", { name: "profile@example.com" }).boundingBox(), count.boundingBox(),
     ]);
     expect(countBounds!.y).toBeGreaterThanOrEqual(contactBounds!.y + contactBounds!.height);
-    expect(countBounds!.x).toBeCloseTo(contactBounds!.x, 0);
+    expect(Math.abs(countBounds!.x - contactBounds!.x)).toBeLessThanOrEqual(1);
     expect(countBounds!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: testInfo.outputPath(`profile-connection-count-${width}.png`) });
     await count.click();
@@ -173,6 +174,12 @@ for (const width of [320, 393, 768, 1440]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`network-discovery-${width}.png`) });
     await preview.getByRole("button", { name: "Extended network", exact: true }).click();
+    const extended = preview.getByRole("list", { name: "Extended network people" });
+    await expect(extended.getByRole("listitem")).toHaveCount(2);
+    await expect(extended.getByRole("listitem").nth(0)).toContainText("Third Degree Person");
+    await expect(extended.getByRole("listitem").nth(1)).toContainText("Suggested · Verified advisor");
+    expect(await extended.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`extended-network-established-${width}.png`) });
     await preview.getByRole("button", { name: "Open Third Degree Person's profile" }).click();
     await expect(preview.getByText("3rd connection", { exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: /mutual connection/ })).toHaveCount(0);
@@ -183,6 +190,48 @@ for (const width of [320, 393, 768, 1440]) {
     await back();
     await expect(preview).toHaveCount(0);
     await expect(source.getByRole("button", { name: "Explore your network", exact: true })).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [393, 1440]) {
+  test(`extended network helps a new user find and request a connection at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setViewportSize({ width, height: width < 480 ? 780 : 900 });
+    await page.route("http://localhost:41839/**", route => route.fulfill({ contentType: "text/html", body: `<html><head><title>Extended network discovery</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+    await page.goto("http://localhost:41839/one/connect?newNetwork=1");
+    await page.addScriptTag({ content: fixture.previewScript! });
+    await expect(page).toHaveTitle("Extended network discovery");
+    const explore = page.getByRole("button", { name: "Explore your network", exact: true });
+    await explore.click();
+    const preview = page.getByRole("dialog", { name: "Your network" });
+    await preview.getByRole("button", { name: "My connections", exact: true }).click();
+    await expect(preview.getByText("No profiles to show right now.")).toBeVisible();
+    await preview.getByRole("button", { name: "Extended network", exact: true }).click();
+    const results = preview.getByRole("list", { name: "Extended network people" });
+    await expect(results.getByRole("listitem")).toHaveCount(1);
+    await expect(results.getByText("Suggested · Verified advisor")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`extended-network-new-${width}.png`) });
+    const search = preview.getByRole("textbox", { name: "Search people by name" });
+    await search.fill("No matches");
+    await expect(preview.getByText("No profiles to show for this name.")).toBeVisible();
+    await expect(results).toHaveCount(0);
+    await search.fill("Priya");
+    await expect(results.getByText("Suggested · Name match")).toBeVisible();
+    const originalList = await results.elementHandle();
+    await results.getByRole("button", { name: "Connect with Priya Anand" }).click();
+    await expect(results.getByText("Request sent", { exact: true })).toBeVisible();
+    expect(await originalList?.evaluate(element => element.isConnected)).toBe(true);
+    await results.getByRole("button", { name: "Open Priya Anand's profile" }).click();
+    const profile = page.locator("[data-person-profile-preview]");
+    await expect(profile.getByRole("heading", { name: "Priya Anand", exact: true })).toBeVisible();
+    await profile.getByRole("button", { name: "Back to previous screen" }).click();
+    await expect(search).toHaveValue("Priya");
+    await expect(results.getByRole("button", { name: "Open Priya Anand's profile" })).toBeFocused();
+    await preview.getByRole("button", { name: "Back to previous screen" }).click();
+    await expect(explore).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
   });
 }

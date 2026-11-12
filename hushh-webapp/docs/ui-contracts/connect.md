@@ -903,6 +903,19 @@ neighbors shared by the viewer and the target: zero has no control, one opens th
 available profile (resolving a missing preview through one mutual page), and more
 than one opens a list. An unavailable single profile explains that state.
 
+**Extended network** shows third-degree connections and up to four suggested
+people in one list. Third-degree rows come first and carry their degree.
+Suggestions use eligible verified advisor profiles or name matches from the
+people directory, with a reason on each row. The tab uses the existing profile
+preview and connection request controls. With no results and no active search,
+**Back to Find people** closes the dialog and restores the source.
+
+Opening the discovery dialog loads each filter's first page and reuses it
+while the dialog and viewer session remain active. A sent request updates
+that person's row in place. Search changes, foreground returns and other
+connection graph changes retire the affected reads before displaying new
+results.
+
 Signed-in profiles show network details under the hero's contact details. The
 connection count opens the paginated shared list after the server confirms that
 the profile owner opted in and the viewer is an active direct connection. It
