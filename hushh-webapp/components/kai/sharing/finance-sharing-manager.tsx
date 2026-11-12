@@ -279,10 +279,11 @@ export function FinanceSharingManager({
       ),
     );
   }, [items, direction]);
-  const renderGrant = (item: FinanceGrant) => (
+  const renderGrant = (item: FinanceGrant, showStatus = false) => (
     <FinanceGrantDetails
       key={item.id}
       item={item}
+      showStatus={showStatus}
       direction={direction}
       owner={owner}
       busy={busy}
@@ -298,7 +299,6 @@ export function FinanceSharingManager({
         open={open && !updateData && !selected}
         onOpenChange={onOpenChange}
         title="Finance sharing"
-        description="Review access person by person."
         presentation="sheet"
         surfaceClassName={`${finance.detail} ${styles.managerSheet}`}
       >
@@ -308,12 +308,8 @@ export function FinanceSharingManager({
           ariaLabel="Sharing direction"
           onValueChange={(value) => setDirection(value === "received" ? "received" : "outgoing")}
         />
-        {!hasPortfolio ? (
-          <p className={`${styles.caption} mt-3`}>
-            {canManageOutgoing
-              ? "Add a portfolio to share again. You can still manage previous shares."
-              : "Add a portfolio to share."}
-          </p>
+        {!hasPortfolio && canManageOutgoing && direction === "outgoing" ? (
+          <p className={`${styles.caption} mt-2`}>Add a portfolio to update access.</p>
         ) : null}
         {error ? (
           <div role="alert" className="my-4 text-sm text-destructive">
@@ -387,16 +383,20 @@ export function FinanceSharingManager({
                   </div>
                 </div>
                 <span className={styles.chip}>
-                  {shares.length} {shares.length === 1 ? "share" : "shares"}
+                  {item.status === "stopped"
+                    ? "Stopped"
+                    : item.status === "expired"
+                      ? "Expired"
+                      : "Active"}
                 </span>
               </div>
               {renderGrant(item)}
               {shares.length > 1 ? (
-                <details className="mt-4 border-t border-border pt-4">
+                <details className="mt-2 border-t border-border pt-2">
                   <summary className="cursor-pointer text-sm">
-                    Earlier shares ({shares.length - 1})
+                    Earlier ({shares.length - 1})
                   </summary>
-                  {shares.slice(1).map(renderGrant)}
+                  {shares.slice(1).map((earlier) => renderGrant(earlier, true))}
                 </details>
               ) : null}
             </article>

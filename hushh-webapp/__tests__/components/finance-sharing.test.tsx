@@ -80,6 +80,9 @@ it("allows a recipient without a portfolio to manage received access but not cre
   expect(screen.getByText("Add a portfolio to share.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
   expect(await screen.findByText("Owner")).toBeVisible();
+  // The manager is terse: no subtitle, no share-count chip, no Agent One review line.
+  expect(screen.queryByText(/person by person|Agent One review|^\d+ shares?$/)).toBeNull();
+  expect(screen.getByText(/Real time|Snapshot/)).toBeVisible();
   expect(screen.queryByRole("tab", { name: "Shared by you" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "View", exact: true }));
   expect(await screen.findByText(/decrypted-sentinel/)).toBeVisible();
@@ -318,11 +321,11 @@ it("appends repeat shares under one person while retaining each approved view an
     { ...grant, id: "newer", ownerUserId: "owner", direction: "outgoing", createdAt: "2026-10-28T00:00:00Z" },
   ] : [], nextCursor: null }));
   render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
-  await screen.findByText("Earlier shares (1)");
+  await screen.findByText("Earlier (1)");
   expect(screen.getAllByTestId("finance-sharing-person")).toHaveLength(1);
   expect(screen.getAllByRole("heading", { name: "Recipient" })).toHaveLength(1);
   expect(screen.getAllByRole("button", { name: "View", exact: true })).toHaveLength(1);
-  fireEvent.click(screen.getByText("Earlier shares (1)"));
+  fireEvent.click(screen.getByText("Earlier (1)"));
   expect(document.querySelectorAll("[data-finance-grant]")).toHaveLength(2);
 });
 

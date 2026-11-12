@@ -3,14 +3,15 @@ import type { FinanceGrant } from "@/lib/finance-sharing/contract";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { financePublicationState } from "@/lib/finance-sharing/publication-state";
 import styles from "./finance-sharing.module.css";
-const accessDate = (value: string) =>
+const shortDate = (value: string) =>
   new Date(value).toLocaleString(undefined, {
     day: "numeric",
     month: "short",
-    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+const statusWord = (status: FinanceGrant["status"]) =>
+  status === "stopped" ? "Stopped" : status === "expired" ? "Expired" : null;
 export function FinanceGrantDetails({
   item,
   direction,
@@ -20,6 +21,7 @@ export function FinanceGrantDetails({
   setSelected,
   setStopping,
   updateAccess,
+  showStatus = false,
 }: {
   item: FinanceGrant;
   direction: "outgoing" | "received";
@@ -29,62 +31,66 @@ export function FinanceGrantDetails({
   setSelected: (id: string) => void;
   setStopping: (grant: FinanceGrant) => void;
   updateAccess: (grant: FinanceGrant) => Promise<void>;
+  /** Earlier shares carry their own state; the current one shows it beside the person. */
+  showStatus?: boolean;
 }) {
-  return (
-    <section key={item.id} data-finance-grant={item.id} className="pt-4">
-      <div className={styles.grantHeader}>
-        <p className={styles.caption}>
-          {item.policy.mode === "snapshot" ? "Snapshot" : "Real time"}
-        </p>
-        <span className={styles.chip}>
-          {item.status === "stopped"
-            ? "Stopped"
-            : item.status === "expired"
-              ? "Expired"
-              : "Active"}
-        </span>
+  const ends = item.expiresAt
+    ? `Ends ${shortDate(item.expiresAt)}`
+    : direction === "outgoing"
+      ? "Ends when you stop"
+      : "Ends when they stop";
+  const detail = [
+    showStatus ? (statusWord(item.status) ?? "Active") : null,
+    item.policy.mode === "snapshot" ? "Snapshot" : "Real time",
+    ends,
+    shortDate(item.updatedAt),
+    item.policy.showAmounts ? null : "Amounts hidden",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const publication = owner ? financePublicationState(owner, item.id) : undefined;
+  const actions =
+    item.status === "active" ? (
+      <div className={direction === "received" ? styles.grantActionsInline : styles.grantActions}>
+        <ShellActionSurface variant="pill" onClick={() => setSelected(item.id)}>
+          View
+        </ShellActionSurface>
+        {direction === "outgoing" ? (
+          <>
+            <ShellActionSurface
+              variant="pill"
+              disabled={busy || !hasPortfolio}
+              onClick={() => void updateAccess(item)}
+            >
+              Update access
+            </ShellActionSurface>
+            <ShellActionSurface variant="pill" onClick={() => setStopping(item)}>
+              Stop sharing
+            </ShellActionSurface>
+          </>
+        ) : null}
       </div>
-      <div className={styles.grantInfo}>
-        <div>
-          <p className="text-sm capitalize">
-            {item.policy.sections.join(" · ")}
-          </p>
-          <p className={`${styles.caption} mt-2`}>
-            Amounts {item.policy.showAmounts ? "included" : "hidden"} · Agent
-            One review{" "}
-            {item.policy.model_processing.allowed ? "allowed" : "off"}
-          </p>
+    ) : null;
+  return (
+    <section key={item.id} data-finance-grant={item.id} className="pt-2.5">
+      <div className={styles.grantSummary}>
+        <div className="min-w-0">
+          <p className="text-sm capitalize">{item.policy.sections.join(", ")}</p>
+          <p className={`${styles.caption} mt-0.5`}>{detail}</p>
         </div>
-        <dl className={styles.grantDates}>
-          <div>
-            <dt>Access ends</dt>
-            <dd>
-              {item.expiresAt
-                ? accessDate(item.expiresAt)
-                : direction === "outgoing"
-                  ? "When you stop sharing"
-                  : "When the owner stops sharing"}
-            </dd>
-          </div>
-          <div>
-            <dt>Last shared</dt>
-            <dd>{accessDate(item.updatedAt)}</dd>
-          </div>
-        </dl>
+        {direction === "received" ? actions : null}
       </div>
       {direction === "outgoing" &&
       item.status === "active" &&
       item.policy.mode === "ongoing" &&
-      owner ? (
-        <div className="mt-2">
+      (publication === "source_changed" || publication === "unavailable") ? (
+        <div className="mt-1.5">
           <p className={styles.caption}>
-            {financePublicationState(owner, item.id) === "source_changed"
+            {publication === "source_changed"
               ? "Updates paused: the portfolio account/source roster changed. Review and share a new view."
-              : financePublicationState(owner, item.id) === "unavailable"
-                ? "The latest update could not be published. No new information has been shared."
-                : "Updates from approved saved information while One is open and unlocked."}
+              : "The latest update could not be published. No new information has been shared."}
           </p>
-          {financePublicationState(owner, item.id) === "unavailable" ? (
+          {publication === "unavailable" ? (
             <ShellActionSurface
               variant="pill"
               onClick={() =>
@@ -96,33 +102,7 @@ export function FinanceGrantDetails({
           ) : null}
         </div>
       ) : null}
-      {item.status === "active" ? (
-        <div className={styles.grantActions}>
-          <ShellActionSurface
-            variant="pill"
-            onClick={() => setSelected(item.id)}
-          >
-            View
-          </ShellActionSurface>
-          {direction === "outgoing" ? (
-            <>
-              <ShellActionSurface
-                variant="pill"
-                disabled={busy || !hasPortfolio}
-                onClick={() => void updateAccess(item)}
-              >
-                Update access
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                onClick={() => setStopping(item)}
-              >
-                Stop sharing
-              </ShellActionSurface>
-            </>
-          ) : null}
-        </div>
-      ) : null}
+      {direction === "outgoing" ? actions : null}
     </section>
   );
 }
