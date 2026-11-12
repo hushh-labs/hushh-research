@@ -122,6 +122,7 @@ steps:
     entrypoint: "bash"
     env:
       - "PATH=/usr/lib/google-cloud-sdk/bin:/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      - "SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem"
     args:
       - "-c"
       - |
