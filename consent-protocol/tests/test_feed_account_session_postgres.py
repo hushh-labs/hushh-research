@@ -160,6 +160,166 @@ def listed_ids(service: FeedService, user_id: str) -> list[int]:
     return [int(item["id"]) for item in service.list_feed(user_id, limit=100)["items"]]
 
 
+def policy_event(
+    engine, viewer, event_type, metadata, *, source=None, peer=None, domain="location"
+):
+    with engine.begin() as connection:
+        event_id = connection.execute(
+            text("""
+          INSERT INTO feed_events(user_id,source_domain,event_type,metadata,source_row_id)
+          VALUES (:viewer,:domain,:event,CAST(:metadata AS JSONB),:source) RETURNING id
+        """),
+            {
+                "viewer": viewer,
+                "domain": domain,
+                "event": event_type,
+                "metadata": json.dumps(metadata),
+                "source": source,
+            },
+        ).scalar_one()
+        if peer:
+            connection.execute(
+                text("INSERT INTO feed_event_counterparts VALUES (:id,:peer)"),
+                {"id": event_id, "peer": peer},
+            )
+    return event_id
+
+
+def test_important_feed_is_incoming_and_preserves_other_dri_rows(feed_db):
+    grant = str(uuid.uuid4())
+    incoming = policy_event(
+        feed_db,
+        OWNER,
+        "location_share_created",
+        {"feed_audience": "recipient"},
+        source=grant,
+        peer=OTHER,
+    )
+    added = policy_event(
+        feed_db,
+        OWNER,
+        "circle_member_added",
+        {"circle_id": str(uuid.uuid4()), "circle_name": "Friends"},
+        peer=OTHER,
+    )
+    accepted = policy_event(
+        feed_db,
+        OWNER,
+        "connection_accepted",
+        {"actor_is_self": False},
+        domain="connections",
+        peer=OTHER,
+    )
+    other_dri = policy_event(feed_db, OWNER, "kai_analysis_completed", {}, domain="kai")
+    for event, meta, domain in [
+        ("location_share_created", {}, "location"),
+        ("location_share_expired", {}, "location"),
+        ("location_share_viewed", {}, "location"),
+        ("location_access_request", {"feed_audience": "requester"}, "location"),
+        ("location_access_request", {}, "location"),
+        ("location_circle_message", {"circle_id": "circle-a"}, "location"),
+        ("connection_accepted", {"actor_is_self": True}, "connections"),
+        ("connection_withdrawn", {"actor_is_self": False}, "connections"),
+    ]:
+        policy_event(feed_db, OWNER, event, meta, domain=domain)
+    foreign = policy_event(feed_db, OTHER, "circle_member_added", {})
+    service = session(feed_db)
+    assert set(listed_ids(service, OWNER)) == {incoming, added, accepted, other_dri}
+    assert service.unread_count(OWNER) == 4
+    assert listed_ids(service, OTHER) == [foreign]
+
+
+def test_latest_sms_does_not_resurface_after_dismiss_clear_or_source_cleanup(feed_db):
+    old_grant, new_grant, other_grant = (str(uuid.uuid4()) for _ in range(3))
+    meta = {"feed_audience": "recipient", "share_kind": "sos", "counterpart_label": "Same name"}
+    old = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=old_grant, peer=SOS_SENDER
+    )
+    latest = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=new_grant, peer=SOS_SENDER
+    )
+    independent = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=other_grant, peer=OTHER
+    )
+    service = session(feed_db)
+    assert set(listed_ids(service, OWNER)) == {latest, independent}
+    assert service.unread_count(OWNER) == 2
+    prior_key = next(
+        row["metadata"]["feed_group_key"]
+        for row in service.list_feed(OWNER)["items"]
+        if int(row["id"]) == latest
+    )
+    # A later terminal event about the old incident cannot make it current.
+    policy_event(feed_db, OWNER, "location_share_revoked", meta, source=old_grant, peer=SOS_SENDER)
+    assert set(listed_ids(session(feed_db), OWNER)) == {latest, independent}
+    token = service.dismiss(OWNER, item_id=latest)["dismissal_token"]
+    assert listed_ids(session(feed_db), OWNER) == [independent]
+    assert service.restore(OWNER, item_id=latest, dismissal_token=token)["restored"] is True
+    assert set(listed_ids(session(feed_db), OWNER)) == {latest, independent}
+    service.clear(OWNER, up_to_id=independent)
+    assert listed_ids(session(feed_db), OWNER) == []
+    assert service.unread_count(OWNER) == 0
+    # Feed and its counterpart link survive Location's short-lived sources.
+    with feed_db.begin() as connection:
+        connection.execute(text("DELETE FROM one_location_share_grants"))
+    assert listed_ids(session(feed_db), OWNER) == []
+    assert old not in listed_ids(session(feed_db), OWNER)
+    newest = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=str(uuid.uuid4()), peer=SOS_SENDER
+    )
+    assert listed_ids(session(feed_db), OWNER) == [newest]
+    assert service.unread_count(OWNER) == 1
+    assert service.list_feed(OWNER)["items"][0]["metadata"]["feed_group_key"] == prior_key
+
+
+def test_share_expiry_updates_one_group_without_a_new_unread_item(feed_db):
+    grant = str(uuid.uuid4())
+    meta = {"feed_audience": "recipient"}
+    created = policy_event(feed_db, OWNER, "location_share_created", meta, source=grant)
+    first = session(feed_db).list_feed(OWNER)["items"][0]
+    session(feed_db).mark_read(OWNER, up_to_id=created)
+    expired = policy_event(feed_db, OWNER, "location_share_expired", meta, source=grant)
+    page = session(feed_db).list_feed(OWNER)
+    assert [row["id"] for row in page["items"]] == [str(expired)]
+    assert page["items"][0]["metadata"]["feed_group_key"] == first["metadata"]["feed_group_key"]
+    assert page["items"][0]["metadata"]["feed_silent"] is True
+    assert page["items"][0]["read"] is True
+    assert page["unread_count"] == 0
+    session(feed_db).dismiss(OWNER, item_id=expired)
+    assert listed_ids(session(feed_db), OWNER) == []
+
+
+def test_circle_contexts_are_independent_and_deleted_source_never_revives_an_add(feed_db):
+    circle_a, circle_b = str(uuid.uuid4()), str(uuid.uuid4())
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("INSERT INTO one_location_circles VALUES (CAST(:id AS uuid),:owner)"),
+            {"id": circle_a, "owner": OTHER},
+        )
+    first = policy_event(feed_db, OWNER, "circle_member_added", {"circle_id": circle_a}, peer=OTHER)
+    second = policy_event(
+        feed_db, OWNER, "circle_member_added", {"circle_id": circle_b}, peer=OTHER
+    )
+    deleted = policy_event(feed_db, OWNER, "circle_deleted", {}, source=circle_a)
+    policy_event(feed_db, OTHER, "circle_deleted", {}, source=circle_a)
+    service = session(feed_db)
+    assert set(listed_ids(service, OWNER)) == {deleted, second}
+    assert listed_ids(service, OTHER) == []  # Own Circle deletion is not incoming.
+    page = service.list_feed(OWNER, limit=1)
+    assert [int(row["id"]) for row in page["items"]] == [deleted]
+    assert page["next_cursor"] is not None
+    assert [
+        int(row["id"])
+        for row in service.list_feed(OWNER, cursor=page["next_cursor"], limit=1)["items"]
+    ] == [second]
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("DELETE FROM one_location_circles WHERE id=CAST(:id AS uuid)"), {"id": circle_a}
+        )
+    assert listed_ids(session(feed_db), OWNER) == [second]
+    assert first not in listed_ids(session(feed_db), OWNER)
+
+
 def test_partial_delivery_counts_only_active_claims_for_each_participant(feed_db):
     active, superseded = str(uuid.uuid4()), str(uuid.uuid4())
     with feed_db.begin() as connection:

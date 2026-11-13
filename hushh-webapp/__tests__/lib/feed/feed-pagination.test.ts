@@ -50,6 +50,21 @@ describe("Feed history reading continuity", () => {
   });
   afterEach(() => { cleanup(); root.remove(); CacheService.getInstance().clear(); });
 
+  it("updates a grouped interaction in place while unrelated new activity waits", () => {
+    const initial = page([3, 2], "older");
+    initial.items[0]!.metadata.feed_group_key = "share-a";
+    const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: initial } });
+    act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
+    const next = page([5, 4, 2], "next");
+    next.items[1]!.metadata = { feed_group_key: "share-a", feed_silent: true };
+    next.items[1]!.event_type = "location_share_expired";
+    rerender({ data: next });
+    expect(result.current.page!.items.map(value => value.id)).toEqual(["4", "2"]);
+    expect(result.current.page!.items[0]!.event_type).toBe("location_share_expired");
+    expect(result.current.hasNew).toBe(true);
+    expect(root.scrollTop).toBe(600);
+  });
+
   it("retains the reading position and existing row updates until new history is requested", () => {
     const initial = page([3, 2, 1], "older");
     const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: initial } });

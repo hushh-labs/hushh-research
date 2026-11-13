@@ -1,6 +1,7 @@
 "use client";
 
 import { consentSummary } from "@/lib/feed/feed-consent-summary";
+import { latestFeedSmsGrants } from "@/lib/feed/feed-sms-grants";
 import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
 import { AnswerRequestService } from "@/lib/services/answer-request-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -937,6 +938,10 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationResource.data?.requests;
   const receivedGrants = locationResource.data?.receivedGrants;
+  const latestSmsGrants = useMemo(
+    () => latestFeedSmsGrants(receivedGrants ?? [], userId ?? ""),
+    [receivedGrants, userId],
+  );
   const circleMemberInvites = locationResource.data?.circleMemberInvites;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
@@ -1452,7 +1457,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
 
   const clearableSmsEmergencyIds = useMemo(
     () =>
-      (receivedGrants ?? [])
+      latestSmsGrants
         .filter(
           (grant) =>
             isSmsEmergencyGrant(grant) &&
@@ -1460,7 +1465,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
             !isClearedSmsEmergency(grant),
         )
         .map((grant) => grant.id),
-    [receivedGrants, isClearedSmsEmergency],
+    [latestSmsGrants, isClearedSmsEmergency],
   );
 
   // Server first, so the clear holds on every device. If the server cannot
@@ -1957,9 +1962,9 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       }
     }
 
-    // Keep each incident and its original sent time. Feed groups these by
-    // sender and separates ended alerts from pending tasks.
-    const smsEmergencies = (receivedGrants ?? []).filter(
+    // Select the latest confirmed incident before Clear, so a dismissed latest
+    // alert never reveals an earlier incident from the same sender.
+    const smsEmergencies = latestSmsGrants.filter(
       (grant) =>
         isSmsEmergencyGrant(grant) &&
         grant.recipientUserId === userId && grant.ownerUserId !== userId &&
@@ -2463,7 +2468,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     isClearedSmsEmergency,
     firstSeenAt,
     locationRequests,
-    receivedGrants,
+    latestSmsGrants,
     receivedOverflowItems,
     sentPayments,
     circleMemberInvites,

@@ -206,7 +206,7 @@ vi.mock("@/components/feed/feed-push-prompt", () => ({
 }));
 
 vi.mock("@/components/feed/feed-actionable-row", () => ({
-  FeedActionableRow: () => null,
+  FeedActionableRow: ({ item }: { item: FeedActionable }) => <div data-testid={`actionable:${item.id}`}>{item.title}</div>,
 }));
 
 vi.mock("@/components/consent/document-payout-account", () => ({
@@ -542,11 +542,11 @@ describe("Feed history interactions", () => {
     });
   });
 
-  it("keeps ended SMS out of Needs you and groups a live sender's earlier incidents in Live", async () => {
+  it("keeps only the current SMS in each sender's live or ended lane", async () => {
     const sms = (id: string, sender: string, live = false): FeedActionable => ({
       id, title: sender, person: { displayName: sender, photoUrl: null },
       description: live ? "Emergency SMS · Active" : "Emergency SMS · Revoked",
-      icon: () => null, iconTone: "capability", actions: [], sortAt: 1,
+      icon: () => null, iconTone: "capability", actions: [], sortAt: live ? 2 : 1,
       smsEmergency: { senderId: sender }, emphasis: live ? "emergency" : undefined,
       displayTimestamp: Date.parse("2026-08-12T09:00:00Z"),
     });
@@ -555,8 +555,9 @@ describe("Feed history interactions", () => {
       iconTone: "capability", actions: [], sortAt: 0,
     }];
     await renderAfterAutomaticRead();
-    expect(within(screen.getByRole("region", { name: "Live" })).getByText("2 recent SMS alerts · 1 active")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Recent SMS alerts" })).getByText("2 recent SMS alerts · All ended")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Live" })).getByTestId("actionable:a1")).toBeInTheDocument();
+    expect(screen.queryByTestId("actionable:a2")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Recent SMS alerts" })).getAllByText("Blair")).toHaveLength(1);
     expect(within(screen.getByRole("region", { name: "Needs you" })).queryByText(/SMS alerts/)).toBeNull();
   });
 

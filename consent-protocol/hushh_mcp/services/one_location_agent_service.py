@@ -54,6 +54,7 @@ from hushh_mcp.services.directory_identity_service import (
     directory_auth_profiles,
     exclude_retired_account_ids,
 )
+from hushh_mcp.services.feed_location_policy import LATEST_SMS_RECEIPT_SQL
 from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
@@ -9339,14 +9340,23 @@ class OneLocationAgentService:
                 """
                     SELECT
                       g.*,
+                      CASE WHEN g.metadata->>'share_kind' = 'sos'
+                        THEN latest_sms.grant_id = g.id::text END AS feed_latest_sms,
+                      CASE WHEN g.metadata->>'share_kind' = 'sos' THEN
+                        (COALESCE(latest_sms.grant_id = g.id::text, FALSE) OR g.latest_envelope_id IS NOT NULL)
+                        END AS feed_sms_confirmed,
                       o.display_name AS owner_display_name,
                       o.photo_url AS owner_photo_url,
                       o.custom_photo_url AS owner_custom_photo_url,
                       o.phone_number AS owner_phone_number
                     FROM one_location_share_grants g
                     LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+                    LEFT JOIN ("""
+                + LATEST_SMS_RECEIPT_SQL
+                + """) latest_sms
+                      ON latest_sms.sender_id = g.owner_user_id
                     WHERE g.recipient_user_id = :user_id
-                    ORDER BY g.created_at DESC
+                    ORDER BY g.created_at DESC, g.id DESC
                     LIMIT :source_limit
                     """,
                 {"user_id": user_id, "source_limit": None if require_complete else 50},
@@ -9645,7 +9655,20 @@ class OneLocationAgentService:
             # Only the recipient's own view carries their Feed clear; the
             # owner's grants never say whether or when it was cleared.
             "receivedGrants": [
-                {**payload, "recipientClearedAt": _iso(row.get("recipient_cleared_at"))}
+                {
+                    **payload,
+                    "recipientClearedAt": _iso(row.get("recipient_cleared_at")),
+                    **(
+                        {"feedLatestSms": row["feed_latest_sms"]}
+                        if isinstance(row.get("feed_latest_sms"), bool)
+                        else {}
+                    ),
+                    **(
+                        {"feedSmsConfirmed": row["feed_sms_confirmed"]}
+                        if isinstance(row.get("feed_sms_confirmed"), bool)
+                        else {}
+                    ),
+                }
                 for row in received_grants
                 if (
                     payload := self._grant_payload(

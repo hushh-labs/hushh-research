@@ -751,6 +751,9 @@ function FeedPageSession({
       ...pagination.additionalItems,
     ]) {
       if (isFeedItemHidden(item, isLocalCrmBuildEnabled())) continue;
+      if (item.source_domain === "location" && item.metadata.share_kind === "sos"
+        && typeof item.metadata.grant_id === "string"
+        && actionables.some(action => action.id === `sms-emergency:${item.metadata.grant_id}`)) continue;
       if (seen.has(feedItemIdentity(item))) continue;
       if (dismissedItemIds.has(item.id)) continue;
       if (clearedThroughId && isFeedIdAtOrBefore(item.id, clearedThroughId)) {
@@ -780,6 +783,7 @@ function FeedPageSession({
     clearedThroughId,
     clearWatermarkHydrated,
     dismissedItemIds,
+    actionables,
   ]);
 
   const retryFeed = useCallback(async () => {

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { isFeedIdAtOrBefore, latestFeedId } from "@/lib/feed/feed-pagination";
 import { playFeedChime, prepareFeedChime } from "@/lib/feed/feed-chime";
+import { isFeedItemHidden } from "@/lib/feed/feed-visibility";
 import { feedSoundStorageKey as preferenceKey } from "@/lib/feed/feed-clear-watermark";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications/fcm-service";
 import { Button } from "@/lib/morphy-ux/button";
@@ -90,7 +91,8 @@ export function FeedSoundControl({
 
   useEffect(() => {
     if (!firstPageItems) return;
-    const newestId = latestFeedId(firstPageItems);
+    const newestId = latestFeedId(firstPageItems.filter(item =>
+      item.metadata.feed_silent !== true && !isFeedItemHidden(item, true)));
     if (!hasBaselineRef.current) {
       hasBaselineRef.current = true;
       observedIdRef.current = newestId;

@@ -32,6 +32,29 @@ KYC, Connected Systems, and Connections. It replaced the top-bar
 `ActivityInbox` bell (which only ever surfaced Consent + background-task
 activity) with a real bottom-nav tab and a dedicated route, `/one/feed`.
 
+### Location and Connect selection
+
+The scoped presentation policy lives in `feed_location_policy.py` and is applied
+by the canonical list/count query before grouping and pagination. It excludes
+own action confirmations, owner share expiry, routine roster/view receipts and
+ordinary direct/Circle messages. Current incoming requests remain in the
+actionable owner; direct received sharing, relationship outcomes and being added
+to a Circle remain useful history. Current Circle additions are direct; old
+invitation handlers retain only their compatibility purpose. Other domain
+behavior, including wallet message cards, remains with its existing DRI.
+
+Latest SMS selection uses the committed creation receipt and durable server-only
+counterpart identity, before dismissal and short-lived grant cleanup. Only the
+latest confirmed incident per sender/recipient is presented. The existing
+Location state carries recipient-only selection/confirmation flags; it does not
+remove grants from other Location consumers. Clear never reveals a superseded
+incident. No Feed rows or coordinates are copied to device storage.
+
+Opaque read-time group keys reconcile share/membership outcomes in place across
+pages and while scrolling. Quiet share termination updates status without a new
+unread notification or Feed chime. Existing audit records and action authority
+are unchanged; presentation suppression is not domain deletion or revocation.
+
 ## Chat conversation presentation
 
 Circle photo sends show the original from mounted-view memory on the Send tap,
@@ -204,9 +227,8 @@ chronological Feed projection. Empty sections disappear:
 - **Live:** active location/emergency sharing.
 - **Needs you:** pending information, location, connection and Circle requests,
   Mail/KYC review and active Kai tasks, with existing vault/consent guards.
-- **Recent SMS alerts:** ended SMS incidents, grouped by sender. A sender with
-  an active SMS appears in Live instead, with earlier available incidents in
-  the same expandable group. Distinct people with the same name stay separate.
+- **Recent SMS alerts:** each sender's latest confirmed incident when ended.
+  Its prior incidents stay out, including after Clear. Different senders remain separate.
 - **Coming up:** up to three upcoming Calendar events.
 - **In progress:** Drive request search/sharing progress, grouped by request.
 - **History:** durable events grouped by Today, Yesterday and date.
@@ -249,10 +271,9 @@ Ended incidents are readable in Feed and do not link to a live map that has
 already ended. The existing recipient-scoped Clear and cross-device persistence
 still apply only to ended incidents; active alerts cannot be cleared.
 
-The resource is bounded and subject to Location retention, so expansion shows
-recent available alerts, not a complete SMS archive. Durable location lifecycle
-events remain independent chronological history; matching display names do not
-authorize merging or deleting those source events.
+The resource is bounded and subject to Location retention. It is not an SMS
+archive and has no disclosure of superseded incidents. Durable source history
+remains independent; names never authorize grouping or source deletion.
 
 ## Person identity and responsive rows
 
