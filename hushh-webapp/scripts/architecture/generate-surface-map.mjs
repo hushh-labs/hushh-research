@@ -663,8 +663,8 @@ function buildSurfaceMap() {
       native_inventory: "native-route-inventory.json",
       semantic_views: "../config/runtime-topology-maintenance.json",
       api_routes: "app/api/**/route.ts",
-      route_docs: "../docs/reference/architecture/route-contracts.md",
-      mobile_docs: "../docs/reference/mobile/capacitor-parity-audit.md",
+      route_docs: "../docs/development/contracts/route-contracts.md",
+      mobile_docs: "../docs/development/mobile/capacitor-parity-audit.md",
     },
     shared_native_plugin_dependencies: [
       {

@@ -13,7 +13,7 @@ import { answerProfilePhotoUrl, answerPhotoReference, isAnswerProfilePhotoScope 
  *
  * This is not always-on operation: private reads and WebCrypto require the
  * owner's unlocked session. The reviewed runtime/key proposal remains in
- * docs/reference/architecture/living-memory-freshness-adr.md.
+ * docs/architecture/living-memory-freshness-adr.md.
  *
  * SCOPE ISOLATION. Each approved scope is resolved individually through
  * `buildConsentExportForScope`, which walks the domain manifest to the exact

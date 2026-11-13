@@ -18,10 +18,10 @@ description: Use when changing or verifying Kai analytics observability across G
 
 Owned repo surfaces:
 
-1. `docs/reference/operations/observability-architecture-map.md`
-2. `docs/reference/operations/observability-google-first.md`
-3. `docs/reference/operations/observability-event-matrix.md`
-4. `docs/reference/quality/analytics-verification-contract.md`
+1. `docs/operations/observability/observability-architecture-map.md`
+2. `docs/operations/observability/observability-google-first.md`
+3. `docs/operations/observability/observability-event-matrix.md`
+4. `docs/development/quality/analytics-verification-contract.md`
 5. `hushh-webapp/lib/observability`
 6. `hushh-webapp/__tests__/services/observability-schema.test.ts`
 7. `hushh-webapp/__tests__/services/observability-route-map.test.ts`
@@ -58,10 +58,10 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/operations/observability-architecture-map.md`
-2. `docs/reference/operations/observability-google-first.md`
-3. `docs/reference/operations/observability-event-matrix.md`
-4. `docs/reference/quality/analytics-verification-contract.md`
+1. `docs/operations/observability/observability-architecture-map.md`
+2. `docs/operations/observability/observability-google-first.md`
+3. `docs/operations/observability/observability-event-matrix.md`
+4. `docs/development/quality/analytics-verification-contract.md`
 5. `.agents/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md`
 6. `.agents/skills/analytics-observability-governance/references/event-taxonomy-and-validation.md`
 7. `consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql`

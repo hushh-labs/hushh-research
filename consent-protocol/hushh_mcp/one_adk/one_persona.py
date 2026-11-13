@@ -7,9 +7,9 @@ authority: consent, vault, persona, and route guards still gate every action.
 
 Source of truth (keep this block aligned when the ontology changes; refresh via
 the Founder Wiki freshness lane per AGENTS.md):
-- ``docs/vision/agent-ontology.md``            roles, One motions, handoff rules
-- ``docs/project_context_map.md``              North Stars + CRITICAL RULES
-- ``docs/reference/architecture/architecture.md``  Human Secure Socket Host thesis
+- ``docs/product/principles/agent-ontology.md``            roles, One motions, handoff rules
+- ``docs/development/repository-map.md``              North Stars + CRITICAL RULES
+- ``docs/architecture/system.md``  Human Secure Socket Host thesis
 
 The specialist catalog is generated from ``contracts/agents/product-agent-registry.v2.json``
 (reproducible-from-manifest per AGENTS.md), so the roster One knows always

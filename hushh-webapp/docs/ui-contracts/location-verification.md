@@ -32,7 +32,7 @@ Canonical visual owner: [Hussh Webapp Docs](../README.md). [Location](./location
 
 Generated Back/Search receipt files from this historical pass are no longer
 source dependencies. Current freshness evidence uses ignored local caches and
-commit fingerprints under the [UI contract contributor guide](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+commit fingerprints under the [UI contract contributor guide](../../../docs/development/contracts/ui-contract-contributor-guide.md).
 
 The change uses the existing shared shell and semantic typography. A presentation-only context repeats its scope on actual portal hosts. Individual raw text hooks change font properties without introducing wrappers, effects, listeners, requests, timers or a new dependency. Shared contacts and guest onboarding opt in only from Location. The retained, unmounted places-history edit from the earlier narrow patch was removed.
 
@@ -40,7 +40,7 @@ Production owners include the Location page, map/public route clients, onboardin
 
 <details><summary>Full candidate file list</summary>
 
-- `docs/reference/quality/design.md`
+- `docs/development/quality/design.md`
 - `hushh-webapp/__tests__/components/one-location-agent-page.test.tsx`
 - `hushh-webapp/__tests__/components/one-location-hub-hierarchy.contract.test.ts`
 - `hushh-webapp/__tests__/utils/top-shell-breadcrumbs.test.ts`

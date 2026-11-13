@@ -25,7 +25,7 @@
     ".agents/skills/founder-brief-curation/references/world-class-artifact-standard.md",
     ".agents/skills/founder-brief-curation/references/architecture-diagram-standard.md",
     ".agents/skills/docs-governance/references/founder-document-cadence.md",
-    "docs/reference/operations/documentation-architecture-map.md"
+    "docs/development/documentation.md"
   ],
   "required_commands": [
     "python3 scripts/ops/verify_pdf_artifact_contract.py",

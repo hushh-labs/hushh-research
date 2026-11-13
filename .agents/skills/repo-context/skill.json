@@ -29,7 +29,7 @@
   "required_reads": [
     ".agents/skills/repo-context/references/index-contract.md",
     ".agents/skills/repo-context/references/ownership-map.md",
-    "docs/project_context_map.md"
+    "docs/development/repository-map.md"
   ],
   "required_commands": [
     "./bin/hushh agents scan summary",

@@ -533,13 +533,13 @@ Connect owns its workspace type scale through
 Use the shared compact row composition and semantic typography rather than
 inventing a parallel type ladder. Plus Jakarta Sans, hierarchy, colors, touch
 targets, and action sizing remain owned by the
-[design system](../../../docs/reference/quality/design-system.md).
+[design system](../../../docs/development/quality/design-system.md).
 The shared top bar owns the single Connect title; the existing tab/search
 bands and focused circle flow own their authored layout.
 Calendar reuses this top-bar composition and the ordinary person-row action
 recipe through a scoped Calendar seam. Its agent-width Board remains880px and
 its full-flow/confirmation controls keep their own hierarchy. See the
-[mounted Calendar presentation reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026)
+[mounted Calendar presentation reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026-updated-29-october)
 for branch, portal, action and evidence boundaries.
 
 The mounted [Memory workspace](./profile-memory.md#mounted-memory-workspace-and-handoff)
@@ -838,7 +838,7 @@ of those suites is distinct from executing them or running a live walkthrough.
 
 When changing Connect, update the relevant rows in this one reference and the
 existing route/action owners, rather than creating another parallel contract.
-Follow the [UI contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md)
+Follow the [UI contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md)
 for authored Back cases and Search/actions. UI edits require `ui:doctor`, then
 `build:ui-contracts`, `verify:ui-contracts`, and the affected behavior pack.
 Documentation-only changes require `./bin/hushh docs verify` from the repo root.
@@ -916,11 +916,11 @@ connection graph changes retire the affected reads before displaying new
 results.
 
 Signed-in profiles show network details under the hero's contact details. The
-connection count opens the paginated shared list after the server confirms that
-the profile owner opted in and the viewer is an active direct connection. It
+connection count opens the paginated list after the server confirms that
+the viewer is an accepted active direct connection, without a separate owner opt-in. It
 uses **500+ connections** above 500. Rows show **Connected**, **Connect**, or
-the applicable pending state for the viewer. **Share my connection list** starts
-off, discloses anonymous extended-network degree contribution, and confirms only
+the applicable pending state for the viewer. **Extended network discovery** starts
+off, controls anonymous third-degree discovery rather than direct list visibility, and confirms only
 server-acknowledged changes. It grants no access to private contacts or information.
 Anonymous public profile projections do not fetch network information.
 

@@ -163,7 +163,7 @@ The consent protocol has multiple delegated-agent mechanisms. They are related, 
 3. Specialist A2A gates validate their own specialist scopes.
 4. TrustLinks are signed A2A delegation proofs. They do not replace consent tokens or encrypted exports; session-bound TrustLinks should be verified with the server-derived session id when replay protection is required.
 
-Cross-cutting contract: [docs/reference/iam/agent-delegation-boundary.md](../../../docs/reference/iam/agent-delegation-boundary.md).
+Cross-cutting contract: [docs/architecture/identity/agent-delegation-boundary.md](../../../docs/architecture/identity/agent-delegation-boundary.md).
 
 ### Automated Test Token Policy
 
@@ -176,7 +176,7 @@ Cross-cutting contract: [docs/reference/iam/agent-delegation-boundary.md](../../
 - All Kai streaming routes use canonical SSE envelopes (`schema_version`, `stream_id`, `stream_kind`, `seq`, `event`, `terminal`, `payload`).
 - Route producers must emit explicit `event:` frames with envelope `event` parity.
 - No legacy stream shape support is permitted for new work.
-- Contract reference: `docs/reference/streaming/streaming-contract.md`.
+- Contract reference: `docs/development/streaming/streaming-contract.md`.
 
 ---
 

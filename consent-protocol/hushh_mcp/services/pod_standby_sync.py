@@ -1,6 +1,6 @@
 """The hub's standby sync: read both heads, ferry a sealed range, prove equal heads.
 
-Design: ``docs/future/personal-agent/STANDBY-SYNC.md`` ("Sync protocol", E4 to E8).
+Design: ``docs/roadmap/personal-agent/standby-sync.md`` ("Sync protocol", E4 to E8).
 One attempt, :meth:`StandbySyncService.sync_once`, in order:
 
 1. take the single-flight sync lease on the person's standby row (fenced on the

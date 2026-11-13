@@ -3,9 +3,9 @@
 
 ## Visual Context
 
-Canonical visual owner: [Quality and Design System Index](docs/reference/quality/README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+Canonical visual owner: [Quality and Design System Index](docs/development/quality/README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-This file is a repo-root testing entrypoint. The maintained CI and verification reference lives at [`docs/reference/operations/ci.md`](./docs/reference/operations/ci.md).
+This file is a repo-root testing entrypoint. The maintained CI and verification reference lives at [`docs/operations/releases/ci.md`](./docs/operations/releases/ci.md).
 
 ## Testing Principles
 
@@ -24,9 +24,9 @@ High-signal rules that should remain true regardless of test inventory changes:
 
 ## Primary References
 
-- CI and required gates: [`docs/reference/operations/ci.md`](./docs/reference/operations/ci.md)
-- Route governance: [`docs/reference/architecture/route-contracts.md`](./docs/reference/architecture/route-contracts.md)
-- Docs parity and docs governance: [`docs/reference/operations/docs-governance.md`](./docs/reference/operations/docs-governance.md)
+- CI and required gates: [`docs/operations/releases/ci.md`](./docs/operations/releases/ci.md)
+- Route governance: [`docs/development/contracts/route-contracts.md`](./docs/development/contracts/route-contracts.md)
+- Docs parity and docs governance: [`docs/development/documentation.md`](./docs/development/documentation.md)
 
 ## Common Local Commands
 

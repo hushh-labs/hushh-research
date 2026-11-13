@@ -88,8 +88,8 @@ permissions let the existing release workflow quarantine document jobs and
 restore them after rollback. The provider still accepts only
 this repository's production environment on `main`, and the detector continues
 to reject every undeclared project role, including privilege escalation.
-See the [cleanup activation contract](../../docs/reference/operations/account-deletion-rollout.md#production-procedure)
-and [backup posture contract](../../docs/reference/operations/production-db-backup-and-recovery.md).
+See the [cleanup activation contract](../../docs/operations/identity/account-deletion-rollout.md#production-procedure)
+and [backup posture contract](../../docs/operations/production-db-backup-and-recovery.md).
 
 The canonical setup now declares and reconciles the existing Scheduler role's
 exact eight permissions and `GA` stage. The live verifier checks that definition

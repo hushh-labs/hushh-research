@@ -11,7 +11,7 @@ requested audience and decision.
    `ssh` in the accent hero-gradient (`--app-accent-hero-from/mid/to`), SF Pro Display 700,
    `letter-spacing:-5.6`, no dot separator, no stylisation. In PROSE the brand is **Hussh**
    (double-s); code/config identifiers stay their literal casing (`hushh-one`, `hushh-tenancy`,
-   `HUSHH_*`, `hushh_mcp`, `a2a.hushh.ai`). See `docs/reference/operations/brand-and-compatibility-contract.md`.
+   `HUSHH_*`, `hushh_mcp`, `a2a.hushh.ai`). See `docs/operations/brand-and-compatibility-contract.md`.
 2. **Tokens from the single source.** All colour comes from `hushh-webapp/app/globals.css`
    (see the palette block in `brief-curation-rules.md`). Default accent iOS Blue `#007aff`;
    Molten Gold `#d4a574` is a variant. Ship all **four themes** (light/dark × blue/gold) with a

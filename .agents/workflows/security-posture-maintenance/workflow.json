@@ -9,13 +9,13 @@
     ".github/workflows",
     ".github/dependabot.yml",
     "scripts/ci",
-    "docs/reference/operations",
+    "docs/operations",
     ".agents/workflows/security-posture-maintenance"
   ],
   "required_reads": [
-    "docs/reference/operations/ci.md",
-    "docs/project_context_map.md",
-    "docs/reference/iam/README.md"
+    "docs/operations/releases/ci.md",
+    "docs/development/repository-map.md",
+    "docs/architecture/identity/README.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task security-posture-maintenance",

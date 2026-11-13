@@ -3,7 +3,7 @@
   "surface_id": "profile_world_model",
   "surface_title": "Personal World Model",
   "docs_references": [
-    "docs/reference/one/personal-world-model.md"
+    "docs/architecture/one/personal-world-model.md"
   ],
   "actions": [
     {

@@ -853,7 +853,7 @@ These identify test owners; execution is reported with the change.
 No real requests, file grants, checkout, notifications, or account mutations
 were triggered for this inventory. Run `./bin/hushh docs verify` for prose;
 implementation changes follow the existing
-[UI contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+[UI contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md).
 
 ### Background reads and return continuity
 

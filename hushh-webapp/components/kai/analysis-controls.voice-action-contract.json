@@ -3,7 +3,7 @@
   "surface_id": "kai_analysis_controls",
   "surface_title": "Kai Analysis Controls",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "defaults": {
     "speaker_persona": "kai",

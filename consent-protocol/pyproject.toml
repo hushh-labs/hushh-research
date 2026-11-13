@@ -72,7 +72,7 @@ dependencies = [
     # ZoneInfo needs the IANA database in slim Linux images, including browser aliases.
     "tzdata==2026.1",
     "uvicorn>=0.34.0",
-    # WorkOS enterprise SSO (behind an adapter; see docs/reference/architecture/enterprise-sso-workos-adr.md).
+    # WorkOS enterprise SSO (behind an adapter; see docs/architecture/enterprise-sso-workos-adr.md).
     "workos==10.5.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",

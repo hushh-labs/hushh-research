@@ -58,13 +58,13 @@ flowchart TD
 | First use | [Entry, onboarding and completion](#entry-onboarding-and-completion) |
 | Connection | [Google authorization, callback, disconnect and Mail recovery](#google-connection-callback-and-disconnect) |
 | Workspace | [Header, tabs and controls](#connected-header-tab-state-and-shared-controls) |
-| Current Board | [Three-account Board](#three-account-board-in-this-checkout), [presentation reconciliation](#mounted-presentation-reconciliation--24-october-2026) |
+| Current Board | [Three-account Board](#three-account-board-in-this-checkout), [presentation reconciliation](#mounted-presentation-reconciliation--24-october-2026-updated-29-october) |
 | Conditional Schedule fallback | [Today/event rows](#schedule-today-selected-dates-and-every-event-control), [Free time](#schedule-free-time-and-slot-handoff), [settings](#calendar-settings-and-exclusion-confirmation), [attendance modal](#schedule-event-detail-attendance-and-checked-alternatives) |
 | Invitations | [Filters, rows and every response path](#invitations-tab-filters-dates-and-rows), [recipient page](#recipient-rescheduling-page) |
-| Insights | [Overview, library, detail and artifacts](#insights-overview-library-meeting-and-files) |
+| Insights | [Overview, library, detail and artifacts](#insights-selected-account-day-library-and-meeting-files) |
 | Private agent | [Conversation, proposals and voice](#one-conversation-proposal-cards-and-voice) |
 | Wire and state | [API, response fields, provider reads and storage](#api-contract-and-row-level-information-provenance) |
-| Presentation | [Viewport, dimensions and layers](#phone-and-desktop-dimensions-viewport-and-spatial-contract), [current typography and CTA matrix](#mounted-presentation-reconciliation--24-october-2026), [prior font baseline](#prior-inspected-font-baseline-superseded) |
+| Presentation | [Viewport, dimensions and layers](#phone-and-desktop-dimensions-viewport-and-spatial-contract), [current typography and CTA matrix](#mounted-presentation-reconciliation--24-october-2026-updated-29-october), [prior font baseline](#prior-inspected-font-baseline-superseded) |
 | Evidence | [Compatibility limits](#source-only-compatibility-and-known-verification-boundaries), [verification](#verification-and-evidence-limits), [server copy](#server-authored-error-copy-inventory) |
 
 ## Reading the contract
@@ -1345,7 +1345,7 @@ Sources: [Calendar layout constants](../../components/calendar/calendar-agent-pa
 
 The following tables preserve the older source-only Calendar baseline for
 comparison. The current mounted target, role map and rendered fixture evidence
-are in [Mounted presentation reconciliation](#mounted-presentation-reconciliation--24-october-2026).
+are in [Mounted presentation reconciliation](#mounted-presentation-reconciliation--24-october-2026-updated-29-october).
 Before the October24 pass, the default product family was Plus Jakarta Sans
 400/600/700, while Calendar's connected wrapper and invitation portal set
 Inter variable100–900 from

@@ -16,7 +16,7 @@ Use fixed case/stage/reason/timing diagnostics without prompts, model output or
 credentials. A semantic failure must remain failed in its terminal verdict
 even if earlier log lines arrive later. Core trust, ownership, schema and active-model
 failures block deployment. Secondary feature failures remain diagnostic outcomes;
-not-run features are not reported as passing. Follow the [canonical CI policy](../../../../docs/reference/operations/ci.md#managed-provider-readiness-policy). Verify producer and collector regressions,
+not-run features are not reported as passing. Follow the [canonical CI policy](../../../../docs/operations/releases/ci.md#managed-provider-readiness-policy). Verify producer and collector regressions,
 then qualify the fixed image through the existing runtime-identity release path.
 A source patch or healthy newer workflow cannot repair an older pinned image.
 

@@ -7,7 +7,7 @@ Canonical visual owner: [consent-protocol](../README.md). Use that map for the t
 
 This document defines the canonical prompt contract for PKM semantic understanding.
 
-It is governed by `./pkm-agent-north-star.md`.
+It is governed by `pkm-agent-north-star.md`.
 
 ## Core rule
 

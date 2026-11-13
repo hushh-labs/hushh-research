@@ -9,10 +9,10 @@ This is the non-negotiable methodology for PKM development.
 
 Supporting docs:
 
-- `./pkm-prompt-contract.md`
-- `./backend-semantic-boundary.md`
-- `./backend-semantic-baseline-audit.md`
-- `./pkm-structure-agent-live-eval.md`
+- `pkm-prompt-contract.md`
+- `backend-semantic-boundary.md`
+- `backend-semantic-baseline-audit.md`
+- `pkm-structure-agent-live-eval.md`
 
 ## Core rule
 

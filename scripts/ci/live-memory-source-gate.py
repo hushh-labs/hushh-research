@@ -14,7 +14,7 @@ from pathlib import Path
 from live_memory_pr_context import event_impact_body, report_impact_body
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTRACT = Path("docs/reference/architecture/live-memory-source-contract.md")
+CONTRACT = Path("docs/architecture/live-memory-source-contract.md")
 RECORDS = Path("hushh-webapp/lib/pkm/living-source-records.ts")
 SYNC = Path("hushh-webapp/lib/pkm/living-source-sync.ts")
 JOURNAL_SERVICE = Path("hushh-webapp/lib/services/source-journal-service.ts")

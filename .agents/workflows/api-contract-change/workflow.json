@@ -8,13 +8,13 @@
   "affected_surfaces": [
     "consent-protocol/api",
     "hushh-webapp/app/api",
-    "docs/reference/architecture/api-contracts.md",
+    "docs/development/contracts/api-contracts.md",
     "consent-protocol/docs"
   ],
   "required_reads": [
-    "docs/reference/architecture/api-contracts.md",
-    "docs/guides/new-feature.md",
-    "docs/reference/quality/pr-impact-checklist.md"
+    "docs/development/contracts/api-contracts.md",
+    "docs/development/guides/new-feature.md",
+    "docs/development/quality/pr-impact-checklist.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task api-contract-change",

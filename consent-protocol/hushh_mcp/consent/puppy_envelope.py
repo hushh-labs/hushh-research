@@ -19,7 +19,7 @@ and position in the stream a frame belongs to. The envelope binds all of that:
   also what makes replay detectable without any state beyond one integer.
 
 The device side implements the same bytes; see
-``docs/future/personal-agent/PUPPY-DEVICE-BINDING-SPEC-2026-09-10.md``.
+``docs/roadmap/personal-agent/puppy-device-binding-spec-2026-09-10.md``.
 """
 
 from __future__ import annotations

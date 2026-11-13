@@ -5,7 +5,7 @@ import { SITE_URL } from "@/lib/seo/site";
  *
  * An AEO-friendly summary for LLM answer engines. Describes Hussh and the agent
  * ontology (Hussh -> One -> {Kai, Nav, KYC}) in plain text so models can ground
- * answers accurately. Aligned to docs/vision/agent-ontology.md.
+ * answers accurately. Aligned to docs/product/principles/agent-ontology.md.
  */
 export const dynamic = "force-static";
 

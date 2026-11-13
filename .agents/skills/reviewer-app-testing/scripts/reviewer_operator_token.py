@@ -154,14 +154,17 @@ def runtime_reviewer_binding(secret, config: dict, read) -> tuple[set[str], str,
     return set(configured_ids), "dev" if shared_dev else policy["environment"], versions
 
 
-def firebase_certificate(secret, versions: dict) -> dict:
+def firebase_certificate(secret, versions: dict, *, lane: str) -> dict:
+    expected_project = {"dev": "hushh-pda-dev", "uat": "hushh-pda"}.get(lane)
+    if expected_project is None:
+        raise ValueError("reviewer_firebase_authority_refused")
     certificate = json.loads(
         secret(
             "FIREBASE_ADMIN_CREDENTIALS_JSON",
             versions.get("FIREBASE_ADMIN_CREDENTIALS_JSON", "latest"),
         )
     )
-    if certificate.get("project_id") != "hushh-pda":
+    if certificate.get("project_id") != expected_project:
         raise ValueError("reviewer_firebase_authority_refused")
     return certificate
 
@@ -185,6 +188,7 @@ def main() -> None:
     reviewer_ids = read_reviewer_binding(config)
     os.environ["SSL_CERT_FILE"] = certifi.where()
     adc, _ = google.auth.default(
+        quota_project_id="hushh-pda-dev",
         scopes=[
             "https://www.googleapis.com/auth/cloud-platform",
             "openid",
@@ -227,7 +231,7 @@ def main() -> None:
     if set(configured_ids) != reviewer_ids:
         raise ValueError("isolated_reviewer_runtime_required")
     firebase = initialize_app(
-        credentials.Certificate(firebase_certificate(secret, versions)),
+        credentials.Certificate(firebase_certificate(secret, versions, lane=lane)),
         name="scope-commerce-operator-reviewer",
     )
     try:

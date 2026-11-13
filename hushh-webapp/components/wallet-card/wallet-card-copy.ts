@@ -2,7 +2,7 @@
  * Wallet Profile copy.
  *
  * The strings in `WALLET_CARD_COPY` are fixed by the Wallet Card contract
- * (docs/superpowers/specs/2026-08-03-wallet-card-contract.md §9) and are used
+ * (docs/roadmap/implementation/specs/2026-08-03-wallet-card-contract.md §9) and are used
  * verbatim on every surface — owner setup, owner management, and the public
  * scanned page. Do not reword them here; change the contract first.
  *

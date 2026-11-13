@@ -17,7 +17,7 @@ from hushh_mcp.one_adk import text_runtime
 from hushh_mcp.services import pod_specialist_runtime, puppy_broker
 from hushh_mcp.services.gcp_backend import DIRECT_INGRESS_REQUEST_TIMEOUT_SECONDS
 
-# From docs/future/personal-agent/PUPPY-DEVICE-BINDING-SPEC-2026-09-10.md.
+# From docs/roadmap/personal-agent/puppy-device-binding-spec-2026-09-10.md.
 HERMES_LOCAL_MODEL_READ_SECONDS = 60.0
 HERMES_REQUEST_TOTAL_SECONDS = 110.0
 

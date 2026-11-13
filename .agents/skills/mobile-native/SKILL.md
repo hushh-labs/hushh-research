@@ -41,8 +41,8 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/mobile/README.md`
-2. `docs/guides/new-feature.md`
+1. `docs/development/mobile/README.md`
+2. `docs/development/guides/new-feature.md`
 3. `hushh-webapp/ios/App/CapApp-SPM/README.md`
 4. `hushh-webapp/docs/ios-native-surface-adoption.md`
 

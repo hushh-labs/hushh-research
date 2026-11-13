@@ -19,7 +19,7 @@
   ],
   "required_reads": [
     ".github/workflows/release-ios-appstore.yml",
-    "docs/guides/mobile/release-ios-appstore.md",
+    "docs/operations/mobile/release-ios-appstore.md",
     "scripts/release/dispatch-ios-appstore.mjs",
     "scripts/ci/submit-appstore-version.py",
     "scripts/ci/resolve-ios-build-number.py",

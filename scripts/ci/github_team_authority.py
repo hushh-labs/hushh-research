@@ -20,7 +20,7 @@ import subprocess
 import urllib.request
 import urllib.error
 
-from github_security_authority import NoRedirect, Refused
+from github_security_authority import NoRedirect, Refused, UnavailableRead, retry_read
 
 REPOSITORY = "hushh-labs/hushh-research"
 WORKFLOW = ".github/workflows/deployment-security.yml"
@@ -38,21 +38,16 @@ class PendingObservation(Refused):
     """The exact Main publication has not completed; bounded read retry is safe."""
 
 
-class UnavailableRead(Refused):
-    """A read failed before returning authority evidence, not an authority denial."""
-
-    def __init__(self, status=None):
-        self.status = status
-        detail = f"HTTP {status}" if status is not None else "transport"
-        super().__init__(f"Team authority API read unavailable ({detail})")
-
-
 def require(condition, message):
     if not condition:
         raise Refused(message)
 
 
 def cli_read(path):
+    return retry_read(lambda: _cli_read(path))
+
+
+def _cli_read(path):
     try:
         result = subprocess.run(
             ["gh", "api", path], capture_output=True, text=True, timeout=30
@@ -78,7 +73,7 @@ def cli_read(path):
 def team_reader(token):
     require(bool(token), "Read-only membership App token is unavailable")
 
-    def read(path):
+    def read_once(path):
         require(
             path.startswith("orgs/hushh-labs/teams/")
             and ".." not in path
@@ -100,6 +95,8 @@ def team_reader(token):
                 raw = response.read(256 * 1024 + 1)
         except urllib.error.HTTPError as error:
             error.close()
+            if error.code in {500, 502, 503, 504}:
+                raise UnavailableRead(error.code) from None
             raise Refused(
                 f"Membership lookup refused (HTTP {error.code}); no authority granted"
             ) from None
@@ -108,7 +105,7 @@ def team_reader(token):
         require(len(raw) <= 256 * 1024, "Membership response exceeded its bound")
         return json.loads(raw)
 
-    return read
+    return lambda path: retry_read(lambda: read_once(path))
 
 
 def read_teams(read):
