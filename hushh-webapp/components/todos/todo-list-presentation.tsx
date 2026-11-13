@@ -275,7 +275,7 @@ export function TodoRow({
                 effect="fade"
                 size="compact"
                 data-profile-role="action"
-                className="ml-auto min-h-11 !px-2 !text-[color:var(--app-accent)]"
+                className="ml-auto min-h-11 !px-2 !text-[color:var(--app-accent)] max-sm:!h-9 max-sm:!min-h-9 max-sm:!rounded-[var(--app-radius-md)] max-sm:!px-1.5"
               >
                 {task.link.startsWith("/") ? (
                   <Link href={task.link} aria-label={`Open ${task.title}`}>
