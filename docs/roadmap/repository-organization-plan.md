@@ -108,7 +108,7 @@ Use descriptive relative links and real heading anchors; repair inbound links in
 the same change as a move. Keep compatibility headings only for demonstrated callers.
 
 The root README should answer: what Hussh is; what works and where readiness is
-recorded; how the platform fits together; how to start; where Founder/CTO,
+recorded; how the platform fits together; how to start; where product readers, contributors,
 contributors, operators and developers go next. Use one clear overview figure and
 compact tables where useful. Qualify security and capability claims against source;
 link detailed invariants and rollout evidence instead of repeating them.

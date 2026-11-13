@@ -8,8 +8,8 @@ Dispatch Dev, UAT and Production deployments from `main`. Application sources re
 isolated: qualified protected `dev`, protected `uat`, and approved Main content respectively.
 Run names identify the application branch and SHA; the Actions Main badge identifies
 execution authority. Merges never deploy. UAT needs no prior Dev deployment; production
-requires qualified protected Main, compatibility and rollback without preceding UAT deployment. This operations delta
-does not publish an application, run migrations or change production traffic.
+requires qualified protected Main, compatibility and rollback without a preceding
+UAT deployment. Source merges never publish an application or change serving traffic.
 
 Current access comes only from the live GitHub teams: ordinary review/self-service uses
 `allowed-maintainers-to-approve`; environments use their `deploy-*` team; protected CI,
