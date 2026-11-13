@@ -10718,6 +10718,16 @@ html:has([data-profile-type-scale]),
     font-weight: var(--type-page-title-weight) !important;
     white-space: normal;
   }
+  /* A flow's step eyebrow ("Step 2 of 2") is supporting text in Connect v14:
+     product font, 12/18/400, no tracking. The shared eyebrow role is monospace
+     metadata everywhere else and keeps that look outside Location. */
+  [data-location-type-scale="connect"] .ui-text-eyebrow {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-row-description-size) !important;
+    line-height: var(--type-row-description-line) !important;
+    font-weight: var(--type-row-description-weight) !important;
+    letter-spacing: normal !important;
+  }
 }
 
 /* Raw app-owned text opts into a named role. These declarations are font-only:

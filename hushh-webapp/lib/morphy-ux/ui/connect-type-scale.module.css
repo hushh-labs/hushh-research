@@ -176,13 +176,16 @@
   font-weight: 400;
 }
 
+/* One option scale for every choice a person taps inside a card: the duration
+   ladder, its Custom wheel and the Reason picker. Options are not form labels
+   (15/22) and not input values (14/22 to 16/22), so they own this role. */
 @layer base {
-  .surface.surface.surface [data-connect-role="duration-option"] {
+  .surface.surface.surface :is([data-connect-role="duration-option"], [data-connect-role="choice-option"]) {
     font-size: 14px !important;
     line-height: 21px !important;
     font-weight: 550 !important;
   }
-  .surface.surface.surface [data-connect-role="duration-option"][data-selected="true"] {
+  .surface.surface.surface :is([data-connect-role="duration-option"], [data-connect-role="choice-option"])[data-selected="true"] {
     font-weight: 600 !important;
   }
 }
