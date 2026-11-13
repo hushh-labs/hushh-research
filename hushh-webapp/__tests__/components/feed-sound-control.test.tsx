@@ -75,6 +75,7 @@ describe("Feed sound", () => {
       { ...row("6"), metadata: { actor_is_self: true } },
       { ...row("7"), source_domain: "location" as const, event_type: "location_share_expired", metadata: {} },
       { ...row("8"), source_domain: "location" as const, event_type: "location_share_expired", metadata: { feed_audience: "recipient", feed_silent: true } },
+      { ...row("9"), source_domain: "location" as const, event_type: "location_share_expired", metadata: { feed_audience: "recipient" } },
     ]) {
       push({ type: "location_share_expired", user_id: "owner-a" });
       view.rerender(<FeedSoundControl userId="owner-a" firstPageItems={[item, row("5")]} />);
