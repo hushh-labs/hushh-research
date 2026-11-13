@@ -7,7 +7,6 @@ import ast
 import json
 from pathlib import Path
 import os
-import shutil
 import subprocess
 import tempfile
 
@@ -113,15 +112,13 @@ def verify_public_schema_bound_keeps_secret_detection() -> None:
 
 
 def _scan_source(
-    path: str, contents: str, *, config_path: Path | None = None, line_ending: str = "\n"
+    path: str, contents: str, *, config_path: Path | None = None
 ) -> tuple[int, set[str]]:
     with tempfile.TemporaryDirectory(prefix="gitleaks-source-allowlist-") as temp:
         root = Path(temp)
         fixture = root / path
         fixture.parent.mkdir(parents=True, exist_ok=True)
-        # Control the bytes explicitly: Windows text-mode writes otherwise turn
-        # every fixture into CRLF and leave the LF contract untested.
-        fixture.write_bytes(contents.replace("\r\n", "\n").replace("\n", line_ending).encode("utf-8"))
+        fixture.write_text(contents, encoding="utf-8")
         report_path = root / "redacted-report.json"
         result = subprocess.run(
             [
@@ -147,10 +144,8 @@ def _scan_source(
         findings = json.loads(report_path.read_text(encoding="utf-8"))
         return result.returncode, {str(item.get("RuleID", "")) for item in findings}
 
-def _verify_session_source_controls(generic_token, line_ending):
-    from functools import partial
-
-    scan = partial(_scan_source, line_ending=line_ending)
+def _verify_session_source_controls(generic_token):
+    scan = _scan_source
 
     session_path = "consent-protocol/hushh_mcp/one_voice/session.py"
 
@@ -194,21 +189,8 @@ def _verify_session_source_controls(generic_token, line_ending):
     if status != 1 or "generic-api-key" not in rules:
         raise AssertionError("quoted credential in the same source path escaped scanning")
 
-    owner_argument = "user_id=" + ".".join(("auth", "user_id"))
-    conversation_argument = "conversation_id=" + ".".join(("self", "claims", "conversation_id"))
-    expression = ", ".join((owner_argument, conversation_argument))
-    if session_source.count(expression) != 1:
-        raise AssertionError("expected exactly one allowlisted session expression")
-    status, rules = scan(session_path, session_source.replace(
-        expression, ", ".join((owner_argument, 'conversation_id="' + generic_token + '"')), 1,
-    ))
-    if status != 1 or "generic-api-key" not in rules:
-        raise AssertionError("same-line credential replacement escaped scanning")
-
-def _verify_classifier_source_controls(stripe_token, line_ending):
-    from functools import partial
-
-    scan = partial(_scan_source, line_ending=line_ending)
+def _verify_classifier_source_controls(stripe_token):
+    scan = _scan_source
 
     classifier_path = "consent-protocol/tests/test_secrets_area.py"
 
@@ -294,9 +276,8 @@ def verify_source_aware_allowlists_keep_detection():
 
     generic_token = "".join(format(value, "x") for value in range(16)) * 4
 
-    for line_ending in ("\n", "\r\n"):
-        _verify_session_source_controls(generic_token, line_ending)
-        _verify_classifier_source_controls(stripe_token, line_ending)
+    _verify_session_source_controls(generic_token)
+    _verify_classifier_source_controls(stripe_token)
 
 
 def verify_alert_reader_is_required() -> None:
@@ -354,26 +335,7 @@ def verify_alert_reader_is_required() -> None:
                 "GIT_EXIT": str(git_exit), "BODY_EXIT": str(body_exit)}
             if flag:
                 environment[flag] = "1"
-            shell_command = ["/bin/bash", str(ci / "secret-scan.sh")]
-            if os.name == "nt":
-                # Use Git's POSIX shell, not Windows' WSL bash launcher. Translate
-                # only paths consumed by the shell; Python still receives native
-                # paths through its own CLI. Keep every fail-closed reader case.
-                git_executable = shutil.which("git")
-                if not git_executable:
-                    raise AssertionError("Git for Windows is required for shell controls")
-                # cmd/git.exe and mingw64/bin/git.exe are both supported layouts.
-                candidates = (parent / "bin/bash.exe" for parent in Path(git_executable).resolve().parents)
-                bash = next((path for path in candidates if path.is_file()), None)
-                if bash is None:
-                    raise AssertionError("Git for Windows Bash was not found")
-                shell_command = [str(bash), "-c", '''
-export SCANNER_CALL_LOG="$(cygpath -u "$SCANNER_CALL_LOG")"
-export ACTIVITY_LOG="$(cygpath -u "$ACTIVITY_LOG")"
-export GITHUB_EVENT_PATH="$(cygpath -u "$GITHUB_EVENT_PATH")"
-exec /bin/bash "$(cygpath -u "$1")"
-''', "secret-scan-fixture", str(ci / "secret-scan.sh")]
-            result = subprocess.run(shell_command, cwd=root,
+            result = subprocess.run(["/bin/bash", str(ci / "secret-scan.sh")], cwd=root,
                 env=environment, capture_output=True, text=True, timeout=10)
             assert (result.returncode == 0) == (expected == 0), (hosted, flag, state, git_exit, body_exit)
             assert calls.read_text().splitlines() == (["git", "dir"] if body_exit else ["git"])

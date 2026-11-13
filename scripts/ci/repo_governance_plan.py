@@ -295,7 +295,6 @@ KNOWN_ROOTS = frozenset(
 )
 KNOWN_ROOT_FILES = frozenset(
     {
-        ".gitleaks.toml",
         "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
         "REUSE.toml", "SECURITY.md", "TESTING.md", "THIRD_PARTY_NOTICES.md",
         "code_of_conduct.md", "contributing.md", "docker-compose.yml",
@@ -355,7 +354,6 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
     if root not in KNOWN_ROOTS and path not in KNOWN_ROOT_FILES:
         return frozenset(), f"unrecognized changed path: {path}"
     if path in {
-        ".gitleaks.toml",
         "consent-protocol/tests/helpers/drive_worker_gcloud.py",
         "consent-protocol/config/email-auth/disposable-domains.txt",
         "consent-protocol/config/email-auth/risk-manifest.json",
