@@ -2001,6 +2001,32 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalledOnce());
   });
 
+  it("fences an older SMS roster immediately while a deletion workspace refresh is pending", async () => {
+    const { OneLocationStateResource } = await import("@/lib/one-location/one-location-state-resource");
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockEnsureSmsSystemCircle).toHaveBeenCalled());
+    let finishOldRoster!: (ids: string[]) => void;
+    mockGetSmsContacts.mockImplementationOnce(() => new Promise(resolve => { finishOldRoster = resolve; }));
+    act(() => dispatchConnectionGraphChanged("user_a"));
+    await waitFor(() => expect(finishOldRoster).toBeDefined());
+    let finishWorkspace: ((state: ReturnType<typeof locationState>) => void) | undefined;
+    mockGetState.mockImplementationOnce(() => new Promise(resolve => { finishWorkspace = resolve; }));
+    const replace = vi.spyOn(OneLocationStateResource, "replaceSmsContactUserIds");
+    try {
+      act(() => dispatchConnectionGraphChanged("user_a"));
+      await waitFor(() => expect(finishWorkspace).toBeDefined());
+      await act(async () => finishOldRoster(["user_d"]));
+      expect(replace).not.toHaveBeenCalled();
+      mockGetSmsContacts.mockResolvedValue(["user_b"]);
+      await act(async () => finishWorkspace?.(locationState()));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("user_a", ["user_b"]));
+    } finally {
+      finishWorkspace?.(locationState());
+      replace.mockRestore();
+    }
+  });
+
   it("closes an open Circle when the current viewer is removed remotely", async () => {
     mockLocationSearchParams(
       "view=people&action=circle-detail&circleId=circle-1",

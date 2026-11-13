@@ -67,6 +67,12 @@ def test_graph_viewers_cover_both_endpoints_and_live_circles_without_unrelated_a
             "connection_requests (requester_user_id TEXT, addressee_user_id TEXT, status TEXT)",
             "one_location_circles (id TEXT, owner_user_id TEXT, status TEXT)",
             "one_location_circle_memberships (circle_id TEXT, user_id TEXT, status TEXT)",
+            "one_location_share_grants (owner_user_id TEXT, recipient_user_id TEXT, status TEXT, expires_at TIMESTAMP)",
+            "one_location_access_requests (owner_user_id TEXT, requester_user_id TEXT, referred_by_user_id TEXT, status TEXT)",
+            "one_location_network_connections (user_a_id TEXT, user_b_id TEXT, inviter_user_id TEXT, invitee_user_id TEXT, status TEXT)",
+            "one_location_sms_contacts (owner_user_id TEXT, contact_user_id TEXT)",
+            "one_location_circle_member_invites (circle_id TEXT, inviter_user_id TEXT, invitee_user_id TEXT, status TEXT, expires_at TIMESTAMP)",
+            "one_location_public_invite_submissions (owner_user_id TEXT, matched_user_id TEXT)",
         ):
             conn.execute(text("CREATE TABLE " + definition))
         conn.execute(
@@ -102,6 +108,64 @@ def test_graph_viewers_cover_both_endpoints_and_live_circles_without_unrelated_a
         ) == expected | {"pending"}
         assert list_connection_graph_viewer_ids(
             conn, user_id="owner", table_exists=lambda table: table == "connections"
+        ) == {"a", "b"}
+        conn.execute(
+            text("""INSERT INTO one_location_share_grants VALUES
+            ('owner','share-only','active',NULL), ('sharing-owner','owner','active','2999-01-01'),
+            ('owner','expired-share','active','2000-01-01'), ('owner','revoked-share','revoked',NULL),
+            ('unrelated','unrelated-share','active',NULL)""")
+        )
+        conn.execute(
+            text("""INSERT INTO one_location_access_requests VALUES
+            ('owner','request-only','referrer','pending'), ('asked-owner','owner',NULL,'pending'),
+            ('referred-owner','referred-requester','owner','pending'),
+            ('owner','denied-request',NULL,'denied')""")
+        )
+        conn.execute(
+            text("""INSERT INTO one_location_network_connections VALUES
+            ('network-only','owner','owner','network-only','active'),
+            ('owner','revoked-network','owner','revoked-network','revoked')""")
+        )
+        conn.execute(
+            text(
+                "INSERT INTO one_location_sms_contacts VALUES ('owner','sms-contact'), ('sms-owner','owner')"
+            )
+        )
+        conn.execute(
+            text("""INSERT INTO one_location_circle_member_invites VALUES
+            ('own','inviter-only','invitee-only','pending','2999-01-01'),
+            ('own','expired-inviter','expired-invitee','pending','2000-01-01')""")
+        )
+        conn.execute(
+            text(
+                "INSERT INTO one_location_public_invite_submissions VALUES ('submission-owner','owner'), ('owner','submission-matched'), ('unrelated',NULL)"
+            )
+        )
+        # These audiences can exist without a current mutual edge or Circle.
+        assert list_connection_graph_viewer_ids(
+            conn, user_id="owner", include_pending_requests=True, include_location_audiences=True
+        ) == expected | {
+            "pending",
+            "share-only",
+            "sharing-owner",
+            "request-only",
+            "referrer",
+            "asked-owner",
+            "referred-owner",
+            "referred-requester",
+            "network-only",
+            "sms-contact",
+            "sms-owner",
+            "inviter-only",
+            "invitee-only",
+            "submission-owner",
+            "submission-matched",
+        }
+        assert list_connection_graph_viewer_ids(
+            conn,
+            user_id="owner",
+            include_location_audiences=True,
+            table_exists=lambda table: table == "connections",
         ) == {"a", "b"}
     engine.dispose()
 

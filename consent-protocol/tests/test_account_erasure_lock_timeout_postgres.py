@@ -7,7 +7,7 @@ import copy
 import hashlib
 import json
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
@@ -16,6 +16,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from hushh_mcp.services import account_deletion_lifecycle_service as lifecycle
 from hushh_mcp.services import account_deletion_provider_credentials as credentials
@@ -70,6 +71,118 @@ async def test_real_blocked_erasure_rolls_back_and_releases_session_barrier(data
     finally:
         await holder.close()
         await deletion.close()
+
+
+@pytest.mark.parametrize("outcome", ["committed", "refused", "commit_failure"])
+async def test_full_deletion_admission_notifies_peers_before_erasure_and_never_on_rollback(
+    database_url, outcome, monkeypatch
+):
+    """Real producer, installed tombstone guards and real commit-only SSE hints."""
+    import asyncpg
+
+    from api.consent_listener import USER_STATE_CHANNEL
+    from hushh_mcp.services import connections_service
+    from hushh_mcp.services.account_deletion_prepare_transaction import (
+        prepare_full_account_cleanup_transaction,
+    )
+
+    pushes = []
+
+    def push(**kwargs):
+        pushes.append(kwargs)
+
+    monkeypatch.setattr(connections_service, "_notify_connection_graph_changed", push)
+
+    database = "retirement_notify_" + uuid4().hex
+    admin = await asyncpg.connect(database_url)
+    db_url = str(make_url(database_url).set(database=database))
+    engine = None
+    listener = None
+    try:
+        await admin.execute(f'CREATE DATABASE "{database}"')
+        listener = await asyncpg.connect(db_url)
+        await listener.execute("""
+            CREATE TABLE actor_profiles(user_id text PRIMARY KEY);
+            CREATE TABLE vault_keys(user_id text PRIMARY KEY);
+            CREATE TABLE connections(user_a_id text,user_b_id text,status text);
+            CREATE TABLE one_location_sms_contacts(owner_user_id text,contact_user_id text);
+            INSERT INTO actor_profiles VALUES('departing');
+            INSERT INTO vault_keys VALUES('departing');
+            INSERT INTO connections VALUES ('a-peer','departing','active'),
+              ('departing','z-peer','active'),('departing','revoked-peer','revoked'),
+              ('a-peer','unrelated','active');
+            INSERT INTO one_location_sms_contacts VALUES('sms-only','departing');
+        """)
+        for migration in (
+            "201_account_deletion_tombstones.sql",
+            "370_one_marketing_preferences.sql",
+            "418_account_provider_cleanup_staging.sql",
+            "423_account_shared_provider_authority.sql",
+        ):
+            await listener.execute((ROOT / "db/migrations" / migration).read_text(encoding="utf-8"))
+        messages: asyncio.Queue = asyncio.Queue()
+        await listener.add_listener(
+            USER_STATE_CHANNEL,
+            lambda _conn, _pid, _channel, payload: messages.put_nowait(json.loads(payload)),
+        )
+        engine = create_engine(db_url)
+
+        @contextmanager
+        def transaction():
+            with engine.begin() as conn:
+                yield conn
+                assert messages.empty(), "an uncommitted deletion must not change peer screens"
+                if outcome == "commit_failure":
+                    raise RuntimeError("synthetic commit failure")
+
+        def check_admission(_conn):
+            if outcome == "refused":
+                raise RuntimeError("synthetic final admission refusal")
+
+        def prepare():
+            return prepare_full_account_cleanup_transaction(
+                account.AccountService(),
+                "departing",
+                get_connection=transaction,
+                requested_target="both",
+                reviewed_inventory_sha256=None,
+                accept_local_erasure=False,
+                admission_check=check_admission,
+            )
+
+        if outcome in {"refused", "commit_failure"}:
+            with pytest.raises(
+                RuntimeError, match="synthetic (final admission refusal|commit failure)"
+            ):
+                await asyncio.to_thread(prepare)
+            assert await listener.fetchval("SELECT count(*) FROM account_deletion_tombstones") == 0
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(messages.get(), timeout=0.15)
+            assert pushes == []
+        else:
+            await asyncio.to_thread(prepare)
+            delivered = [await asyncio.wait_for(messages.get(), timeout=2) for _ in range(3)]
+            assert {message["user_id"] for message in delivered} == {"a-peer", "z-peer", "sms-only"}
+            assert all(
+                message == {"type": "connection_graph_changed", "user_id": message["user_id"]}
+                for message in delivered
+            )
+            assert pushes == [], "provider fan-out must not delay bounded deletion admission"
+            assert messages.empty()
+            # Peers revalidate before provider cleanup or destructive erasure.
+            assert (
+                await listener.fetchval("SELECT erasure_phase FROM account_deletion_tombstones")
+                == "provider_cleanup"
+            )
+        assert await listener.fetchval("SELECT count(*) FROM actor_profiles") == 1
+        assert await listener.fetchval("SELECT count(*) FROM vault_keys") == 1
+    finally:
+        if engine is not None:
+            engine.dispose()
+        if listener is not None:
+            await listener.close()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{database}"')
+        await admin.close()
 
 
 async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer_conn) -> None:

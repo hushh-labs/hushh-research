@@ -6323,6 +6323,36 @@ def test_public_invite_expiry_is_decided_by_the_database_clock() -> None:
     assert exc.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
 
 
+def test_public_submission_projection_hides_retired_matched_accounts_before_cleanup(monkeypatch):
+    service = FourUserMemoryService()
+    now = datetime.now(timezone.utc)
+    service.public_submissions.update(
+        {
+            key: {
+                "id": key,
+                "owner_user_id": "user_a",
+                "matched_user_id": matched,
+                "request_id": None,
+                "status": "identity_pending_key",
+                "submitted_at": now,
+            }
+            for key, matched in [
+                ("retired-submission", "user_b"),
+                ("active-submission", "user_c"),
+                ("unmatched-submission", None),
+            ]
+        }
+    )
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    result = service.list_state(user_id="user_a")
+    assert {row["id"] for row in result["publicInviteSubmissions"]} == {
+        "active-submission",
+        "unmatched-submission",
+    }
+    # Projecting privacy does not invent an erasure receipt or delete custody.
+    assert "retired-submission" in service.public_submissions
+
+
 def test_owner_public_invite_state_uses_the_database_expiry_verdict() -> None:
     row = {"status": "active", "expired_by_db_clock": False}
     assert OneLocationAgentService._project_public_invite_expired(row)["status"] == "active"
