@@ -21,7 +21,7 @@ export function ReceiptCollectionOverview({ rows }: { rows: readonly RecentRecei
   const { active, summary, ranked } = receiptCollectionOverview(rows);
   return (
     <div className="grid gap-4 md:grid-cols-2" data-no-auto-fade="true" data-testid="receipt-collection-overview">
-      <SurfaceCard className="h-64">
+      <SurfaceCard className="h-64 [&>div]:h-full [&>div]:min-h-0">
         <SurfaceCardContent className="h-full space-y-5 overflow-y-auto p-5">
           <SectionTitle as="h3">Overview</SectionTitle>
           <div>
@@ -40,7 +40,7 @@ export function ReceiptCollectionOverview({ rows }: { rows: readonly RecentRecei
           {rows.length !== active.length ? <HelperText as="p" className="text-muted-foreground">Previously saved receipts remain below; unresolved archive entries are excluded from these counts.</HelperText> : null}
         </SurfaceCardContent>
       </SurfaceCard>
-      <SurfaceCard className="h-64">
+      <SurfaceCard className="h-64 [&>div]:h-full [&>div]:min-h-0">
         <SurfaceCardContent className="h-full space-y-4 overflow-y-auto p-5">
           <SectionTitle as="h3">Categories</SectionTitle>
           <ul className="space-y-3" aria-label="Categories by saved receipt count">

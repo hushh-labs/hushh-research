@@ -137,6 +137,7 @@ DIRECTORY_CANDIDATE_SQL = """
                 )
               )
             ORDER BY
+              {priority_order_sql}
               CASE
                 WHEN :name_search = FALSE THEN 4
                 WHEN :query = '' THEN 0
@@ -157,6 +158,7 @@ def build_directory_candidate_statement(
     verified_email_clause: str,
     mutual_filter_clause: str,
     typed_name_sql: str | None = None,
+    priority_order_sql: str = "",
 ) -> str:
     """Fill only internal static SQL fragments; caller binds every value."""
     if typed_name_sql is None:
@@ -189,4 +191,5 @@ def build_directory_candidate_statement(
         verified_email_clause=verified_email_clause,
         mutual_filter_clause=mutual_filter_clause,
         profile_eligibility=DIRECTORY_PROFILE_ELIGIBILITY_SQL,
+        priority_order_sql=priority_order_sql,
     )  # nosec B608 # All substitutions are internal static SQL fragments.
