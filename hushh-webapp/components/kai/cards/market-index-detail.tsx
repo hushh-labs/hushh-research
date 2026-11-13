@@ -20,13 +20,17 @@ const indexLevel = (value: number) => new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2, maximumFractionDigits: 2,
 }).format(value);
 
-export function IndexSparkline({ tone, series, height = 40, expanded = false }: {
+export function IndexSparkline({ tone, series, points, timeZone = "America/New_York", height = 40, expanded = false }: {
   tone: MarketOverviewMetric["tone"] | undefined;
   series?: number[] | null;
+  points?: Array<{ t: number; p: number }>;
+  timeZone?: string;
   height?: number;
   expanded?: boolean;
 }) {
   const chartId = `index-${useId().replace(/:/g, "")}`;
+  const validPoints = points && series && points.length === series.length && points.every((point, index) => Number.isFinite(new Date(point.t * 1000).getTime()) && point.p === series[index]) ? points : undefined;
+  const formatTime = (index: number) => validPoints?.[index] ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone }).format(new Date(validPoints[index]!.t * 1000)) : "";
   const first = series?.[0];
   if (!series || series.length < 2 || first === undefined) {
     return <svg className="mt-2 block w-full text-muted-foreground opacity-50" viewBox="0 0 100 20"
@@ -63,7 +67,7 @@ export function IndexSparkline({ tone, series, height = 40, expanded = false }: 
           </linearGradient>
         </defs>}
         {expanded ? <CartesianGrid vertical={false} strokeOpacity={0.3} /> : null}
-        <XAxis dataKey="index" hide />
+        <XAxis dataKey="index" hide={!expanded || !validPoints} tickLine={false} axisLine={false} minTickGap={32} tickFormatter={formatTime} />
         <YAxis hide={!expanded} orientation="right" width={expanded ? 62 : 0} tickCount={4} tickLine={false} axisLine={false}
           tickFormatter={value => new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value))}
           domain={([min, max]: [number, number]) => {
@@ -73,7 +77,10 @@ export function IndexSparkline({ tone, series, height = 40, expanded = false }: 
         <ReferenceLine y={first} stroke="var(--muted-foreground)" strokeOpacity={0.45} strokeDasharray="3 4" />
         {expanded ? <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
           cursor={{ stroke: "var(--muted-foreground)", strokeDasharray: "3 4" }}
-          content={<ChartTooltipContent hideIndicator labelFormatter={index => `Observed point ${Number(index) + 1}`}
+          content={<ChartTooltipContent hideIndicator labelFormatter={(_, payload) => {
+            const index = payload?.[0]?.payload?.index;
+            return typeof index === "number" && Number.isFinite(index) ? formatTime(index) || `Observed point ${index + 1}` : "Index level";
+          }}
             formatter={value => `${indexLevel(Number(value))} points`} />} /> : null}
         <Area type="linear" dataKey="value" baseValue={first} strokeWidth={2}
           stroke={flat ? "var(--muted-foreground)" : `url(#${chartId}-line)`}
@@ -113,7 +120,7 @@ export function MarketIndexDetailSurface({ metric, open, onOpenChange }: {
       </div>
       {metric.sparkline && metric.sparkline.length >= 2 ? <div>
         <p className="text-xs text-muted-foreground">Intraday · at quote time</p>
-        <IndexSparkline tone={metric.tone} series={metric.sparkline} height={200} expanded />
+        <IndexSparkline tone={metric.tone} series={metric.sparkline} points={metric.sparklinePoints} timeZone={metric.chartTimeZone} height={200} expanded />
       </div> : null}
       {detail.facts?.length ? <dl className="divide-y divide-border/60 border-y border-border/60">
         {detail.facts.map((fact) => <div key={fact.label} className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-4 py-3 text-sm leading-5">

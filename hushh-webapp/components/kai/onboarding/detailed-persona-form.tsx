@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, type FormEvent } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { Check } from "@/components/icons";
 import {
   detailedPersonaQuestions,
   type DetailedPersonaAnswer,
@@ -46,8 +47,9 @@ export function DetailedPersonaForm({
 
   const proceed = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (saving.current || answers[step] === undefined) return;
+    if (saving.current) return;
     if (!final) {
+      setAnswers((previous) => previous.map((answer, index) => index === step ? answer ?? null : answer));
       setStep(step + 1);
       return;
     }
@@ -85,33 +87,6 @@ export function DetailedPersonaForm({
         <p>Question {step + 1} of {total}</p>
         <p>{step < 8 ? "Risk comfort" : "Planning needs"}</p>
       </div>
-      <div className={styles.detailedQuestion}>
-        <fieldset key={step} disabled={busy}>
-          <legend tabIndex={-1} ref={focusQuestion}>
-            {question.prompt}
-          </legend>
-          {[...question.choices, "I’m not sure yet"].map((label, index) => {
-            const value = ([0, 1, 2, null] as const)[index]!;
-            return (
-              <label key={label}>
-                <input
-                  type="radio"
-                  name="answer"
-                  checked={answers[step] === value}
-                  onChange={() =>
-                    setAnswers((previous) =>
-                      previous.map((current, item) =>
-                        item === step ? value : current,
-                      ),
-                    )
-                  }
-                />
-                <span>{label}</span>
-              </label>
-            );
-          })}
-        </fieldset>
-      </div>
       <div
         className={styles.assessmentProgress}
         role="progressbar"
@@ -126,28 +101,41 @@ export function DetailedPersonaForm({
           return <span key={prompt} data-tone={tone} data-current={index === step ? "true" : undefined} aria-hidden="true" />;
         })}
       </div>
+      <div className={styles.detailedQuestion}>
+        <fieldset key={step} disabled={busy}>
+          <legend tabIndex={-1} ref={focusQuestion}>{question.prompt}</legend>
+          {question.choices.map((label, index) => {
+            const value = ([0, 1, 2] as const)[index]!;
+            return <button key={label} type="button" className={styles.choice}
+              aria-pressed={answers[step] === value}
+              onClick={() => setAnswers(previous => previous.map((current, item) =>
+                item === step ? current === value ? null : value : current))}>
+              <span className={styles.box} aria-hidden="true"><Check size={14} /></span>
+              <span>{label}</span>
+            </button>;
+          })}
+        </fieldset>
+      </div>
       {error ? (
         <p role="alert" className={styles.error}>
           Couldn’t save your assessment. Try again.
         </p>
       ) : null}
-      <footer className={styles.actions}>
-        {step > 0 ? (
-          <ShellActionSurface
-            variant="pill"
-            className="ui-text-compact-button-label"
-            disabled={busy}
-            onClick={() => setStep(step - 1)}
-          >
-            Back
-          </ShellActionSurface>
-        ) : null}
+      <footer className={`${styles.actions} ${styles.assessmentActions}`}>
+        <ShellActionSurface
+          variant="pill"
+          className="ui-text-compact-button-label"
+          disabled={busy}
+          onClick={() => step > 0 ? setStep(step - 1) : onDone()}
+        >
+          Back
+        </ShellActionSurface>
         <ShellActionSurface
           type="submit"
           variant="pill"
           className={`${styles.primary} ui-text-compact-button-label`}
           rippleEffect="fill"
-          disabled={busy || answers[step] === undefined}
+          disabled={busy}
         >
           {busy ? "Saving…" : final ? "Save assessment" : "Continue"}
         </ShellActionSurface>

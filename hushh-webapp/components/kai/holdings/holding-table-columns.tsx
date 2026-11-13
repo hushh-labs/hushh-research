@@ -44,6 +44,6 @@ export function holdingTableColumns(total: number, onEntries?: (id: string) => v
   if (onEntries) columns.unshift({ id: "entries", header: "Entries", cell: ({ row }) =>
     <ShellActionSurface variant="pill" className="h-11 text-sm sm:text-sm" onClick={event => {
       event.stopPropagation(); onEntries(row.original.client_id);
-    }}>Manage entries</ShellActionSurface> });
+    }}>Manage</ShellActionSurface> });
   return columns;
 }

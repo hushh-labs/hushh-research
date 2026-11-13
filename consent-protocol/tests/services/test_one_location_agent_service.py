@@ -9428,6 +9428,8 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
     cleared_at = datetime(2026, 10, 15, 4, 0, tzinfo=timezone.utc)
     service.grants[sos["id"]]["recipient_cleared_at"] = cleared_at
+    service.grants[sos["id"]]["feed_latest_sms"] = True
+    service.grants[sos["id"]]["feed_sms_confirmed"] = True
 
     received = {
         grant["id"]: grant for grant in service.list_state(user_id="user_b")["receivedGrants"]
@@ -9435,8 +9437,13 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     owned = {grant["id"]: grant for grant in service.list_state(user_id="user_a")["ownerGrants"]}
 
     assert received[sos["id"]]["recipientClearedAt"] == cleared_at.isoformat()
+    assert received[sos["id"]]["feedLatestSms"] is True
+    assert received[sos["id"]]["feedSmsConfirmed"] is True
     assert "recipientClearedAt" not in owned[sos["id"]]
     assert all("recipientClearedAt" not in grant for grant in owned.values())
+    assert all(
+        "feedLatestSms" not in grant and "feedSmsConfirmed" not in grant for grant in owned.values()
+    )
 
 
 @pytest.mark.parametrize("operation", ["share", "atomic_share", "request"])

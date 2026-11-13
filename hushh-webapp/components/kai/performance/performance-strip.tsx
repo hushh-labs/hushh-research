@@ -4,7 +4,6 @@ import type { CSSProperties, ReactNode } from "react";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import type { SinceBought } from "@/lib/kai/portfolio-performance";
-import { cn } from "@/lib/utils";
 import styles from "./portfolio-performance.module.css";
 
 import { formatCurrency, formatCurrencyWhole } from "@/lib/kai/market-value-format";
@@ -24,7 +23,7 @@ function Stat({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Value, change since purchase, invested and cash on one line. A stat with no value is left out. */
-export function PerformanceStrip({ value, sinceBought, invested, cash, period }: {
+export function PerformanceStrip({ value, sinceBought, invested, cash }: {
   value: number;
   sinceBought: SinceBought | null;
   invested: number | null;
@@ -49,7 +48,6 @@ export function PerformanceStrip({ value, sinceBought, invested, cash, period }:
     <SurfaceCard data-testid="performance-strip" className={financeStyles.detail}>
       <SurfaceCardContent className="p-4">
         <div className={styles.strip} style={{ "--stats": stats.length } as CSSProperties}>{stats}</div>
-        <p className={cn(styles.label, styles.period)}>{period}</p>
       </SurfaceCardContent>
     </SurfaceCard>
   );

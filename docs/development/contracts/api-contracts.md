@@ -3887,6 +3887,31 @@ comes from the verified token; item IDs are presentation-row IDs, never an
 authorization grant. All writes are idempotent and leave source domain records
 and audit trails intact.
 
+Location and Connect history selects important incoming events before paging and
+counting. Own receipts, routine activity and ordinary Chat messages are omitted;
+wallet access/request cards keep their existing contract. Pending decisions stay
+in the live actionable projection. Related Location share and Circle membership
+events update one row using an opaque `metadata.feed_group_key`; this key conveys
+no source authority or person identifier. Quiet terminal share updates have
+`metadata.feed_silent=true` and do not add unread counts or sounds.
+
+Only the latest confirmed Save My Soul creation receipt per recipient and sender
+is eligible, including after Clear, dismissal and source retention. Recipient
+Location state grants add optional `feedLatestSms` and `feedSmsConfirmed` booleans
+for Feed presentation; they never remove grants from Location or change access.
+Selection precedes recipient clearing, so older incidents cannot reappear. These
+fields are computed by the server, not accepted from a client or exposed in owner
+grant state. Older servers may omit them.
+
+The existing `history_revision` also fences owner dismissals, recipient-side
+clears and repeated SMS supersession. A missed live hint cannot retain obsolete
+loaded pages after the next refresh. A first SMS from a different sender does not
+invalidate history; another recipient's clear never changes this owner's revision.
+Recipient Clear also hides the matching owned creation receipts in the same
+transaction, preserving the dismissal after short-lived Location rows are removed.
+Retention applies the same receipt write to legacy clears before pruning grants,
+including invalidation of older generic Feed Undo tokens.
+
 | Method | Path | Feed history contract |
 | ------ | ---- | --------------------- |
 | GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |
@@ -4023,7 +4048,10 @@ Each benchmark row includes `symbol`, `as_of` (provider quote time, nullable),
 `delta_pct` stays null when the previous close is missing. Unknown delay stays
 null; a delay flag may also reflect a quote over ten minutes old during its
 reported regular session. Closed sessions are labeled separately. Index
-sparklines use the same response's observed intraday closes; missing history
+sparklines use the same response's observed intraday closes; optional
+`sparkline_points: [{t, p}]` carries matching Unix-second timestamps and prices.
+India index intraday samples are separate from its monthly sector history. Clients
+must not manufacture times when the point series is absent or mismatched. Missing history
 remains unavailable. Cached levels retain their original quote time and are
 labeled as cached. Server home v5, macro v2 and client market-home v5 cache
 names exclude earlier ETF snapshots. Web and native use the same response
@@ -4048,6 +4076,13 @@ debt/equity, or the provider company description. Unknown ratios are null.
 Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
 Provider retrieval time and financial period end remain separate.
 
+The owner-scoped market-news endpoint also accepts `market=IN` with one symbol
+from the NSE mover roster. It searches the India news feed for that symbol and
+returns at most the requested page size; a provider can return fewer articles or
+no summary. India company news uses its own bounded cache key. Market home news
+has a separate cache lifecycle so a news-only failure cannot freeze an otherwise
+healthy India home response for the full aggregate TTL.
+
 ### Market currency rate
 
 The India display mode converts dollar amounts at one daily rate from
@@ -4064,8 +4099,11 @@ Stock detail reads `GET /api/kai/market/history/{user_id}?symbol=AAPL`
 through the existing Kai catch-all proxy and platform-aware `ApiService`.
 Firebase authentication must match the path owner before any cache/provider
 work. One uppercase symbol (at most 16 characters) and a recognized US exchange
-in the symbol master are required; unsupported listings return 422.
-The response contains `symbol`, `currency: "USD"`, `interval: "1d"`,
+in the symbol master are required; unsupported listings return 422. The optional
+`market=IN` admits only the existing NSE large-cap mover roster, requests the
+corresponding `.NS` provider symbol, uses an independent India cache key, and
+returns `currency: "INR"`. The default US response uses `currency: "USD"`.
+The response contains `symbol`, `currency`, `interval: "1d"`,
 `points: [{t, p}]` (Unix seconds and observed closes), `retrieved_at`, `stale`,
 and `unavailable`. At most 32 observations are returned from the existing
 month history fetcher. This is daily history, independent of the spot quote;

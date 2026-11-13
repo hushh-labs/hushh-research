@@ -31,6 +31,7 @@ import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sh
 import dynamic from "next/dynamic";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import { PerformanceStrip } from "@/components/kai/performance/performance-strip";
+import { ReviewEntriesSheet } from "@/components/kai/holdings/review-entries-sheet";
 import { PortfolioDetailPlaceholder } from "@/components/kai/performance/performance-placeholder";
 import { sinceBought } from "@/lib/kai/portfolio-performance";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
@@ -427,6 +428,7 @@ export function DashboardMasterView({
   const holdingsEditSnapshotRef = useRef<string | null>(null);
   const [holdingsSearch, setHoldingsSearch] = useState("");
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
+  const [managingSelectedEntries, setManagingSelectedEntries] = useState(false);
   const [isDeletingImportedData, setIsDeletingImportedData] = useState(false);
   const [isDeletingStatementSnapshot, setIsDeletingStatementSnapshot] =
     useState(false);
@@ -1015,6 +1017,7 @@ export function DashboardMasterView({
     setHoldingsDraft(managed);
     closeHoldingModal();
     setSelectedHoldingId(null);
+    setManagingSelectedEntries(false);
     setIsHoldingsEditing(false);
   }, [closeHoldingModal, statementEditablePortfolio]);
 
@@ -2086,11 +2089,10 @@ export function DashboardMasterView({
                 </SurfaceCardContent>
               </SurfaceCard>
             ) : null}
-            <p className={financeStyles.description}>
-              {model.hero.holdingsCount} positions · {model.hero.portfolioConcentrationLabel}
-              {isPlaidView ? ` · ${freshness?.itemCount || 0} items · ${freshness?.accountCount || 0} accounts · Read-only brokerage snapshot` : ""}
-              {freshness?.lastSyncedAt ? ` · Last synced ${new Date(freshness.lastSyncedAt).toLocaleString()}` : ""}
-            </p>
+            <div className={cn(financeStyles.description, "flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4")}>
+              <span>{model.hero.holdingsCount} positions{freshness?.lastSyncedAt ? ` · Last synced ${new Date(freshness.lastSyncedAt).toLocaleString()}` : ""}</span>
+              <span>{model.hero.statementPeriod || "Current portfolio snapshot"}</span>
+            </div>
           </section>
         ) : null}
 
@@ -2248,7 +2250,7 @@ export function DashboardMasterView({
                       description={`${holding.name || "Unnamed security"}${holding.entries.length > 1 ? ` · ${holding.entries.length} entries` : ""}`}
                       trailing={
                         isHoldingsEditing ? (
-                          <span className="text-sm text-muted-foreground">Manage entries</span>
+                          <span className="text-sm text-muted-foreground">Manage</span>
                         ) : (
                           <span className="text-right">
                             <span className="block text-sm font-medium tabular-nums text-foreground">
@@ -2279,10 +2281,18 @@ export function DashboardMasterView({
               </SettingsGroup>
 
               <HoldingDetailsDrawer
-                open={Boolean(selectedHolding) && !isModalOpen}
+                open={Boolean(selectedHolding) && !isModalOpen && !managingSelectedEntries}
                 holding={selectedHolding}
                 entries={selectedEntries}
-                canManageHoldings={canEditStatement && isHoldingsEditing}
+                canManageHoldings={canEditStatement}
+                onManageEntries={() => {
+                  if (!isHoldingsEditing) {
+                    holdingsEditBaseRef.current = statementEditablePortfolio;
+                    holdingsEditSnapshotRef.current = activeStatementSnapshotId;
+                    setIsHoldingsEditing(true);
+                  }
+                  setManagingSelectedEntries(true);
+                }}
                 onEditEntry={handleEditHolding}
                 onToggleDeleteEntry={handleToggleDeleteHolding}
                 onAddEntry={() => {
@@ -2294,6 +2304,14 @@ export function DashboardMasterView({
                   if (!open) setSelectedHoldingId(null);
                 }}
               />
+              <ReviewEntriesSheet open={Boolean(selectedHolding) && managingSelectedEntries && !isModalOpen}
+                position={selectedHolding ?? null} entries={selectedEntries ?? []}
+                onOpenChange={open => setManagingSelectedEntries(open)}
+                onEditEntry={handleEditHolding} onToggleDeleteEntry={handleToggleDeleteHolding}
+                onAddEntry={() => {
+                  const seed = groupHoldingPositions(sourceHoldingRows).find(row => row.client_id === selectedHoldingId);
+                  openAddHoldingModal(seed?.entries[0]);
+                }} />
 
               <div className="hidden min-w-0 md:block">
                 <DataTable

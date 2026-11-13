@@ -340,7 +340,7 @@ function UsMarketNewsPage() {
       <AppPageContentRegion>
         <section
           aria-labelledby="market-news-list-title"
-          className="overflow-hidden rounded-[var(--app-radius-xl)] border border-[color:var(--app-card-border-standard)] bg-card shadow-[var(--app-card-shadow-soft)]"
+          className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-card shadow-[var(--app-card-shadow-soft)]"
         >
           <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3 sm:px-5">
             <div className="flex min-w-0 items-center gap-2">
@@ -432,7 +432,7 @@ function KaiIndiaMarketNewsPage() {
       />
       <AppPageContentRegion>
         <section aria-labelledby="india-news-title"
-          className="overflow-hidden rounded-[var(--app-radius-xl)] border border-[color:var(--app-card-border-standard)] bg-card shadow-[var(--app-card-shadow-soft)]">
+          className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-card shadow-[var(--app-card-shadow-soft)]">
           <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3 sm:px-5">
             <div className="flex min-w-0 items-center gap-2">
               <Newspaper className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />

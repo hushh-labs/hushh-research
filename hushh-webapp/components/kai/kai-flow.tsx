@@ -28,7 +28,6 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
 import { PortfolioDashboardEmpty } from "./views/portfolio-dashboard-empty";
 import { ImportProgressView, ImportStage } from "./views/import-progress-view";
-import { ImportReviewPlaceholder } from "./views/import-review-placeholder";
 import type { PortfolioData as ReviewPortfolioData } from "./views/portfolio-review-view";
 import type { PortfolioData } from "./types/portfolio";
 import {
@@ -116,14 +115,7 @@ const PortfolioReviewView = dynamic(
   () => loadReviewView().then((module) => module.PortfolioReviewView),
   {
     ssr: false,
-    loading: () => (
-      <AppPageContentRegion>
-        <div className="mx-auto w-full max-w-lg">
-          <p className="sr-only" role="status">Preparing your review</p>
-          <ImportReviewPlaceholder />
-        </div>
-      </AppPageContentRegion>
-    ),
+    loading: () => <ImportProgressView stage="complete" />,
   },
 );
 
@@ -924,7 +916,8 @@ export function KaiFlow({
     };
   }, [portfolioImportSurfaceActive, setBusyOperation]);
 
-  useScrollReset(`${mode}:${state}`, { enabled: true, behavior: "auto" });
+  const scrollStep = state === "importing" || state === "reviewing" ? "statement-review" : state;
+  useScrollReset(`${mode}:${scrollStep}`, { enabled: true, behavior: "auto" });
 
   const plaidPortfolioData =
     plaidStatus?.aggregate?.portfolio_data &&
@@ -3018,6 +3011,24 @@ export function KaiFlow({
           throw new Error("No portfolio information was detected in this file.");
         }
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
+        // Let the completed meter settle before replacing the loading controls.
+        // Cancellation still owns the flow during this short transition.
+        const completionSignal = abortControllerRef.current.signal;
+        await new Promise<void>((resolve, reject) => {
+          if (completionSignal.aborted) {
+            reject(new DOMException("Import canceled", "AbortError"));
+            return;
+          }
+          const onAbort = () => {
+            window.clearTimeout(timer);
+            reject(new DOMException("Import canceled", "AbortError"));
+          };
+          const timer = window.setTimeout(() => {
+            completionSignal.removeEventListener("abort", onAbort);
+            resolve();
+          }, 400);
+          completionSignal.addEventListener("abort", onAbort, { once: true });
+        });
         trackImportTerminalTelemetry("success");
 
         // Store parsed portfolio and transition to review state
@@ -3891,7 +3902,7 @@ export function KaiFlow({
 
       {state === "importing" && (
         <ImportProgressView
-          stage={streaming.stage === "complete" ? "validating" : streaming.stage}
+          stage={streaming.stage}
           errorMessage={streaming.errorMessage}
           fileName={lastImportFileRef.current?.name}
           fileSize={lastImportFileRef.current?.size}
@@ -3905,6 +3916,8 @@ export function KaiFlow({
       {state === "reviewing" && flowData.parsedPortfolio && (
         <PortfolioReviewView
           portfolioData={flowData.parsedPortfolio}
+          importFileName={lastImportFileRef.current?.name}
+          preserveScroll={streaming.stage === "complete"}
           userId={userId}
           vaultKey={vaultKey ?? undefined}
           vaultOwnerToken={effectiveVaultOwnerToken}
@@ -3933,19 +3946,7 @@ export function KaiFlow({
       )}
 
       {state === "reviewing" && !flowData.parsedPortfolio && (
-        <AppPageContentRegion>
-          <div className="mx-auto w-full max-w-lg space-y-3">
-            <p className="sr-only" role="status">Preparing your review</p>
-            <ImportReviewPlaceholder />
-            <button
-              type="button"
-              onClick={() => setState("import_required")}
-              className="text-sm font-semibold text-primary underline underline-offset-4"
-            >
-              Back to import
-            </button>
-          </div>
-        </AppPageContentRegion>
+        <ImportProgressView stage="validating" onCancel={() => setState("import_required")} />
       )}
 
       {isDashboardMode &&

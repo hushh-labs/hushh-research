@@ -390,6 +390,8 @@ interface SwipeViewsProps {
   onSelectionCommit?: (value: string) => void;
   /** Keeps route content and surface shadows inside the canonical page gutter. */
   panelInset?: "none" | "page";
+  /** Space between panels while preserving the content width of a settled panel. */
+  panelGap?: number;
   /**
    * Opt into a parent-owned vertical viewport. Workspace managers use this
    * when their toolbar and pagination live outside the scrollable row rail.
@@ -421,6 +423,7 @@ export function SwipeViews({
   onSelectionChange,
   onSelectionCommit,
   panelInset = "none",
+  panelGap = 0,
   viewportMinHeight = SWIPE_VIEWPORT_MIN_HEIGHT,
   heightMode = "max",
   holdHeightDuringTransition = true,
@@ -1164,13 +1167,15 @@ export function SwipeViews({
               tabIndex={isActive ? 0 : -1}
               data-swipe-panel-inset={panelInset}
               className={cn(
-                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                "flex-[0_0_100%] min-h-0 min-w-0",
+                panelGap <= 0 && "max-w-full",
                 heightMode === "active" ? "h-auto" : "h-full",
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}
               style={{
                 minHeight: "inherit",
+                ...(panelGap > 0 ? { flexBasis: `calc(100% + ${panelGap}px)`, paddingInlineEnd: panelInset === "page" ? `calc(var(--page-inline-gutter-standard) + ${panelGap}px)` : `${panelGap}px` } : null),
                 ...inactiveHeightClamp,
               }}
             >

@@ -37,7 +37,8 @@ def advisor_db(finance_db, monkeypatch):  # noqa: F811
             ALTER TABLE connections ADD COLUMN source text DEFAULT 'request',ADD COLUMN created_at timestamptz DEFAULT now(),
               ADD COLUMN updated_at timestamptz DEFAULT now(),ADD COLUMN revoked_at timestamptz;
             UPDATE connections SET status='revoked' WHERE user_a_id='alice' AND user_b_id='bob';
-            CREATE TABLE one_location_circles(id uuid PRIMARY KEY,name text);
+            CREATE TABLE IF NOT EXISTS one_location_circles(id uuid PRIMARY KEY);
+            ALTER TABLE one_location_circles ADD COLUMN name text;
             CREATE TABLE connection_origins(id uuid DEFAULT gen_random_uuid(),connection_id uuid,origin_kind text,origin_key text,
               source_circle_id uuid,source_ref text,status text,created_at timestamptz,updated_at timestamptz,revoked_at timestamptz,
               metadata jsonb,UNIQUE(connection_id,origin_key));

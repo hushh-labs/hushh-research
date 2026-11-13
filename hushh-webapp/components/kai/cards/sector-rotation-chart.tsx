@@ -89,7 +89,7 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
     <div className={marketBriefingStyles.sectorContent}>
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">
         <p className="self-center text-sm font-semibold leading-5 text-foreground">
-          {period === "1w" ? "Five trading sessions" : "Daily price change"}
+          {period === "1w" ? "Weekly change" : "Daily change"}
         </p>
         <div className="col-start-2 row-start-1 sm:row-span-2 sm:self-center" data-voice-control-id="kai_market_sector_period">
           <SegmentedTabs value={period} onValueChange={(value) => setPeriod(value === "1w" ? "1w" : "1d")}
@@ -108,7 +108,7 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
           // beside a +3% one would otherwise draw no bar at all.
           const width = row.changePct === 0 ? 0 : Math.max(3, Math.abs(row.changePct) / maximumReturn * 50);
           return <div key={row.sector} className={marketBriefingStyles.sectorRow}>
-            <span className="text-foreground">{row.sector}</span>
+            <span className="text-foreground" title={row.sector}>{row.sector}</span>
             <div className="relative h-1.5 rounded-full bg-muted" aria-hidden="true">
               <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
               <span className="absolute inset-y-0 rounded-full" style={{ width: `${width}%`, left: `${row.changePct >= 0 ? 50 : 50 - width}%`, background: row.changePct >= 0 ? "var(--one-up)" : "var(--one-down)" }} />

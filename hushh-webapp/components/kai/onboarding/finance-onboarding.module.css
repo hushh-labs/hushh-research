@@ -355,18 +355,19 @@
 .importHeading { margin-bottom: 16px; }
 .sourceGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  width: min(100%, 28rem);
+  width: 100%;
   margin-inline: auto;
 }
 .sourceCard {
   position: relative;
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 14px;
-  min-height: 88px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  min-height: 132px;
   min-width: 0;
   padding: 16px;
   border: 1px solid var(--border);
@@ -377,9 +378,9 @@
   overflow-wrap: anywhere;
 }
 .sourceCard:disabled { opacity: 0.55; }
+.sourceCard[data-source="plaid"] { grid-column: 1 / -1; min-height: 174px; }
 .surface .sourceCard:focus-visible { outline-offset: -2px; }
 .cardText {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -391,7 +392,9 @@
   font-weight: 550;
 }
 .chevron {
-  flex: none;
+  position: absolute;
+  top: 18px;
+  right: 16px;
   color: var(--muted-foreground);
 }
 .sourceIcon {
@@ -401,6 +404,18 @@
   width: 44px;
   height: 44px;
   border-radius: 12px;
+}
+.recommended { padding: 2px 8px; border-radius: 6px; background: var(--app-accent-tint); color: var(--app-accent); font-size: 12px; line-height: 18px; font-weight: 600; }
+.connectionArt { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; }
+.connectionLine { flex: 1; position: relative; height: 6px; overflow: hidden; }
+.connectionLine::before { content: ""; position: absolute; inset: 2px 0 auto; border-top: 2px dashed var(--border); }
+.connectionLine::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 3px center, var(--app-accent) 3px, transparent 3px); }
+.oneIcon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--foreground); }
+.oneMark { width: 28px; height: 28px; }
+:global(.dark) .plaidIcon { filter: invert(1); }
+@media (min-width: 768px) {
+  .sourceGrid { grid-template-columns: 1.25fr 1fr; grid-template-rows: repeat(2, minmax(132px, auto)); gap: 16px; }
+  .sourceCard[data-source="plaid"] { grid-column: 1; grid-row: 1 / span 2; }
 }
 .sourceIcon {
   background: var(--app-accent-tint);
@@ -414,6 +429,7 @@
   padding: 10px 4px 0;
 }
 @media (prefers-reduced-motion: no-preference) {
+  .connectionLine::after { animation: connectionTravel 2s ease-in-out infinite; }
   .sourceCard {
     animation: sourceEnter 600ms var(--onboarding-ease) 120ms backwards;
     transition: background-color 200ms ease;
@@ -421,6 +437,7 @@
   .sourceCard:nth-child(2) { animation-delay: 210ms; }
   .sourceCard:nth-child(3) { animation-delay: 300ms; }
 }
+@keyframes connectionTravel { from { transform: translateX(0); } to { transform: translateX(calc(100% - 6px)); } }
 @keyframes sourceEnter {
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: none; }

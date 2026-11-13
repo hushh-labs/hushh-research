@@ -165,6 +165,7 @@ export function KaiMarketHubPage() {
         heightMode="active"
         holdHeightDuringTransition={false}
         panelInset="none"
+        panelGap={24}
         viewportMinHeight="fill"
         className="mt-[var(--page-header-section-gap)]"
       >

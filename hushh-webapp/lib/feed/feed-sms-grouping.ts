@@ -7,7 +7,7 @@ export interface FeedSmsAlertGroup {
   activeCount: number;
 }
 
-/** Group presentation only; every incident retains its own grant and sent time. */
+/** One current incident per sender. Older incidents never expand inside Feed. */
 export function groupFeedSmsAlerts(items: readonly FeedActionable[]): FeedSmsAlertGroup[] {
   const groups = new Map<string, FeedActionable[]>();
   const seen = new Set<string>();
@@ -22,7 +22,7 @@ export function groupFeedSmsAlerts(items: readonly FeedActionable[]): FeedSmsAle
   }
   return [...groups].map(([id, members]) => {
     members.sort((a, b) => b.sortAt - a.sortAt || a.id.localeCompare(b.id));
-    const active = members.filter((item) => item.emphasis === "emergency");
-    return { id, items: members, latest: active[0] ?? members[0]!, activeCount: active.length };
+    const latest = members[0]!;
+    return { id, items: [latest], latest, activeCount: latest.emphasis === "emergency" ? 1 : 0 };
   }).sort((a, b) => b.latest.sortAt - a.latest.sortAt || a.id.localeCompare(b.id));
 }

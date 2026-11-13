@@ -6,7 +6,7 @@ import { OneTodoPreview } from "@/components/agent/one-todo-preview";
 import { agentTodoInput, buildTodo, calendarTodoInput, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 
 const mocks = vi.hoisted(() => ({
-  load: vi.fn(), save: vi.fn(), remove: vi.fn(), epoch: 0,
+  load: vi.fn(), save: vi.fn(), remove: vi.fn(), create: vi.fn(), epoch: 0,
   events: [] as { id: string; title: string; start: { date: string } }[],
   actionables: [] as FeedActionable[],
   kyc: null as { count: number; workflowId: string } | null,
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/services/todo-list-pkm-service", async original => {
   const actual = await original<typeof import("@/lib/services/todo-list-pkm-service")>();
-  return { ...actual, TodoListPkmService: { load: mocks.load, setStatus: mocks.save, remove: mocks.remove } };
+  return { ...actual, createTodo: mocks.create, TodoListPkmService: { load: mocks.load, setStatus: mocks.save, remove: mocks.remove } };
 });
 vi.mock("@/lib/feed/use-feed-actionables", () => ({ useFeedActionables: ({ enabled }: { enabled: boolean }) => ({ actionables: enabled ? mocks.actionables : [], loading: false, error: null, retry: mocks.retryFeed }) }));
 vi.mock("@/lib/feed/use-feed-briefing", () => ({ useFeedBriefing: ({ enabled }: { enabled: boolean }) => ({ pendingKyc: enabled ? mocks.kyc : null, kycLoading: false, kycError: false, retryKyc: mocks.retryKyc }) }));
@@ -52,6 +52,10 @@ describe("One profile To-do live-source parity", () => {
     mocks.load.mockResolvedValue({ tasks: [] });
     mocks.save.mockResolvedValue({ success: true });
     mocks.remove.mockResolvedValue({ success: true });
+    mocks.create.mockResolvedValue({
+      task: buildTodo({ id: "manual-item", title: "Plan trip", type: "manual", date: "2099-01-02", time: "09:30", notes: "Tickets" }),
+      result: { success: true },
+    });
   });
 
   it("fetches Calendar, explicit agent tasks and KYC even when saved tasks are empty", async () => {
@@ -169,6 +173,44 @@ describe("One profile To-do live-source parity", () => {
     const task = buildTodo(calendarTodoInput(event)!);
     await act(async () => resolve({ tasks: [{ ...task, status: "deleted" }] }));
     expect(await screen.findByText("All clear.")).toBeVisible();
+  });
+
+  it("adds a manual encrypted task from the profile tab and keeps the entered schedule", async () => {
+    render(<OneTodoPreview {...props()} />);
+    await screen.findByRole("button", { name: "Add item" });
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Plan trip" } });
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2099-01-02" } });
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add a note" }));
+    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "Tickets" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(
+      { title: "Plan trip", type: "manual", date: "2099-01-02", time: "09:30", notes: "Tickets" },
+      expect.objectContaining({ userId: "owner", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" }),
+    ));
+    expect(await screen.findByText("Plan trip")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the editor open and reports a failed manual save without adding a row", async () => {
+    mocks.create.mockResolvedValueOnce({ task: buildTodo({ title: "Lost task" }), result: { success: false } });
+    render(<OneTodoPreview {...props()} />);
+    await screen.findByRole("button", { name: "Add item" });
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lost task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Task could not be saved. Your list was not changed.")).toBeVisible();
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.queryByText("Lost task")).not.toBeInTheDocument();
+  });
+
+  it("does not expose manual creation while the owner vault is locked", () => {
+    render(<OneTodoPreview {...props("owner", false)} />);
+    expect(screen.getByRole("button", { name: "Add item" })).toBeDisabled();
+    expect(screen.getByText("Unlock your vault to view your to-do list.")).toBeVisible();
   });
 
   it.each(["lock", "owner", "epoch"])("drops late saved reads after a %s change", async change => {

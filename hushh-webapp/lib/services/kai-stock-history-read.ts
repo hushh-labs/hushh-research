@@ -1,8 +1,8 @@
 import { normalizePriceHistory, type StockPriceHistory } from "@/lib/kai/price-history";
 
 export async function readKaiStockHistory(userId: string, symbol: string, token: string,
-  apiFetch: (path: string, options: RequestInit) => Promise<Response>, signal?: AbortSignal): Promise<StockPriceHistory> {
-  const query = new URLSearchParams({ symbol });
+  apiFetch: (path: string, options: RequestInit) => Promise<Response>, signal?: AbortSignal, market: "US" | "IN" = "US"): Promise<StockPriceHistory> {
+  const query = new URLSearchParams({ symbol, ...(market === "IN" ? { market } : {}) });
   const response = await apiFetch(`/api/kai/market/history/${encodeURIComponent(userId)}?${query}`, {
     signal, headers: { Authorization: `Bearer ${token}` },
   });
