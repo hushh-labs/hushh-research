@@ -92,7 +92,9 @@ export function FeedSoundControl({
   useEffect(() => {
     if (!firstPageItems) return;
     const newestId = latestFeedId(firstPageItems.filter(item =>
-      item.metadata.feed_silent !== true && !isFeedItemHidden(item, true)));
+      item.metadata.feed_silent !== true &&
+      !(item.source_domain === "location" && ["location_share_expired", "location_share_revoked"].includes(item.event_type)) &&
+      !isFeedItemHidden(item, true)));
     if (!hasBaselineRef.current) {
       hasBaselineRef.current = true;
       observedIdRef.current = newestId;
