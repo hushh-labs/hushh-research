@@ -2776,23 +2776,27 @@ async def test_end_of_access_may_follow_a_shared_answer_once_and_carries_nothing
 @pytest.mark.asyncio
 async def test_unqualified_private_information_proposal_never_falls_back_to_hub(monkeypatch):
     from hushh_mcp import runtime_settings
+    from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
     from hushh_mcp.services import pod_owner_cloud
 
     monkeypatch.setattr(runtime_settings, "pod_mode", lambda: True)
     monkeypatch.setattr(pod_owner_cloud, "owner_cloud_agent", lambda: False)
-    monkeypatch.setattr(
-        action_tools, "_read_tool_user_id", AsyncMock(return_value=("user_1", None))
-    )
-
     refuse_hub_constructor = Mock(
         side_effect=AssertionError("Unqualified private proposal must not open a hub database")
     )
 
     monkeypatch.setattr(action_tools, "ConnectionsService", refuse_hub_constructor)
     monkeypatch.setattr(action_tools, "PersonProfileService", refuse_hub_constructor)
-    with _auth(), _waiting():
+    context = _private_information_context()
+    async with mcp_turn_scope(
+        "session_1",
+        owner_id="user_1",
+        configurations=[],
+        vault_only=True,
+        owner_admission=AsyncMock(return_value=True),
+    ):
         result = await propose_information_request(
-            "Sarah", "employment status", "Employee onboarding review", _ctx(_state()), 1
+            "Sarah", "employment status", "Employee onboarding review", context, 1
         )
     assert result["status"] == "failed"
     refuse_hub_constructor.assert_not_called()
@@ -2802,7 +2806,11 @@ async def test_unqualified_private_information_proposal_never_falls_back_to_hub(
 async def test_private_information_proposal_uses_owner_metadata_ports_without_hub_database(
     monkeypatch,
 ):
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
     from hushh_mcp.services import pod_information_discovery
+
+    monkeypatch.setattr(runtime_settings, "pod_mode", lambda: True)
 
     class PrivateDiscovery:
         def list_connections(self, *, user_id):
@@ -2827,12 +2835,148 @@ async def test_private_information_proposal_uses_owner_metadata_ports_without_hu
     monkeypatch.setattr(action_tools, "ConnectionsService", refuse_hub_constructor)
     monkeypatch.setattr(action_tools, "PersonProfileService", refuse_hub_constructor)
     monkeypatch.setattr(action_tools, "InformationRequestService", refuse_hub_constructor)
-    state = _state()
-    with _auth(), _waiting():
+    context = _private_information_context()
+    async with mcp_turn_scope(
+        "session_1",
+        owner_id="user_1",
+        configurations=[],
+        vault_only=True,
+        owner_admission=AsyncMock(return_value=True),
+    ):
+        discovery = await action_tools.discover_person_information("Sarah", context)
         result = await propose_information_request(
-            "Sarah", "employment status", "Employee onboarding review", _ctx(state), 1
+            "Sarah", "employment status", "Employee onboarding review", context, 1
         )
+        # Catalogue admission does not authorize backend-direct mutations.
+        authorized, _, _ = await action_tools._verify_backend_direct_authorization(context)
+        assert authorized is False
+    assert discovery["status"] == "ok"
+    assert discovery["person"]["personRef"] == PERSON_REF
+    assert discovery["requestableScopes"][0]["label"] == "Employment status"
+    assert not {"sharedWithYou", "sharedCount", "scopeCatalog"}.intersection(discovery)
     assert result["status"] == "proposal_ready"
     assert result["person"]["personRef"] == PERSON_REF
     assert result["fields"] == ["Employment status"]
     assert result["connectorReady"] is True
+
+
+def _private_information_context():
+    return SimpleNamespace(
+        user_id="user_1",
+        state={
+            **_state(),
+            "hussh:conversation_id": "session_1",
+            "temp:one_execution_surface": "typed_chat",
+        },
+        session=SimpleNamespace(id="session_1"),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "missing",
+        "closed",
+        "owner",
+        "thread",
+        "surface",
+        "revoked",
+        "non_vault",
+        "http_refused",
+        "session_refused",
+    ],
+)
+async def test_private_information_metadata_requires_live_bound_owner(monkeypatch, failure):
+    from fastapi import HTTPException
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
+    from hushh_mcp.services import pod_information_discovery
+    from hushh_mcp.services.pod_session_authority import PodSessionRefused
+
+    monkeypatch.setattr(runtime_settings, "pod_mode", lambda: True)
+    broker = Mock(side_effect=AssertionError("No metadata before live owner admission"))
+    monkeypatch.setattr(pod_information_discovery, "private_information_discovery", broker)
+    context = _private_information_context()
+    if failure == "owner":
+        context.user_id = "foreign"
+    if failure == "thread":
+        context.state["hussh:conversation_id"] = "foreign"
+    if failure == "surface":
+        context.state["temp:one_execution_surface"] = "voice"
+
+    async def check():
+        discovery = await action_tools.discover_person_information("Sarah", context)
+        proposal = await propose_information_request(
+            "Sarah", "employment status", "Employee onboarding review", context, 1
+        )
+        assert discovery["status"] == proposal["status"] == "blocked"
+        assert action_tools._STATE_INFORMATION_REQUEST_PROPOSALS not in context.state
+
+    admission = AsyncMock(return_value=failure != "revoked")
+    if failure == "http_refused":
+        admission.side_effect = HTTPException(403, detail="Session changed")
+    if failure == "session_refused":
+        admission.side_effect = PodSessionRefused("revoked", "Session revoked")
+    if failure == "missing":
+        await check()
+    else:
+        async with mcp_turn_scope(
+            "session_1",
+            owner_id="user_1",
+            configurations=[],
+            vault_only=failure != "non_vault",
+            owner_admission=admission,
+        ) as scope:
+            if failure == "closed":
+                await scope.close()
+            await check()
+    broker.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", ["discovery", "proposal"])
+@pytest.mark.parametrize("ambiguous", [False, True])
+async def test_private_information_metadata_rechecks_owner_after_broker_read(
+    monkeypatch, tool, ambiguous
+):
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
+    from hushh_mcp.services import pod_information_discovery
+
+    monkeypatch.setattr(runtime_settings, "pod_mode", lambda: True)
+    port = Mock()
+    port.list_connections.return_value = [
+        {"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}
+    ]
+    port.catalog.return_value = {**PROFILE, "connectorReady": True}
+    if ambiguous:
+        port.list_connections.return_value.append(
+            {
+                "displayName": "Sarah Jones",
+                "publicPersonRef": "22222222-2222-4222-8222-222222222222",
+            }
+        )
+    monkeypatch.setattr(
+        pod_information_discovery, "private_information_discovery", lambda owner: port
+    )
+    context = _private_information_context()
+    async with mcp_turn_scope(
+        "session_1",
+        owner_id="user_1",
+        configurations=[],
+        vault_only=True,
+        owner_admission=AsyncMock(side_effect=[True, False]),
+    ):
+        result = (
+            await action_tools.discover_person_information("Sarah", context)
+            if tool == "discovery"
+            else await propose_information_request(
+                "Sarah", "employment status", "Employee onboarding review", context, 1
+            )
+        )
+    assert result["status"] == "blocked"
+    assert "requestableScopes" not in result and "proposed" not in result
+    assert action_tools._STATE_INFORMATION_REQUEST_PROPOSALS not in context.state
+    port.pending.assert_not_called()
