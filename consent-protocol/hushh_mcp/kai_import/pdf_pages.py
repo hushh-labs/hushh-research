@@ -9,6 +9,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+from typing import BinaryIO
 
 _MAX_BYTES = 25 * 1024 * 1024
 _FRAME = struct.Struct("!I")
@@ -74,6 +75,9 @@ class PdfPages:
         }
         if sys.platform == "win32" and os.environ.get("SystemRoot"):
             environment["SystemRoot"] = os.environ["SystemRoot"]
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = subprocess.CREATE_NO_WINDOW
         self.process = await asyncio.create_subprocess_exec(
             sys.executable,
             str(Path(__file__).resolve()),
@@ -82,11 +86,8 @@ class PdfPages:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
             env=environment,
-            **(
-                {"creationflags": subprocess.CREATE_NO_WINDOW}
-                if sys.platform == "win32"
-                else {"start_new_session": True}
-            ),
+            creationflags=creationflags,
+            start_new_session=sys.platform != "win32",
         )
 
     async def _write(self, value: bytes) -> None:
@@ -165,7 +166,7 @@ class PdfPages:
             await asyncio.gather(drain, return_exceptions=True)
 
 
-def _read_frame(stream, limit: int) -> bytes:
+def _read_frame(stream: BinaryIO, limit: int) -> bytes:
     header = stream.read(_FRAME.size)
     if len(header) != _FRAME.size:
         raise EOFError
@@ -178,7 +179,7 @@ def _read_frame(stream, limit: int) -> bytes:
     return value
 
 
-def _write_frame(stream, value: bytes) -> None:
+def _write_frame(stream: BinaryIO, value: bytes) -> None:
     if len(value) > _MAX_BYTES:
         raise ValueError("frame_size")
     stream.write(_FRAME.pack(len(value)))

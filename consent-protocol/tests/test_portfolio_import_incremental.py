@@ -133,6 +133,24 @@ async def test_csv_every_batch_keeps_original_lots_and_missing_cost(monkeypatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["decimal_separator", "group_separator"])
+@pytest.mark.parametrize("separator", [None, 1, [], {}])
+async def test_invalid_csv_separator_type_requests_document_fallback(monkeypatch, field, separator):
+    mapping = layout()
+    mapping[field] = separator
+    stream, _, fallback = extract(
+        monkeypatch,
+        [mapping],
+        csv=True,
+        content=b"Symbol,Qty,Value,Cost\nONE,1,10,\n",
+    )
+    events = [event async for event in stream]
+    assert [event["kind"] for event in events] == ["reset", "complete"]
+    assert events[-1]["fallback_reason"] == "csv_number_format_invalid"
+    fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_uncovered_csv_row_resets_before_whole_document_fallback(monkeypatch):
     stream, _, fallback = extract(
         monkeypatch,
