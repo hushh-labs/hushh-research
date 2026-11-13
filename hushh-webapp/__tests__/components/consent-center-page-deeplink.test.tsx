@@ -101,6 +101,10 @@ vi.mock("@/components/consent/document-share-review", () => ({
   DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
 }));
 
+vi.mock("@/components/consent/scope-commerce-request-panel", () => ({
+  ScopeCommerceRequestPanel: ({ requestId }: { requestId: string }) => <div data-testid="focused-sharing-agreement">{requestId}</div>,
+}));
+
 // This suite checks Consent Center deep-link routing. The typed review router
 // has its own tests; keep this fixture independent of Drive status transport.
 vi.mock("@/components/consent/calendar-meeting-review-card", () => ({
@@ -471,6 +475,16 @@ function groupedHistoryListResponse() {
 }
 
 describe("ConsentCenterPage requestId deep links", () => {
+  it("focuses a paid agreement without the generic inbox and retains native web fallback", async () => {
+    mocks.pathname = "/one/consent"; mocks.nativeEnabled = true;
+    mocks.search = "tab=active&page=3&q=food&commerceRequestId=one_person_paid";
+    render(<ConsentCenterPage />);
+    expect(await screen.findByTestId("focused-sharing-agreement")).toHaveTextContent("one_person_paid");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByText("No requests need your review.")).toBeNull();
+    expect(mocks.nativeOptions?.active).toBe(false);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.pathname = "/consents";

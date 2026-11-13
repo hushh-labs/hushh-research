@@ -135,7 +135,7 @@ class CommerceActivity:
                 "matures_at": iso(p["earnings_settled_at"] or p["expires_at"]),
                 "fulfillment_deadline": iso(p["fulfillment_deadline"]),
                 "next_action": {
-                    "label": "Prepare encrypted information"
+                    "label": "Share approved information"
                     if seller and p["status"] in {"reserved", "preparing"}
                     else "Review sharing",
                     "href": "/one/consent?" + urlencode({"commerceRequestId": p["request_id"]}),
@@ -222,7 +222,7 @@ class CommerceActivity:
             return {
                 "scope_label": scope_label(purchase["machine_scope"]),
                 "counterpart_label": counterpart["label"],
-                "recipient_label": "Requester’s private agent"
+                "recipient_label": "One"
                 if purchase["buyer_app_id"] == "agent_one"
                 else "Registered application " + purchase["buyer_app_id"],
                 "available_balance_cents": available // MICRO_PER_CENT,

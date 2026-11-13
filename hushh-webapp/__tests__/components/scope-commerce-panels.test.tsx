@@ -58,6 +58,51 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("commerce session and review authority", () => {
+  it.each([
+    ["payer", "active", true], ["payer", "reserved", false],
+    ["owner", "active", false], ["payer", "revoked", false],
+  ] as const)("opens shared information only for the active payer (%s/%s)", async (role, status, allowed) => {
+    const person = "11111111-1111-4111-8111-111111111111";
+    const request = ownerRequest();
+    mocks.scopeRequest.mockResolvedValue({ ...request, role, scope_label: "Food preferences",
+      counterpart_label: "Kushal", counterpart_person_ref: person,
+      purchase: { ...request.purchase!, status } });
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("Food preferences");
+    const link = screen.queryByRole("link", { name: "Open shared information" });
+    if (allowed) expect(link).toHaveAttribute("href", `/people/${person}`);
+    else expect(link).toBeNull();
+    expect(mocks.purchase).not.toHaveBeenCalled();
+  });
+
+  it("keeps confirmed end terminal when the next status read fails", async () => {
+    mocks.scopeRequest.mockResolvedValue({ ...ownerRequest(), purchase: { ...ownerRequest().purchase!, status: "active" } });
+    mocks.revokePurchase.mockResolvedValue({});
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("You’re sharing");
+    expect(screen.getByRole("list", { name: "Sharing progress" })).toBeInTheDocument();
+    mocks.scopeRequest.mockRejectedValue(new Error("Status temporarily unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "End sharing", exact: true }));
+    fireEvent.click(screen.getAllByRole("button", { name: "End sharing", exact: true }).at(-1)!);
+    await screen.findByText("Sharing ended. Check payment history for any refund.");
+    expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open shared information" })).toBeNull();
+    expect(mocks.revokePurchase).toHaveBeenCalledOnce();
+  });
+
+  it("closes the agreement with Back while preserving the consent list query", async () => {
+    mocks.pathname = "/one/consent";
+    mocks.search = `tab=active&page=3&q=food&from=%2Fone%2Fprofile&commerceRequestId=${requestId}`;
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("Shared with");
+    const link = screen.getByRole("link", { name: "See all sharing" });
+    expect(link).toHaveAttribute("href", "/one/consent?tab=active&page=3&q=food&from=%2Fone%2Fprofile");
+    expect(unwindBackLayer(mocks.pathname, new URLSearchParams(mocks.search))).toBe(true);
+    expect(mocks.replace).toHaveBeenCalledWith(link.getAttribute("href"), { scroll: false });
+    cleanup();
+    expect(unwindBackLayer(mocks.pathname, new URLSearchParams(mocks.search))).toBe(false);
+  });
+
   it("shows the earlier staging deadline and removes completed preparation deadlines", () => {
     const request = ownerRequest();
     const purchase = { ...request.purchase!, status: "preparing", activation_at: "2099-01-01T01:00:00Z", fulfillment_deadline: "2099-01-01T02:00:00Z", expires_at: "2099-01-02T01:00:00Z" };
@@ -67,11 +112,19 @@ describe("commerce session and review authority", () => {
     expect(screen.queryByText("Share by")).toBeNull();
     rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "reserved" } }} />);
     expect(screen.getByText("Share by").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.fulfillment_deadline);
+    expect(screen.getByText("Ready").closest("li")).toHaveAttribute("data-complete", "false");
     rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "active" } }} />);
     expect(screen.queryByText("Share by")).toBeNull();
     expect(screen.queryByText("Complete sharing by")).toBeNull();
     expect(screen.getByText("Access starts").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.activation_at);
     expect(screen.getByText("Access ends").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.expires_at);
+    expect(screen.getByText("Access").closest("li")).toHaveAttribute("data-complete", "true");
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "armed" } }} />);
+    expect(screen.getByText("Ready").closest("li")).toHaveAttribute("data-complete", "true");
+    expect(screen.getByText("Access").closest("li")).toHaveAttribute("data-complete", "false");
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "access_blocked" } }} />);
+    expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+
   });
 
   it("labels simulated funds only after owner-bound Sandbox verification", async () => {
@@ -603,13 +656,13 @@ describe("answer payout hosted continuity", () => {
     expect(mocks.account).not.toHaveBeenCalled();
     expect(mocks.readiness).not.toHaveBeenCalled();
     expect(mocks.sandboxVerified).not.toHaveBeenCalled();
-    expect(screen.queryByRole("region", { name: "Information access" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
   });
   it("opens existing payouts without mounting information-access controls or loading their accounts", async () => {
     render(<PaymentsAndEarnings />);
     await act(async () => {});
-    expect(screen.queryByRole("region", { name: "Information access" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
     for (const request of [mocks.account, mocks.readiness, mocks.sandboxVerified, mocks.activity, mocks.answerGates, mocks.answerAccount]) {
       expect(request).not.toHaveBeenCalled();
     }

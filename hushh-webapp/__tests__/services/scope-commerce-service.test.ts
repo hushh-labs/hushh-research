@@ -198,6 +198,7 @@ describe("scope commerce review boundary", () => {
   it("preserves signed micro-USD costs and distinguishes transfer from confirmed bank payout", () => {
     expect(formatCommerceMoney(parseCommerceDollarInput("0.01", 1))).toBe("1 Hussh coin ($0.01)");
     expect(formatCommerceMoney(parseCommerceDollarInput("1.00", 1))).toBe("100 Hussh coins ($1.00)");
+    expect(formatCommerceMicroUsd(240000)).toBe("24 Hussh coins ($0.24)");
     expect(formatCommerceMicroUsd(1)).toBe("0.0001 Hussh coins ($0.000001)");
     expect(formatCommerceMicroUsd(-12345)).toBe("-1.2345 Hussh coins (-$0.012345)");
     expect(commerceWithdrawalStatusCopy("transferred")).toContain("Bank payout is unconfirmed");
@@ -213,8 +214,12 @@ describe("scope commerce review boundary", () => {
     const result = { request_id: requestId, role: "owner", machine_scope: "attr.food.preferences.*", scope_handle: "scope_food",
       duration_seconds: 86400, purpose: "Approved purpose", tariff: null,
       purchase: { id: documentId, request_id: requestId, status: "active", amount_cents: 1, processing_fee_micro_usd: 12345, net_earnings_micro_usd: -2345 } };
-    fetcher.mockResolvedValueOnce(reply(result));
-    expect((await ScopeCommerceService.scopeRequest("firebase", requestId)).purchase?.net_earnings_micro_usd).toBe(-2345);
+    fetcher.mockResolvedValueOnce(reply({ ...result, counterpart_person_ref: documentId }));
+    const parsed = await ScopeCommerceService.scopeRequest("firebase", requestId);
+    expect(parsed.purchase?.net_earnings_micro_usd).toBe(-2345);
+    expect(parsed.counterpart_person_ref).toBe(documentId);
+    fetcher.mockResolvedValueOnce(reply({ ...result, counterpart_person_ref: "https://foreign.invalid" }));
+    await expect(ScopeCommerceService.scopeRequest("firebase", requestId)).rejects.toThrow();
     fetcher.mockResolvedValueOnce(reply({ ...result, purchase: { ...result.purchase, net_earnings_micro_usd: -0.5 } }));
     await expect(ScopeCommerceService.scopeRequest("firebase", requestId)).rejects.toThrow();
   });

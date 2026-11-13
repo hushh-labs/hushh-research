@@ -1,5 +1,7 @@
 """Authenticated read projections for commerce requests and activity."""
 
+import asyncio
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query, Response
@@ -14,10 +16,64 @@ from api.routes.scope_commerce_contracts import (
     _snake,
 )
 from db.connection import get_pool
+from hushh_mcp.services.directory_identity_service import (
+    DirectoryIdentityUnavailableError,
+    active_directory_user_ids,
+)
+from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.scope_commerce.activity import scope_label
 from hushh_mcp.services.scope_commerce_requests import resolve_commerce_request
 
 router = APIRouter(tags=["scope-commerce"])
+logger = logging.getLogger(__name__)
+
+
+async def _connected_counterpart(viewer: str, counterpart: str | None, *, can_open: bool) -> dict:
+    """Name and navigation only; destination consent still governs every export."""
+    if not counterpart:
+        return {}
+    pool = await get_pool()
+    sql = """SELECT p.user_id,p.public_person_ref,i.display_name
+        FROM connections c JOIN actor_profiles p ON p.user_id=$2
+        LEFT JOIN actor_identity_cache i ON i.user_id=p.user_id
+        WHERE c.user_a_id=LEAST($1::text,$2::text)
+          AND c.user_b_id=GREATEST($1::text,$2::text) AND c.status='active'
+          AND p.public_profile_status='active'
+          AND NOT EXISTS (SELECT 1 FROM account_deletion_tombstones t
+            WHERE t.user_id_hash='sha256:' || encode(sha256(convert_to(p.user_id,'UTF8')),'hex'))
+        LIMIT 1"""
+    async with pool.acquire() as conn:
+        available = await conn.fetchval("""SELECT to_regclass('connections') IS NOT NULL
+            AND to_regclass('actor_profiles') IS NOT NULL
+            AND to_regclass('actor_identity_cache') IS NOT NULL
+            AND to_regclass('account_deletion_tombstones') IS NOT NULL""")
+        row = await conn.fetchrow(sql, viewer, counterpart) if available else None
+    if not row:
+        return {}
+    # Provider work must not hold the financial service's advisory lock or a DB lease.
+    try:
+        live = await asyncio.wait_for(
+            asyncio.to_thread(
+                active_directory_user_ids, [counterpart], use_cache=False, notify_connections=False
+            ),
+            timeout=10,
+        )
+    except (DirectoryIdentityUnavailableError, TimeoutError):
+        logger.warning("scope_commerce.counterpart_identity_unavailable")
+        return {"counterpart_person_ref": None}
+    if counterpart not in live:
+        return {"counterpart_person_ref": None}
+    # Connection removal or local retirement may commit during the provider read.
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(sql, viewer, counterpart)
+    if not row:
+        return {"counterpart_person_ref": None}
+    return {
+        "counterpart_label": label_from_identity_row(
+            row, allow_email_handle=False, fallback="Hussh member"
+        ),
+        "counterpart_person_ref": str(row["public_person_ref"]) if can_open else None,
+    }
 
 
 async def _request_state(request_id: str, user_id: str) -> dict:
@@ -30,7 +86,7 @@ async def _request_state(request_id: str, user_id: str) -> dict:
         if not financial_schema:
             return await _legacy_free_request_state(conn, service, request_id, user_id)
         historical = await conn.fetchrow(
-            """SELECT purchase_id,owner_user_id FROM scope_commerce_purchases
+            """SELECT purchase_id,owner_user_id,payer_user_id FROM scope_commerce_purchases
                WHERE request_id=$1 AND (owner_user_id=$2 OR payer_user_id=$2)""",
             request_id,
             user_id,
@@ -46,6 +102,9 @@ async def _request_state(request_id: str, user_id: str) -> dict:
             purchase_id=str(historical["purchase_id"]), buyer_app_id=quote["buyer_app_id"]
         )
         return {
+            "_counterpart_user_id": historical["payer_user_id"]
+            if historical["owner_user_id"] == user_id
+            else historical["owner_user_id"],
             "request_id": request_id,
             "role": "owner" if historical["owner_user_id"] == user_id else "payer",
             "machine_scope": quote["machine_scope"],
@@ -71,6 +130,9 @@ async def _request_state(request_id: str, user_id: str) -> dict:
     purchase = await service.lookup_by_request(request_id)
     mapped_purchase = _purchase(purchase) if purchase else None
     return {
+        "_counterpart_user_id": binding["payer_user_id"]
+        if binding["owner_user_id"] == user_id
+        else binding["owner_user_id"],
         "request_id": request_id,
         "role": "owner" if user_id == binding["owner_user_id"] else "payer",
         "machine_scope": binding["machine_scope"],
@@ -83,7 +145,7 @@ async def _request_state(request_id: str, user_id: str) -> dict:
         "request_deadline": binding.get("request_deadline").isoformat()
         if binding.get("request_deadline")
         else None,
-        "recipient_label": "Requester’s private agent"
+        "recipient_label": "One"
         if binding["buyer_app_id"] == "agent_one"
         else "Registered application " + binding["buyer_app_id"],
         "tariff": _snake(tariff) if tariff else None,
@@ -111,6 +173,9 @@ async def _legacy_free_request_state(
     if tariff and tariff["priceCents"] > 0:
         raise CommerceError("commerce_schema_required")
     return {
+        "_counterpart_user_id": binding["payer_user_id"]
+        if binding["owner_user_id"] == user_id
+        else binding["owner_user_id"],
         "_commerce_schema_ready": False,
         "request_id": request_id,
         "role": "owner" if user_id == binding["owner_user_id"] else "payer",
@@ -119,7 +184,7 @@ async def _legacy_free_request_state(
         "duration_seconds": binding["duration_seconds"],
         "purpose": binding["purpose"],
         "refresh_policy": binding["refresh_policy"],
-        "recipient_label": "Requester’s private agent"
+        "recipient_label": "One"
         if binding["buyer_app_id"] == "agent_one"
         else "Registered application " + binding["buyer_app_id"],
         "tariff": _snake(tariff) if tariff else None,
@@ -154,11 +219,18 @@ async def request_state(request_id: str, response: Response, user_id: Payer):
             if result.pop("_commerce_schema_ready", True)
             else {}
         )
+        counterpart = await _connected_counterpart(
+            user_id,
+            result.pop("_counterpart_user_id", None),
+            can_open=result["role"] == "payer"
+            and (result.get("purchase") or {}).get("status") == "active",
+        )
         return {
             "scope_label": scope_label(result["machine_scope"]),
             "counterpart_label": "Requester" if result["role"] == "owner" else "Information owner",
             **result,
             **review,
+            **counterpart,
         }
     except Exception as error:
         raise _error(error) from None

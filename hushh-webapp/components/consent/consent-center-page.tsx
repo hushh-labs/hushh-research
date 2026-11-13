@@ -2144,6 +2144,7 @@ export function ConsentCenterPage() {
   // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
   // without a requestId). Used as a selection fallback below.
   const selectedBundleId = searchParams.get("bundleId");
+  const commerceRequestId = /^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? searchParams.get("commerceRequestId") : null;
   const notificationAction = normalizeNotificationAction(
     searchParams.get("notificationAction"),
   );
@@ -3845,7 +3846,7 @@ export function ConsentCenterPage() {
   nativeActions.set(searchId, choice => { if (typeof choice.text === "string") setSearchValue(choice.text); });
   const nativeSupported = !nativeHasInlineDecision && !showSessionRecovery && !showCompactRetryState && !showFullRetryState &&
     !(tab === "connections" && centerResource.data && centerResource.data.activeConnections == null) &&
-    !/^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") &&
+    !commerceRequestId &&
     searchValue.length <= 256 && nativeRows.length <= 200 && nativeRows.every(row => row.label.length > 0 && row.label.length <= 4096 && (!row.detail || row.detail.length <= 4096) && (!row.trailing || row.trailing.length <= 32));
   const nativeActive = customNativePresentationEnabled() && nativeCurrent() && nativeSupported && !nativeChild &&
     !selectedId && !selectedBundleId && !isPanelOpen && !rowUnlockPrompt.open;
@@ -3860,6 +3861,11 @@ export function ConsentCenterPage() {
     <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent data-consent-presentation="workspace">
       <div ref={nativeAnchor} hidden aria-hidden="true" />
       {nativePhase === "web" && !presentation.status.held && <>
+      {commerceRequestId ? <SettingsPresentationProvider density="compact">
+        <AppPageContentRegion>
+          <ScopeCommerceRequestPanel key={`${userId}:${commerceRequestId}`} requestId={commerceRequestId} />
+        </AppPageContentRegion>
+      </SettingsPresentationProvider> : <>
       <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
@@ -3921,10 +3927,6 @@ export function ConsentCenterPage() {
                 <AccessibilityStatusAnnouncer
                   message={accessibilityStatusMessage}
                 />
-
-                {/^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? (
-                  <ScopeCommerceRequestPanel key={`${userId}:${searchParams.get("commerceRequestId")}`} requestId={searchParams.get("commerceRequestId")!} />
-                ) : null}
 
                 {showSessionRecovery ? <SessionExpiryRecovery /> : null}
 
@@ -4342,6 +4344,7 @@ export function ConsentCenterPage() {
         </SettingsDetailPanel>
         <OwnerConsentUnlockPrompt prompt={rowUnlockPrompt} />
       </SettingsPresentationProvider>
+      </>}
       </>}
     </AppPageShell>
   );
