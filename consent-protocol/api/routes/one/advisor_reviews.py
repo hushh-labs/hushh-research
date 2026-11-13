@@ -59,13 +59,14 @@ async def discover(request: Request, body: Discovery, viewer: str = Depends(iden
     if body.scope == "recommended":
         if (
             body.service is None
-            or body.query
             or body.latitude is not None
             or body.longitude is not None
             or body.postalCode is not None
         ):
             raise AdvisorReviewError("ADVISOR_SERVICE_REQUIRED", 422)
-        people = await asyncio.to_thread(candidates, viewer, service=body.service, page=body.page)
+        people = await asyncio.to_thread(
+            candidates, viewer, service=body.service, query=body.query, page=body.page
+        )
         return {**people, "directory": None}
     if body.service is not None:
         raise AdvisorReviewError("ADVISOR_SERVICE_SCOPE_REQUIRED", 422)

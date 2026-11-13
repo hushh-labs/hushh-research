@@ -141,6 +141,8 @@ def test_stored_ria_service_discovery_to_approved_request_and_acceptance(directo
     assert advisor["name"] == "Bob Advisor"
     assert advisor["servicesOffered"] == ["Portfolio Management"]
     assert advisor["ready"] is True
+    assert candidates("alice", service="portfolio_management", query="BOB")["items"] == found
+    assert candidates("alice", service="portfolio_management", query="Another")["items"] == []
     assert candidates("alice", service="tax_planning")["items"] == []
     # Enrollment is an actual SQL fence, not a mocked yes/no eligibility answer.
     with db.engine.begin() as conn:

@@ -6180,10 +6180,13 @@ generation-bound unsubscribe even when new delivery is disabled.
 
 ## Optional advisor service matching
 
-Finance analysis offers **Recommend advisor**. The existing
+Finance advisor discovery's **All** tab offers **Recommend advisor**. The existing
 `POST /api/one/finance/advisor-reviews/candidates` accepts
 `{"scope":"recommended","service":"portfolio_management"}`. The other service
 IDs are `retirement_planning`, `tax_planning`, and `estate_planning`.
+An optional `query` filters advisor names before the recommendation limit;
+`scope: "global"` with an empty query lists all eligible platform RIAs by name.
+The UI loads further All results while scrolling, without pagination controls.
 Existing Firebase and matching vault-owner authorization remain required.
 Unknown fields, including persona and portfolio payloads, are rejected.
 

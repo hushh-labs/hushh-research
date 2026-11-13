@@ -1,12 +1,13 @@
 // Synthetic transport/source only. The request, workspace and recovery UI are production components.
 import type { AdvisorReview, AdvisorSnapshot } from "@/lib/advisor-review/contract";
+import { readSavedFinance } from "./finance-sharing-boundaries";
 import { matchAdvisorServices, normalizeAdvisorService, type AdvisorService } from "@/lib/advisor-review/matching";
 
 let savedAdvisorService: AdvisorService | null = null;
 export const KaiProfileService = {
   getProfile: async () => {
     document.body.dataset.recommendationProfileReads = String(Number(document.body.dataset.recommendationProfileReads || 0) + 1);
-    return { preferences: { investment_horizon: "long_term", drawdown_response: "stay", volatility_preference: "moderate", loss_capacity: "flexible", advisor_service: savedAdvisorService } };
+    return { preferences: { ...(await readSavedFinance()).profile.preferences, advisor_service: savedAdvisorService } };
   },
   savePreferences: async ({ updates }: { updates: { advisor_service: AdvisorService } }) => {
     savedAdvisorService = updates.advisor_service;
@@ -36,7 +37,7 @@ export function sampleReview(viewer: string): AdvisorReview {
 export class AdvisorReviewError extends Error { constructor(readonly code: string, readonly status = 0) { super(code === "ADVISOR_CONNECT_CALENDAR" ? "Connect Google Calendar and allow scheduling before booking. Your request is saved." : "This request could not be confirmed. Check its status before retrying."); } }
 export async function advisorRequest(
   _context: unknown, path: string, _method: string,
-  body: { scope?: string; query?: string; service?: AdvisorService } = {},
+  body: { scope?: string; query?: string; service?: AdvisorService; page?: number } = {},
 ) {
   if (path === "/portfolio-analysis") {
     document.body.dataset.portfolioReviewCalls = String(Number(document.body.dataset.portfolioReviewCalls || 0) + 1);
@@ -44,18 +45,21 @@ export async function advisorRequest(
     return { score: 72, takeaway: "One holding dominates this snapshot.", reason: "The position makes up most of the saved allocation.", next_step: "Compare that weight with your plan.", advisor_reason: null };
   }
   document.body.dataset.advisorCandidateScope = body.scope;
+  const records = [
+    ["Portfolio Management"], ["Portfolio Management", "Retirement Planning"],
+    ["Tax Planning"], ["Estate Planning"], ["Retirement Planning"],
+    ["Portfolio Management"], ["Portfolio Management"],
+  ].map((servicesOffered, index) => ({ userId: `synthetic-advisor-${index + 1}`, personRef: `${String(index + 1).repeat(8)}-${String(index + 1).repeat(4)}-4${String(index + 1).repeat(3)}-8${String(index + 1).repeat(3)}-${String(index + 1).repeat(12)}`, name: `Sample matching advisor ${index + 1}`, bio: "Synthetic service record", crd: "123456", verified: true as const, servicesOffered, keyId: "synthetic-key", publicKeyJwk: { kty: "EC" }, ready: true }));
+  const filtered = records.filter(person => person.name.toLowerCase().includes((body.query || "").toLowerCase()));
   if (body.scope === "recommended") {
     document.body.dataset.advisorRecommendationBody = JSON.stringify(body);
     const selected = normalizeAdvisorService(body.service);
     if (!selected) throw new Error("Unknown sample service");
-    const records = [
-      ["Portfolio Management"],
-      ["Portfolio Management", "Retirement Planning"],
-      ["Tax Planning"],
-      ["Estate Planning"],
-      ["Retirement Planning"],
-    ].map((servicesOffered, index) => ({ userId: `synthetic-advisor-${index + 1}`, personRef: `${String(index + 1).repeat(8)}-${String(index + 1).repeat(4)}-4${String(index + 1).repeat(3)}-8${String(index + 1).repeat(3)}-${String(index + 1).repeat(12)}`, name: `Sample matching advisor ${index + 1}`, bio: "Synthetic service record", crd: "123456", verified: true as const, servicesOffered, keyId: "synthetic-key", publicKeyJwk: { kty: "EC" }, ready: true }));
-    return { items: matchAdvisorServices(records, selected, "synthetic-owner").map(({ advisor }) => advisor), directory: null, hasMore: false };
+    return { items: matchAdvisorServices(filtered, selected, "synthetic-owner").map(({ advisor }) => advisor), directory: null, hasMore: false };
+  }
+  if (body.scope === "global") {
+    const offset = ((body.page || 1) - 1) * 3;
+    return { items: filtered.slice(offset, offset + 3), directory: null, hasMore: offset + 3 < filtered.length };
   }
   const name = body.scope === "global" ? "Distant advisor"
     : body.scope === "nearby" ? "Local advisor" : "Sample advisor";

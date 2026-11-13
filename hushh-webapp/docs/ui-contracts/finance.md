@@ -215,19 +215,25 @@ publishes a share; amount and private-agent permissions remain off by default.
 
 ## Optional advisor recommendations
 
-On Finance analysis, **Recommend advisor** starts an optional service match. It
+In Finance → Find an advisor, **My connections**, **Nearby** and **All** keep
+connection, location and directory browsing separate. All lists eligible platform
+RIAs alphabetically with automatic scrolling and no pagination controls. Its
+search filters the directory by name. **Recommend advisor**, beside search,
+switches that list to optional service matches. It
 asks one missing fixed-choice answer: managing investments, retirement, tax, or
 estate planning. Closing leaves recommendations off. A saved answer skips the
 question on the next open; Change choice offers the same four answers.
 
-Show up to five service matches with factual reasons and profile links. Missing
+Show up to five service matches with factual reasons and profile links. Search
+is applied on the server before selecting matches; recommendations do not depend
+on which All rows have been loaded. Equally evidenced matches remain tied. Missing
 advisor approach evidence is not described as persona/portfolio compatibility.
 The app reads verified, directory-eligible RIA accounts and their saved services;
 it does not use the sample-preview records. Open reviews remain in the existing
 workspace instead of being offered as new introductions. Profile Back returns
 to Finance analysis. An unlocked vault and a saved portfolio are required.
-Prices, meeting logistics and availability are excluded. Selecting Review
-introduction opens the existing approval flow without sending or sharing.
+Prices, meeting logistics and availability are excluded. Finance owns all
+typography; Connect supplies the compact row structure. Selecting Review opens the existing approval flow without sending or sharing.
 Back closes recommendations before route navigation, and is consumed during
 preference persistence. Auth/vault changes retire results and selected advisors.
 The same shared UI and API transport apply on web, iOS and Android; physical

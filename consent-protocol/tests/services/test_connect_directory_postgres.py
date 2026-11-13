@@ -115,6 +115,63 @@ def test_advisor_service_and_blocks_filter_the_entire_corpus_before_pagination(c
     )
 
 
+def test_all_rias_stay_alphabetical_and_search_filters_before_recommendation_limit(connection):
+    connection.execute(
+        text("""
+        ALTER TABLE ria_profiles ADD COLUMN services_offered TEXT[];
+        CREATE TABLE direct_message_blocks(blocker_user_id TEXT, blocked_user_id TEXT);
+    """)
+    )
+    for index in range(75):
+        uid = f"all-ria-{index:03}"
+        _person(connection, uid, f"Advisor {index:03}")
+        connection.execute(
+            text(
+                "INSERT INTO ria_profiles(user_id,verification_status,services_offered) VALUES(:id,'verified',:services)"
+            ),
+            {"id": uid, "services": ["Portfolio Management"] if index else []},
+        )
+    # An open review stays in All; the recommendation path excludes it separately.
+    connection.execute(
+        text(
+            "INSERT INTO advisor_review_requests VALUES(:owner,'all-ria-001','pending',clock_timestamp()+interval '1 day')"
+        ),
+        {"owner": OWNER},
+    )
+    directory = _Directory(connection)
+    pages = [
+        directory.search_directory_candidates(
+            owner_user_id=OWNER, audience="ria", name_only=True, page=page, limit=30
+        )
+        for page in (1, 2, 3)
+    ]
+    assert [person["userId"] for page in pages for person in page["items"]] == [
+        f"all-ria-{index:03}" for index in range(75)
+    ]
+    assert [page["hasMore"] for page in pages] == [True, True, False]
+    connection.execute(
+        text(
+            "UPDATE marketplace_public_profiles SET display_name='Sharu Khan' WHERE user_id='all-ria-074'"
+        )
+    )
+    connection.execute(
+        text(
+            "UPDATE actor_identity_cache SET display_name='Sharu Khan' WHERE user_id='all-ria-074'"
+        )
+    )
+    matched = directory.search_directory_candidates(
+        owner_user_id=OWNER,
+        audience="ria",
+        name_only=True,
+        typed_search=True,
+        query="SHARUKHAN",
+        advisor_service="portfolio_management",
+        include_recommendations=False,
+        limit=5,
+    )
+    assert [person["userId"] for person in matched["items"]] == ["all-ria-074"]
+
+
 def test_advisor_service_missing_in_legacy_profile_is_not_inferred(connection):
     _person(connection, "legacy-ria", "Legacy advisor")
     connection.execute(

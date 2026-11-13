@@ -8,15 +8,13 @@ export function registerAdvisorReviewChecks(
       page,
     }) => {
       await mount(page, width);
-      expect(
-        await page.evaluate(
-          () => document.body.dataset.recommendationProfileReads,
-        ),
-      ).toBeUndefined();
+      await page.getByRole("button", { name: "Start sample advisor request" }).click();
+      await page.getByRole("tab", { name: "All", exact: true }).click();
+      expect(await page.evaluate(() => document.body.dataset.advisorRecommendationBody)).toBeUndefined();
       await page
         .getByRole("button", { name: "Recommend advisor", exact: true })
         .click();
-      const dialog = page.getByRole("dialog");
+      const dialog = page.getByRole("dialog").last();
       await expect(
         dialog.getByText("What do you need help with?"),
       ).toBeVisible();
@@ -33,7 +31,7 @@ export function registerAdvisorReviewChecks(
       await dialog
         .getByRole("button", { name: "Managing my investments" })
         .click();
-      await expect(dialog.getByText("Sample matching advisor 1")).toBeVisible();
+      await expect(page.getByText("Sample matching advisor 1", { exact: true })).toBeVisible();
       expect(
         await page.evaluate(() =>
           JSON.parse(document.body.dataset.advisorRecommendationBody || "{}"),
@@ -47,10 +45,14 @@ export function registerAdvisorReviewChecks(
           (element) => element.scrollWidth <= element.clientWidth,
         ),
       ).toBe(true);
-      await dialog
-        .getByRole("button", { name: "Review introduction" })
-        .first()
-        .click();
+      await test.info().attach(`advisor-matches-${width}`, { body: await page.screenshot(), contentType: "image/png" });
+      const typography = await page.getByTestId("advisor-person-row").first().locator('[data-slot="settings-row-title"]').evaluate(element => {
+        const style = getComputedStyle(element);
+        return { font: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
+      });
+      await test.info().attach("finance-typography", { body: JSON.stringify(typography), contentType: "application/json" });
+      await page.getByRole("button", { name: "Review introduction with Sample matching advisor 1", exact: true }).click();
+      await page.getByText("Preview shared portfolio", { exact: true }).click();
       await expect(
         page
           .getByRole("dialog")
@@ -68,9 +70,9 @@ export function registerAdvisorReviewChecks(
         .getByRole("dialog")
         .getByRole("button", { name: /^Close(?: detail panel)?$/ })
         .click();
-      await page
-        .getByRole("button", { name: "Recommend advisor", exact: true })
-        .click();
+      await page.getByRole("button", { name: "Start sample advisor request" }).click();
+      await page.getByRole("tab", { name: "All", exact: true }).click();
+      await page.getByRole("button", { name: "Recommend advisor", exact: true }).click();
       await expect(
         page.getByRole("dialog").getByText("Sample matching advisor 1"),
       ).toBeVisible();
@@ -82,7 +84,7 @@ export function registerAdvisorReviewChecks(
         .getByRole("button", { name: "Change choice" })
         .click();
       await page
-        .getByRole("dialog")
+        .getByRole("dialog").last()
         .getByRole("button", { name: "Planning around taxes" })
         .click();
       await expect(
@@ -115,10 +117,11 @@ export function registerAdvisorReviewChecks(
     await expect(
       dialog.getByText("Local advisor", { exact: true }),
     ).toBeVisible();
-    await dialog.getByRole("textbox", { name: "Advisor name" }).fill("Distant");
-    await dialog.getByRole("button", { name: "Search", exact: true }).click();
+    await dialog.getByRole("tab", { name: "All", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: /Load more/ })).toHaveCount(0);
+    await dialog.getByRole("textbox", { name: "Advisor name" }).fill("Sample matching advisor 7");
     await expect(
-      dialog.getByText("Distant advisor", { exact: true }),
+      dialog.getByText("Sample matching advisor 7", { exact: true }),
     ).toBeVisible();
     await expect(page.locator("body")).toHaveAttribute(
       "data-advisor-candidate-scope",
@@ -127,7 +130,7 @@ export function registerAdvisorReviewChecks(
     await expect(
       dialog.getByRole("textbox", { name: "Postal code" }),
     ).toHaveCount(0);
-    await dialog.getByRole("button", { name: "Choose", exact: true }).click();
+    await dialog.getByRole("button", { name: "Review introduction with Sample matching advisor 7", exact: true }).click();
     await expect(
       dialog.getByRole("button", { name: "Send request" }),
     ).toBeDisabled();

@@ -285,7 +285,7 @@ test.afterAll(() => {
 });
 
 
-async function mount(page: Page, width = 393, onboarding = false) {
+async function mount(page: Page, width = 393, onboarding = false, advisorOnly = false) {
   const runtimeErrors: string[] = [];
   page.on("pageerror", error => runtimeErrors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
@@ -296,6 +296,7 @@ async function mount(page: Page, width = 393, onboarding = false) {
   }));
   await page.goto("http://localhost/finance-fixture");
   if (onboarding) await page.evaluate(() => { document.body.dataset.financeOnboarding = "true"; });
+  if (advisorOnly) await page.evaluate(() => { document.body.dataset.advisorOnly = "true"; });
   await page.addScriptTag({ content: script });
   await page.waitForFunction(() => Boolean(document.querySelector("#root > main")), undefined, { timeout: 5000 }).catch(error => {
     throw new Error(runtimeErrors.join("\n") || String(error));
@@ -506,4 +507,4 @@ registerFinanceScreenChecks(mount);
 
 registerFinanceOnboardingChecks((page, width) => mount(page, width, true));
 
-registerAdvisorReviewChecks(mount);
+registerAdvisorReviewChecks((page, width) => mount(page, width, false, true));

@@ -5114,7 +5114,6 @@ class OneLocationAgentService:
             verified_email_clause=verified_email_clause,
             mutual_filter_clause=mutual_filter_clause,
             typed_name_sql=typed_name_sql,
-
             **(
                 {"secondary_order_sql": "MD5(a.user_id || :advisor_rotation_seed)"}
                 if service_aliases

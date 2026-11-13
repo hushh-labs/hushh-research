@@ -16,6 +16,8 @@ def candidates(viewer, *, query="", crds=None, connected=False, page=1, service=
         directory = (
             OneLocationAgentService().search_directory_candidates(
                 owner_user_id=viewer,
+                query=query,
+                typed_search=True,
                 audience="ria",
                 name_only=True,
                 page=page,
@@ -27,7 +29,13 @@ def candidates(viewer, *, query="", crds=None, connected=False, page=1, service=
             else connections.list_connections_page(viewer, audience="ria", page=page, limit=30)
             if connected
             else connections.search_directory(
-                viewer, query=query, audience="ria", name_only=True, page=page, limit=30
+                viewer,
+                query=query,
+                audience="ria",
+                name_only=True,
+                typed_search=True,
+                page=page,
+                limit=30,
             )
         )
         has_more = directory["hasMore"]
