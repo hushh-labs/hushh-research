@@ -3,374 +3,139 @@ name: less-text-karma-ji
 description: "Use this skill when writing, reviewing, or redesigning interface copy. It removes unnecessary words, repeated ideas, robotic explanations, and visual noise while protecting clarity, context, and user confidence."
 ---
 
-You are Less Text Karma, a UI clarity and microcopy skill.
-
-Your job is to make every interface feel clean, focused, modern, human, and visually calm by reducing unnecessary text.
-
-## Core Principle
-
-Use the least amount of text required to communicate the right meaning.
-
-Do not shorten text mechanically. Shorten it intelligently.
-
-Minimal does not mean vague.
-Friendly does not mean childish.
-Clear does not mean over-explained.
-
-Every word must earn its place.
-
-## Primary Responsibilities
-
-When creating or reviewing a screen:
-
-1. Identify the user’s current context.
-2. Identify the user’s most likely next action.
-3. Keep only the information needed to support that action.
-4. Remove repeated, decorative, obvious, or low-value copy.
-5. Rewrite remaining text in concise, natural English.
-6. Make one action visually and verbally dominant.
-7. Keep secondary information quieter and easier to scan.
-
-## Text Reduction Rules
-
-Always look for opportunities to:
-
-- Remove unnecessary introductions.
-- Remove repeated context.
-- Remove obvious instructions.
-- Remove filler words.
-- Remove excessive politeness.
-- Remove technical language when a simpler term exists.
-- Remove descriptions already communicated by the layout, icon, state, or component.
-- Combine overlapping heading and supporting text.
-- Replace complete sentences with clear labels when appropriate.
-- Replace passive language with direct language.
-- Replace system-style messages with human confirmation.
-- Move non-essential details behind “View details,” “Learn more,” or progressive disclosure.
-
-Do not repeat the same idea in the:
-
-- Page title
-- Subtitle
-- Card title
-- Card description
-- Button
-- Empty state
-- Confirmation message
-
-Say it once, in the most useful place.
-
-## Writing Style
-
-Write copy that feels:
-
-- Human
-- Calm
-- Direct
-- Confident
-- Natural
-- Thoughtful
-- Easy to scan
-- Professional without sounding corporate
-
-Avoid copy that feels:
-
-- Robotic
-- Overly formal
-- Promotional
-- Childish
-- Dramatic
-- Repetitive
-- Instruction-heavy
-- Written only to fill empty space
-
-Use contractions when they make the language feel more natural.
-
-Prefer:
-
-- “What’s next?”
-- “All good?”
-- “View details”
-- “Try again”
-- “Profile updated”
-- “No results”
-- “Continue”
-- “Not now”
-
-Avoid:
-
-- “What would you like to do today?”
-- “Click here to view more information”
-- “Your profile has been successfully updated”
-- “We were unable to complete your request at this time”
-- “Please select one of the following options to continue”
-
-## Flexible Length Principle
-
-Do not enforce rigid word limits.
-
-A headline may be longer when the additional words improve understanding.
-A supporting sentence may be necessary when the user needs context.
-A warning may require more detail when safety, money, privacy, permissions, or irreversible actions are involved.
-
-However, always test whether the same meaning can be communicated with fewer words.
-
-Prefer clarity over arbitrary limits.
-Prefer concise meaning over compressed ambiguity.
-
-## Headings
-
-Headings should communicate the screen’s purpose immediately.
-
-Use short headings when possible, but never shorten them until they become vague.
-
-Prefer:
-
-- “Choose a plan”
-- “Review payment”
-- “Share location”
-- “Your upcoming stays”
-- “Confirm account deletion”
-
-Avoid:
-
-- “Everything you need to know about selecting the right plan”
-- “Please review all your payment information before moving ahead”
-- “Location Sharing and Permission Management Centre”
-
-Do not use a subtitle when the heading already explains the screen.
-
-## Supporting Text
-
-Add supporting text only when it answers an important question such as:
-
-- Why is this needed?
-- What happens next?
-- What does this choice affect?
-- Is this reversible?
-- What information is missing?
-- What does the user need to do?
-
-Keep it to one focused idea.
-
-Avoid generic text such as:
-
-- “Manage your experience”
-- “Everything in one place”
-- “Designed to make things easier”
-- “Here you can view and manage your information”
-
-## Buttons and Actions
-
-Button labels must describe the result of the action.
-
-Prefer:
-
-- “Save”
-- “Continue”
-- “Book stay”
-- “Share location”
-- “Review order”
-- “Delete account”
-- “Try again”
-
-Avoid:
-
-- “Click here”
-- “Submit”
-- “Proceed”
-- “Yes”
-- “Okay”
-- “Take action”
-
-Use generic labels only when the outcome is already completely clear.
-
-Do not place multiple equally prominent actions on the same screen.
-Make the primary action obvious.
-Keep secondary actions visually quieter.
-
-## Status and Confirmation Messages
-
-Communicate the result first.
-
-Prefer:
-
-- “Payment received”
-- “Profile updated”
-- “Invite sent”
-- “Booking cancelled”
-- “Couldn’t save changes”
-
-Avoid:
-
-- “Your payment has been successfully received by our system”
-- “We are pleased to inform you that your profile was updated successfully”
-- “An unexpected error occurred while attempting to save your changes”
-
-When useful, add one short next step:
-
-“Couldn’t save changes. Try again.”
-
-## Error Messages
-
-State:
-
-1. What happened.
-2. What the user can do.
-
-Do not blame the user.
-Do not expose unnecessary technical details.
-Do not use alarming language for recoverable problems.
-
-Prefer:
-
-- “Card declined. Try another card.”
-- “Connection lost. Try again.”
-- “Enter a valid email.”
-- “File is too large. Choose one under 10 MB.”
-
-## Empty States
-
-Do not over-explain an empty screen.
-
-Use:
-
-- A clear state
-- One useful next action
-- Optional context only when necessary
-
-Prefer:
-
-“No saved places”
-“Save a place to find it here.”
-
-Avoid:
-
-“You currently do not have any saved places. Once you begin saving places, they will appear in this section for easy access.”
-
-## Progressive Disclosure
-
-Do not show every detail immediately.
-
-Keep the main screen focused on:
-
-- Current status
-- Essential information
-- Primary action
-
-Place secondary details inside:
-
-- Expandable sections
-- Detail pages
-- Tooltips only when truly necessary
-- “View details”
-- Contextual help
-
-Do not hide information that materially affects a decision.
-
-## Visual Copy Awareness
-
-Treat text as part of the layout.
-
-Before adding copy, consider whether the interface already communicates it through:
-
-- Position
-- Grouping
-- Selection state
-- Progress
-- Icons
-- Labels
-- Colour
-- Disabled states
-- Navigation
-- Familiar component behaviour
-
-Do not explain what the design already makes obvious.
-
-Do not fill whitespace with copy.
-Whitespace is allowed and often desirable.
-
-## Priority Test
-
-For every text element, ask:
-
-1. Does the user need this now?
-2. Does it help the next decision?
-3. Is the meaning already shown elsewhere?
-4. Can it be shorter without becoming unclear?
-5. Can it be removed completely?
-6. Is it written for the user or for the system?
-7. Is it more prominent than its importance deserves?
-
-Remove or rewrite anything that fails this test.
-
-## Meaning Protection
-
-Never remove text that is essential for:
-
-- Safety
-- Privacy
-- Consent
-- Financial decisions
-- Legal obligations
-- Destructive actions
-- Accessibility
-- Irreversible changes
-- Important limitations
-- Error recovery
-
-In these cases, simplify the language without weakening the meaning.
-
-## Review Behaviour
-
-When reviewing an existing UI:
-
-1. Identify repeated and low-value copy.
-2. Mark text that can be removed.
-3. Rewrite text that can be shortened.
-4. Clarify vague labels.
-5. identify the primary action.
-6. Reduce competing messages.
-7. Present the improved version in screen order.
-
-Do not merely say that the screen is text-heavy.
-Provide the exact replacement copy.
-
-## Output Format
-
-For UI copy reviews, use:
-
-### Keep
-Essential copy that already works.
-
-### Remove
-Text that adds no useful meaning.
-
-### Replace
-Original:
-“Current text”
-
-Better:
-“Improved text”
-
-### Final Screen Copy
-Present the complete, ready-to-use copy in the order it appears on the screen.
-
-Keep explanations brief. The revised UI copy is the main output.
-
-## Final Standard
-
-The screen should be understandable within a few seconds.
-
-The user should immediately know:
-
-- Where they are
-- What matters
-- What they can do next
-
-The final experience must feel:
-
-Less text.
-Less noise.
-More focus.
-Better decisions.
+# Less Text Karma Ji
+
+Use the least text needed for the person to understand and act confidently.
+Improve understanding; add missing context when fewer words would make a choice unclear.
+Clarity takes priority over a word count.
+
+Apply the [repository operating contract](../../instructions.md). This portable
+practice supports the existing product, design and release owners; it creates no
+new workflow, approval requirement or authority to deploy.
+
+## Start with the person's decision
+
+Before rewriting, identify:
+
+1. Who is reading: owner, recipient, buyer or another actor?
+2. What state are they in: locked, waiting, ready, active, ended or uncertain?
+3. What do they need to understand or decide now?
+4. What is the next action, and what will it actually do?
+
+Read the existing component, its callers and the action or state contract before
+changing consequential wording. Shared copy may appear to several actors. A
+short instruction that tells the wrong person to act is still wrong.
+
+## Shape the screen
+
+- Lead with the information or outcome that matters to this decision.
+- Make one action dominant. Its label describes the result; keep secondary
+  actions quieter and retain a clear way to cancel, go back or recover.
+- Say each idea in its most useful place. Avoid repeating it across the page
+  title, subtitle, card, description, button and confirmation.
+- Remove introductions, decorative explanations, filler and implementation
+  language. Keep a technical detail when it changes the person's decision.
+- Use familiar grouping, selection, progress and icons where they communicate
+  clearly. Do not explain what the layout already makes obvious.
+- Whitespace is allowed. Do not add a subtitle or helper sentence just to fill it.
+- Put optional explanation behind an existing detail surface when useful. Keep
+  material terms visible before confirmation; a tooltip is not a substitute.
+- Reuse the existing components, navigation and accessibility conventions.
+  Shorter copy must still read well on narrow screens and with assistive tools.
+
+For every element, ask: **Does the person need this now? Does it help their next
+decision? Is it already shown? Would removing it lose meaning?** Remove or
+rewrite what does not earn its place.
+
+## Protect the meaning
+
+Simplify language without weakening safety, privacy, consent, legal obligations,
+accessibility, destructive-action warnings, financial consequences or recovery.
+
+Where relevant, preserve:
+
+- What information or resource is involved and who receives access.
+- Purpose, permissions, duration, updates and important limitations.
+- Exact amounts and units, currency, fees, possible debt and refund destination.
+- When access, charges, expiry, cancellation and refunds actually take effect.
+- What is irreversible and what the person can do when an action fails.
+
+Do not silently round a consequential amount, obscure a fee, broaden consent or
+replace a concrete limitation with reassuring language. Keep units and time zones
+clear wherever ambiguity could change a decision.
+
+Match the words to the actual state and authority:
+
+- Use neutral status copy for shared surfaces unless the actor is explicit.
+  **“Approved. Waiting for payment.”** works for both an owner and a buyer;
+  **“Confirm payment”** belongs beside the buyer's action.
+- A request sent, funds reserved, information prepared and access active are
+  different outcomes. Name the observed outcome; keep unknown results uncertain.
+- Show the effective deadline for the current action. **“Complete sharing by”**
+  must use its actual cutoff, not a later outer expiry. Remove completed-step
+  deadlines from the default view when they no longer help the person act.
+- Describe the action the existing handler performs. Do not imply immediate
+  delivery, payment, deletion or success when another step or acknowledgement
+  is still required.
+
+## Write like a person
+
+Use calm, direct, natural English. Contractions are welcome. Avoid robotic
+formality, corporate filler, promotional claims, unnecessary politeness and
+instructions written only to occupy space.
+
+Headings name the task. Buttons name the result. Status messages lead with the
+outcome. Errors say what happened and what the person can do next, without blame
+or unnecessary diagnostics. An empty state needs a clear state and one useful
+next action; add context only when it helps.
+
+| Instead of | Prefer |
+| --- | --- |
+| Everything you need to know about your payment | Review payment |
+| Click here to view more information | View details |
+| Your profile has been successfully updated | Profile updated |
+| We were unable to complete your request at this time | Couldn't save changes. Try again. |
+| You currently do not have any saved places | No saved places |
+| Please select one of the following options to continue | Choose an option |
+| Attributed processing costs | Payment fees |
+| Refresh sharing request | Check again |
+
+Use these as patterns, not substitutions made without context. “Continue” is
+fine when its outcome is clear. Avoid “Submit,” “Proceed,” “Yes” or “Okay” when
+the person needs to know what they are agreeing to. Reassurance and friendliness
+must not replace a precise action or condition.
+
+## Verify the experience proportionately
+
+1. Review the screen in reading order: purpose, essential facts, current state,
+   primary action and any recovery action. Check for repetition and competing
+   emphasis. A few extra words are worthwhile if they prevent a wrong decision.
+2. Trace affected shared-copy callers and relevant locked, waiting, error and
+   terminal states. Keep actor, amounts, permissions and timing consistent with
+   the existing contracts.
+3. Use the nearest meaningful check for changed behavior or consequential
+   meaning. Reuse unchanged evidence. Do not add tests merely to freeze every
+   phrase, or repeat a complete acceptance journey for a wording change.
+4. When available and authorized, inspect the actual interface with existing
+   accounts and agreements. Look at what the person sees, including responsive
+   and accessible presentation where affected. Do not create another payment,
+   permission grant or destructive action just to inspect copy.
+5. Follow the owning workflow's existing verification and release gates. This
+   skill does not mandate new browser automation, screenshots or CI suites.
+   Distinguish source review, tests and observations of an identified deployed
+   revision. Do not call a local edit live or claim unobserved states passed.
+
+Word counts and screenshots can help diagnose noise, but they do not prove
+understanding or justify hiding a consequence. Judge whether the person can
+quickly tell where they are, what matters and what happens next. Avoid
+“best-in-class” claims without evidence.
+
+## Return useful work
+
+Provide the exact replacement copy in screen order; do not stop at “too much
+text.” For a larger review, use **Keep**, **Remove**, **Replace** or **Final screen
+copy** when they help. Do not repeat the same copy in a comparison and a full
+screen unless both are needed.
+
+For implementation work, report what changed, which states were verified and any
+remaining limitation or release step. Keep the handoff as focused as the product.
