@@ -61,6 +61,42 @@ def configured_provider(document, environment="uat"):
     )
 
 
+def qualification_provider(document, environment="uat", mode="full"):
+    """Resolve the core evidence carrier without changing fleet runtime policy."""
+    if mode not in {"core", "full"}:
+        raise ValueError("Managed readiness qualification mode is invalid")
+    configured = configured_provider(document, environment)
+    if environment != "uat" or mode != "core":
+        return configured
+    if not any(key in document for key in ("one_chat_text_uat", "drive_text_uat")):
+        return configured
+    contract = _runtime_contract()
+    if not callable(getattr(contract, "load_scoped_text_policy", None)):
+        raise ValueError("Candidate runtime does not support declared scoped text policies")
+    policies = [
+        contract.load_scoped_text_policy(scope, environment=environment, document=document)
+        for scope in sorted(SCOPES)
+    ]
+    if not all(policies):
+        raise ValueError("Core readiness requires complete scoped text policies")
+    providers = {policy["provider"] for policy in policies}
+    if len(providers) != 1:
+        raise ValueError("Core readiness requires one scoped evidence carrier")
+    return providers.pop()
+
+
+def qualified_selection(providers, document, expected, *, trust_failed=False):
+    """Qualify effective core scopes while preserving unrelated fleet flags."""
+    configured = configured_provider(document, expected["environment"])
+    carrier = qualification_provider(
+        document, expected["environment"], expected.get("qualification_mode", "full")
+    )
+    qualified = qualified_provider(providers, carrier, trust_failed=trust_failed)
+    if carrier != configured:
+        return configured if qualified == carrier else None
+    return qualified
+
+
 @cache
 def _capability_proof():
     path = Path(__file__).with_name("managed_capability_proof.py")
@@ -662,12 +698,18 @@ def evaluate(envelopes, expected, *, document=None):
         if not bound:
             diagnostics[provider].pop("failure_classification", None)
     configured = configured_provider(document, expected["environment"])
-    selected = qualified_provider(diagnostics, configured, trust_failed=trust_failed)
+    carrier = qualification_provider(
+        document, expected["environment"], expected.get("qualification_mode", "full")
+    )
+    selected = qualified_selection(
+        diagnostics, document, expected, trust_failed=trust_failed
+    )
     return {
         "schema": "managed_provider_readiness.v1",
         "ready": selected is not None and not trust_failed,
         "alternate_failures": sorted(alternate_diagnostics),
         "selected_provider": selected,
+        **({"core_provider": carrier} if carrier != configured else {}),
         "status": "blocked"
         if selected is None
         else ("healthy" if selected == configured else "degraded_fallback"),
@@ -797,14 +839,17 @@ def candidate(service, expected, tag):
 
 
 def select(result, expected, folder):
-    configured = configured_provider(
-        json.loads(
-            (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
-        )
+    document = json.loads(
+        (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
     )
-    selected = qualified_provider(
+    configured = configured_provider(document, expected["environment"])
+    carrier = qualification_provider(
+        document, expected["environment"], expected.get("qualification_mode", "full")
+    )
+    selected = qualified_selection(
         result.get("providers", {}),
-        configured,
+        document,
+        expected,
         trust_failed=result.get("pwm_trust") == "failed",
     )
     if (
@@ -812,6 +857,7 @@ def select(result, expected, folder):
         or result.get("context") != expected
         or selected is None
         or result.get("selected_provider") != selected
+        or result.get("core_provider") != (carrier if carrier != configured else None)
     ):
         raise ValueError("One UAT requires the qualified configured processor")
     service = os.environ["READINESS_SERVICE"]
@@ -889,6 +935,7 @@ def main():
             "select",
             "worker-provider",
             "configured-provider",
+            "qualification-provider",
             "qualification-mode",
         ),
     )
@@ -902,11 +949,18 @@ def main():
     if args.action == "qualification-mode":
         print(candidate_qualification_mode())
         return 0
-    if args.action == "configured-provider":
+    if args.action in {"configured-provider", "qualification-provider"}:
         document = json.loads(
             (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
         )
-        print(configured_provider(document, os.getenv("READINESS_ENVIRONMENT", "uat")))
+        environment = os.getenv("READINESS_ENVIRONMENT", "uat")
+        print(
+            qualification_provider(
+                document, environment, os.getenv("READINESS_QUALIFICATION_MODE", "full")
+            )
+            if args.action == "qualification-provider"
+            else configured_provider(document, environment)
+        )
         return 0
     if args.action == "worker-provider":
         print(worker_provider(args.sha, args.image, args.run_id, args.account))
