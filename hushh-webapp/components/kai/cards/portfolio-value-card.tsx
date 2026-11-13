@@ -16,7 +16,7 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
   return <SurfaceCard data-testid="portfolio-value-card" className={styles.detail}>
     <SurfaceCardContent className="flex h-full flex-col justify-between gap-2 p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className={styles.description}>{source} portfolio value</p>
+        <p className="ui-text-section-label">{source} portfolio value</p>
         {action}
       </div>
       <div>

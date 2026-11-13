@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { StockHistoryPanel, type StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
 import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
 import type { KaiHomeNewsItem, KaiHomeRenaissanceItem, KaiMarketCompanyFacts } from "@/lib/services/api-service";
@@ -19,23 +20,38 @@ const asOf = (value: string | null | undefined) => value && Number.isFinite(Date
   ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Unavailable";
 
 /** The shared sheet owns focus/dismissal; this body owns only the selected quote. */
-export function StockDetailContent({ row, facts, loadHistory, loadQuote, news = [] }: {
+export function StockDetailContent({ row, facts, loadHistory, loadQuote, news = [], loadCompanyNews, market = "US", marketMover = false }: {
   row: KaiHomeRenaissanceItem; facts?: KaiMarketCompanyFacts; loadHistory?: StockHistoryLoader; loadQuote?: StockQuoteLoader; news?: KaiHomeNewsItem[];
+  loadCompanyNews?: (symbol: string, signal: AbortSignal) => Promise<KaiHomeNewsItem[]>;
+  market?: "US" | "IN"; marketMover?: boolean;
 }) {
   const symbol = row.quote_symbol || row.symbol;
-  const companyNews = news.filter(item => [row.symbol, row.quote_symbol].some(ticker => ticker && ticker.toUpperCase() === item.symbol.trim().toUpperCase()) && /^https?:\/\//i.test(item.url)).slice(0, 4);
+  const [loadedNews, setLoadedNews] = useState<KaiHomeNewsItem[] | null>(null);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState(false);
+  useEffect(() => {
+    if (!loadCompanyNews) return;
+    const controller = new AbortController();
+    setLoadedNews(null); setNewsLoading(true); setNewsError(false);
+    void loadCompanyNews(symbol, controller.signal).then(items => {
+      if (!controller.signal.aborted) setLoadedNews(items);
+    }).catch(() => { if (!controller.signal.aborted) setNewsError(true); })
+      .finally(() => { if (!controller.signal.aborted) setNewsLoading(false); });
+    return () => controller.abort();
+  }, [symbol, loadCompanyNews]);
+  const companyNews = (loadedNews ?? news).filter(item => [row.symbol, row.quote_symbol].some(ticker => ticker && ticker.toUpperCase() === item.symbol.trim().toUpperCase()) && /^https?:\/\//i.test(item.url)).slice(0, 15);
   const financialFacts = [
     ["Market cap", money(facts?.market_cap ?? row.market_cap, true)],
-    ["List tier", row.tier || "Unavailable"],
+    ...(!marketMover ? [["List tier", row.tier || "Unavailable"]] : []),
     ["P/E (TTM)", ratio(facts?.pe_ratio)],
     ["P/B", ratio(facts?.pb_ratio)],
     ["Debt / equity", ratio(facts?.debt_to_equity)],
-    ["List free cash flow", typeof row.fcf_billions === "number" ? `$${row.fcf_billions.toFixed(1)}B` : "Unavailable"],
+    ...(!marketMover ? [["List free cash flow", typeof row.fcf_billions === "number" ? `$${row.fcf_billions.toFixed(1)}B` : "Unavailable"]] : []),
     ["Financial period end", facts?.financial_period_end || "Unavailable"],
   ];
   return <div className={cn(styles.detail, "space-y-6")}>
-    <StockQuoteHeader row={row} loadQuote={loadQuote} />
-    <StockHistoryPanel symbol={symbol} loadHistory={loadHistory} />
+    <StockQuoteHeader row={row} loadQuote={loadQuote} currency={market === "IN" ? "INR" : "USD"} />
+    <StockHistoryPanel symbol={symbol} loadHistory={loadHistory} market={market} />
     <section aria-label="Company facts">
       <SectionLabel role="heading" aria-level={3}>Company facts</SectionLabel>
       <dl className={styles.facts}>{financialFacts.map(([label, value]) => <div key={label} className={styles.fact}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
@@ -46,9 +62,9 @@ export function StockDetailContent({ row, facts, loadHistory, loadQuote, news = 
       <SectionLabel role="heading" aria-level={3}>Company news</SectionLabel>
       {companyNews.length ? <div className="divide-y divide-border">{companyNews.map((item, index) => <button key={item.url} type="button"
         className="flex min-h-14 w-full items-start gap-3 py-4 text-left focus-visible:outline-2 focus-visible:outline-ring" onClick={() => openExternalUrl(item.url)}>
-        <div className="min-w-0 flex-1"><p className="text-sm font-medium leading-[21px]">{item.title}</p><p className="mt-1 text-xs leading-[18px] text-muted-foreground">{item.source_name} · {asOf(item.published_at)}</p></div>
+        <div className="min-w-0 flex-1"><p className="text-sm font-medium leading-[21px]">{item.title}</p><p className="mt-1 text-xs leading-[18px] text-muted-foreground">{item.source_name} · {asOf(item.published_at)}</p>{item.summary ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.summary}</p> : null}</div>
         <OneMarketNewsCover row={item} index={index} thumbnail className="h-16 w-16 shrink-0 rounded-lg" />
-      </button>)}</div> : <p className={styles.description}>No company headlines are available from the current news feed.</p>}
+      </button>)}</div> : <p className={styles.description}>{newsLoading ? "Loading company news…" : newsError ? "Company news is temporarily unavailable." : "No company headlines are available."}</p>}
     </section>
   </div>;
 }

@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
+import { PortfolioReviewFrame } from "./portfolio-review-layout";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { FileChartColumn, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
 import { ImportReviewPlaceholder } from "./import-review-placeholder";
-import { cn } from "@/lib/utils";
+import { AppStreamProgressMeter } from "@/components/app-ui/stream-progress-panel";
 
 const stageLabels = {
   idle: "Preparing your statement",
@@ -19,10 +18,11 @@ const stageLabels = {
   extracting: "Finding holdings",
   normalizing: "Checking holdings",
   validating: "Checking holdings",
+  complete: "Ready to review",
   error: "Statement import stopped",
 } as const;
 
-export type ImportStage = keyof typeof stageLabels | "complete";
+export type ImportStage = keyof typeof stageLabels;
 
 // Where the bar sits while a stage runs: it starts at the first number and
 // eases toward the second, never reaching the next stage's start, so it only
@@ -37,6 +37,7 @@ const stageRange = {
   extracting: [58, 88],
   normalizing: [90, 94],
   validating: [95, 98],
+  complete: [100, 100],
   error: [0, 0],
 } as const satisfies Record<keyof typeof stageLabels, readonly [number, number]>;
 
@@ -78,75 +79,27 @@ interface ImportProgressViewProps {
   onRetry?: () => void;
 }
 
-export function ImportProgressView({
-  stage,
-  errorMessage,
-  fileName,
-  fileSize,
-  liveHoldings,
-  holdingsTotal,
-  onCancel,
-  onRetry,
-}: ImportProgressViewProps) {
-  const failed = stage === "error";
-  const StatusIcon = failed ? FileChartColumn : Loader2;
-  const retry = failed ? onRetry : undefined;
+export function ImportProgressStatus({ stage, fileName, fileSize, errorMessage }: Pick<ImportProgressViewProps, "stage" | "fileName" | "fileSize" | "errorMessage">) {
   const { percent, slow } = useImportProgress(stage);
+  const failed = stage === "error";
+  return <section aria-label="Statement import status" className="space-y-2">
+    <div role="status" className="min-h-10 ui-text-row-description text-muted-foreground">
+      <p>{failed ? errorMessage || "Try again or choose a different statement." : stage === "complete" ? "Ready to review" : slow ? `${stageLabels[stage]}. Still working. Larger statements take a little longer.` : stageLabels[stage]}</p>
+      <p className="min-h-4 truncate">{fileName}{typeof fileSize === "number" && fileSize > 0 ? ` · ${fileSizeLabel(fileSize)}` : ""}</p>
+    </div>
+    {!failed ? <AppStreamProgressMeter value={percent} label="Statement import progress" className="h-1.5 bg-muted" indicatorClassName="bg-[var(--app-accent)] motion-safe:duration-300 motion-safe:ease-out" /> : null}
+  </section>;
+}
 
-  return (
-    <AppPageContentRegion className="app-type-compact">
-      <section aria-labelledby="statement-import-title" className="mx-auto w-full max-w-lg space-y-4 rounded-[var(--app-card-radius-standard)] bg-[var(--app-card-surface-default)] p-4 sm:p-5">
-        <div className="flex items-start gap-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
-            <StatusIcon className={cn("size-4", !failed && "motion-safe:animate-spin")} aria-hidden="true" />
-          </div>
-          <div className="min-w-0 space-y-0.5" role="status">
-            <h1 id="statement-import-title" className="ui-text-section-label">
-              {stageLabels[stage]}
-            </h1>
-            {!failed && fileName ? (
-              <p className="ui-text-row-description truncate text-muted-foreground">
-                {fileName}{typeof fileSize === "number" && fileSize > 0 ? ` · ${fileSizeLabel(fileSize)}` : ""}
-              </p>
-            ) : null}
-            {failed ? (
-              <p className="ui-text-row-description text-muted-foreground">
-                {errorMessage || "Try again or choose a different statement."}
-              </p>
-            ) : slow ? (
-              <p className="ui-text-row-description text-muted-foreground">
-                Still working. Larger statements take a little longer.
-              </p>
-            ) : null}
-          </div>
-        </div>
-        {failed ? null : (
-          <div
-            role="progressbar"
-            aria-label="Statement import progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent}
-            className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-          >
-            <div
-              className="h-full w-full origin-left rounded-full bg-[var(--app-accent)] motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-out"
-              style={{ transform: `scaleX(${percent / 100})` }}
-            />
-          </div>
-        )}
-        {onCancel || retry ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {onCancel ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onCancel}>{failed ? "Back" : "Cancel"}</ShellActionSurface> : null}
-            {retry ? <Button size="compact" onClick={retry}>Try again</Button> : null}
-          </div>
-        ) : null}
-      </section>
-      {failed ? null : (
-        <div className="mx-auto mt-3 w-full max-w-lg">
-          <ImportReviewPlaceholder rows={liveHoldings} total={holdingsTotal} />
-        </div>
-      )}
-    </AppPageContentRegion>
-  );
+export function ImportProgressView({ stage, errorMessage, fileName, fileSize, liveHoldings, holdingsTotal, onCancel, onRetry }: ImportProgressViewProps) {
+  const failed = stage === "error";
+  return <PortfolioReviewFrame
+    status={<ImportProgressStatus stage={stage} fileName={fileName} fileSize={fileSize} errorMessage={errorMessage} />}
+    actions={<div className="flex min-h-11 items-center gap-2">
+      {onCancel ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onCancel}>{failed ? "Back" : "Cancel"}</ShellActionSurface> : null}
+      {failed && onRetry ? <Button size="compact" onClick={onRetry}>Try again</Button> : null}
+    </div>}
+  >
+    {!failed ? <ImportReviewPlaceholder rows={liveHoldings} total={holdingsTotal} /> : null}
+  </PortfolioReviewFrame>;
 }

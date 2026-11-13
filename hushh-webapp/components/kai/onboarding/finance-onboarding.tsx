@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import {
-  Building2,
   Check,
   ChevronRight,
   Database,
@@ -11,6 +11,7 @@ import {
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { FinanceDemoPhone } from "./finance-demo-phone";
 import styles from "./finance-onboarding.module.css";
 
@@ -243,11 +244,11 @@ export function FinanceSourcePicker({
   const options = [
     {
       id: "plaid" as const,
-      title: "Connect an account",
+      title: "Connect your Plaid account",
       description: plaidAvailable
-        ? "Read-only, via Plaid"
+        ? ""
         : "Bank connection unavailable",
-      Icon: Building2,
+      Icon: null,
       disabled: !plaidAvailable,
       start: onConnect,
     },
@@ -293,12 +294,18 @@ export function FinanceSourcePicker({
                 if (!busy) start();
               }}
             >
-              <span className={styles.sourceIcon} aria-hidden="true"><Icon size={22} /></span>
+              {id === "plaid" ? <span className={styles.recommended}>Recommended</span> :
+                <span className={styles.sourceIcon} aria-hidden="true">{Icon && <Icon size={22} />}</span>}
               <span className={styles.cardText}>
                 <span className={styles.cardTitle}>{title}</span>
-                <span className={styles.description}>{description}</span>
+                {description ? <span className={styles.description}>{description}</span> : null}
               </span>
               <ChevronRight size={18} className={styles.chevron} aria-hidden="true" />
+              {id === "plaid" ? <span className={styles.connectionArt} aria-hidden="true">
+                <span className={styles.sourceIcon}><Image src="/icons/connectors/plaid.svg" alt="" width={24} height={24} className={styles.plaidIcon} /></span>
+                <span className={styles.connectionLine} />
+                <span className={styles.oneIcon}><HushhMark className={styles.oneMark} /></span>
+              </span> : null}
             </button>
           ))}
         </div>

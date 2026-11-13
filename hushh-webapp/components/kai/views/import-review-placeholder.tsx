@@ -1,81 +1,71 @@
 "use client";
 
-import { formatCurrency } from "@/lib/kai/market-value-format";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Building2, PieChart, Wallet } from "@/components/icons";
+import { DataTable } from "@/components/app-ui/data-table";
+import { Accordion } from "@/components/ui/accordion";
+import { PortfolioReviewSummary } from "@/components/kai/cards/portfolio-review-summary";
+import { PortfolioReviewSection, PortfolioReviewHoldingsPanel } from "./portfolio-review-layout";
 import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
 
-const MAX_LIVE_ROWS = 8;
-
 function Bar({ className }: { className?: string }) {
-  return <span aria-hidden="true" className={cn("block rounded bg-muted motion-safe:animate-pulse", className)} />;
+  return <span aria-hidden="true" className={cn("block h-3 rounded bg-muted motion-safe:animate-pulse", className)} />;
 }
 
-const card = "rounded-[var(--app-card-radius-standard)] bg-[var(--app-card-surface-default)] p-4 sm:p-5";
+type PreviewRow = { id: string; holding?: LiveHoldingPreview };
+const number = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value)
+  ? value.toLocaleString("en-US", { maximumFractionDigits: 4 }) : null;
 
-/**
- * The review screen's own layout, drawn while a statement is still being read: real labels,
- * placeholder values. Holdings the server has confirmed take the place of placeholder rows as
- * they arrive; everything else stays a placeholder until the review opens.
- */
-export function ImportReviewPlaceholder({ rows = [], total = null }: { rows?: readonly LiveHoldingPreview[]; total?: number | null }) {
-  const shown = rows.slice(0, MAX_LIVE_ROWS);
-  const known = typeof total === "number" && total > 0 ? total : null;
-  const placeholderRows = shown.length === 0 ? 4 : known === null ? 2 : Math.max(0, Math.min(2, known - shown.length));
-  return (
-    <div aria-busy="true" className="space-y-3">
-      <section className={cn(card, "space-y-3")}>
-        <h2 className="ui-text-section-label">Review holdings</h2>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-          {[
-            ["Portfolio value", null],
-            ["Positions", known],
-            ["Cash", null],
-            ["Portfolio risk", null],
-          ].map(([label, value]) => (
-            <div key={String(label)} className="min-w-0">
-              <dt className="ui-text-row-description text-muted-foreground">{label}</dt>
-              <dd className="mt-1 min-h-5 ui-text-row-label-emphasized tabular-nums">
-                {typeof value === "number" ? value : <Bar className="mt-1 h-3.5 w-16" />}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-      <section className={cn(card, "space-y-3")}>
-        <h2 className="ui-text-section-label">Account information</h2>
-        <Bar className="h-3 w-4/5" />
-        <Bar className="h-3 w-1/2" />
-      </section>
-      <section className={card}>
-        <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-3 border-b border-border/60 pb-2 ui-text-row-description text-muted-foreground">
-          <span>Holding</span>
-          <span>Shares</span>
-          <span className="text-right">Market value</span>
-        </div>
-        <ul aria-label={shown.length ? "Holdings found so far" : undefined}>
-          {shown.map((row, index) => (
-            <li key={`${row.symbol ?? "row"}-${index}`} className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3 border-t border-border/50 py-2 first:border-t-0 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200">
-              <span className="min-w-0">
-                <span className="block truncate ui-text-row-label-emphasized">{row.symbol || row.name || "Holding"}</span>
-                {row.symbol && row.name ? <span className="block truncate ui-text-row-description text-muted-foreground">{row.name}</span> : null}
-              </span>
-              <span className="ui-text-row-description tabular-nums text-muted-foreground">
-                {typeof row.quantity === "number" ? row.quantity.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "—"}
-              </span>
-              <span className="text-right ui-text-row-label tabular-nums">
-                {typeof row.market_value === "number" ? formatCurrency(row.market_value, "USD") : "—"}
-              </span>
-            </li>
-          ))}
-          {Array.from({ length: placeholderRows }, (_, slot) => (
-            <li key={`placeholder-${slot}`} aria-hidden="true" className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3 border-t border-border/50 py-2.5 first:border-t-0">
-              <span className="space-y-1.5"><Bar className="h-3 w-12" /><Bar className="h-2.5 w-24" /></span>
-              <Bar className="h-3 w-14" />
-              <Bar className="h-3 w-16 justify-self-end" />
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
-  );
+function Label({ holding }: PreviewRow) {
+  return <span className={cn("block min-w-0 space-y-1", holding && "motion-step-enter")}>
+    {holding ? <>
+      <span className="block truncate ui-text-row-label-emphasized">{holding.symbol || holding.name}</span>
+      <span className="block truncate ui-text-row-description text-muted-foreground">{holding.name}</span>
+    </> : <><Bar className="w-12" /><Bar className="h-2.5 w-24" /></>}
+  </span>;
+}
+
+// The ready table's column contract and responsive card layout. Preview values
+// have no currency/price/cost-basis contract, so those cells stay unknown.
+const columns: ColumnDef<PreviewRow>[] = [
+  { id: "entries", header: "Entries", cell: () => <span className="flex min-h-11 items-center"><Bar className="w-14" /></span> },
+  { id: "holding", header: "Holding", cell: ({ row }) => <Label {...row.original} /> },
+  { id: "shares", header: "Shares @ Price", cell: ({ row }) => <span className="ui-text-row-description tabular-nums">{number(row.original.holding?.quantity) ?? <Bar className="w-14" />}</span> },
+  { id: "value", header: () => <span className="block text-right">Market value</span>, cell: () => <Bar className="ml-auto w-16" /> },
+  { id: "gain", header: () => <span className="block text-right">Gain / Loss</span>, cell: () => <Bar className="ml-auto w-16" /> },
+];
+
+export function ImportReviewPlaceholder({ rows = [], total }: { rows?: readonly LiveHoldingPreview[]; total?: number | null }) {
+  const data: PreviewRow[] = rows.map((holding, index) => ({ id: `${holding.symbol ?? "holding"}-${index}`, holding }));
+  const remaining = rows.length === 0 ? 4 : typeof total === "number" ? Math.max(0, Math.min(2, total - rows.length)) : 2;
+  for (let index = 0; index < remaining; index++) data.push({ id: `pending-${index}` });
+  return <div aria-busy="true" className="space-y-4">
+    <PortfolioReviewSummary loading totalValue={0} unrealizedGainLoss={0} holdingCount={0} riskBucket="" cashBalance={0} />
+    <Accordion type="multiple" className="w-full min-w-0 space-y-3">
+      <PortfolioReviewSection pending value="account" title="Account Information" icon={<Building2 className="size-4" aria-hidden="true" />} />
+      <PortfolioReviewSection pending value="allocation" title="Asset Allocation" icon={<PieChart className="size-4" aria-hidden="true" />} />
+      <PortfolioReviewSection pending value="income" title="Income Summary" icon={<Wallet className="size-4" aria-hidden="true" />} />
+    </Accordion>
+    <PortfolioReviewHoldingsPanel actions={<span aria-hidden="true" className="flex min-h-11 w-28 items-center"><Bar className="w-full" /></span>}>
+      <div className="flex flex-col gap-3">
+        <Bar className="h-11 w-full" />
+        <section aria-label={rows.length ? "Holdings found so far" : "Finding holdings"}>
+          <Bar className="mb-3 h-10 w-full" />
+          <DataTable columns={columns} data={data} enableSearch={false} tableClassName={financeStyles.reviewTable}
+            paginate={false} density="compact" renderMobileCard={row => (
+              <article className="motion-step-enter grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-b border-border py-2">
+                <Label {...row} />
+                <span className="grid min-h-24 justify-items-end gap-1 text-right">
+                  <Bar className="w-16" />
+                  <span className="ui-text-row-description tabular-nums text-muted-foreground">{number(row.holding?.quantity) ?? <Bar className="w-14" />}</span>
+                  <Bar className="w-12" /><span aria-hidden="true" className="min-h-11 w-20" />
+                </span>
+              </article>
+            )} />
+        </section>
+      </div>
+    </PortfolioReviewHoldingsPanel>
+  </div>;
 }

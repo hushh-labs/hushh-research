@@ -228,22 +228,91 @@ async def test_index_cards_draw_the_last_session_and_never_a_month_line_beside_a
 
     month = _points(*range(100, 122))
     session = [25301.0, 25310.0, 25299.0]
+    session_points = _points(*session)
 
     async def fake(symbols, *, range_period="1d"):
         if range_period == "1d":
             return [
-                {"ticker": symbol, "sparkline": session} for symbol in symbols if symbol != "^BSESN"
+                {"ticker": symbol, "sparkline": session, "sparkline_points": session_points}
+                for symbol in symbols
+                if symbol != "^BSESN"
             ]
         return [_quote(symbol, 106, 0.18, month) for symbol in symbols]
 
     monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", fake)
     quotes = await india_market.fetch_india_quotes()
     assert quotes["^NSEI"]["sparkline"] == session
+    assert (
+        india_market.build_india_overview(quotes, STATUS)[0]["sparkline_points"] == session_points
+    )
+    assert quotes["^NSEI"]["sparkline_points"] == month
     assert quotes["^NSEI"]["change_percent"] == 0.18  # the day change still comes from daily closes
     assert (
         quotes["^BSESN"]["sparkline"] is None
     )  # no intraday data: neutral guide, not a month line
     assert len(quotes["^CNXAUTO"]["sparkline_points"]) == 22  # sector returns still use the month
+
+
+@pytest.mark.asyncio
+async def test_news_recovers_without_waiting_for_the_cached_india_home(monkeypatch):
+    async def quotes():
+        return _quotes()
+
+    calls = 0
+
+    async def news(_days):
+        nonlocal calls
+        calls += 1
+        if calls <= 2:
+            raise RuntimeError("news unavailable")
+        return [{"title": "India markets", "url": "https://example.com/news"}]
+
+    async def status(_exchange):
+        return STATUS
+
+    async def movers():
+        return india_market.build_india_movers(_mover_rows())
+
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "_fetch_market_status_for_exchange", status)
+    monkeypatch.setattr(india_market, "fetch_india_quotes", quotes)
+    monkeypatch.setattr(india_market, "fetch_india_news", news)
+    monkeypatch.setattr(india_market, "fetch_india_movers", movers)
+    assert (await market_insights._get_india_market_payload("user_a", 7))["news_tape"] == []
+    recovered = await market_insights._get_india_market_payload("user_a", 7)
+    assert recovered["news_tape"][0]["title"] == "India markets"
+
+
+@pytest.mark.asyncio
+async def test_company_news_requires_owner_and_a_supported_india_symbol(monkeypatch):
+    from fastapi import HTTPException
+
+    calls = []
+
+    async def news(days_back, *, symbol=None):
+        calls.append((days_back, symbol))
+        return [{"symbol": symbol, "title": "Company story", "url": "https://example.com/story"}]
+
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(india_market, "fetch_india_news", news)
+    params = dict(
+        symbols="TCS",
+        days_back=7,
+        cursor=None,
+        limit=15,
+        token_data={"user_id": "owner", "token": "synthetic"},
+        market="IN",
+    )
+    with pytest.raises(HTTPException) as wrong_owner:
+        await market_insights.get_market_news("other", **params)
+    assert wrong_owner.value.status_code == 403
+    with pytest.raises(HTTPException) as unsupported:
+        await market_insights.get_market_news("owner", **{**params, "symbols": "UNKNOWN"})
+    assert unsupported.value.status_code == 422 and not calls
+    result = await market_insights.get_market_news("owner", **params)
+    assert result["items"][0]["symbol"] == "TCS" and calls == [(7, "TCS")]
 
 
 @pytest.mark.asyncio

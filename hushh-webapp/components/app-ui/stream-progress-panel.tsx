@@ -219,6 +219,11 @@ export type AppStreamPanelProps = {
   className?: string;
 };
 
+/** Shared progress meter for app-owned stream stages. Values are estimates unless the source says otherwise. */
+export function AppStreamProgressMeter({ value, label, className, indicatorClassName }: { value: number; label?: string; className?: string; indicatorClassName?: string }) {
+  return <Progress value={value} aria-label={label} className={className} indicatorClassName={indicatorClassName} />;
+}
+
 export function AppStreamPanel({
   title = "Response stream",
   progressValue = null,
@@ -273,7 +278,7 @@ export function AppStreamPanel({
           <div className="space-y-2">
             {showProgressMeter ? (
               typeof progressValue === "number" && Number.isFinite(progressValue) ? (
-                <Progress value={Math.max(0, Math.min(100, progressValue))} className="h-2" />
+                <AppStreamProgressMeter value={progressValue} />
               ) : (
                 <div className="h-2 overflow-hidden rounded-full bg-secondary">
                   <div className="h-full w-1/3 animate-pulse rounded-full bg-primary/70" />

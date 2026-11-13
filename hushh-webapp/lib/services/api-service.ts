@@ -1309,6 +1309,7 @@ export interface KaiHomeOverviewItem {
    * sparkline. When absent the UI must not invent a chart shape.
    */
   sparkline?: number[] | null;
+  sparkline_points?: Array<{ t: number; p: number }> | null;
 }
 
 export interface KaiHomeSpotlightItem {
@@ -5191,10 +5192,10 @@ export class ApiService {
     return readKaiCompanyFacts(data, authToken, apiFetch);
   }
 
-  static async getKaiStockPriceHistory(userId: string, symbol: string, signal?: AbortSignal): Promise<import("@/lib/kai/price-history").StockPriceHistory> {
+  static async getKaiStockPriceHistory(userId: string, symbol: string, signal?: AbortSignal, market: "US" | "IN" = "US"): Promise<import("@/lib/kai/price-history").StockPriceHistory> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) throw new Error("Missing authentication for price history");
-    return readKaiStockHistory(userId, symbol, authToken, apiFetch, signal);
+    return readKaiStockHistory(userId, symbol, authToken, apiFetch, signal, market);
   }
 
   static async getKaiMarketBaselineInsights(data: {
@@ -5324,6 +5325,7 @@ export class ApiService {
     cursor?: string | null;
     limit?: number;
     daysBack?: number;
+    market?: "US" | "IN";
     signal?: AbortSignal;
   }): Promise<KaiMarketNewsPage> {
     const query = new URLSearchParams();
@@ -5334,6 +5336,7 @@ export class ApiService {
     if (typeof data.limit === "number") query.set("limit", String(data.limit));
     if (typeof data.daysBack === "number")
       query.set("days_back", String(data.daysBack));
+    if (data.market === "IN") query.set("market", "IN");
     const suffix = query.toString() ? `?${query.toString()}` : "";
     const response = await apiFetch(
       `/api/kai/market/news/${data.userId}${suffix}`,

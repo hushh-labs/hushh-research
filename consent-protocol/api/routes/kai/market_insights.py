@@ -1959,6 +1959,7 @@ def _build_market_overview(
             "source": str(quote.get("source") or "Unavailable"),
             "degraded": degraded or bool(quote.get("is_stale")),
             "sparkline": quote.get("sparkline") or sparklines.get(symbol) or None,
+            "sparkline_points": quote.get("sparkline_points") if quote.get("sparkline") else None,
         }
 
     out = [
@@ -3163,12 +3164,29 @@ async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, A
         )
         return dict(value)
 
+    async def news() -> list[dict[str, Any]]:
+        async def fetch() -> list[dict[str, Any]]:
+            rows = await india_market.fetch_india_news(days_back)
+            if not rows:
+                raise RuntimeError("india_news_empty")
+            return rows
+
+        value, *_ = await _get_or_refresh_public_module(
+            key=f"india_news:v1:{days_back}",
+            fresh_ttl_seconds=300,
+            stale_ttl_seconds=24 * 60 * 60,
+            fetcher=fetch,
+            warm_source="india_market",
+        )
+        return list(value)
+
     async def build() -> dict[str, Any]:
         loaded = await load_india_home(
             days_back,
             lambda: _fetch_market_status_for_exchange("NS"),
             lambda: _scheduled_market_status_fallback("NS"),
             movers,
+            news,
         )
         base = _empty_market_home_payload(
             user_id=user_id,
@@ -3201,6 +3219,12 @@ async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, A
         empty["market_overview"] = [_scheduled_market_status_fallback("NS")]
         return empty
     result = dict(value)
+    # News has a separate cache and retry lifecycle: a temporary news failure
+    # must not be frozen inside an otherwise healthy aggregate for five minutes.
+    try:
+        result["news_tape"] = await news()
+    except Exception:
+        pass  # Preserve the aggregate's last available rows and provider status.
     result["stale"] = bool(result.get("stale")) or stale
     result["meta"] = {
         **result.get("meta", {}),
@@ -3361,6 +3385,7 @@ async def get_market_news(
         le=NEWS_FEED_PAGE_MAX,
     ),
     token_data: dict = Depends(hub_content_owner),
+    market: Literal["US", "IN"] = "US",
 ) -> dict[str, Any]:
     """Read one cursor page from a vault-owner's bounded market-news snapshot."""
     if token_data["user_id"] != user_id:
@@ -3374,6 +3399,31 @@ async def get_market_news(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid consent token",
         )
+    if market == "IN":
+        symbol = (symbols or "").strip().upper()
+        if symbol not in india_market.NSE_LARGE_CAPS or cursor:
+            raise HTTPException(status_code=422, detail="Select a supported NSE stock.")
+
+        async def fetch_india_company_news() -> list[dict[str, Any]]:
+            return await india_market.fetch_india_news(days_back, symbol=symbol)
+
+        rows, stale, age, tier, hit = await _get_or_refresh_public_module(
+            key=f"india_company_news:v1:{symbol}:{days_back}",
+            fresh_ttl_seconds=300,
+            stale_ttl_seconds=24 * 60 * 60,
+            fetcher=fetch_india_company_news,
+            warm_source="india_market",
+        )
+        return {
+            "items": rows[:limit],
+            "next_cursor": None,
+            "has_more": False,
+            "snapshot_id": f"india:{symbol}",
+            "generated_at": _now_iso(),
+            "stale": stale,
+            "cache": {"tier": tier, "age_seconds": age, "hit": hit},
+            "provider_status": {"india_news": "partial" if stale else "ok"},
+        }
     return await _get_market_news_feed_page(
         user_id=user_id,
         symbols=_select_news_symbols(symbols),

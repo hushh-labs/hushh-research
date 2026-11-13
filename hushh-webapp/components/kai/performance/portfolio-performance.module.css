@@ -26,7 +26,9 @@
 
 /* Rows share the card's height, so the two columns end on the same line. */
 .rows { display: flex; flex: 1; flex-direction: column; }
-.row { display: grid; flex: 1; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding-block: 3px; border-top: 1px solid var(--border); }
+.row { display: grid; flex: 1; grid-template-columns: minmax(0, 100px) minmax(0, 1fr) auto; align-items: center; gap: 10px; padding-block: 3px; border-top: 1px solid var(--border); }
+.concentrationName { display: flex; align-items: center; min-width: 0; min-height: 44px; text-align: start; }
+.concentrationName > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row:first-child { border-top: 0; }
 .track { height: 6px; border-radius: 3px; background: var(--muted); overflow: hidden; }
 .fill { display: block; height: 100%; border-radius: 3px; background: var(--app-accent); }
@@ -54,3 +56,7 @@
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 0; }
 .tiles dt { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .tiles dd { margin: 4px 0 0; font-size: 14px; line-height: 21px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.incomeLayout { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 3fr); align-items: center; gap: 16px; }
+.incomeLayout .tiles { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+.incomeLayout .tiles > div { border-inline-start: 1px solid var(--border); padding-inline-start: 16px; }
+@media (max-width: 639px) { .incomeLayout { grid-template-columns: 1fr; } .incomeLayout .tiles > div:first-child { border: 0; padding-inline-start: 0; } }

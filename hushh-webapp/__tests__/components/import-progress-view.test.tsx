@@ -37,7 +37,7 @@ describe("ImportProgressView", () => {
     const back = vi.fn();
     const retry = vi.fn();
     render(<ImportProgressView stage="error" onCancel={back} onRetry={retry} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Statement import stopped");
+    expect(screen.getByRole("status")).toHaveTextContent("Try again or choose a different statement.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(retry).toHaveBeenCalledOnce();
@@ -57,8 +57,8 @@ describe("ImportProgressView placeholders", () => {
     expect(screen.queryByRole("list", { name: "Holdings found so far" })).toBeNull();
   });
 
-  it("replaces placeholder rows with confirmed holdings and the position count as they arrive", () => {
-    render(
+  it("streams confirmed holdings without inventing final totals or enabling edits", () => {
+    const { rerender } = render(
       <ImportProgressView
         stage="normalizing"
         holdingsTotal={40}
@@ -69,17 +69,21 @@ describe("ImportProgressView placeholders", () => {
         onCancel={vi.fn()}
       />,
     );
-    const found = screen.getByRole("list", { name: "Holdings found so far" });
+    const found = screen.getByRole("region", { name: "Holdings found so far" });
     expect(found).toHaveTextContent("AAPL");
     expect(found).toHaveTextContent("Microsoft Corp.");
-    expect(found).toHaveTextContent("$24,310.00");
-    expect(screen.getByText("Positions").nextElementSibling).toHaveTextContent("40");
+    expect(found).not.toHaveTextContent("$24,310.00");
+    expect(screen.getByText("Positions").nextElementSibling).not.toHaveTextContent("40");
+    expect(screen.queryByRole("button", { name: /manage|save|start over/i })).toBeNull();
+    rerender(<ImportProgressView stage="complete" liveHoldings={[{ symbol: "AAPL", name: "Apple Inc." }]} onCancel={vi.fn()} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+    // 100% is presentation, not terminal-success authority to edit or save.
+    expect(screen.queryByRole("button", { name: /manage|save|start over/i })).toBeNull();
   });
 
   it("shows no placeholder after a failed import", () => {
     render(<ImportProgressView stage="error" fileName="statement.pdf" onCancel={vi.fn()} onRetry={vi.fn()} />);
-    expect(screen.queryByRole("heading", { name: "Review holdings" })).toBeNull();
-    expect(screen.queryByText("statement.pdf")).toBeNull();
+    expect(screen.queryByText("Portfolio value")).toBeNull();
   });
 });
 

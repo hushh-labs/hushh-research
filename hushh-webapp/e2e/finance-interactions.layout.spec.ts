@@ -305,6 +305,32 @@ async function mount(page: Page, width = 393, onboarding = false) {
 
 }
 
+test("finance swipe keeps a gap during drag and full-width settled cards", async ({ page }) => {
+  await mount(page, 393);
+  const fixture = page.getByTestId("finance-swipe-gap");
+  await fixture.scrollIntoViewIfNeeded();
+  const first = page.getByTestId("swipe-card-market");
+  const second = page.getByTestId("swipe-card-portfolio");
+  const viewport = fixture.locator('[data-swipe-views-root="true"]');
+  const box = (await first.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.8, box.y + 70);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.4, box.y + 70, { steps: 8 });
+  const a = (await first.boundingBox())!;
+  const b = (await second.boundingBox())!;
+  const v = (await viewport.boundingBox())!;
+  expect(Math.abs((b.x - (a.x + a.width)) - 24)).toBeLessThan(2);
+  expect(Math.abs(a.width - v.width)).toBeLessThan(2);
+  await page.mouse.up();
+  await fixture.getByRole("button", { name: "Swipe portfolio" }).click();
+  await expect(async () => {
+    const settled = (await second.boundingBox())!;
+    const outer = (await viewport.boundingBox())!;
+    expect(Math.abs(settled.x - outer.x)).toBeLessThan(2);
+    expect(Math.abs(settled.width - outer.width)).toBeLessThan(2);
+  }).toPass({ timeout: 5000 });
+});
+
 for (const width of [375, 393, 430]) {
   test(`Finance keeps readable Market typography and stocks at iPhone width ${width}`, async ({ page }) => {
     await page.route("https://images.example.test/**", route => route.fulfill({ contentType: "image/png",

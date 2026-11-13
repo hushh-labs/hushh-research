@@ -9,7 +9,7 @@
 }
 
 .cardBody { padding: 16px; }
-.newsCardBody { padding: 4px 12px; }
+.newsCardBody { padding: 8px 16px; }
 .sectionHeader { margin-bottom: 6px; }
 .sectionHeader :global([data-slot="section-header-row"]) { flex-direction: row; align-items: center; flex-wrap: wrap; column-gap: 12px; }
 .sectionHeader :global([data-slot="section-header-actions"]) { width: auto; }
@@ -67,5 +67,6 @@
 .sectorContent { display: grid; gap: 8px; }
 .sectorContent .sectionHeader { margin-bottom: 0; }
 .sectorRows { display: grid; }
-.sectorRow { display: grid; grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr) 3.5rem; align-items: center; gap: 12px; min-height: 28px; padding: 3px 0; font-size: 14px; line-height: 20px; }
+.sectorRow { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 3.5rem; align-items: center; gap: 8px; min-height: 28px; padding: 3px 0; font-size: 14px; line-height: 20px; }
+.sectorRow > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

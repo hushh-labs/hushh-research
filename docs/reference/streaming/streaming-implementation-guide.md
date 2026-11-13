@@ -1,5 +1,18 @@
 # Streaming Implementation Guide
 
+Portfolio import displays stage-estimated progress with the shared stream meter,
+and only presents provisional holdings that the stream supplied. Summary fields
+remain placeholders until the terminal portfolio result arrives. A stage estimate
+is not a measure of provider completion, and failures never enable save actions.
+The loading and editable states share `PortfolioReviewFrame`, summary, accordion
+sections, holdings panel, and the same responsive table column sizing. Preview
+counts are entry counts, not authoritative position counts; missing currency,
+price and gain/loss stay placeholders. Terminal success and a parsed portfolio
+are required before edit/save controls mount. The meter settles at 100% through
+an abortable transition, with scroll preserved into review; Cancel still wins
+over late completion. Optional sections remain in place and explain missing
+statement information rather than collapsing the review layout.
+
 Managed One chat can explicitly delegate a whole public answer through
 `google_search.finish_turn`. The existing isolated search child still owns its
 completed cited answer; One selects whether it fulfills the entire request.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Pie, PieChart, Cell } from "recharts";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
@@ -20,7 +21,7 @@ import type { PortfolioData } from "@/components/kai/types/portfolio";
 import type { KaiPortfolioSection } from "@/lib/navigation/routes";
 import { overviewFacts } from "./portfolio-display-facts";
 import { signedMoney, signedPercent, tone } from "@/components/kai/performance/performance-strip";
-import { sinceBought } from "@/lib/kai/portfolio-performance";
+import { rankMovers, sinceBought, winnersLosers } from "@/lib/kai/portfolio-performance";
 
 export function PortfolioOverview({ model, portfolio, source, period, action, briefing, sharing, valuationKind, loadHistory, onImport, onOpenSection }: {
   model: DashboardViewModel; portfolio: PortfolioData; source: string;
@@ -36,6 +37,9 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
     ...entry, client_id: entry.entry_id ?? String(index),
   }));
   const since = sinceBought(model.canonicalModel.positions);
+  const distribution = winnersLosers(model.gainLossDistribution);
+  const movers = rankMovers(model.canonicalModel.positions, 1);
+  const colors = ["var(--finance-negative)", "color-mix(in srgb, var(--finance-negative) 50%, transparent)", "var(--chart-4)", "color-mix(in srgb, var(--finance-positive) 50%, transparent)", "var(--finance-positive)"];
   const metrics = model.summaryMetrics;
   const reported = (label: string, value: number | null) => typeof value === "number" && Number.isFinite(value) ? [{ label, value: formatCurrency(value) }] : [];
   const performanceRows = [
@@ -60,6 +64,18 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
           <p className={cn(styles.insightAmount, tone(since.gain))}>{signedMoney(since.gain)}{since.pct !== null ? ` · ${signedPercent(since.pct)}` : ""}</p>
           {since.covered < since.eligible ? <p className={styles.description}>Unrealized, on {since.covered} of {since.eligible} positions</p> : null}
         </div> : null}
+        {model.quality.gainLossReady && distribution.total ? <>
+          <div className={styles.performanceDistribution}>
+            <div className={styles.performanceRing} role="img" aria-label={`${distribution.total} positions with reported gain or loss`}>
+              <PieChart width={112} height={112}><Pie data={distribution.segments} dataKey="count" cx="50%" cy="50%" innerRadius={39} outerRadius={54} stroke="none" isAnimationActive={false}>
+                {distribution.segments.map((segment, index) => <Cell key={segment.tone} fill={colors[index]} />)}
+              </Pie></PieChart>
+              <span>{distribution.total}<small>positions</small></span>
+            </div>
+            <dl className={styles.performanceLegend}>{distribution.segments.map((segment, index) => <div key={segment.tone}><dt><i style={{ background: colors[index] }} />{segment.label}</dt><dd>{segment.count}</dd></div>)}</dl>
+          </div>
+          <div className={styles.performanceMovers}>{[{ label: "Biggest gain", position: movers.gains[0] }, { label: "Biggest loss", position: movers.losses[0] }].map(({ label, position }) => position ? <div key={label}><p className={styles.description}>{label}</p><span><SymbolAvatar symbol={position.displaySymbol} name={position.name} size="md" className="size-7 rounded-lg" /><span className="truncate" title={position.name || position.displaySymbol}>{position.name || position.displaySymbol}</span></span></div> : null)}</div>
+        </> : null}
         {performanceRows.length ? <dl className={styles.insightFacts}>
           {performanceRows.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}
         </dl> : since ? null : <p className={styles.description}>No performance figures in this statement.</p>}

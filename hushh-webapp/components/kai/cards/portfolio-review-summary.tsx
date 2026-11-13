@@ -7,6 +7,8 @@ interface PortfolioReviewSummaryProps {
   holdingCount: number;
   riskBucket: string;
   cashBalance: number;
+  loading?: boolean;
+  gainLossAvailable?: boolean;
 }
 
 export function PortfolioReviewSummary({
@@ -15,6 +17,8 @@ export function PortfolioReviewSummary({
   holdingCount,
   riskBucket,
   cashBalance,
+  loading = false,
+  gainLossAvailable = true,
 }: PortfolioReviewSummaryProps) {
   const facts = [
     { label: "Portfolio value", value: formatCurrency(totalValue) },
@@ -29,15 +33,17 @@ export function PortfolioReviewSummary({
           {facts.map(({ label, value, className }) => (
             <div key={label} className="min-w-0 space-y-0.5">
               <dt className="ui-text-row-description text-muted-foreground">{label}</dt>
-              <dd className={"ui-text-row-label-emphasized break-words tabular-nums " + (className ?? "")}>{value}</dd>
+              <dd className={"min-h-5 ui-text-row-label-emphasized break-words tabular-nums " + (className ?? "")}>
+                {loading ? <span aria-hidden="true" className="my-1 block h-3.5 w-16 rounded bg-muted motion-safe:animate-pulse" /> : <span className="motion-step-enter">{value}</span>}
+              </dd>
             </div>
           ))}
         </dl>
-        {unrealizedGainLoss !== 0 ? (
+        {
           <p className="ui-text-row-description mt-3 border-t border-border pt-2 text-muted-foreground">
-            {formatCurrency(unrealizedGainLoss)} unrealized gain / loss
+            {loading ? <span aria-hidden="true" className="block h-4 w-40 rounded bg-muted motion-safe:animate-pulse" /> : <span className="motion-step-enter">{gainLossAvailable ? `${formatCurrency(unrealizedGainLoss)} unrealized gain / loss` : "Unrealized gain / loss not supplied"}</span>}
           </p>
-        ) : null}
+        }
       </CardContent>
     </Card>
   );

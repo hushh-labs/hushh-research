@@ -32,6 +32,23 @@ const row: KaiHomeRenaissanceItem = {
 };
 
 describe("RiaPicksList detail", () => {
+  it("loads selected-company news instead of relying on the market feed", async () => {
+    const loadCompanyNews = vi.fn(async (symbol: string, _signal: AbortSignal) => Array.from({ length: 16 }, (_, index) => ({
+      symbol, title: `Company headline ${index}`, summary: `Brief ${index}`,
+      url: `https://publisher.test/${index}`, source_name: "Publisher", published_at: "2026-10-20T20:00:00Z", provider: "fixture", degraded: false,
+    })));
+    render(<RiaPicksList rows={[row]} loadCompanyNews={loadCompanyNews} />);
+    expect(loadCompanyNews).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Nvidia" }));
+    expect(await dialog.findByText("Company headline 14")).toBeTruthy();
+    expect(dialog.queryByText("Company headline 15")).toBeNull();
+    expect(dialog.getByText("Brief 0")).toBeTruthy();
+    expect(loadCompanyNews.mock.calls[0][0]).toBe("NVDA");
+    const signal = loadCompanyNews.mock.calls[0][1];
+    fireEvent.click(dialog.getByRole("button", { name: "Close detail panel" }));
+    await waitFor(() => expect(signal.aborted).toBe(true));
+  });
   it("recovers an unavailable quote only for the selected stock and accepts later list updates", async () => {
     const loadQuote = vi.fn(async (symbol: string, _signal: AbortSignal): Promise<PublicStockQuote> => ({
       symbol, price: 273, changePct: null, quotedAt: "2026-10-26T14:00:00Z", source: "Fixture", stale: true, delayed: false,

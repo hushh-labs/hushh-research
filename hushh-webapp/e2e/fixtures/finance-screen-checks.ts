@@ -188,7 +188,8 @@ export function registerFinanceScreenChecks(
         await history.getByRole("button", { name: "Open TEST analysis" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Open saved");
         await history.getByRole("button", { name: "Versions for TEST" }).click();
-        await expect(page.getByTestId("action-result")).toHaveText("Open versions");
+        await page.getByRole("menuitem", { name: /Version 3/ }).click();
+        await expect(page.getByTestId("action-result")).toHaveText("Open saved");
         expect(await history.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
         await history.screenshot({ path: test.info().outputPath(`history-${width}-${theme}.png`) });
         const subpages = page.getByTestId("finance-subpages-fixture");

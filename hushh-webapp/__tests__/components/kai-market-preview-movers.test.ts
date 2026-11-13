@@ -31,13 +31,14 @@ describe("India movers", () => {
     active: [],
   };
 
-  it("shows India movers without opening US stock analysis and says what they are ranked from", () => {
-    render(createElement(OneMarketMovers, { groups, linkable: false, note: "Among 50 large NSE stocks" }));
+  it("opens an India mover through the selected-stock handler", () => {
+    const onSelect = vi.fn();
+    render(createElement(OneMarketMovers, { groups, linkable: false, onSelect, note: "Among 50 large NSE stocks" }));
     expect(screen.getByText("TATASTEEL")).toBeTruthy();
     expect(screen.getByText(/Among 50 large NSE stocks/)).toBeTruthy();
-    // No row is a button, so nothing can route an NSE symbol into the US-only analysis screen.
-    expect(document.querySelectorAll("button[data-market-mover-rank]")).toHaveLength(0);
-    expect(document.querySelectorAll("div[data-market-mover-rank]").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /TATASTEEL/ }));
+    expect(onSelect).toHaveBeenCalledWith(groups.gain[0]);
+    expect(document.querySelectorAll("button[data-market-mover-rank]")).toHaveLength(2);
   });
 
   it("keeps US movers as buttons that open analysis", () => {

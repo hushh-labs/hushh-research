@@ -12,6 +12,7 @@ export function useIndiaMarketHome(userId: string | null | undefined, enabled: b
     cacheKey: userId ? CACHE_KEYS.KAI_MARKET_HOME_INDIA(userId, 7) : "kai_market_home_india_guest",
     enabled: Boolean(userId) && enabled,
     resourceLabel: "kai_market_home_india",
+    cacheTtlMs: 30_000,
     load: async () => (userId ? ApiService.getKaiMarketBaselineInsights({ userId, daysBack: 7, market: "IN" }) : null),
   });
 }

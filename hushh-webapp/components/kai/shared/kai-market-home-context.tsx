@@ -12,7 +12,7 @@ import { usMarketRefreshSession, useMarketLiveRefresh } from "@/lib/kai/use-mark
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
-import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import { ApiService, type KaiHomeInsightsV2 } from "@/lib/services/api-service";
 import { getKaiActivePickSource, setKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 
 function toSymbolsKey(symbols: string[]): string {
@@ -437,6 +437,12 @@ function useKaiMarketHomeController() {
     [activePickSource],
   );
 
+  const loadCompanyNews = useCallback(async (symbol: string, signal: AbortSignal, market: "US" | "IN" = "US") => {
+    if (!userId || !vaultOwnerToken) throw new Error("Unlock your vault to load company news");
+    const page = await ApiService.getKaiMarketNews({ userId, vaultOwnerToken, symbols: [symbol], limit: 15, market, signal });
+    return page.items;
+  }, [userId, vaultOwnerToken]);
+
   return {
     payload,
     loading: !payload && baselineResource.loading,
@@ -449,6 +455,7 @@ function useKaiMarketHomeController() {
     activePickSource,
     loadInsights,
     handlePickSourceChange,
+    loadCompanyNews,
   };
 }
 

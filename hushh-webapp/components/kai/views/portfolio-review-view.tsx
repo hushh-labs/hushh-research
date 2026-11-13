@@ -42,9 +42,6 @@ import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model
 
 import {
   Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
 } from "@/components/ui/accordion";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -60,12 +57,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultService } from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import {
-  Card as MorphyCard, 
-  CardContent, 
-  CardHeader, 
-  CardTitle,
-} from "@/lib/morphy-ux/card";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { findHoldingValidationIssue, holdingValueIssue, isCashEquivalentHolding, type HoldingValidationIssue } from "@/lib/kai/holding-validation";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
@@ -87,8 +78,9 @@ import {
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { groupHoldingPositions, prepareHoldingEntryEdit, type HoldingPosition } from "@/lib/kai/holding-positions";
 import type { Holding as PortfolioHolding } from "@/components/kai/types/portfolio";
-import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
+import { PortfolioReviewFrame, PortfolioReviewSection, PortfolioReviewHoldingsPanel } from "./portfolio-review-layout";
+import { ImportProgressStatus } from "./import-progress-view";
+
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 
 
@@ -225,6 +217,8 @@ export interface PortfolioReviewViewProps {
   onReimport: () => void;
   /** Callback to go back */
   onBack?: () => void;
+  importFileName?: string;
+  preserveScroll?: boolean;
   /** Additional CSS classes */
   className?: string;
 }
@@ -710,6 +704,8 @@ export function PortfolioReviewView({
   onReimport,
   onBack: _onBack,
   className,
+  importFileName,
+  preserveScroll = false,
 }: PortfolioReviewViewProps) {
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const { user } = useAuth();
@@ -773,8 +769,8 @@ export function PortfolioReviewView({
   // Computed values
   // Scroll to top on mount to ensure clean view framing after progress view
   useEffect(() => {
-    scrollAppToTop("auto");
-  }, []);
+    if (!preserveScroll) scrollAppToTop("auto");
+  }, [preserveScroll]);
 
   const serializeEditableState = useCallback(
     (nextAccountInfo: AccountInfo, nextHoldings: Holding[]): string =>
@@ -1123,7 +1119,7 @@ export function PortfolioReviewView({
           setManagedPositionId(position.client_id);
         }}
       >
-        Manage entries
+        Manage
       </ShellActionSurface>
     );
   }
@@ -1894,11 +1890,10 @@ export function PortfolioReviewView({
   const hasValueMismatch = statementCheck?.reconciled_within_cent === false;
 
   return (
-    <AppPageContentRegion className={cn(financeStyles.detail, "relative min-w-0 space-y-4 pb-4", className)}>
-      <PageHeader title="Review holdings" accent="neutral" actionsInlineMobile className={financeStyles.compactPageHeader}
-        description={onStageForFinish && !effectiveVaultKey ? "Your portfolio is protected when setup finishes." : undefined}
-        actions={<ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={handleReimportAttempt}>Start over</ShellActionSurface>}
-      />
+    <PortfolioReviewFrame className={className}
+      status={<ImportProgressStatus stage="complete" fileName={importFileName} />}
+      actions={<ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label motion-step-enter" onClick={handleReimportAttempt}>Start over</ShellActionSurface>}
+    >
       {hasCountMismatch || hasValueMismatch ? (
         <p role="status" className="ui-text-row-description text-muted-foreground">
           {hasCountMismatch ? `Found ${extractedCount} of ${statementCount} securities listed on the statement. ` : null}
@@ -1909,25 +1904,14 @@ export function PortfolioReviewView({
       <PortfolioReviewSummary
         totalValue={totalValue}
         unrealizedGainLoss={totalUnrealizedGainLoss}
+        gainLossAvailable={activeHoldings.some(h => !isCashEquivalentHolding(h)) && activeHoldings.filter(h => !isCashEquivalentHolding(h)).every(h => typeof h.unrealized_gain_loss === "number" && Number.isFinite(h.unrealized_gain_loss))}
         holdingCount={tableHoldingRows.filter((position) => !position.pending_delete).length}
         riskBucket={riskBucket}
         cashBalance={liveCashBalance}
       />
       <Accordion type="multiple" className="w-full min-w-0 space-y-3">
 
-        <AccordionItem
-          value="account"
-          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
-        >
-          <AccordionTrigger className="ui-text-section-label py-3 hover:no-underline">
-
-
-            <div className="flex items-center gap-2">
-              <Icon icon={Building2} size="sm" aria-hidden="true" />
-              Account Information
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
+        <PortfolioReviewSection value="account" title="Account Information" icon={<Icon icon={Building2} size="sm" aria-hidden="true" />}>
             <div className="grid gap-x-4 gap-y-3 pt-2 sm:grid-cols-2">
               <div>
                 <Label htmlFor="account-holder" className="ui-text-form-label">Account Holder</Label>
@@ -1994,24 +1978,12 @@ export function PortfolioReviewView({
                 />
               </div>
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          </PortfolioReviewSection>
 
         {/* Asset Allocation */}
-        {hasAllocationValues(displayAssetAllocation) && (
-        <AccordionItem
-          value="allocation"
-          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
-        >
-            <AccordionTrigger className="ui-text-section-label py-3 hover:no-underline">
+        <PortfolioReviewSection value="allocation" title="Asset Allocation" icon={<Icon icon={PieChart} size="sm" aria-hidden="true" />}>
+              {!hasAllocationValues(displayAssetAllocation) ? <p className="ui-text-row-description text-muted-foreground">Not supplied in this statement.</p> : null}
 
-
-              <div className="flex items-center gap-2">
-                <Icon icon={PieChart} size="sm" aria-hidden="true" />
-                Asset Allocation
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
               <div className="space-y-3 pt-2">
                 {displayAssetAllocation.cash_pct !== undefined && (
                   <div className="flex justify-between items-center">
@@ -2082,25 +2054,12 @@ export function PortfolioReviewView({
                     </div>
                   )}
               </div>
-            </AccordionContent>
-          </AccordionItem>
-        )}
+            </PortfolioReviewSection>
 
         {/* Income Summary */}
-        {incomeSummary.total_income !== undefined && (
-        <AccordionItem
-          value="income"
-          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
-        >
-            <AccordionTrigger className="ui-text-section-label py-3 hover:no-underline">
+        <PortfolioReviewSection value="income" title="Income Summary" icon={<Icon icon={Wallet} size="sm" aria-hidden="true" />}>
+              {incomeSummary.total_income === undefined ? <p className="ui-text-row-description text-muted-foreground">{incomeSummary.dividends_taxable !== undefined || incomeSummary.interest_income !== undefined ? "Total income not supplied." : "Not supplied in this statement."}</p> : null}
 
-
-              <div className="flex items-center gap-2">
-                <Icon icon={Wallet} size="sm" aria-hidden="true" />
-                Income Summary
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
               <div className="space-y-3 pt-2">
                 {incomeSummary.dividends_taxable !== undefined && (
                   <div className="flex justify-between">
@@ -2118,25 +2077,20 @@ export function PortfolioReviewView({
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between border-t pt-2">
+                {incomeSummary.total_income !== undefined ? <div className="flex justify-between border-t pt-2">
                   <span className="text-sm font-medium">Total Income</span>
                   <span className="font-semibold text-emerald-600">
                     {formatCurrency(incomeSummary.total_income)}
                   </span>
-                </div>
+                </div> : null}
               </div>
-            </AccordionContent>
-          </AccordionItem>
-        )}
+            </PortfolioReviewSection>
       </Accordion>
-      <MorphyCard variant="none" preset="surface" className="min-w-0">
-        <CardHeader className="flex items-center justify-between gap-2 space-y-0 px-4 pb-2 pt-3">
-          <CardTitle className="ui-text-section-label">Holdings</CardTitle>
+      <PortfolioReviewHoldingsPanel actions={
           <ShellActionSurface variant="pill" className="min-h-11 shrink-0 ui-text-compact-button-label" onClick={handleAddHolding}>
             <Plus className="size-4" aria-hidden="true" /> Add holding
           </ShellActionSurface>
-        </CardHeader>
-        <CardContent className="min-w-0 px-4 pb-4 pt-0">
+      }>
           {pendingDeleteCount > 0 ? (
             <p className="ui-text-row-description mb-2 text-muted-foreground">{pendingDeleteCount} pending removal</p>
           ) : null}
@@ -2169,8 +2123,7 @@ export function PortfolioReviewView({
               />
             </section>
           </div>
-        </CardContent>
-      </MorphyCard>
+      </PortfolioReviewHoldingsPanel>
       <footer
         data-portfolio-review-save
         className="flex justify-end pt-2"
@@ -2273,6 +2226,6 @@ export function PortfolioReviewView({
           </div>
         </div>
       )}
-    </AppPageContentRegion>
+    </PortfolioReviewFrame>
   );
 }

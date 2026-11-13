@@ -20,7 +20,7 @@ useDefault = true
     condition = "AND"
     paths = ['''(^|/)consent-protocol/hushh_mcp/one_voice/session\.py$''']
     regexTarget = "match"
-    regexes = ['''^auth\.user_id, conversation_id=self\.claims\.conversation_id$''']
+    regexes = ['''^auth\.user_id, conversation_id=self\.claims\.conversation_id\r?$''']
 
 [[rules.allowlists]]
     description = "Five verified idempotency test inputs in their historical commit only."

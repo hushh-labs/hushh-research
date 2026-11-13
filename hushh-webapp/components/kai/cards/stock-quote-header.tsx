@@ -14,9 +14,10 @@ const timestamp = (value: string | null | undefined) =>
   value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
 
 /** A selected public quote read never derives a spot price from the history chart. */
-export function StockQuoteHeader({ row, loadQuote }: {
+export function StockQuoteHeader({ row, loadQuote, currency = "USD" }: {
   row: KaiHomeRenaissanceItem;
   loadQuote?: StockQuoteLoader;
+  currency?: "USD" | "INR";
 }) {
   const symbol = row.quote_symbol || row.symbol;
   const [quote, setQuote] = useState<PublicStockQuote | null>(null);
@@ -63,10 +64,10 @@ export function StockQuoteHeader({ row, loadQuote }: {
     : observed ? `Quoted ${observed}` : null;
   const freshnessLabel = usable(price) && (stale || delayed)
     ? stale ? "Cached quote" : "Delayed" : null;
-  const quoteMetadata = ["USD", quoteLabel, freshnessLabel].filter(Boolean).join(" · ");
+  const quoteMetadata = [currency, quoteLabel, freshnessLabel].filter(Boolean).join(" · ");
   return <section aria-label="Stock quote">
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-      <p className={styles.value}>{usable(price) ? formatCurrency(price) : loading ? "Loading quote…" : "Unavailable"}</p>
+      <p className={styles.value}>{usable(price) ? formatCurrency(price, currency) : loading ? "Loading quote…" : "Unavailable"}</p>
       {usable(price) && typeof change === "number" && Number.isFinite(change) ? (
         <p className={cn("ui-text-row-label-emphasized tabular-nums", change >= 0
           ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
