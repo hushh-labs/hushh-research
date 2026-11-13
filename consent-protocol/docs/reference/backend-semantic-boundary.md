@@ -1387,3 +1387,30 @@ protection. A changed comment is written even if attendance is already declined;
 explicit mail-only retries never rewrite attendance. Live quality evaluation must
 cover terse reasons, language variations, unavailable identity, sensitive reasons,
 all-day and DST boundaries, and exact alternative times before deployment claims.
+
+
+## Incremental portfolio import layout and page extraction
+
+`agent_portfolio_import_csv_layout` and `agent_portfolio_import_pdf_page` are
+manifest-authored, tool-free LOW single-turn children of Portfolio Import. CSV
+layout receives every source record in bounded batches and owns column meaning,
+row roles, metadata references, locale and currency. Host code validates complete
+row coverage and source references, then decodes the referenced original cells.
+It neither classifies brokerage rows by keywords nor manufactures missing costs.
+PDF extraction receives every page sequentially and owns page-local facts and
+explicit ambiguity/continuation markers. Host code preserves distinct source
+rows, rejects contradictions, and checks explicit statement counts/subtotals
+through the existing quality contract. It does not choose semantic replacements.
+
+Unsupported layouts or unreconciled page results reset provisional information
+and invoke the existing whole-document extraction child once. Cross-page rows
+currently require that fallback rather than a speculative host merge. Provider
+failure fails the run; it does not switch providers or silently bypass a gene.
+Each model stage and fallback is observable as an extraction source/unit count
+and fixed fallback reason. Public output, consent, encrypted persistence and
+explicit review/save authority retain their existing owners.
+
+Qualification: synthetic source-integrity, cancellation, authority and real ADK
+adapter contract tests cover this change. The existing UAT provider failure and
+live extraction quality/latency require separate authorized runtime qualification;
+a five-second completion target is not established by mocked timings.

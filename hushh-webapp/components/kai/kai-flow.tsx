@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { ApiService } from "@/lib/services/api-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
+import { applyExtractionProgress, type ImportExtractionProgress } from "@/lib/kai/import/extraction-progress";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
@@ -327,7 +328,14 @@ function loadImportBackgroundSnapshot(
 function saveImportBackgroundSnapshot(
   snapshot: PersistedImportBackgroundSnapshot,
 ): void {
-  setSessionItem(KAI_IMPORT_BACKGROUND_KEY, JSON.stringify(snapshot));
+  // Recovery needs the run/cursor and status, never provisional source facts.
+  const persisted = snapshot.status === "completed" ? snapshot : {
+    ...snapshot,
+    streaming: { ...snapshot.streaming, liveHoldings: [], rawStreamLines: [],
+      streamedText: "", thoughts: [], qualityReport: undefined },
+    parsedPortfolio: undefined,
+  };
+  setSessionItem(KAI_IMPORT_BACKGROUND_KEY, JSON.stringify(persisted));
 }
 
 function clearImportBackgroundSnapshot(userId: string): void {
@@ -739,6 +747,16 @@ export function KaiFlow({
   const urlStage = requestedStage === "import_complete" ? "reviewing" : requestedStage as FlowState | null | undefined;
   const state = urlStage || internalState;
 
+  // Provisional facts stay in component memory, outside persisted stream snapshots.
+  const [extractionProgress, setExtractionProgress] = useState<ImportExtractionProgress | null>(null);
+  const extractionEpochRef = useRef(0);
+  const activeUploadAttemptRef = useRef<number | null>(null);
+  const resetExtractionProgress = useCallback(() => {
+    extractionEpochRef.current += 1;
+    setExtractionProgress(null);
+    return extractionEpochRef.current;
+  }, []);
+
   const pathname = usePathname();
   const setState = useCallback(
     (newState: FlowState) => {
@@ -889,6 +907,17 @@ export function KaiFlow({
     createInitialStreamingState,
   );
   const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    setExtractionProgress(null);
+    return () => {
+      extractionEpochRef.current += 1;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      activeUploadAttemptRef.current = null;
+      resumeImportStreamInFlightRef.current = false;
+      importStartInFlightRef.current = false;
+    };
+  }, [userId, vaultKey]);
   const lastImportFileRef = useRef<File | null>(null);
   const importResumeAppliedRef = useRef(false);
   const importSnapshotUpdatedAtRef = useRef<string | null>(null);
@@ -1199,16 +1228,18 @@ export function KaiFlow({
   useEffect(() => {
     if (mode !== "import") return;
     if (!effectiveVaultOwnerToken) return;
-    if (resumeImportStreamInFlightRef.current) return;
+    if (resumeImportStreamInFlightRef.current || importStartInFlightRef.current || statementPreparationInFlight.current) return;
 
     const initialSnapshot = loadImportBackgroundSnapshot(userId);
     if (!initialSnapshot) return;
     if (initialSnapshot.status !== "running") return;
 
+    const extractionEpoch = resetExtractionProgress();
     resumeImportStreamInFlightRef.current = true;
     setBusyOperation("portfolio_import_stream", true);
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    const ownsResume = () => extractionEpochRef.current === extractionEpoch && abortControllerRef.current === controller;
     // Comment heartbeats keep the connection open but cannot extend recovery
     // indefinitely when the run has stopped producing canonical events.
     const deadline = window.setTimeout(
@@ -1280,10 +1311,14 @@ export function KaiFlow({
               vaultOwnerToken: effectiveVaultOwnerToken,
               signal: controller.signal,
             });
+          if (!ownsResume()) return;
+          controller.signal.throwIfAborted();
           if (activeRunResponse.ok) {
             const activePayload = (await activeRunResponse.json()) as {
               run?: { run_id?: unknown; latest_cursor?: unknown };
             };
+            if (!ownsResume()) return;
+          controller.signal.throwIfAborted();
             const activeRunId =
               typeof activePayload?.run?.run_id === "string"
                 ? activePayload.run.run_id.trim()
@@ -1317,6 +1352,8 @@ export function KaiFlow({
           cursor: snapshot.latestCursor,
           signal: controller.signal,
         });
+        if (!ownsResume()) return;
+          controller.signal.throwIfAborted();
         if (!response.ok) {
           if (response.status === 404 || response.status === 410) {
             clearImportBackgroundSnapshot(userId);
@@ -1337,6 +1374,9 @@ export function KaiFlow({
         await consumeCanonicalKaiStream(
           response,
           (envelope: KaiStreamEnvelope) => {
+            if (extractionEpochRef.current !== extractionEpoch || controller.signal.aborted) return;
+            setExtractionProgress(previous => applyExtractionProgress(previous, envelope, userId));
+            if (envelope.terminal) setExtractionProgress(null);
             terminalReceived ||= envelope.terminal;
             const payload = envelope.payload as Record<string, unknown>;
             const runIdFromPayload =
@@ -1386,6 +1426,9 @@ export function KaiFlow({
                 break;
               }
               case "progress": {
+                if (payload.extraction_reset === true) {
+                  applyStreaming(prev => ({ ...prev, liveHoldings: [], holdingsExtracted: 0, holdingsTotal: undefined }));
+                }
                 const statusMessage = sanitizeInvestorCopy(
                   readString(payload.message),
                   "",
@@ -1579,11 +1622,13 @@ export function KaiFlow({
         );
       } catch {
         if (
+          !ownsResume() ||
           userRequestedImportCancelRef.current ||
           abortControllerRef.current !== controller ||
           terminalReceived ||
           stateRef.current === "reviewing"
         ) return;
+        setExtractionProgress(null);
         const message = "Couldn’t resume reading your statement. Try importing it again.";
         streamShadow = { ...streamShadow, stage: "error", errorMessage: message, statusMessage: message };
         setStreaming(streamShadow);
@@ -1594,12 +1639,14 @@ export function KaiFlow({
         }
       } finally {
         window.clearTimeout(deadline);
-        if (abortControllerRef.current === controller) abortControllerRef.current = null;
-        resumeImportStreamInFlightRef.current = false;
-        setBusyOperation("portfolio_import_stream", false);
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+          resumeImportStreamInFlightRef.current = false;
+          setBusyOperation("portfolio_import_stream", false);
+        }
       }
     })();
-  }, [effectiveVaultOwnerToken, mode, setBusyOperation, setState, userId]);
+  }, [effectiveVaultOwnerToken, mode, resetExtractionProgress, setBusyOperation, setState, userId]);
 
   const runDeferredPostSaveSync = useCallback(() => {
     if (!effectiveVaultOwnerToken || !vaultKey) return;
@@ -1946,6 +1993,7 @@ export function KaiFlow({
         return;
       }
 
+      const extractionEpoch = resetExtractionProgress();
       const forceRefreshVaultOwnerToken = async (
         currentToken: string | null,
       ): Promise<string> => {
@@ -1955,7 +2003,7 @@ export function KaiFlow({
           currentExpiresAt: tokenExpiresAt,
           forceRefresh: true,
           onIssued: (issuedToken, expiresAt) => {
-            if (vaultKey) {
+            if (vaultKey && extractionEpochRef.current === extractionEpoch) {
               unlockVault(vaultKey, issuedToken, expiresAt);
             }
           },
@@ -1968,7 +2016,9 @@ export function KaiFlow({
       setIsPreparingStatement(true);
       try {
         tokenForImport = await forceRefreshVaultOwnerToken(tokenForImport);
+        if (extractionEpochRef.current !== extractionEpoch) return;
       } catch (tokenError) {
+        if (extractionEpochRef.current !== extractionEpoch) return;
         console.warn(
           "[KaiFlow] Failed to refresh VAULT_OWNER token before import:",
           tokenError,
@@ -2161,7 +2211,11 @@ export function KaiFlow({
         toast.message("Portfolio import is already starting.");
         return;
       }
+      activeUploadAttemptRef.current = extractionEpoch;
       importStartInFlightRef.current = true;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const isCurrentAttempt = () => extractionEpochRef.current === extractionEpoch && !controller.signal.aborted;
       userRequestedImportCancelRef.current = false;
       let importTerminalTelemetryRecorded = false;
       const trackImportTerminalTelemetry = (result: "success" | "error") => {
@@ -2188,13 +2242,16 @@ export function KaiFlow({
             await ApiService.getActivePortfolioImportRun({
               userId,
               vaultOwnerToken: tokenForImport,
+              signal: controller.signal,
             });
+          if (!isCurrentAttempt()) return;
           if (activeRunResponse.ok) {
             const activePayload = (await activeRunResponse
               .json()
               .catch(() => null)) as {
               run?: { run_id?: unknown; status?: unknown };
             } | null;
+            if (!isCurrentAttempt()) return;
             const activeRunId =
               typeof activePayload?.run?.run_id === "string"
                 ? activePayload.run.run_id.trim()
@@ -2212,12 +2269,14 @@ export function KaiFlow({
             }
           }
         } catch (activeRunError) {
+          if (!isCurrentAttempt()) return;
           console.warn(
             "[KaiFlow] Active run pre-cancel check failed:",
             activeRunError,
           );
         }
 
+        if (extractionEpochRef.current !== extractionEpoch) return;
         setState("importing");
         setError(null);
         setBusyOperation("portfolio_import_stream", true);
@@ -2255,8 +2314,6 @@ export function KaiFlow({
         persistBackgroundSnapshot("running");
 
         // Create abort controller for cancellation
-        abortControllerRef.current = new AbortController();
-
         // Build form data
         const formData = new FormData();
         formData.append("file", file);
@@ -2265,6 +2322,7 @@ export function KaiFlow({
         const runImportRequest = async (
           importToken: string,
         ): Promise<Response> => {
+          if (!isCurrentAttempt()) throw new DOMException("Import canceled", "AbortError");
           // Fresh uploads must keep start + stream on one backend request.
           // UAT Cloud Run can route `/run/start` and `/run/{id}/stream` to
           // different instances, while the import run manager is still in-memory.
@@ -2275,13 +2333,14 @@ export function KaiFlow({
           return ApiService.importPortfolioStream({
             formData,
             vaultOwnerToken: importToken,
-            signal: abortControllerRef.current?.signal,
+            signal: controller.signal,
           });
         };
 
         let response: Response;
         try {
           response = await runImportRequest(tokenForImport);
+          if (!isCurrentAttempt()) return;
           if (response.status === 401) {
             tokenForImport = await forceRefreshVaultOwnerToken(tokenForImport);
             response = await runImportRequest(tokenForImport);
@@ -2609,13 +2668,16 @@ export function KaiFlow({
               ]),
               statusMessage: "Import stream stalled. Retrying is recommended.",
             }));
-            abortControllerRef.current?.abort();
+            controller.abort();
           }
         }, STREAM_STALL_CHECK_INTERVAL_MS);
 
         await consumeCanonicalKaiStream(
           response,
           (envelope: KaiStreamEnvelope) => {
+            if (extractionEpochRef.current !== extractionEpoch || controller.signal.aborted) return;
+            setExtractionProgress(previous => applyExtractionProgress(previous, envelope, userId));
+            if (envelope.terminal) setExtractionProgress(null);
             lastStreamEventAt = Date.now();
             if (streamStallWarningShown) {
               streamStallWarningShown = false;
@@ -2751,6 +2813,9 @@ export function KaiFlow({
                 break;
               }
               case "progress": {
+                if (payload.extraction_reset === true) {
+                  applyStreaming(prev => ({ ...prev, liveHoldings: [], holdingsExtracted: 0, holdingsTotal: undefined }));
+                }
                 const phase = readString(payload.phase);
                 const message = sanitizeInvestorCopy(
                   readString(payload.message),
@@ -2977,7 +3042,7 @@ export function KaiFlow({
             }
           },
           {
-            signal: abortControllerRef.current.signal,
+            signal: controller.signal,
             idleTimeoutMs: KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS,
             requireTerminal: true,
           },
@@ -3013,7 +3078,7 @@ export function KaiFlow({
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
         // Let the completed meter settle before replacing the loading controls.
         // Cancellation still owns the flow during this short transition.
-        const completionSignal = abortControllerRef.current.signal;
+        const completionSignal = controller.signal;
         await new Promise<void>((resolve, reject) => {
           if (completionSignal.aborted) {
             reject(new DOMException("Import canceled", "AbortError"));
@@ -3029,6 +3094,7 @@ export function KaiFlow({
           }, 400);
           completionSignal.addEventListener("abort", onAbort, { once: true });
         });
+        if (!isCurrentAttempt()) return;
         trackImportTerminalTelemetry("success");
 
         // Store parsed portfolio and transition to review state
@@ -3053,6 +3119,8 @@ export function KaiFlow({
           );
         }
       } catch (err) {
+        if (extractionEpochRef.current !== extractionEpoch) return;
+        setExtractionProgress(null);
         if (err instanceof Error && err.name === "AbortError") {
           const userInitiatedCancel = userRequestedImportCancelRef.current;
           userRequestedImportCancelRef.current = false;
@@ -3168,12 +3236,13 @@ export function KaiFlow({
         }
         setState("importing");
       } finally {
-        importStartInFlightRef.current = false;
-        if (stallMonitorId !== null) {
-          window.clearInterval(stallMonitorId);
+        if (stallMonitorId !== null) window.clearInterval(stallMonitorId);
+        if (activeUploadAttemptRef.current === extractionEpoch && abortControllerRef.current === controller) {
+          activeUploadAttemptRef.current = null;
+          importStartInFlightRef.current = false;
+          abortControllerRef.current = null;
+          setBusyOperation("portfolio_import_stream", false);
         }
-        abortControllerRef.current = null;
-        setBusyOperation("portfolio_import_stream", false);
       }
     },
     [
@@ -3181,6 +3250,7 @@ export function KaiFlow({
       vaultKey,
       effectiveVaultOwnerToken,
       canStageFinanceSource,
+      resetExtractionProgress,
       setupRecoveryRoute,
       router,
       tokenExpiresAt,
@@ -3274,6 +3344,7 @@ export function KaiFlow({
 
   // Handle cancel import
   const handleCancelImport = useCallback(() => {
+    resetExtractionProgress();
     userRequestedImportCancelRef.current = true;
     const runId = activeImportRunIdRef.current;
     if (runId && effectiveVaultOwnerToken) {
@@ -3311,6 +3382,7 @@ export function KaiFlow({
   }, [
     effectiveVaultOwnerToken,
     flowData.portfolioData,
+    resetExtractionProgress,
     hasSetupContinuation,
     mode,
     router,
@@ -3908,6 +3980,7 @@ export function KaiFlow({
           fileSize={lastImportFileRef.current?.size}
           liveHoldings={streaming.liveHoldings}
           holdingsTotal={streaming.holdingsTotal}
+          extractionProgress={extractionProgress?.ownerId === userId ? extractionProgress : null}
           onRetry={streaming.stage === "error" ? handleRetryImport : undefined}
           onCancel={handleCancelImport}
         />

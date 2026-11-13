@@ -111,3 +111,25 @@ describe("replaceLiveHoldingPreviewRows", () => {
     ]);
   });
 });
+
+
+it("fills source facts as they arrive without treating missing values as zero or enabling save", () => {
+  const progress = {
+    ownerId: "synthetic", streamId: "run", resetSeq: 0, foundCount: 2, retainedCount: 2,
+    units: { "pdf:1": { index: 1, rows: [
+      { source_id: "pdf:1:1", symbol: "SAME", name: "First lot", quantity: 0, market_value: 0 },
+      { source_id: "pdf:1:2", symbol: "SAME", name: "Second lot", market_value: 123.45 },
+    ] } },
+    facts: { total_value: 123.45, cash_balance: 0, statement_details: { institution_name: "Synthetic broker" }, portfolio_summary: { income: 0 } },
+  };
+  const { rerender } = render(<ImportProgressView stage="extracting" extractionProgress={progress} />);
+  expect(screen.getByText("Synthetic broker")).toBeVisible();
+  expect(screen.getByText("Positions found").nextElementSibling).toHaveTextContent("2");
+  expect(screen.getByText("Cash").nextElementSibling).toHaveTextContent("0");
+  expect(screen.getAllByText("First lot").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Second lot").length).toBeGreaterThan(0);
+  expect(screen.queryByText(/\$123/)).toBeNull();
+  expect(screen.queryByRole("button", { name: /manage|save|start over/i })).toBeNull();
+  rerender(<ImportProgressView stage="extracting" extractionProgress={{ ...progress, facts: { ...progress.facts, currency: "USD" } }} />);
+  expect(screen.getByText("Portfolio value").nextElementSibling).toHaveTextContent("$123.45");
+});

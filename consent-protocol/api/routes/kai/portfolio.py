@@ -49,6 +49,7 @@ from api.routes.kai.import_run_manager import (
     KaiPortfolioImportRunManager,
     PortfolioImportRunRecord,
 )
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.agents.portfolio_import.runtime import (
     _EXTRACTION_SCHEMA as _PORTFOLIO_EXTRACT_SCHEMA,
 )
@@ -69,8 +70,9 @@ from hushh_mcp.kai_import import (
     build_token_counts_payload,
     evaluate_import_quality_gate_v2,
 )
+from hushh_mcp.kai_import.incremental_extract import incremental_statement_extract
 from hushh_mcp.kai_import.statement_extract import build_raw_statement_extract
-from hushh_mcp.services.owner_placement_guard import hub_content_owner
+from hushh_mcp.services.owner_placement_guard import hub_content_owner, require_hub_content_current
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.portfolio_import_service import (
     ImportResult,
@@ -2632,6 +2634,34 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
     return normalized
 
 
+def _incremental_needs_document_context(parsed: dict[str, Any]) -> bool:
+    """Reuse the final quality contract to detect ambiguous page/batch coverage."""
+    rows = parsed.get("detailed_holdings") or []
+    normalized = [_normalize_import_holding_light(row, index) for index, row in enumerate(rows)]
+    summary = parsed.get("portfolio_summary") or {}
+    count = _coerce_optional_number(summary.get("declared_security_count"))
+    _, quality = evaluate_import_quality_gate_v2(
+        holdings=normalized,
+        placeholder_symbol_count=0,
+        account_header_row_count=0,
+        expected_total_value=_coerce_optional_number(summary.get("securities_market_value")),
+        expected_position_count=int(count)
+        if count is not None and count >= 0 and count.is_integer()
+        else None,
+        rows_with_symbol_pct=1,
+        rows_with_market_value_pct=1,
+    )
+    return bool(
+        set(quality["reasons"])
+        & {
+            "no_holdings_extracted",
+            "statement_security_count_mismatch",
+            "statement_securities_value_mismatch",
+            "statement_market_values_missing",
+        }
+    )
+
+
 async def _portfolio_import_stream_generator(
     *,
     request: Any,
@@ -2647,8 +2677,21 @@ async def _portfolio_import_stream_generator(
 
     extraction_model = _resolve_portfolio_import_model()
 
+    async def current() -> None:
+        if await request.is_disconnected():
+            raise asyncio.CancelledError
+
+        async def owner_active() -> None:
+            if await validate_first_party_owner_token(user_id, consent_token) is None:
+                raise HTTPException(403, {"code": "IMPORT_AUTHORITY_EXPIRED"})
+
+        await require_hub_content_current(user_id, "portfolio_import", owner_active)
+        if await request.is_disconnected():
+            raise asyncio.CancelledError
+
     try:
         async with asyncio.timeout(hard_timeout_seconds):
+            await current()
             yield stream.event(
                 "stage",
                 {
@@ -2663,6 +2706,7 @@ async def _portfolio_import_stream_generator(
                 extraction_model,
             )
 
+            await current()
             yield stream.event(
                 "stage",
                 {
@@ -2679,6 +2723,7 @@ async def _portfolio_import_stream_generator(
                 "pass_content_sources": {},
             }
 
+            await current()
             yield stream.event(
                 "stage",
                 {
@@ -2689,6 +2734,7 @@ async def _portfolio_import_stream_generator(
             )
 
             extract_full_result: dict[str, Any] = {}
+            await current()
             yield stream.event(
                 "stage",
                 {
@@ -2701,14 +2747,64 @@ async def _portfolio_import_stream_generator(
             if await request.is_disconnected():
                 logger.info("[Portfolio Import] Client disconnected before extraction")
                 return
-            parsed_data, content_source, elapsed_ms = await _run_portfolio_import_extract_gene(
+            partial_rows: list[dict[str, Any]] = []
+            extraction: dict[str, Any] | None = None
+            async for update in incremental_statement_extract(
                 content=content,
-                is_csv_upload=is_csv_upload,
+                is_csv=is_csv_upload,
                 prompt=full_extract_prompt,
                 user_id=user_id,
                 consent_token=consent_token,
                 model_name=extraction_model,
-            )
+                guard=current,
+                cancelled=request.is_disconnected,
+                needs_document_context=_incremental_needs_document_context,
+                full_extract=partial(
+                    _run_portfolio_import_extract_gene,
+                    content=content,
+                    is_csv_upload=is_csv_upload,
+                    prompt=full_extract_prompt,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    model_name=extraction_model,
+                ),
+            ):
+                if update["kind"] == "partial":
+                    unit = update["update"]
+                    partial_rows.extend(unit["rows"])
+                    await current()
+                    yield stream.event(
+                        "progress",
+                        {
+                            "phase": "extracting",
+                            "stage": "extracting",
+                            "message": f"Reading {'batch' if is_csv_upload else 'page'} {update['index']} of {update['total']}",
+                            "progress_pct": 3 + 70 * update["index"] / update["total"],
+                            "holdings_extracted": len(partial_rows),
+                            "holdings_preview": _build_holdings_preview(partial_rows, max_items=40),
+                            "extraction_update": unit,
+                        },
+                    )
+                elif update["kind"] == "reset":
+                    partial_rows.clear()
+                    await current()
+                    yield stream.event(
+                        "progress",
+                        {
+                            "phase": "extracting",
+                            "stage": "extracting",
+                            "message": "Checking the full statement to resolve its layout…",
+                            "extraction_reset": True,
+                            "holdings_preview": [],
+                        },
+                    )
+                else:
+                    extraction = update
+            if extraction is None:
+                raise ImportStrictParseError("IMPORT_JSON_INVALID", "Extraction did not complete.")
+            parsed_data = extraction["parsed"]
+            content_source = extraction["source"]
+            elapsed_ms = extraction["elapsed_ms"]
             serialized_payload = json.dumps(parsed_data, separators=(",", ":"))
             extract_full_result.update(
                 {
@@ -2731,7 +2827,10 @@ async def _portfolio_import_stream_generator(
                         max_items=40,
                     ),
                     "parse_diagnostics": {
-                        "mode": "adk_single_turn",
+                        "mode": "incremental_v1",
+                        "units": extraction["units"],
+                        "first_result_ms": extraction.get("first_result_ms"),
+                        "fallback_reason": extraction["fallback_reason"],
                         "raw_length": len(serialized_payload),
                         "repair_attempted": False,
                         "repair_applied": False,
@@ -2739,25 +2838,25 @@ async def _portfolio_import_stream_generator(
                     },
                 }
             )
+            # Structured source facts are application progress, not simulated
+            # assistant tokens. Keep raw financial JSON out of stream text logs.
+            await current()
             yield stream.event(
-                "chunk",
+                "progress",
                 {
-                    "phase": "extract_full",
-                    "text": serialized_payload,
-                    "total_chars": len(serialized_payload),
-                    "chunk_count": 1,
-                    "token_source": "response",
-                    "holdings_detected": extract_full_result["holdings_detected"],
+                    "phase": "extracting",
+                    "holdings_extracted": extract_full_result["holdings_detected"],
                     "holdings_preview": extract_full_result["holdings_preview"],
                     "progress_pct": 78.0,
                 },
             )
+            await current()
             yield stream.event(
                 "stage",
                 {
                     "stage": "extracting",
                     "phase": "extract_full",
-                    "message": "Extract full pass complete",
+                    "message": "Statement extraction complete",
                     "chunk_count": 1,
                     "thought_count": 0,
                     "total_chars": len(serialized_payload),
@@ -2796,6 +2895,7 @@ async def _portfolio_import_stream_generator(
                 detailed_holdings_raw if isinstance(detailed_holdings_raw, list) else []
             )
             if len(detailed_holdings) == 0:
+                await current()
                 yield stream.event(
                     "error",
                     {
@@ -2810,6 +2910,7 @@ async def _portfolio_import_stream_generator(
                 )
                 return
 
+            await current()
             yield stream.event(
                 "stage",
                 {
@@ -2828,8 +2929,22 @@ async def _portfolio_import_stream_generator(
                     return
                 if not isinstance(raw_row, dict):
                     continue
-                normalized_holdings.append(_normalize_import_holding_light(raw_row, idx))
+                normalized = _normalize_import_holding_light(raw_row, idx)
+                source = raw_row.get("_import_source")
+                if isinstance(source, dict) and source.get("kind") in {
+                    "csv",
+                    "pdf",
+                    "full_document",
+                }:
+                    normalized["provenance"] = {
+                        "source": "csv_mapped_cells"
+                        if source["kind"] == "csv"
+                        else "statement_llm_parse",
+                        "source_record": dict(source),
+                    }
+                normalized_holdings.append(normalized)
                 if parsed_total <= 12 or (idx + 1) == parsed_total or (idx + 1) % 6 == 0:
+                    await current()
                     yield stream.event(
                         "progress",
                         {
@@ -2854,6 +2969,7 @@ async def _portfolio_import_stream_generator(
                         },
                     )
 
+            await current()
             yield stream.event(
                 "stage",
                 {
@@ -2891,6 +3007,7 @@ async def _portfolio_import_stream_generator(
                 "institution_name": statement_details.get("institution_name"),
                 "statement_period_start": statement_details.get("statement_period_start"),
                 "statement_period_end": statement_details.get("statement_period_end"),
+                "currency": statement_details.get("currency"),
             }
             account_summary = {
                 "beginning_value": _coerce_optional_number(
@@ -3042,6 +3159,7 @@ async def _portfolio_import_stream_generator(
                 holdings=holdings,
             )
 
+            await current()
             yield stream.event(
                 "progress",
                 {
@@ -3063,6 +3181,7 @@ async def _portfolio_import_stream_generator(
 
             parse_fallback_used = False
             if not quality_gate_allows_continue:
+                await current()
                 yield stream.event(
                     "aborted",
                     {
@@ -3138,6 +3257,7 @@ async def _portfolio_import_stream_generator(
                 total_value,
             )
 
+            await current()
             yield stream.event(
                 "complete",
                 {
