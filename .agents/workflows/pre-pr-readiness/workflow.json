@@ -9,16 +9,16 @@
     "bin",
     "scripts",
     ".github/workflows",
-    "docs/reference/operations"
+    "docs/operations"
   ],
   "required_reads": [
-    "docs/reference/operations/ci.md",
-    "docs/reference/operations/branch-governance.md",
-    "docs/reference/operations/cli.md",
+    "docs/operations/releases/ci.md",
+    "docs/operations/releases/branch-governance.md",
+    "docs/operations/configuration/cli.md",
     ".agents/skills/repo-operations/references/admin-release-sop.md",
     ".agents/skills/repo-operations/references/agent-trigger-policy.md",
-    "docs/reference/quality/definition-of-done.md",
-    "docs/reference/architecture/ui-contract-contributor-guide.md"
+    "docs/development/quality/definition-of-done.md",
+    "docs/development/contracts/ui-contract-contributor-guide.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task pre-pr-readiness",

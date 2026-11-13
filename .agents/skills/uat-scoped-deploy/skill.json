@@ -22,7 +22,7 @@
     "deploy/README.md",
     "deploy/frontend.cloudbuild.yaml",
     "deploy/backend.cloudbuild.yaml",
-    "docs/reference/operations/branch-governance.md",
+    "docs/operations/releases/branch-governance.md",
     ".agents/skills/repo-operations/references/admin-release-sop.md",
     ".agents/skills/uat-scoped-deploy/references/deploy-proof.md",
     ".agents/skills/uat-scoped-deploy/references/anti-rationalization.md"

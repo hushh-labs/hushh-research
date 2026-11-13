@@ -27,8 +27,8 @@ name: "Provision Wallet Signing Certificate"
 # this workflow before the expiry printed in the job summary; a re-run inside the
 # renewal window mints a replacement, and a re-run outside it is a safe no-op.
 #
-# Runbook: docs/superpowers/plans/2026-08-03-hushh-one-wallet-card.md (section 5)
-# Contract: docs/superpowers/specs/2026-08-03-wallet-card-contract.md (section 1)
+# Runbook: docs/roadmap/implementation/plans/2026-08-03-hushh-one-wallet-card.md (section 5)
+# Contract: docs/roadmap/implementation/specs/2026-08-03-wallet-card-contract.md (section 1)
 
 on:
   workflow_dispatch:
@@ -200,7 +200,7 @@ jobs:
             if ! gcloud secrets describe "$name" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
               echo "Missing GCP secret $name in ${GCP_PROJECT_ID}." >&2
               echo "The Pass Type ID API requires an ADMIN-role App Store Connect key." >&2
-              echo "See docs/superpowers/plans/2026-08-03-hushh-one-wallet-card.md (section 5)." >&2
+              echo "See docs/roadmap/implementation/plans/2026-08-03-hushh-one-wallet-card.md (section 5)." >&2
               exit 1
             fi
           done

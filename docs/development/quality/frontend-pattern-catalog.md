@@ -1,0 +1,404 @@
+# Frontend Pattern Catalog
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
+## Pattern: Stock Primitive First
+
+Use when you need baseline UI controls.
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+```
+
+## Pattern: Morphy CTA Extension
+
+Use when an action needs upgraded CTA behavior (ripple, premium treatment).
+
+```tsx
+import { Button } from "@/lib/morphy-ux/button";
+
+<Button variant="blue-gradient" effect="fill" showRipple>
+  Continue
+</Button>;
+```
+
+## Pattern: Morphy Surface Primitive
+
+Use when defining or extending the shared card system itself.
+
+```tsx
+import { SurfaceCard, SurfaceInset } from "@/lib/morphy-ux/surfaces";
+
+<SurfaceCard>...</SurfaceCard>;
+```
+
+Rules:
+
+1. Primitive surface tokens and shell classes live in `lib/morphy-ux/*`.
+2. The analysis-datatable surface treatment is the baseline for shared card chrome.
+3. Do not recreate a parallel shared card primitive in `components/app-ui/*` or feature folders.
+
+## Pattern: App Semantic Surface
+
+Use when a route needs a shared semantic wrapper built on Morphy primitives.
+
+```tsx
+import { SurfaceCard, SurfaceInset } from "@/components/app-ui/surfaces";
+```
+
+Rules:
+
+1. `components/app-ui/surfaces.tsx` is the semantic bridge, not a second primitive system.
+2. Feature folders consume these surfaces; they do not fork them.
+
+## Pattern: Canonical Form Controls
+
+Use the shared field primitives for direct-entry and selection controls:
+`Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and
+combobox field shells.
+
+Rules:
+
+1. The outer field geometry comes from `--app-input-radius`, which is the
+   capsule field stop. Compound controls keep inner inputs square so the
+   outer shell owns the silhouette.
+2. Use `--app-form-field-gap` between a label and its control,
+   `--app-form-related-gap` inside a related-method group, and
+   `--app-form-section-gap` between a primary action and its secondary group.
+3. Keep secondary recovery or fallback paths visibly subordinate. A text link
+   may own a 44px hit area, but it should not look like a second filled CTA.
+4. Do not add route-local radius or spacing values when the shared field and
+   form tokens already express the relationship.
+
+## Pattern: Connection and Circle Conversations
+
+Circle chat consumes `components/app-ui/conversation-composer.tsx` and
+`components/connect/circles/circle-chat-message.tsx`; direct chat retains its reply, emoji
+and voice composer. Messages lane geometry is owned by the shared metrics in
+`components/direct-messages/direct-messages-page.module.css`, including the
+portaled composers. Connect's inline Circle host keeps its own typography. These compose the existing
+input group, shell action surface and One chat bubble; they do not define a
+second control or theme system.
+
+Rules:
+
+1. Keep sender identity, date separators, wrapped text and actual read receipts
+   consistent. Do not infer online status or device delivery from a successful send.
+2. Keep the composer between 44 and 128px, use 16px text and 44px actions, and
+   reserve the shared keyboard/safe-area variables. Circle image captions also
+   fit above the native keyboard. Preserve the normal-flow keyboard reveal;
+   these composers do not opt into `data-keyboard-anchor`.
+3. Mobile Enter adds a newline; desktop Enter sends, Shift+Enter adds a newline,
+   and IME composition never sends. Preserve drafts through navigation and failed
+   sends; retry an unconfirmed send with the original operation identity.
+4. Incoming messages preserve the position of someone reading older history.
+   A successful own send or the explicit latest-messages action returns to the end.
+5. Mark a bounded read only when the current conversation is visible, focused,
+   at the end and unobscured by a blocking interaction layer or modal. Fetching
+   history is not a read. See the durable behavior and verification boundary in
+   [Feed notification model](../../architecture/one/feed-notification-model.md).
+
+## Pattern: Shared Segmented Tabs
+
+Use the shared segmented control for app-facing rounded tab groups.
+
+```tsx
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
+```
+
+Rules:
+
+1. `@/components/ui/tabs` remains the low-level Radix/shadcn semantic primitive.
+2. `@/lib/morphy-ux/ui/segmented-tabs` is the canonical app-facing segmented visual system.
+3. Route files should not fork their own segmented shell styling.
+
+## Pattern: App Shell Action Surface
+
+Use the shared shell surface for top-bar actions so ripple, contrast, badges, and focus treatment stay consistent.
+
+```tsx
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+```
+
+Rules:
+
+1. Back, bell, shield, and persona pill interactions all use the same shell surface contract.
+2. Dropdown triggers should accept a wrapper or render-trigger path, not just a class string, when ripple ownership is required.
+
+## Pattern: Shared Search and Filters
+
+App-wide Search is disabled and archived. Keep page-local collection filters
+inside their owning feature.
+
+```tsx
+import { CommandPickerField } from "@/components/app-ui/command-fields";
+```
+
+Rules:
+
+1. Do not mount or import the archived global Search implementation.
+2. Use route-local search only for visible local collections, and keep it inside the surface it filters.
+3. Do not introduce a replacement app-wide Search launcher.
+4. Preserve query params only when they are part of the route contract or a shareable/recoverable workspace state.
+5. Search overlays must respect the top shell and bottom command chrome instead of using route-local viewport math.
+
+## Pattern: Persistent Bottom Utilities and Workspace Tabs
+
+Use the shared bottom-nav resolver for signed-in app routes.
+
+```ts
+import {
+  resolveBottomNavActiveKey,
+  resolveBottomNavAction,
+  resolveBottomNavContextKey,
+} from "@/lib/navigation/app-bottom-nav";
+```
+
+Rules:
+
+1. Keep the signed-in primary bottom navigation constant and ordered: `Chat`, `One`, `Connect`, and `Feed`. `Chat` is the canonical home route `/`; App-wide Search is disabled and archived under `archive/app-wide-search/`. The four equal-width segments use the shared bottom-chrome frame and remain centered at every breakpoint.
+2. Keep the bar compact and fixed. The voice-only agent control occupies a narrower content-sized slot in the same bottom surface; do not add a divider, inter-slot gap, route-local navigation, or empty Chat launcher.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Their route bodies render the central registry's tabs directly below the module heading, while the fixed top shell stays back/navigation-only. Profile remains the rightmost signed-in top-bar action.
+4. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
+5. The bottom bar has no Search action. Legacy `?search=1` URLs must not reopen a palette or select a removed tab.
+6. Keep navigation motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.
+
+## Pattern: Nested Route Back Navigation
+
+Use the shared top-bar back affordance for signed-in subroutes that drill below a parent workspace.
+
+Rules:
+
+1. Nested routes should navigate back through the top shell, not through feature-local inline buttons.
+2. Preserve the parent workspace context in the back target, including route params or query state when that context is part of the flow.
+3. Only use inline back controls when the surface is outside the normal shell, such as a modal, sheet, or fullscreen flow.
+4. Durable workspace panels should use finite nested routes and resolve their back affordance through the shared top bar. Legacy query-state inputs such as `/profile?panel=...` are compatibility redirects, not canonical navigation.
+
+## Pattern: Standard Route Header Leading
+
+Use `PageHeader icon={...}` for normal signed-in route headers.
+
+Rules:
+
+1. The `icon` slot is the default route-header leading treatment.
+2. Do not recreate custom route-header icon wells with `leading`.
+3. Reserve `leading` for semantic non-icon content such as badges, avatars, or endpoint method pills.
+4. Match `PageHeader accent` to the actual surface identity, not the broader product area.
+5. When a primary route header has both actions and descriptive copy, prefer the standard 3-row mobile layout instead of forcing actions inline.
+
+## Pattern: Primary Read Sections
+
+Use one primary summary card for the main read in analysis/workspace sections.
+
+Rules:
+
+1. Do not add adjacent mini-summary cards that restate the same status, count, or framing.
+2. Secondary cards should only exist when they introduce new evidence, alternate reads, or drill-down actions.
+3. Counts such as focus-block totals or secondary-read totals should usually sit as small badges inside the main card, not as separate cards.
+
+## Pattern: Inspectable Evidence
+
+Use when a surface exposes counts, grouped objects, leaders/laggards, tracked names, or any other summary that implies underlying data.
+
+Rules:
+
+1. If the UI says `44 names`, the detail state should expose the 44 names cleanly.
+2. Prefer the component density that preserves meaning:
+   - badges for short symbol or keyword sets
+   - rows for richer objects with context
+   - grouped semantic sections when the data needs explanation
+3. Avoid arbitrary line-broken symbol dumps or comma-group text walls with no framing.
+4. The detail state must answer why the count matters, not just repeat the count in prose.
+5. Do not open a modal or detail card unless it adds new inspectable evidence beyond the source card.
+
+## Pattern: Responsive Composition Review
+
+Use when a section has multiple cards, supporting modules, or a board-like layout.
+
+Rules:
+
+1. Rebalance composition for tablet and desktop instead of stretching the mobile stack.
+2. One oversized summary slab plus several small fragments is usually a hierarchy failure.
+3. Check symmetry, scan path, and evidence density before adding more cards or more copy.
+4. Remove repeated headers, repeated helper text, and repeated framing chrome before polishing visuals.
+
+## Pattern: Persona Copy
+
+Use plain-language labels on persona-facing surfaces. Internal architecture terms stay in developer-only routes and docs.
+
+Rules:
+
+1. Do not surface abbreviations such as `PKM` in consumer-facing profile, privacy, or settings copy.
+2. Prefer descriptive labels such as `Personal information` when the surface is user-facing.
+3. Developer-only routes such as `PKM Agent Lab` may keep internal product terms when the audience is explicitly technical.
+4. Consumer notifications and background-task rows must not show implementation diagnostics such as manifests, schemas, timings, tokens, correlation ids, route names, raw provider errors, or dummy-save language.
+5. Put diagnostics in logs, task metadata, or developer-only panels. The default copy should tell the user what is happening and what they can do next.
+
+## Pattern: Signed-In Route Dogfooding
+
+Use the route-contract Playwright sweep for signed-in route families.
+
+```bash
+cd hushh-webapp
+npm run verify:routes
+```
+
+Rules:
+
+1. The route contract in `lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth.
+2. Do not reach for Playwright when unit, integration, service, or Next runtime diagnostics can prove the behavior more cheaply.
+3. Use the sweep when the proof requires a real browser:
+   auth/bootstrap, vault unlock, Next navigation, responsive layout, animation, or browser-only interaction.
+4. The sweep must use the real reviewer login and vault unlock path when the route family is signed-in.
+5. Same-session proof must use in-app Next client navigation after unlock; direct `page.goto(...)` is cold-entry proof, not same-session proof.
+6. Route-specific one-off scripts are for debugging; they do not replace the contract-driven sweep.
+
+## Pattern: Stock Chart Primitives
+
+Use stock chart infrastructure for all chart surfaces.
+
+```tsx
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@/components/ui/chart";
+```
+
+Rules:
+
+1. Keep tooltip formatting inside `ChartTooltipContent` formatter/labelFormatter.
+2. Keep chart files focused on data mapping and composition.
+3. Avoid chart primitive forks outside `components/ui/chart.tsx`.
+
+## Pattern: Moved App UI Components
+
+Custom app components now live in `components/app-ui/*`.
+
+```tsx
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { TopAppBar } from "@/components/app-ui/top-app-bar";
+```
+
+Do not use:
+
+1. `@/components/ui/hushh-loader`
+2. `@/components/ui/top-app-bar`
+3. `@/components/ui/data-table`
+
+## Pattern: Toast Usage
+
+Use the shadcn Sonner stack for transient app notifications. Prefer the Morphy
+toast helper where the route already uses Morphy helpers; direct `sonner` usage
+is acceptable in routes already standardized on shadcn Sonner.
+
+```tsx
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+
+morphyToast.success("Saved");
+```
+
+Do not create inline route banners for row-level saves, deletes, refreshes, or
+short-lived failures. Inline errors are for stable page-blocking states only.
+
+## Pattern: Destructive Confirmation
+
+Use shadcn `AlertDialog` before destructive mutations such as delete, remove,
+disconnect, revoke, or archive actions. Keep loading state in the dialog action
+or initiating row, and report success/failure through Sonner.
+
+```tsx
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+```
+
+## Pattern: Gmail-Safe Email Draft HTML
+
+Email Helper and other approval-gated replies must be generated through the
+strict-ZK draft renderer, not route-local HTML.
+
+```ts
+import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+
+const draft = service.buildDraft({ workflow, exportPayloads, instructions });
+```
+
+Rules:
+
+1. Build plaintext and sanitized HTML from the same render model.
+2. Keep approved plaintext as the fallback and hash anchor.
+3. Use inline styles, table-safe markup, no scripts, no external CSS, and no app-only class names.
+4. Render dense numeric lists as tables when tables are clearer than prose.
+5. Wrap dense tables in an inline-styled `overflow-x:auto` container with `-webkit-overflow-scrolling:touch` and a fixed/minimum table width.
+6. Do not force nested email tables to `w-full` or `max-w-full` in the app preview if it makes columns overlap.
+7. Keep developer metadata out of both plaintext and HTML: no hashes, ids, manifests, provenance, parser metadata, route names, or raw entity paths.
+
+## Pattern: Icon Usage
+
+Use the canonical Phosphor registry through the icon wrapper for consistent
+geometry, weight, and sizing behavior.
+
+```tsx
+import { Shield } from "@/components/icons";
+import { Icon } from "@/lib/morphy-ux/ui";
+
+<Icon icon={Shield} size="sm" className="text-primary" />;
+```
+
+## Pattern: Actionable Surface Rows
+
+Use `SettingsRow` for clickable list rows across the app, not only on Profile.
+
+```tsx
+import { SettingsRow } from "@/components/app-ui/settings-ui";
+
+<SettingsRow
+  leading={
+    <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl">
+      AAPL
+    </span>
+  }
+  title="Apple"
+  description="AAPL • Technology • BUY"
+  trailing="$214.75"
+  chevron
+  onClick={() => openDetail()}
+/>;
+```
+
+Rules:
+
+1. The whole row owns hover, press, and ripple.
+2. Inner text blocks must not create a second hover state.
+3. Use `asChild` for link rows so anchors inherit the same interaction contract.
+
+## Pattern: Identity-First Detail Surfaces
+
+Use `AdaptiveDetailSurface` (or an existing compatibility adapter such as
+`KaiControlSurface`) for entity drill-ins.
+
+Rules:
+
+1. Put the supplied logo, avatar, or semantic glyph in the shared `leading`
+   header slot.
+2. Follow it with one entity title and one concise metadata line.
+3. Start the body with new evidence such as price, status, or the primary
+   decision—not another identity card.
+4. Do not repeat the title, subtitle, thesis, or the same badges in multiple
+   body sections.
+5. Hide repair flags, provider diagnostics, and other implementation state from
+   consumer details; expose only actionable freshness or availability states.

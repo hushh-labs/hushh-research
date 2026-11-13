@@ -5,7 +5,7 @@
   "primary_scope": "quality-contracts",
   "description": "Use when changing cross-surface verification policy, contract-test placement, test selection, or quality gates across frontend and backend.",
   "owned_paths": [
-    "docs/reference/quality",
+    "docs/development/quality",
     "hushh-webapp/__tests__",
     "consent-protocol/tests"
   ],
@@ -21,11 +21,11 @@
     "data-model-audit"
   ],
   "required_reads": [
-    "docs/reference/quality/README.md",
-    "docs/reference/quality/pr-impact-checklist.md",
-    "docs/reference/kai/kai-runtime-smoke-checklist.md",
+    "docs/development/quality/README.md",
+    "docs/development/quality/pr-impact-checklist.md",
+    "docs/architecture/finance/kai-runtime-smoke-checklist.md",
     ".agents/skills/quality-contracts/references/browser-verification-contract.md",
-    "docs/reference/quality/definition-of-done.md"
+    "docs/development/quality/definition-of-done.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run test:ci",

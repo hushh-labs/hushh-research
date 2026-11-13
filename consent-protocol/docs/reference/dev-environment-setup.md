@@ -3,7 +3,7 @@
 > Operator runbook for standing up and operating the hosted `dev` environment: a full
 > infrastructure replica of the UAT GCP project, deployed through
 > `.github/workflows/deploy-dev.yml` under the
-> [dev fast lane](../../../docs/reference/operations/dev-fast-lane.md): an exact
+> [dev fast lane](../../../docs/operations/releases/dev-fast-lane.md): an exact
 > CI-green SHA from protected `dev` by default, or another governed ref. Main owns
 > the workflow definition; application source and workflow authority are distinct.
 
@@ -165,7 +165,7 @@ probing the clients directly. Corrected:
   Gmail form. Dev Gmail connect therefore still needs one console entry
   (`https://dev.one.hushh.ai/one/profile/gmail/oauth/return`); it cannot be fixed from
   here, because no API edits a Web-application client's redirect URIs and the deploy gate
-  runs from `main`. See `docs/reference/operations/env-and-secrets.md` § *Google OAuth
+  runs from `main`. See `docs/operations/configuration/env-and-secrets.md` § *Google OAuth
   redirect URIs, per lane* for the matrix and the probe that verifies it without console
   access.
 
@@ -251,7 +251,7 @@ OAuth client id changed — nothing to re-fetch on the server side.
    bridge project. The exact read-only role and binding were then established
    and read back. These observations prove neither an owner-pod model turn nor
    successful application deployment; use the revision-bound
-   [readiness audit](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
+   [readiness audit](../../../docs/operations/acceptance/private-agents.md)
    for the deployment result.
 
    To change the bridge, update its owning deployment configuration, establish
@@ -311,7 +311,7 @@ Seed the schema, choosing one of:
 The schema contract for dev is `consent-protocol/db/contracts/dev_minimum_schema.json`:
 the UAT integrated schema as a **minimum floor** (`migration_version_policy: minimum`).
 Dev may run AHEAD of UAT (train migrations land in dev first under the
-[dev fast lane](../../../docs/reference/operations/dev-fast-lane.md)) but never behind it.
+[dev fast lane](../../../docs/operations/releases/dev-fast-lane.md)) but never behind it.
 
 ## Phase 3 — Secret Manager population
 
@@ -509,7 +509,7 @@ from the live inventory checked on 27 September 2026. Do not recreate them from
 `scripts/ops/setup_dev_cloudbuild_triggers.sh`: the retained script is not current
 deployment authority. Cloud Build remains the image builder under the governed,
 Main-owned Dev workflow. Read the current
-[Dev fast lane](../../../docs/reference/operations/dev-fast-lane.md#gcp-native-auto-deploy-cloud-build-triggers)
+[Dev fast lane](../../../docs/operations/releases/dev-fast-lane.md#gcp-native-auto-deploy-cloud-build-triggers)
 and verify live triggers before any operational change.
 
 ## Contributor usage once dev is live

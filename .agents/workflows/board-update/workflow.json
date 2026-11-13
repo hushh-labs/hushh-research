@@ -7,11 +7,11 @@
   "task_type": "board-update",
   "affected_surfaces": [
     ".agents/skills/planning-board",
-    "docs/project_context_map.md"
+    "docs/development/repository-map.md"
   ],
   "required_reads": [
     ".agents/skills/planning-board/references/engineering-core-board.md",
-    "docs/reference/operations/coding-agent-mcp.md"
+    "docs/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task board-update"

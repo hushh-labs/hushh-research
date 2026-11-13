@@ -156,7 +156,7 @@ RiskSnapshot.load(str(manifest))
     _check("memory-judge-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", "consent-protocol/tests/test_memory_judge.py", groups=("agent",)),
     _check("architecture-fitness-selftest", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--self-test", diagnostic=True),
-    _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/reference/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
+    _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/development/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
     _check("pr-governance-sections", "python3", "scripts/ci/verify-pr-governance-sections.py", groups=("operations",)),
     _check("governance-plan-selection", "python3", "scripts/ci/test_repo_governance_plan.py", groups=("operations",)),
     _check("protected-pipeline-edits", "python3", "scripts/ci/verify-protected-pipeline-edits.py", groups=("operations",)),
@@ -295,7 +295,11 @@ KNOWN_ROOTS = frozenset(
 )
 KNOWN_ROOT_FILES = frozenset(
     {
-        "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        ".gitignore", "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        # Recognize removal of retired, tracked documentation generators.
+        "hussh-mega-map.gen.py", "hussh-mega-map-v2.gen.py",
+        "hussh-mega-map.dark.svg", "hussh-mega-map.light.svg",
+        "hussh-mega-map.dark.public.svg", "hussh-mega-map.light.public.svg",
         "REUSE.toml", "SECURITY.md", "TESTING.md", "THIRD_PARTY_NOTICES.md",
         "code_of_conduct.md", "contributing.md", "docker-compose.yml",
         "docker-compose.offline.yml", "getting_started.md", "skills-lock.json",
@@ -417,6 +421,12 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/verify-pr-base-policy.py",
             "scripts/ci/runtime-contract-check.sh",
             "scripts/ci/secret-scan.sh",
+            "scripts/ci/docs-parity-check.sh",
+            "scripts/ci/provision_wallet_pass_certificate.py",
+            "scripts/ci/verify-runtime-config-contract.py",
+            "scripts/ops/data_model_audit.py",
+            "scripts/verify-doc-links.cjs",
+            "scripts/verify-doc-runtime-parity.cjs",
             "scripts/ci/test_secret_scan_ranges.py",
             "scripts/ci/tag-last-known-good.sh",
             "scripts/ci/verify-predecessor-acceptance.py",

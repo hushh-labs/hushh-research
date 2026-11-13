@@ -1087,10 +1087,10 @@ def validate_admin_release_contract(errors: list[str]) -> None:
 
     pointer_paths = [
         REPO_ROOT / "deploy/README.md",
-        REPO_ROOT / "docs/reference/operations/ci.md",
-        REPO_ROOT / "docs/reference/operations/branch-governance.md",
-        REPO_ROOT / "docs/guides/mobile/ship-ios-testflight.md",
-        REPO_ROOT / "docs/guides/mobile/release-ios-appstore.md",
+        REPO_ROOT / "docs/operations/releases/ci.md",
+        REPO_ROOT / "docs/operations/releases/branch-governance.md",
+        REPO_ROOT / "docs/operations/mobile/ship-ios-testflight.md",
+        REPO_ROOT / "docs/operations/mobile/release-ios-appstore.md",
     ]
     forbidden_shell_commands = [
         "git push origin main",
@@ -1124,7 +1124,7 @@ def validate_admin_release_contract(errors: list[str]) -> None:
         REPO_ROOT / ".agents/skills/verify-before-claim/SKILL.md",
         REPO_ROOT / ".agents/skills/mobile-parity-audit/SKILL.md",
         REPO_ROOT / ".agents/skills/release-ios-appstore/SKILL.md",
-        REPO_ROOT / "docs/guides/mobile/ship-ios-testflight.md",
+        REPO_ROOT / "docs/operations/mobile/ship-ios-testflight.md",
     ]
     for path in canonical_release_paths:
         if not path.exists():

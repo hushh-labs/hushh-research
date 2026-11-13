@@ -3,8 +3,8 @@
   "surface_id": "one_setup_gmail",
   "surface_title": "Gmail Setup",
   "docs_references": [
-    "docs/reference/quality/one-onboarding-architecture.md",
-    "docs/reference/one/one-voice-runtime-architecture.md"
+    "docs/development/quality/one-onboarding-architecture.md",
+    "docs/architecture/one/one-voice-runtime-architecture.md"
   ],
   "defaults": {
     "reachability": {

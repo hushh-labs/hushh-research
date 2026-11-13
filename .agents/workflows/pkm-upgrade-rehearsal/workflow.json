@@ -16,8 +16,8 @@
     ".agents/skills/pkm-upgrade-rehearsal/SKILL.md",
     ".agents/skills/pkm-upgrade-rehearsal/references/reviewer-pkm-upgrade-contract.md",
     ".agents/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md",
-    "docs/reference/architecture/pkm-cutover-runbook.md",
-    "docs/reference/architecture/pkm-storage-adr.md"
+    "docs/architecture/pkm-cutover-runbook.md",
+    "docs/architecture/pkm-storage-adr.md"
   ],
   "required_commands": [
     "./scripts/ci/pkm-upgrade-gate.sh",

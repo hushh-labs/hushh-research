@@ -6,13 +6,13 @@
   "default_spoke": null,
   "task_type": "subtree-upstream-governance",
   "affected_surfaces": [
-    "docs/reference/operations/subtree-maintainers.md",
+    "docs/operations/subtree-maintainers.md",
     "scripts/ci/subtree-sync-check.sh",
     "consent-protocol/README.md",
     "contributing.md"
   ],
   "required_reads": [
-    "docs/reference/operations/subtree-maintainers.md",
+    "docs/operations/subtree-maintainers.md",
     "scripts/ci/subtree-sync-check.sh",
     "consent-protocol/README.md",
     "contributing.md"

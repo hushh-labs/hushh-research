@@ -11,15 +11,15 @@
     "contracts/architecture/runtime-topology-index.v1.json",
     "hushh-webapp/lib/navigation",
     "consent-protocol/hushh_mcp/agents",
-    "docs/reference/architecture/runtime-db-data-plane-contract.json"
+    "docs/architecture/runtime-db-data-plane-contract.json"
   ],
   "required_reads": [
     "AGENTS.md",
-    "docs/project_context_map.md",
-    "docs/reference/architecture/runtime-topology-maintenance.md",
-    "docs/reference/one/one-agent-hierarchy.md",
-    "docs/reference/architecture/route-contracts.md",
-    "docs/reference/architecture/runtime-db-data-plane-contract.json"
+    "docs/development/repository-map.md",
+    "docs/architecture/runtime-topology-maintenance.md",
+    "docs/architecture/one/one-agent-hierarchy.md",
+    "docs/development/contracts/route-contracts.md",
+    "docs/architecture/runtime-db-data-plane-contract.json"
   ],
   "required_commands": [
     "./bin/hushh agents route-task runtime-topology-maintenance",

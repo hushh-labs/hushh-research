@@ -3,7 +3,7 @@
 > **iOS is automated in two tiers — use these instead of the manual iOS steps below.**
 > - **TestFlight (UAT):** `.github/workflows/ship-ios-testflight.yml` (say `ship ios`) cuts the
 >   current UAT build and uploads it to TestFlight — runbook:
->   [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
+>   [docs/operations/mobile/ship-ios-testflight.md](../docs/operations/mobile/ship-ios-testflight.md).
 > - **Public App Store:** `make ios-prod-release` (or
 >   `.github/workflows/release-ios-appstore.yml`) builds against the **selected backend**
 >   (`--backend production` for one.hushh.ai; UAT remains the default) and shared Firebase authority
@@ -11,12 +11,12 @@
 >   entitlement, uploads to App Store Connect, sets "What's New," attaches the build, and — one-click,
 >   opt-in — submits for public Apple review. Submission is not publication; automatic release
 >   after Apple approval additionally requires `--release-after-approval` — runbook:
->   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
+>   [docs/operations/mobile/release-ios-appstore.md](../docs/operations/mobile/release-ios-appstore.md).
 > - **Google Play:** `npm run android:release:playstore -- --dry-run` verifies the
 >   UAT backend (which must already serve the exact green `main` SHA), Play version floor, Firebase
 >   identity, signing, and AAB without uploading. `npm run android:release:playstore` performs the separately confirmed
 >   live production upload; add `--track internal` to release to internal testers — runbook:
->   [docs/guides/mobile/ship-android-playstore.md](../docs/guides/mobile/ship-android-playstore.md).
+>   [docs/operations/mobile/ship-android-playstore.md](../docs/operations/mobile/ship-android-playstore.md).
 >
 > The manual iOS steps below remain a reference. The human App Store Connect steps that no pipeline
 > can automate (metadata, screenshots, privacy nutrition labels, age rating, pricing, final review)

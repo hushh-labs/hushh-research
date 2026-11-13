@@ -1,20 +1,20 @@
 {
   "id": "future-roadmap-plan",
-  "title": "Future Roadmap Plan",
+  "title": "Future Design Review",
   "goal": "Turn future-state product or architecture ideas into planning-only docs grounded in Hussh north stars, trust boundaries, and current repo reality.",
   "owner_skill": "future-planner",
   "default_spoke": null,
   "task_type": "future-roadmap-plan",
   "affected_surfaces": [
-    "docs/future",
-    "docs/vision",
-    "docs/reference/operations",
+    "docs/roadmap",
+    "docs/product/principles",
+    "docs/operations",
     ".agents/skills/future-planner"
   ],
   "required_reads": [
-    "docs/vision/README.md",
-    "docs/future/README.md",
-    "docs/reference/operations/documentation-architecture-map.md",
+    "docs/product/principles/README.md",
+    "docs/roadmap/README.md",
+    "docs/development/documentation.md",
     "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],
   "required_commands": [

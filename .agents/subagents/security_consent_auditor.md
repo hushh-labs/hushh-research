@@ -26,7 +26,7 @@ Use these repo-local skills when they fit the lane:
 - security-audit
 - iam-consent-governance
 
-Read `docs/reference/architecture/private-agent-north-star.md` before judging pod designs. Audit persistent memory, owner key custody and isolation independently of the surrounding cloud operator.
+Read `docs/product/principles/private-agent-requirements.md` before judging pod designs. Audit persistent memory, owner key custody and isolation independently of the surrounding cloud operator.
 
 Priorities:
 - PER-POD CRYPTOGRAPHIC IDENTITY. One shared service account means a verified call proves "a pod is calling", never WHICH pod. This gates every cohort larger than the team. Attestation and statelessness are separable — we need the first, not the second.

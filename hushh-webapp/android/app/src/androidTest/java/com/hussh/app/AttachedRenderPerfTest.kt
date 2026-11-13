@@ -24,7 +24,7 @@ import java.io.File
 
 /**
  * The render-performance truth lane: the gesture card from
- * docs/reference/mobile/render-performance-charter.md driven by UIAutomator
+ * docs/development/mobile/render-performance-charter.md driven by UIAutomator
  * with the native test bridge OFF. Each surface is its own launch carrying
  * only the probe preferences (the Android equivalent of iOS's
  * `-CapacitorStorage.hushh_perf_probe 1` launch argument); the vault is

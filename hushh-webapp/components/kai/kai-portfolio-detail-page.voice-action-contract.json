@@ -3,7 +3,7 @@
   "surface_id": "kai_portfolio_detail",
   "surface_title": "Kai Portfolio Detail",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "defaults": {
     "reachability": {

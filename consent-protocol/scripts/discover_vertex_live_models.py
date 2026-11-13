@@ -11,8 +11,8 @@ capabilities the relay depends on.
 
 The script hardcodes no "best" model. Pinning is a human decision recorded in
 ``VERTEX_LIVE_MODEL_ID`` (deploy substitution), the registry entry, and
-``docs/reference/one/gemini-runtime-configuration.md``; see the runbook in
-``docs/reference/one/one-voice-live-tool-contract.md``.
+``docs/architecture/one/gemini-runtime-configuration.md``; see the runbook in
+``docs/architecture/one/one-voice-live-tool-contract.md``.
 
 Usage:
     uv run python scripts/discover_vertex_live_models.py \\

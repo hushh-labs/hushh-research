@@ -177,7 +177,7 @@ steps:
 
   # Connect Azure (dev only) imports the approved pod digest from the lane's
   # pod-only release repository, the one repository its image reader is granted
-  # (HUSSH_AZURE_POD_IMAGE_REPOSITORY, docs/reference/architecture/byoc-azure.md).
+  # (HUSSH_AZURE_POD_IMAGE_REPOSITORY, docs/architecture/byoc-azure.md).
   # The hub's runtime identity holds no registry write, and widening it or the
   # reader is not approved, so the build identity copies exactly the digest the
   # hub will offer, before deploy-backend can offer it. A digest names exact

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 
-const EVENT_MATRIX = path.resolve(__dirname, "../../../docs/reference/operations/observability-event-matrix.md");
+const EVENT_MATRIX = path.resolve(__dirname, "../../../docs/operations/observability/observability-event-matrix.md");
 
 /**
  * Background consolidation of the device activity log reports one closed-set

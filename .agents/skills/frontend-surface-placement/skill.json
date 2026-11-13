@@ -22,8 +22,8 @@
   "required_reads": [
     "hushh-webapp/lib/morphy-ux/README.md",
     "hushh-webapp/components/app-ui/README.md",
-    "docs/reference/quality/design-system.md",
-    "docs/reference/quality/frontend-ui-architecture-map.md"
+    "docs/development/quality/design-system.md",
+    "docs/development/quality/frontend-ui-architecture-map.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run audit:ui-surfaces",

@@ -338,7 +338,7 @@ def test_the_live_path_is_gated_by_its_own_flag(name, _real, monkeypatch):
 
     Stated rather than assumed: this asserts the flag exists and defaults off. It is
     not a claim that the live path was exercised -- those runs need real cloud
-    credentials and are named in `docs/reference/operations/tracing-a-pod-journey.md`.
+    credentials and are named in `docs/operations/hosting/tracing-a-pod-journey.md`.
     """
     flag = LIVE_FLAGS[name]
     monkeypatch.delenv(flag, raising=False)

@@ -1929,7 +1929,7 @@
       "id": "personal_agent_standby_placement",
       "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch and the observed standby pod_key_id, promoting only a standby with a completed sync), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/future/personal-agent/STANDBY-SYNC.md."
+      "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch and the observed standby pod_key_id, promoting only a standby with a completed sync), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/roadmap/personal-agent/standby-sync.md."
     },
     {
       "data_class": "personal_encrypted",
@@ -7323,15 +7323,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "f9ac45a9c65f86badc90ef4232854750ac638dd00b03580a38f6311540dd5632",
+    "action_gateway": "8917a72bb9defb1b1091784ff8c8e6c3c7aa6029d24b64c3e0c31e7079424727",
     "agent_registry": "8aac9e8c8cc39a57a86b83a206ebd14aaeba228e308e4b585b390b1f4c39d540",
-    "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "acfadba537b60dbe3d86a3ab4f60fba090f0f7c3b5b557ef715f5118b5d4707f",
+    "cache_manifest": "669b3627c54a7f298c9b011b5e7e54681c1d1747ef4ab70728aa5de077dccea6",
+    "data_plane": "d469a73b8a7ba58d10ff2347b6d7f4cdaf191d460a0818c4d1706c8ab3e9b0cf",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ee3a87017fc16dde5f853a4b95e828491237fefd05db4c1b751c4079538ed965",
     "route_index": "7c4dfebdfcdd35570d46da6f1c638406ade36146d8fd634ae56da20be253c708",
     "route_layout": "897df46c2f2427b953622ac129b3033352b8e8c08267d9445786050434f156c3",
-    "surface_map": "e03c1560f0aadc607c45a287945cbc4bba6fa062b1323dd3485a356baa629c17",
+    "surface_map": "2d4a46eadd5baf85cad4018ac343b11a28abdde6539efe2f1b811f816fb8ccc4",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

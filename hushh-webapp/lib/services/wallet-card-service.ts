@@ -1,6 +1,6 @@
 /**
  * Wallet Profile service — the single network boundary for the Wallet Card
- * feature (contract: docs/superpowers/specs/2026-08-03-wallet-card-contract.md).
+ * feature (contract: docs/roadmap/implementation/specs/2026-08-03-wallet-card-contract.md).
  *
  * Everything the owner screens, the pass hand-off and the public `/c/[token]`
  * page need goes through here. `app/**` and `components/**` never call

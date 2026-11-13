@@ -17,8 +17,8 @@
     "github-contribution-governance"
   ],
   "required_reads": [
-    "docs/reference/operations/ci.md",
-    "docs/reference/operations/branch-governance.md",
+    "docs/operations/releases/ci.md",
+    "docs/operations/releases/branch-governance.md",
     ".agents/skills/github-contribution-governance/references/contribution-attribution.md"
   ],
   "required_commands": [

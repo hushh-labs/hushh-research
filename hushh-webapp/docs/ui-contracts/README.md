@@ -50,7 +50,7 @@ owning implementation.
 
 Only source-verified current contracts belong in this index. An account's
 counts or fixture examples do not become product limits. Future proposals
-belong in the [future documentation home](../../../docs/future/README.md).
+belong in the [future documentation home](../../../docs/roadmap/README.md).
 
 ## Contract requirements
 
@@ -112,13 +112,13 @@ These references describe the UI; they do not create a parallel executable
 route, action, permissions, or generated-contract registry. Existing owners
 remain authoritative:
 
-- [UI contract contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md)
+- [UI contract contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md)
   for authored Back and Search/action changes and generation order.
 - [Route layout contract](../../lib/navigation/app-route-layout.contract.json)
   and [route builders](../../lib/navigation/routes.ts) for routing.
-- [Design system](../../../docs/reference/quality/design-system.md) for shared
+- [Design system](../../../docs/development/quality/design-system.md) for shared
   typography, visual primitives, layout, and interaction rules.
-- [Documentation homes](../../../docs/reference/operations/documentation-architecture-map.md)
+- [Documentation homes](../../../docs/development/documentation.md)
   for placement, and [webapp docs index](../README.md) for other package references.
 
 Documentation-only updates run `./bin/hushh docs verify` from the repository

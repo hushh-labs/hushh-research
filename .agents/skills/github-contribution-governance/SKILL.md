@@ -42,8 +42,8 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/operations/ci.md`
-2. `docs/reference/operations/branch-governance.md`
+1. `docs/operations/releases/ci.md`
+2. `docs/operations/releases/branch-governance.md`
 3. `.agents/skills/github-contribution-governance/references/contribution-attribution.md`
 
 ## Workflow

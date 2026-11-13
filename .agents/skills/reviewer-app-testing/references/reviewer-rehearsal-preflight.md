@@ -66,7 +66,7 @@ Check these known harness failures before attributing the symptom to the applica
 | A selector that works locally finds nothing on a deployed origin | The rehearsal was hand-rolled with raw Playwright and coupled to one element id (for example `#unlock-passphrase`). | Use the shared harness. It owns unlock, continuity, and navigation; hand-rolled scripts silently drift from it. |
 | A synthetic recorded-voice rehearsal produces only a few milliseconds of silence | Check audio-context time against wall time before blaming transcription. A macOS headless Chromium output stream can stall while its context reports `running`. | For the synthetic-microphone rehearsal only, launch Chromium with `--disable-audio-output` alongside the existing fake-input flags, then verify capture duration and nonzero samples. This substitutes Chromium's test output stream; it does not bypass app capture or prove a real microphone. Never store real recordings in evidence. |
 
-Compose `createReviewerSessionHarness` from `scripts/reviewer-session-harness.mjs`; do not hand-roll reviewer Playwright.
+Compose `createReviewerSessionHarness` from `.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs`; do not hand-roll reviewer Playwright.
 It owns identity resolution, the visible vault challenge, `vaultKeyHash` continuity, in-app navigation and owner-token reads.
 
 ## Evidence standard

@@ -6,7 +6,7 @@ and unchanged.
 
 WorkOS owns organizations, domains and connections; Firebase owns identities.
 The local lifecycle retains immutable, hash-only directory attribution. See
-docs/reference/architecture/enterprise-sso-workos-adr.md.
+docs/architecture/enterprise-sso-workos-adr.md.
 """
 
 from __future__ import annotations
