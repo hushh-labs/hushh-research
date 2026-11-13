@@ -28,6 +28,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -66,17 +68,6 @@ interface CashManagementCardProps {
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-function formatCurrency(value: number): string {
-  const formatted = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Math.abs(value));
-
-  return value < 0 ? `-${formatted}` : formatted;
-}
 
 function formatDate(dateStr: string): string {
   try {
@@ -201,6 +192,7 @@ export function CashManagementCard({
   cashManagement,
   className,
 }: CashManagementCardProps) {
+  useMarketCurrency();
   const [activeTab, setActiveTab] = useState("transfers");
 
   const checkCount = cashManagement?.checking_activity?.length || 0;

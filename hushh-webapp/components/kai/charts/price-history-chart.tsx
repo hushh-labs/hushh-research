@@ -6,11 +6,15 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, CHART_ANIMATION_ACTI
 import { normalizePriceHistory, priceHistoryRanges, slicePriceHistory, PRICE_RANGE_LABELS, type PriceHistoryPoint, type PriceRange } from "@/lib/kai/price-history";
 import { cn } from "@/lib/utils";
 
+import { formatDisplayMoney } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+
 /** Shared, non-smoothed area chart: never manufactures candles or a trend. */
 export function PriceHistoryChart({ data, label, height = 248, currency = "USD", timeZone = "America/New_York" }: {
   data: PriceHistoryPoint[]; label: string; height?: number; currency?: "USD" | "INR"; timeZone?: string;
 }) {
-  const money = (value: number, compact = false) => new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", { style: "currency", currency, notation: compact ? "compact" : "standard", maximumFractionDigits: compact ? 1 : 2 }).format(value);
+  useMarketCurrency();
+  const money = (value: number, compact = false) => formatDisplayMoney(value, { source: currency, notation: compact ? "compact" : "standard", maximumFractionDigits: compact ? 1 : 2 });
   const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: date.length === 10 ? "UTC" : timeZone }).format(new Date(date));
   const fillId = `price-${useId().replace(/:/g, "")}`;
   const points = useMemo(() => normalizePriceHistory(data), [data]);

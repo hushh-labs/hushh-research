@@ -44,6 +44,8 @@ import {
   CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 
+import { formatCurrencyShort as formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 interface Holding {
   symbol: string;
   name: string;
@@ -85,16 +87,6 @@ type SectorBarChartProps = {
   sectorData: { data: SectorDatum[]; total: number };
 };
 
-function formatCurrency(value: number): string {
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(1)}M`;
-  }
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(0)}K`;
-  }
-  return `$${value.toFixed(0)}`;
-}
-
 function _formatPercent(value: number): string {
   return `${value.toFixed(2)}%`;
 }
@@ -113,6 +105,7 @@ const SectorBarChart = memo(function SectorBarChart({
   showInlineValueLabels,
   sectorData,
 }: SectorBarChartProps) {
+  useMarketCurrency();
   return (
     <>
       <ChartContainer
@@ -213,6 +206,7 @@ export function SectorAllocationChart({
   title = "Sector Allocation",
   subtitle,
 }: SectorAllocationChartProps) {
+  useMarketCurrency();
   const [windowWidth, setWindowWidth] = useState<number>(1024);
   const [sectorHoldingPages, setSectorHoldingPages] = useState<
     Record<string, number>

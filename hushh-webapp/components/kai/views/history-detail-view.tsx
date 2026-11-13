@@ -30,6 +30,8 @@ import {
 } from "@/lib/kai/market-snapshot";
 import { cn } from "@/lib/utils";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // ============================================================================
 // PROPS
 // ============================================================================
@@ -76,15 +78,6 @@ function getDecisionColor(decision: string): string {
   }
 }
 
-function formatCurrency(value: number | null): string {
-  if (value === null) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -98,6 +91,7 @@ export function HistoryDetailView({
   vaultOwnerToken,
   showHeader = true,
 }: HistoryDetailViewProps) {
+  useMarketCurrency();
   // State for collapsible transcript rounds
   const [collapsedRounds, setCollapsedRounds] = useState<Record<number, boolean>>({ 1: true, 2: true });
 
@@ -279,7 +273,6 @@ export function HistoryDetailView({
       </div>
       
       <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
-
 
       {/* Stored analysis badge */}
       <Card variant="none" effect="glass">

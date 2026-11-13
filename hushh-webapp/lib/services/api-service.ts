@@ -1097,6 +1097,16 @@ export interface KaiHomeWatchlistItem {
   as_of: string | null;
 }
 
+export type KaiUsdInrRate = {
+  base: "USD";
+  quote: "INR";
+  /** Rupees per dollar. */
+  rate: number;
+  /** Day the rate was quoted (ISO date). */
+  as_of: string | null;
+  stale: boolean;
+};
+
 export interface KaiMarketCompanyFacts {
   symbol: string;
   market_cap?: number | null;
@@ -5190,6 +5200,29 @@ export class ApiService {
     const authToken = await this.getFirebaseToken();
     if (!authToken) throw new Error("Missing authentication for company facts");
     return readKaiCompanyFacts(data, authToken, apiFetch);
+  }
+
+  /** Rupees per dollar for the India display mode. Throws when no rate exists, so callers keep dollars. */
+  static async getKaiUsdInrRate(data: { userId: string; signal?: AbortSignal }): Promise<KaiUsdInrRate> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) throw new Error("Missing authentication for the exchange rate");
+    const response = await apiFetch(`/api/kai/market/fx/usd-inr/${data.userId}`, {
+      method: "GET",
+      signal: data.signal,
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!response.ok) throw new Error(`Exchange rate unavailable: ${response.status}`);
+    const body = (await response.json()) as Partial<KaiUsdInrRate>;
+    if (typeof body.rate !== "number" || !Number.isFinite(body.rate) || body.rate <= 0) {
+      throw new Error("Exchange rate unavailable: unusable rate");
+    }
+    return {
+      base: "USD",
+      quote: "INR",
+      rate: body.rate,
+      as_of: typeof body.as_of === "string" ? body.as_of : null,
+      stale: Boolean(body.stale),
+    };
   }
 
   static async getKaiStockPriceHistory(userId: string, symbol: string, signal?: AbortSignal, market: "US" | "IN" = "US"): Promise<import("@/lib/kai/price-history").StockPriceHistory> {

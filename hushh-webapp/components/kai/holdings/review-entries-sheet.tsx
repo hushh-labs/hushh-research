@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/kai/market-value-format";
 import { HoldingEntryList } from "./holding-entry-list";
 import type { HoldingMobileCardViewModel } from "./holding-mobile-card";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 /**
  * The entries of one position while a statement import is being reviewed: each
  * entry's shares, value, cost basis and acquisition date, with Edit, Remove and
@@ -31,6 +32,7 @@ export function ReviewEntriesSheet({
   onToggleDeleteEntry: (id: string) => void;
   onAddEntry: () => void;
 }) {
+  useMarketCurrency();
   const shares = position?.shares.toLocaleString("en-US", { maximumFractionDigits: 4 }) ?? "0";
   const summary = `${shares} ${position?.shares === 1 ? "share" : "shares"} across ${entries.length} ${entries.length === 1 ? "entry" : "entries"}`;
   return (

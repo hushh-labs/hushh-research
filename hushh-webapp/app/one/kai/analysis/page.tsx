@@ -77,17 +77,10 @@ import {
 } from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
 type WorkspaceTab = "debate" | "summary" | "detailed";
-
-function formatCurrency(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function extractDebateId(entry: AnalysisHistoryEntry | null): string | null {
   if (!entry || typeof entry !== "object") return null;
@@ -147,6 +140,7 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
 }
 
 export function KaiAnalysisPageContent() {
+  useMarketCurrency();
   const pageOpenedAtRef = useRef(Date.now());
   const workspaceTopRef = useRef<HTMLDivElement | null>(null);
   const summaryLoadingToastIdRef = useRef<string | number | null>(null);

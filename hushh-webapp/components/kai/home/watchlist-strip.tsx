@@ -4,16 +4,19 @@ import { Card, CardContent } from "@/lib/morphy-ux/card";
 import type { KaiHomeWatchlistItem } from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";
 
+import { formatCurrency as formatDisplayCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 interface WatchlistStripProps {
   items: KaiHomeWatchlistItem[];
 }
 
 function formatCurrency(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "Unavailable";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
+  return formatDisplayCurrency(value);
 }
 
 export function WatchlistStrip({ items }: WatchlistStripProps) {
+  useMarketCurrency();
   if (!items.length) {
     return (
       <Card variant="muted" effect="fill" preset="compact">

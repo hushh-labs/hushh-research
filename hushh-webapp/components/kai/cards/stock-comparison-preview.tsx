@@ -24,15 +24,8 @@ import {
 import { cn } from "@/lib/utils";
 import { marketSnapshotForTicker, type TickerMarketSnapshot } from "@/lib/kai/market-snapshot";
 
-function formatCurrency(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 function formatPercent(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "Change unavailable";
   const sign = value > 0 ? "+" : "";
@@ -95,6 +88,7 @@ export function StockComparisonPreview({
   embeddedInDetailSurface?: boolean;
   showStartAction?: boolean;
 }) {
+  useMarketCurrency();
   const displaySources = preview?.pick_sources || [];
   const selectedSource =
     displaySources.find((source) => source.id === (activePickSource || preview?.active_pick_source)) ||

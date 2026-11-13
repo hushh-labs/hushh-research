@@ -61,14 +61,9 @@ import {
 import { diversifyMarketNewsRows } from "@/lib/kai/market-news-diversity";
 import { useAuth } from "@/hooks/use-auth";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
-import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { useIndiaMarketHome } from "@/lib/kai/use-india-market-home";
-import {
-  readSelectedMarketRegion,
-  resolveMarketRegion,
-  storeSelectedMarketRegion,
-  type MarketRegion,
-} from "@/lib/kai/market-region";
+import type { MarketRegion } from "@/lib/kai/market-region";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 import {
   openExternalUrl,
   requestInternalAppNavigation,
@@ -806,7 +801,7 @@ export function KaiMarketPreviewView() {
     loadInsights,
     loadCompanyNews,
   } = useKaiMarketHome();
-  const { userId, phoneNumber } = useAuth();
+  const { userId } = useAuth();
   const [selectedMover, setSelectedMover] = useState<{ row: OneMarketDisplayRow; market: "US" | "IN" } | null>(null);
   const loadMoverHistory = useCallback((symbol: string, signal: AbortSignal) => {
     if (!userId || !selectedMover) return Promise.reject(new Error("Sign in to read price history"));
@@ -816,28 +811,9 @@ export function KaiMarketPreviewView() {
     if (!selectedMover || !loadCompanyNews) return Promise.reject(new Error("Company news unavailable"));
     return loadCompanyNews(symbol, signal, selectedMover.market);
   }, [loadCompanyNews, selectedMover]);
-  const [selectedMarket, setSelectedMarket] = useState<MarketRegion | null>(null);
-  useEffect(() => {
-    setSelectedMarket(readSelectedMarketRegion(userId));
-  }, [userId]);
-  // Resolved only once the account is known (client side, after sign-in), so the first
-  // server and client render agree and nothing is shown for the wrong market meanwhile.
-  const marketRegion = useMemo<MarketRegion>(
-    () =>
-      userId
-        ? resolveMarketRegion({
-            selected: selectedMarket,
-            holdings: KaiFinancialResourceService.peek(userId)?.data?.activePortfolio?.holdings,
-            phoneNumber,
-            localeTag: typeof navigator === "undefined" ? null : navigator.language,
-          }).region
-        : "US",
-    [phoneNumber, selectedMarket, userId],
-  );
-  const chooseMarket = (region: MarketRegion) => {
-    setSelectedMarket(region);
-    storeSelectedMarketRegion(userId, region);
-  };
+  // The selected market is the Finance-wide currency mode; the layout's bridge resolves it
+  // once (choice, portfolio, account, device) and this page only reads and changes it.
+  const { region: marketRegion, selectRegion: chooseMarket } = useMarketCurrency();
   const indiaHome = useIndiaMarketHome(userId, marketRegion === "IN");
   const inIndia = marketRegion === "IN";
   const [retained, setRetained] = useState<{ region: MarketRegion; payload: KaiHomeInsightsV2 } | null>(
