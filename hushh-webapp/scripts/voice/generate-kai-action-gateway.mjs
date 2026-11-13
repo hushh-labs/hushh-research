@@ -721,7 +721,7 @@ function normalizeAction(surface, action) {
     ...uniqueStrings(action.docs_references),
   ]);
   if (docsReferences.length === 0) {
-    docsReferences.push("docs/reference/one/one-voice-runtime-architecture.md");
+    docsReferences.push("docs/architecture/one/one-voice-runtime-architecture.md");
   }
   const textExecutor = action.text_backend_executor;
   if (textExecutor !== undefined) {

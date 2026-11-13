@@ -20,7 +20,7 @@
   "required_reads": [
     "packages/hushh-mcp/README.md",
     "consent-protocol/docs/mcp-setup.md",
-    "docs/reference/operations/coding-agent-mcp.md"
+    "docs/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
     "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",

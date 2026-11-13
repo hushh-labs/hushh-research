@@ -7,7 +7,7 @@
   "owned_paths": [
     "consent-protocol/api/routes",
     "hushh-webapp/app/api",
-    "docs/reference/architecture/api-contracts.md"
+    "docs/development/contracts/api-contracts.md"
   ],
   "non_owned_paths": [
     "backend",
@@ -20,8 +20,8 @@
     "bug-triage"
   ],
   "required_reads": [
-    "docs/reference/architecture/api-contracts.md",
-    "docs/guides/new-feature.md",
+    "docs/development/contracts/api-contracts.md",
+    "docs/development/guides/new-feature.md",
     "consent-protocol/api/routes"
   ],
   "required_commands": [

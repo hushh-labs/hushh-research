@@ -8,8 +8,8 @@
     "native_inventory": "native-route-inventory.json",
     "semantic_views": "../config/runtime-topology-maintenance.json",
     "api_routes": "app/api/**/route.ts",
-    "route_docs": "../docs/reference/architecture/route-contracts.md",
-    "mobile_docs": "../docs/reference/mobile/capacitor-parity-audit.md"
+    "route_docs": "../docs/development/contracts/route-contracts.md",
+    "mobile_docs": "../docs/development/mobile/capacitor-parity-audit.md"
   },
   "shared_native_plugin_dependencies": [
     {
@@ -11279,5 +11279,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "788fa114d2fb861dd40cb8186efa6c2e03663be77724797f5c764312b4184945"
+  "content_sha256": "9d8834b80431f0d65b4a3ba647c7505439853b52bd46e5c87472156ba06c28e2"
 }

@@ -24,16 +24,14 @@
     "report-artifact-generation"
   ],
   "required_reads": [
-    "docs/reference/operations/documentation-architecture-map.md",
-    "docs/reference/operations/docs-governance.md",
-    "docs/reference/README.md",
-    "docs/reference/operations/documentation-recursive-knowledge-model.md",
-    "docs/reference/operations/brand-and-compatibility-contract.md",
-    ".agents/skills/docs-governance/references/documentation-homes.md"
+    "docs/README.md",
+    "docs/development/documentation.md",
+    "docs/architecture/README.md",
+    "docs/operations/brand-and-compatibility-contract.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",
-    "python3 .agents/skills/docs-governance/scripts/doc_inventory.py tier-a",
+    "python3 .agents/skills/docs-governance/scripts/doc_inventory.py inventory",
     "python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
     "python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders"
   ],
@@ -42,7 +40,7 @@
       "id": "docs-governance",
       "commands": [
         "./bin/hushh docs verify",
-        "python3 .agents/skills/docs-governance/scripts/doc_inventory.py tier-a",
+        "python3 .agents/skills/docs-governance/scripts/doc_inventory.py inventory",
         "python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
         "python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders"
       ],

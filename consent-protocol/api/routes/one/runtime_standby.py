@@ -1,4 +1,4 @@
-"""The owner's "sync now" for their standby agent (docs/future/personal-agent/STANDBY-SYNC.md).
+"""The owner's "sync now" for their standby agent (docs/roadmap/personal-agent/standby-sync.md).
 
 Hub-only and owner-scoped: the Firebase identity names the person, so a caller can
 only ever bring their OWN standby level. The hub ferries ciphertext it cannot open;

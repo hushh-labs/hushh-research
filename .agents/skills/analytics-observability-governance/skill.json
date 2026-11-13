@@ -5,10 +5,10 @@
   "primary_scope": "analytics-observability-governance-intake",
   "description": "Use when changing or verifying Kai analytics observability across GA4, Firebase Analytics, BigQuery export, growth dashboard contracts, property and stream topology, or shared-auth versus analytics-plane boundaries.",
   "owned_paths": [
-    "docs/reference/operations/observability-architecture-map.md",
-    "docs/reference/operations/observability-google-first.md",
-    "docs/reference/operations/observability-event-matrix.md",
-    "docs/reference/quality/analytics-verification-contract.md",
+    "docs/operations/observability/observability-architecture-map.md",
+    "docs/operations/observability/observability-google-first.md",
+    "docs/operations/observability/observability-event-matrix.md",
+    "docs/development/quality/analytics-verification-contract.md",
     "hushh-webapp/lib/observability",
     "hushh-webapp/__tests__/services/observability-schema.test.ts",
     "hushh-webapp/__tests__/services/observability-route-map.test.ts",
@@ -32,10 +32,10 @@
     "analytics-observability-review"
   ],
   "required_reads": [
-    "docs/reference/operations/observability-architecture-map.md",
-    "docs/reference/operations/observability-google-first.md",
-    "docs/reference/operations/observability-event-matrix.md",
-    "docs/reference/quality/analytics-verification-contract.md",
+    "docs/operations/observability/observability-architecture-map.md",
+    "docs/operations/observability/observability-google-first.md",
+    "docs/operations/observability/observability-event-matrix.md",
+    "docs/development/quality/analytics-verification-contract.md",
     ".agents/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md",
     ".agents/skills/analytics-observability-governance/references/event-taxonomy-and-validation.md",
     "consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql"

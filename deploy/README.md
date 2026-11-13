@@ -483,11 +483,11 @@ for this fixture flow.
 
 Canonical owners:
 
-1. [Environment and secrets](../docs/reference/operations/env-and-secrets.md)
-2. [Environment key matrix](../docs/reference/operations/env-secrets-key-matrix.md)
-3. [Branch governance](../docs/reference/operations/branch-governance.md)
-4. [CI configuration](../docs/reference/operations/ci.md)
-5. [Migration governance](../docs/reference/operations/migration-governance.md)
+1. [Environment and secrets](../docs/operations/configuration/env-and-secrets.md)
+2. [Environment key matrix](../docs/operations/configuration/env-secrets-key-matrix.md)
+3. [Branch governance](../docs/operations/releases/branch-governance.md)
+4. [CI configuration](../docs/operations/releases/ci.md)
+5. [Migration governance](../docs/operations/releases/migration-governance.md)
 
 Hosted Gemini uses environment-specific Cloud Run identity through Vertex ADC.
 Do not mount a Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS` into the
@@ -572,7 +572,7 @@ The provider selection in `config/managed-ai-runtime.json` remains authoritative
 Core mode does not probe an unused alternate or grant fallback. Existing full-mode
 fallback requires its complete bound evidence; trust failures still veto release.
 The API and both Drive workers must bind the same verified provider. Enabling a new
-capability still requires its own qualification. See the [CI readiness policy](../docs/reference/operations/ci.md#managed-provider-readiness-policy).
+capability still requires its own qualification. See the [CI readiness policy](../docs/operations/releases/ci.md#managed-provider-readiness-policy).
 
 Azure's canonical PWM schema and six-case attribution evaluation remain
 independent safety checks. An explicit identity, attribution or schema violation
@@ -694,7 +694,7 @@ environment's project in `consent-protocol/config/managed-ai-runtime.json`
 
 The model-pack publication workflow is retired. Preserve historical release
 records without treating them as current prerequisites. Follow the
-[command runtime contract](../docs/reference/one/one-voice-runtime-architecture.md)
+[command runtime contract](../docs/architecture/one/one-voice-runtime-architecture.md)
 for checkpoint, receipt and rollback requirements. Provider access and physical
 device acceptance remain release evidence, not conclusions from a static build.
 

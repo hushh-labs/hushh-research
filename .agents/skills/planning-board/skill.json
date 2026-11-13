@@ -17,8 +17,8 @@
   "required_reads": [
     ".agents/skills/planning-board/references/engineering-core-board.md",
     ".agents/skills/planning-board/references/action-items-board.md",
-    "docs/project_context_map.md",
-    "docs/reference/operations/coding-agent-mcp.md"
+    "docs/development/repository-map.md",
+    "docs/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
     "python3 -m py_compile .agents/skills/planning-board/scripts/board_ops.py",

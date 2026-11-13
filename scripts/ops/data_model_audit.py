@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CONTRACT_PATH = REPO_ROOT / "docs/reference/architecture/runtime-db-data-plane-contract.json"
+CONTRACT_PATH = REPO_ROOT / "docs/architecture/runtime-db-data-plane-contract.json"
 MIGRATIONS_DIR = REPO_ROOT / "consent-protocol/db/migrations"
 RUNTIME_SCAN_ROOTS = [
     REPO_ROOT / "consent-protocol/api",

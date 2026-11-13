@@ -10,13 +10,13 @@
     "hushh-webapp/lib/agent/agent-runtime-context.tsx",
     "hushh-webapp/lib/voice",
     "consent-protocol/hushh_mcp/agents/onboarding",
-    "docs/reference/quality/morphy-agent-experience.md"
+    "docs/development/quality/morphy-agent-experience.md"
   ],
   "required_reads": [
-    "docs/reference/quality/morphy-agent-experience.md",
-    "docs/reference/one/one-voice-runtime-architecture.md",
-    "docs/reference/quality/frontend-ui-architecture-map.md",
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/development/quality/morphy-agent-experience.md",
+    "docs/architecture/one/one-voice-runtime-architecture.md",
+    "docs/development/quality/frontend-ui-architecture-map.md",
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:morphy-ax",

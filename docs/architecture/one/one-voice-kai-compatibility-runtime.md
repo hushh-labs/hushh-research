@@ -1,0 +1,51 @@
+# One Voice Kai Compatibility Runtime
+
+[One](README.md)
+
+## Visual Map
+
+```mermaid
+flowchart LR
+  Capture[Agent Bar / Chat microphone / Siri] --> Command[Location command runtime]
+  Command --> Gateway[Generated action contracts]
+  Gateway --> Owner[Existing Location services and screens]
+  Text[Typed chat] --> Model[Ordinary text model]
+```
+
+## Current compatibility
+
+One is the private agent. Kai is the finance specialist. The maintained command behavior is documented in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md).
+
+`kai-action-gateway.vnext.json`, existing `lib/voice` types, route journeys and local action identifiers remain compatibility contracts shared with typed search, text chat and Location tap flows. Authored `.voice-action-contract.json` files remain the source; generated projections must not become independent catalogs.
+
+Capability graph compatibility permits appended search terms. Reachable
+routes/screens may append only for existing navigation-only actions, with their
+prior ordered entries and every other action field remaining exact. Existing alias additions retain their relative-order rule. Targets,
+fallback, input, authorization and confirmation changes still require an explicit
+migration or exact-revision retirement; these additions do not retire paused runs.
+
+Connections may retain paused setup across added, unbound PATCH inventory only
+under its already-established authenticated read boundary. The compiler still
+excludes those entries from executable capabilities. Existing endpoints,
+steps, cursors, bindings and permissions stay exact; only the accurate inventory
+count changes. New bindings, public authority or executable-plan changes remain
+incompatible.
+
+Capability graph generation preserves compatible workflow history from the
+committed feature parents of a merge with the current base, including an
+isolated first parent when the base arrives through another parent. Both
+lineages retain their qualified histories. Target-branch retirements remain
+rejected when an older branch carries stale compatibility for those ancestors;
+a rejected incoming head, reverse rejection or migration-policy conflict still
+stops generation. Ancestor identity and workflow
+semantics remain verified; exact declared deprecations remain authoritative.
+The Connections endpoint-inventory retirement covers both serving graph
+`076c05cd70ea69d7` and merged graph `f6d226a2c5ca0b34`: their Connections
+workflow definitions are identical. Both retain the existing exact-revision
+rejection policy; no broader revision or workflow is accepted by that declaration.
+
+Talk to One, the Chat microphone and Siri free-text requests use the bounded Location command runtime. Typed Siri uses its typed proposal endpoint and the same checkpoint, preparation and confirmation ledger. Typed Agent Chat keeps ordinary model access and AG-UI. Shared context sanitizers and consent services retain historical filenames because they also serve text and commands.
+
+The former Live websocket and relay-token entry points on `/api/one/adk/*` return retirement responses. `GeminiLiveClient` and the old transport constructor fail before networking. Local phrase classification and ASR/ONNX model packs are retired; they are not fallback paths. Do not restore them through compatibility adapters. New Live sessions use the flag-gated `/api/one/voice/live` relay (One Live Voice), a separate adapter over the same generated gateway.
+
+Historical voice session and directive records are retained. Migration 212 is additive to the existing ledger and encrypted ADK sessions; its rollback preserves receipt metadata and removes command capsules that the previous application cannot resume.

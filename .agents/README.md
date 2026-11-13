@@ -2,7 +2,7 @@
 
 **Precision. Discretion. Duty of care.**
 
-Build One for the person it serves. The approved [personal-agent identity](../docs/vision/agent-ontology.md#personal-data-agent-founder-identity)
+Build One for the person it serves. The approved [personal-agent identity](../docs/product/principles/agent-ontology.md#personal-data-agent-founder-identity)
 governs the product; this framework governs how we engineer and verify it.
 
 Start with root [AGENTS.md](../AGENTS.md), which explicitly loads the binding
@@ -11,12 +11,12 @@ Start with root [AGENTS.md](../AGENTS.md), which explicitly loads the binding
 | Home | Responsibility |
 | --- | --- |
 | [skills](skills/README.md) | Authored practices and governed owner/spoke procedures |
-| [subagents](subagents/) | Read-only engineering evidence lanes |
-| [workflows](workflows/) | Existing recurring workflow contracts and playbooks |
+| [subagents](subagents) | Read-only engineering evidence lanes |
+| [workflows](workflows) | Existing recurring workflow contracts and playbooks |
 | [configuration](config.json) | Bounded engineering execution |
-| [routing](routing/) | Invocation of existing workflow and skill owners |
-| [evals](evals/cases/) | Deterministic skill-routing cases shared by every host |
-| [imports](imports/) | Pinned third-party resources with retained licenses and explicit review status |
+| [routing](routing) | Invocation of existing workflow and skill owners |
+| [evals](evals/cases) | Deterministic skill-routing cases shared by every host |
+| [imports](imports) | Pinned third-party resources with retained licenses and explicit review status |
 
 Each authored role is one Markdown file: JSON frontmatter contains its identity,
 read-only authority and reasoning metadata; the body contains its instructions.
@@ -41,7 +41,7 @@ Markdown file.
 2. **Route:** select the existing workflow and its owning skill.
 3. **Delegate:** use bounded read-only subagents for independent evidence; the parent owns patches and release decisions.
 4. **Patch:** fix the owning source and extend its nearest meaningful regression check. Do not create a separate patch tree.
-5. **Evaluate:** use routing evaluations and the changed contract's authoritative checks; run the core mirror once on the completed candidate.
+5. **Evaluate:** use routing evaluations and the changed contract's authoritative checks; broaden verification only for changed dependencies or unresolved risk.
 6. **Release:** require exact-revision CI and governed environment receipts. Record actual outcomes and clean task-owned resources.
 
 Skills supply reusable methods; workflows compose them; subagents inspect evidence;
@@ -67,7 +67,7 @@ Use `./bin/hushh agents route-task <workflow-id>` for a recurring task, or
 requirements are unchanged by consolidation.
 
 Runtime product agents remain in
-[`consent-protocol/hushh_mcp/agents`](../consent-protocol/hushh_mcp/agents/).
+[`consent-protocol/hushh_mcp/agents`](../consent-protocol/hushh_mcp/agents).
 They are separate from development subagents.
 
 ## Machine-local settings

@@ -30,9 +30,9 @@
     "uat-scoped-deploy"
   ],
   "required_reads": [
-    "docs/reference/operations/README.md",
-    "docs/reference/operations/ci.md",
-    "docs/reference/operations/branch-governance.md",
+    "docs/operations/README.md",
+    "docs/operations/releases/ci.md",
+    "docs/operations/releases/branch-governance.md",
     ".agents/skills/repo-operations/references/admin-release-sop.md",
     ".agents/skills/repo-operations/references/branch-runtime-ops.md",
     ".agents/skills/repo-operations/references/maintainer-branch-freshness.md",

@@ -7,7 +7,7 @@ Canonical visual owner: [consent-protocol](../README.md). Use that map for the t
 
 This benchmark is temporary evaluation infrastructure for the PKM structure path.
 
-It inherits the methodological rules in `./pkm-agent-north-star.md`.
+It inherits the methodological rules in `pkm-agent-north-star.md`.
 
 ## Purpose
 

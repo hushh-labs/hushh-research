@@ -42,7 +42,7 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/guides/new-feature.md`
+1. `docs/development/guides/new-feature.md`
 2. `hushh-webapp/ios/App/App/MyViewController.swift`
 3. `hushh-webapp/android/app/src/main/AndroidManifest.xml`
 4. `hushh-webapp/docs/ios-native-surface-adoption.md`

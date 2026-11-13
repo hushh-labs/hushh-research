@@ -19,7 +19,7 @@ import {
  * directly above a Puppy conversation whose model runs on the owner's Mac. Two
  * model pickers, on one screen, disagreeing about where the answer comes from.
  * On the one tier whose entire claim is where an answer was generated
- * (`docs/reference/ai/puppy-one-on-device.md`), that is the highest-order
+ * (`docs/architecture/ai/puppy-one-on-device.md`), that is the highest-order
  * defect there is. The trigger was gated only on
  * `modelPreference && modelPreference.choices.length > 1`, with no mode guard,
  * while the transcript and composer below it were correctly gated.

@@ -1,6 +1,6 @@
 """Which placement signed a pod request, and whether its epoch is current (E4).
 
-``docs/future/personal-agent/STANDBY-SYNC.md`` engineering decision E4. A person may
+``docs/roadmap/personal-agent/standby-sync.md`` engineering decision E4. A person may
 have a primary agent and one synced standby, both speaking for the same HusshID. The
 hub tells them apart by KEY, and fences a switch by EPOCH:
 

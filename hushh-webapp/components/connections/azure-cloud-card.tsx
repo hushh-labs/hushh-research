@@ -6,7 +6,7 @@ import { isAzureSignInAvailable } from "@/lib/one/azure-sign-in";
 
 /**
  * Azure version 1, stated honestly before anyone signs in
- * (`docs/reference/architecture/byoc-azure.md`, capabilities section).
+ * (`docs/architecture/byoc-azure.md`, capabilities section).
  */
 export const AZURE_V1_CAPABILITY_NOTES: readonly string[] = [
   "Memory recall is keyword-based for now.",

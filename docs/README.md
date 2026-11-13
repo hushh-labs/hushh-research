@@ -1,131 +1,41 @@
-# Hussh Documentation
+# Private Agent One documentation
 
-> Canonical entry point for durable repo knowledge.
+One is your private agent. Hussh provides the platform, consent contracts and
+infrastructure that connect your information, chosen models and services.
 
-## Founder / CTO: start here
+Choose the question you want to answer:
 
-- [Current readiness decision](./reference/quality/adk-orchestration-docs-audit.md): what works, what serves dev, measured outcomes and blockers.
-- [Private-agent north star](./reference/architecture/private-agent-north-star.md): architecture and ownership requirements.
-- [System diagrams](./reference/architecture/README.md#founder-and-cto-diagram-guide): cloud, Docker images, agents and information boundaries.
-- [Browser execution evidence](../consent-protocol/docs/reference/private-browser-runtime.md): ADK integration and each native sandbox gate.
+| Explore | Start here |
+| --- | --- |
+| What can I do, and what stays under my control? | [Product](product/README.md) |
+| How do clients, agents, storage and consent connect? | [Architecture](architecture/README.md) |
+| How do I build or extend the system? | [Development](development/README.md) |
+| How do I host, release and recover it? | [Operations](operations/README.md) |
+| What is proposed rather than available? | [Roadmap](roadmap/README.md) |
 
 ## Visual Map
 
 ```mermaid
-flowchart TB
-  hub["docs/<br/>canonical Hussh knowledge"]
-  guides["guides/<br/>bootstrap + runtime"]
-  reference["reference/<br/>current execution contracts"]
-  architecture["reference/architecture<br/>7-layer stack + contracts"]
-  operations["operations/<br/>governance + release"]
-  vision["vision/<br/>product thesis"]
-  future["future/<br/>roadmap + R&D planning"]
-  one["reference/one<br/>One product contracts"]
-  kai["reference/kai<br/>Kai specialist runtime"]
-  superpowers["superpowers/<br/>agentic plan/spec archive"]
-  frontend["hushh-webapp/docs/<br/>frontend implementation"]
-  backend["consent-protocol/docs/<br/>backend implementation"]
-
-  hub --> guides
-  hub --> reference
-  reference --> architecture
-  reference --> operations
-  reference --> one
-  reference --> kai
-  hub --> vision
-  hub --> future
-  hub --> superpowers
-  hub --> frontend
-  hub --> backend
+flowchart LR
+  person["Understand One"]
+  product["Product and principles"]
+  architecture["Components and trust boundaries"]
+  development["Build and integrate"]
+  operations["Host and operate"]
+  roadmap["Future designs"]
+  person --> product
+  product --> architecture
+  architecture --> development
+  architecture --> operations
+  product --> roadmap
 ```
 
-## The Story in One Screen
+For a particular subsystem, use the [module map](architecture/README.md#modules).
+Implementation references also remain available in the
+[backend package](../consent-protocol/docs/README.md) and
+[web and mobile package](../hushh-webapp/docs/README.md).
 
-Hussh is a consent-and-scope platform built on a strict trust model:
-
-- **identity** decides who is acting
-- **vault** holds encrypted user information
-- **scoped tokens** define what can be accessed
-- **agents and apps** operate only inside granted consent boundaries
-
-The platform invariants are:
-
-1. **Cryptographic Primitives** (implemented today through BYOK, local key control, and ciphertext-at-rest)
-2. **Capability Tokens** (implemented today through `VAULT_OWNER`, consent tokens, and developer tokens)
-3. **PCHP** (implemented today through the Consent Protocol developer API + MCP consent/export flow)
-4. **Separation of Duties** (implemented today through the frontend/backend trust boundary and tri-flow parity across web, iOS, and Android)
-
-The canonical term mapping lives in [reference/architecture/founder-language-matrix.md](./reference/architecture/founder-language-matrix.md).
-The canonical brand rule lives in [reference/operations/brand-and-compatibility-contract.md](./reference/operations/brand-and-compatibility-contract.md).
-
-## Documentation Surface
-
-Start here:
-
-- [../README.md](../README.md): product and repo orientation
-- [project_context_map.md](./project_context_map.md): where things live: the seven platform layers mapped to their real repo anchors, plus the four non-negotiables
-- [guides/getting-started.md](./guides/getting-started.md): first-run path
-- [guides/environment-model.md](./guides/environment-model.md): runtime profiles
-- [reference/README.md](./reference/README.md): execution-owned current reference hub and docs classification model
-- [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md): canonical docs-home map
-- [reference/operations/documentation-recursive-knowledge-model.md](./reference/operations/documentation-recursive-knowledge-model.md): recursive folder contract and rewrite sequence
-- [reference/architecture/architecture.md](./reference/architecture/architecture.md): canonical seven-layer Hussh platform architecture, integration model, deployment model, and runtime sequences
-- [reference/architecture/architecture-view-catalog.md](./reference/architecture/architecture-view-catalog.md): C4 + ISO 42010 catalog of Hussh system, container, component, dynamic, deployment, network, physical, and data-boundary views
-- [reference/architecture/founder-language-matrix.md](./reference/architecture/founder-language-matrix.md): founder-language terminology contract
-- [reference/operations/brand-and-compatibility-contract.md](./reference/operations/brand-and-compatibility-contract.md): public naming rule and compatibility boundary
-- [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model, protected surfaces, and **the bypass lane** — who may land directly on `main` and edit protected pipeline paths, and what that bypass never waives
-- [vision/README.md](./vision/README.md): product thesis and positioning
-- [future/README.md](./future/README.md): future roadmap and R&D planning home
-
-## Domain Indexes
-
-| Domain | Index |
-| ---- | ---- |
-| Guides | [guides/README.md](./guides/README.md) |
-| Reference hub | [reference/README.md](./reference/README.md) |
-| Architecture | [reference/architecture/README.md](./reference/architecture/README.md) |
-| AI | [reference/ai/README.md](./reference/ai/README.md) |
-| IAM | [reference/iam/README.md](./reference/iam/README.md) |
-| One | [reference/one/README.md](./reference/one/README.md) |
-| Kai | [reference/kai/README.md](./reference/kai/README.md) |
-| Mobile | [reference/mobile/README.md](./reference/mobile/README.md) |
-| Operations | [reference/operations/README.md](./reference/operations/README.md) |
-| Quality | [reference/quality/README.md](./reference/quality/README.md) |
-| Streaming | [reference/streaming/README.md](./reference/streaming/README.md) |
-| Vision | [vision/README.md](./vision/README.md) |
-| Future | [future/README.md](./future/README.md) |
-| Superpowers planning archive | [superpowers/README.md](./superpowers/README.md) |
-
-## Implementation Indexes
-
-| Code domain | Index |
-| ---- | ---- |
-| Frontend/native package docs | [../hushh-webapp/docs/README.md](../hushh-webapp/docs/README.md) |
-| App UI shell and shared surfaces | [../hushh-webapp/components/app-ui/README.md](../hushh-webapp/components/app-ui/README.md) |
-| Consent UI and launchers | [../hushh-webapp/components/consent/README.md](../hushh-webapp/components/consent/README.md) |
-| Kai investor surfaces | [../hushh-webapp/components/kai/README.md](../hushh-webapp/components/kai/README.md) |
-| RIA surfaces | [../hushh-webapp/components/ria/README.md](../hushh-webapp/components/ria/README.md) |
-| Service layer and platform-aware calls | [../hushh-webapp/lib/services/README.md](../hushh-webapp/lib/services/README.md) |
-| Backend implementation docs | [../consent-protocol/docs/README.md](../consent-protocol/docs/README.md) |
-
-## Documentation Homes
-
-This repo uses a strict documentation-home model:
-
-1. root markdowns stay thin and point downward
-2. `docs/` owns cross-cutting repo contracts
-3. `consent-protocol/docs/` owns backend/protocol package docs
-4. `hushh-webapp/docs/` owns frontend/native package docs
-
-See [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md).
-
-## Active Docs Contract
-
-Contributor-facing docs should stay small and stable:
-
-- use one canonical setup path
-- use the canonical public command surface (`bin/hushh` at repo root, package-local commands only when the doc is package-local)
-- keep maintainer-only workflows out of first-run guides
-- prefer durable references over one-time runbooks
-
-Maintainer and implementation detail can still live deeper in the tree, but the default contributor experience should not require repo archaeology.
+Coding agents start at [AGENTS.md](../AGENTS.md) and the
+[development-system guide](../.agents/README.md). Documentation changes follow
+[the authoring guide](development/documentation.md); public naming follows the
+[brand and compatibility contract](operations/brand-and-compatibility-contract.md).

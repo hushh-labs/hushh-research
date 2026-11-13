@@ -13,7 +13,7 @@
   "required_reads": [
     ".agents/skills/founder-brief-curation/references/brief-curation-rules.md",
     ".agents/skills/founder-brief-curation/references/founder-brief-kernel.md",
-    "docs/reference/operations/documentation-architecture-map.md"
+    "docs/development/documentation.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",

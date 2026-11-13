@@ -27,12 +27,12 @@ DELEGATION_CONTRACT_RELATIVE_PATH = Path(
 SUBAGENT_BUDGET_RELATIVE_PATH = Path(
     ".agents/skills/agent-orchestration-governance/scripts/subagent_budget.py"
 )
-CODING_AGENT_MCP_RELATIVE_PATH = Path("docs/reference/operations/coding-agent-mcp.md")
+CODING_AGENT_MCP_RELATIVE_PATH = Path("docs/operations/coding-agent-mcp.md")
 BACTERIAL_ARCHITECTURE_RELATIVE_PATH = Path(
-    "docs/vision/bacterial-software-architecture.md"
+    "docs/architecture/engineering-principles.md"
 )
 CODE_PERSONA_RELATIVE_PATH = Path(
-    "docs/reference/operations/hussh-code-persona.md"
+    "docs/development/engineering-principles.md"
 )
 SKILL_CONTRACT_RELATIVE_PATH = Path(
     ".agents/skills/codex-skill-authoring/references/skill-contract.md"

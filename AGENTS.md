@@ -3,7 +3,7 @@
 **Precision. Discretion. Duty of care.**
 
 “An agent should work for the person whose life it touches.”
-Build One around that [personal-agent identity](docs/vision/agent-ontology.md#personal-data-agent-founder-identity):
+Build One around that [personal-agent identity](docs/product/principles/agent-ontology.md#personal-data-agent-founder-identity):
 owner loyalty, explicit consent, verified outcomes and thoughtful restraint.
 
 Read [`.agents/instructions.md`](.agents/instructions.md) before routing, planning,
@@ -24,10 +24,10 @@ canonical [evidence policy](.agents/instructions.md).
 
 All development sources belong in **`.agents/`**:
 
-- [skills](.agents/skills/): reusable procedures and their supporting tools.
-- [workflows](.agents/workflows/): ownership, routing and verification.
-- [subagents](.agents/subagents/): the unified read-only engineering fleet.
-- [evals](.agents/evals/): routing and engineering evaluations.
+- [skills](.agents/skills): reusable procedures and their supporting tools.
+- [workflows](.agents/workflows): ownership, routing and verification.
+- [subagents](.agents/subagents): the unified read-only engineering fleet.
+- [evals](.agents/evals): routing and engineering evaluations.
 - [configuration](.agents/config.json): bounded execution and tool connections.
 
 Create or evolve these through the existing governance workflow. Do not create

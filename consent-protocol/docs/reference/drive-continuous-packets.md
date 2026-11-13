@@ -532,7 +532,7 @@ reading or paging those links does not initiate preparation. Public discovery
 counts can advance independently; `saleDocumentCount` continues to describe the
 exact immutable sale version. Scalar summaries default ON under one owner
 visibility preference and preserve recorded OFF choices; see
-[the owning contract](../../../docs/reference/one/drive-public-financial-summary.md).
+[the owning contract](../../../docs/architecture/one/drive-public-financial-summary.md).
 
 Tags live only in encrypted owner period-search metadata and bounded build
 progress. They grant no listing, consent, payment or sharing authority and never

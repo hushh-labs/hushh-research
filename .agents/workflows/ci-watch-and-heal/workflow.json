@@ -9,15 +9,15 @@
     "bin",
     "scripts",
     ".github/workflows",
-    "docs/reference/operations",
+    "docs/operations",
     "hushh-webapp",
     "consent-protocol"
   ],
   "required_reads": [
-    "docs/reference/operations/ci.md",
-    "docs/reference/operations/branch-governance.md",
+    "docs/operations/releases/ci.md",
+    "docs/operations/releases/branch-governance.md",
     ".agents/skills/repo-operations/references/admin-release-sop.md",
-    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/development/quality/pr-impact-checklist.md",
     ".agents/skills/repo-operations/references/agent-trigger-policy.md"
   ],
   "required_commands": [

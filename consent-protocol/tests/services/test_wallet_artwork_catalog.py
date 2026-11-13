@@ -447,7 +447,7 @@ def test_every_atlas_entry_has_reviewed_bounded_pixels_and_no_iin_evidence(monke
     from hushh_mcp.services.wallet_bank_artwork import bank_designs
 
     monkeypatch.delenv("HUSHH_WALLET_ARTWORK_CATALOG_PATH", raising=False)
-    source = Path(__file__).parents[3] / "docs/reference/one/wallet-card-atlas.manifest.json"
+    source = Path(__file__).parents[3] / "docs/architecture/one/wallet-card-atlas.manifest.json"
     review = json.loads(source.read_text(encoding="utf-8"))
     assert "private_owner_details_overlay" in review["rights"]["scope"]
     assert review["rights"]["owner_details_overlay"]["authorized_at"] == "2026-10-16"

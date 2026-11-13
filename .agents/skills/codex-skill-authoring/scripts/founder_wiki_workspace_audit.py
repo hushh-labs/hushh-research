@@ -57,7 +57,7 @@ REPO_ALIGNMENT_FILES = [
     ".agents/skills/comms-community/references/reply-rules.md",
     ".agents/skills/agent-orchestration-governance/SKILL.md",
     ".agents/skills/agent-orchestration-governance/references/delegation-contract.md",
-    "docs/reference/operations/coding-agent-mcp.md",
+    "docs/operations/coding-agent-mcp.md",
 ]
 
 REQUIRED_SKILL_PHRASES = [
@@ -221,7 +221,7 @@ def classify_workspace_alignment(canon_pages: list[dict[str, Any]]) -> list[dict
         ".agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md"
     )
     pr_script = read_repo_text(".agents/skills/pr-governance-review/scripts/pr_review_checklist.py")
-    mcp_doc = read_repo_text("docs/reference/operations/coding-agent-mcp.md")
+    mcp_doc = read_repo_text("docs/operations/coding-agent-mcp.md")
 
     for page in canon_pages:
         path = page["path"]

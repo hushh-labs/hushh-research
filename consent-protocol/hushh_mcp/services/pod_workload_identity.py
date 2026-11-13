@@ -15,7 +15,7 @@ Two cloud platforms; credentials are minted by the selected workload:
   it refuses on Azure so an Azure pod never reaches for ``metadata.google.internal``.
 
 Selection is by what the platform provides, never by a new behaviour flag
-(``docs/reference/architecture/byoc-azure.md``, agent environment contract).
+(``docs/architecture/byoc-azure.md``, agent environment contract).
 """
 
 from __future__ import annotations

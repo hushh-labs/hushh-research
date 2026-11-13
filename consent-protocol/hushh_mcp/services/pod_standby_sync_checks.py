@@ -1,6 +1,6 @@
 """What one standby sync can end as, and the checks the hub runs on what pods tell it.
 
-Design: ``docs/future/personal-agent/STANDBY-SYNC.md`` (E4, E7, E8). Split from
+Design: ``docs/roadmap/personal-agent/standby-sync.md`` (E4, E7, E8). Split from
 ``pod_standby_sync`` so the sequencing reads on its own; nothing here performs I/O.
 
 Every check compares coordinates the pods published about THEMSELVES (head sequence,

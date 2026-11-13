@@ -18,7 +18,7 @@ description: Use when changing cross-surface verification policy, contract-test 
 
 Owned repo surfaces:
 
-1. `docs/reference/quality`
+1. `docs/development/quality`
 2. `hushh-webapp/__tests__`
 3. `consent-protocol/tests`
 
@@ -42,11 +42,11 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/quality/README.md`
-2. `docs/reference/quality/pr-impact-checklist.md`
-3. `docs/reference/kai/kai-runtime-smoke-checklist.md`
+1. `docs/development/quality/README.md`
+2. `docs/development/quality/pr-impact-checklist.md`
+3. `docs/architecture/finance/kai-runtime-smoke-checklist.md`
 4. `.agents/skills/quality-contracts/references/browser-verification-contract.md`
-5. `docs/reference/quality/definition-of-done.md`
+5. `docs/development/quality/definition-of-done.md`
 
 ## Workflow
 
@@ -98,7 +98,7 @@ existing focused owner. Feature work also runs its affected runtime checks throu
 pre-PR readiness; the commands are selected by the change, not a full-suite default.
 Secondary feature diagnostics report their actual outcome separately; an unrun
 check is not a pass. Keep core release proof blocking under the
-[CI readiness policy](../../../docs/reference/operations/ci.md#managed-provider-readiness-policy).
+[CI readiness policy](../../../docs/operations/releases/ci.md#managed-provider-readiness-policy).
 
 ```bash
 CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh
