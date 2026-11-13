@@ -11,35 +11,6 @@ from .json_schema import (
     schema_document,
 )
 
-# Azure's strict structured-output subset cannot express these constraints.
-# Keep the complete schema in the existing, exact host-validated JSON path.
-# https://learn.microsoft.com/azure/foundry/openai/how-to/structured-outputs
-_HOST_VALIDATED_KEYWORDS = frozenset(
-    {
-        "minLength",
-        "maxLength",
-        "pattern",
-        "format",
-        "minimum",
-        "maximum",
-        "exclusiveMinimum",
-        "exclusiveMaximum",
-        "multipleOf",
-        "patternProperties",
-        "unevaluatedProperties",
-        "propertyNames",
-        "minProperties",
-        "maxProperties",
-        "unevaluatedItems",
-        "contains",
-        "minContains",
-        "maxContains",
-        "minItems",
-        "maxItems",
-        "uniqueItems",
-    }
-)
-
 
 def _schema(value: Any, *, strict: bool) -> dict:
     """Translate native schema syntax; response selection protects open maps."""
@@ -79,12 +50,10 @@ def _schema(value: Any, *, strict: bool) -> dict:
     return converted
 
 
-def _requires_host_schema(node: Any) -> bool:
+def _has_open_map(node: Any) -> bool:
     """Visit schema positions, never enum, example, default or other values."""
     if not isinstance(node, dict):
         return False
-    if _HOST_VALIDATED_KEYWORDS.intersection(node):
-        return True
     kind = node.get("type")
     kinds = kind if isinstance(kind, list) else [kind]
     object_node = (
@@ -98,9 +67,11 @@ def _requires_host_schema(node: Any) -> bool:
             not node.get("properties") or additional is True or isinstance(additional, dict)
         ):
             return True
+    if node.get("patternProperties"):
+        return True
     for key in ("properties", "$defs", "definitions", "patternProperties", "dependentSchemas"):
         if isinstance(node.get(key), dict) and any(
-            _requires_host_schema(item) for item in node[key].values()
+            _has_open_map(item) for item in node[key].values()
         ):
             return True
     for key in (
@@ -116,13 +87,13 @@ def _requires_host_schema(node: Any) -> bool:
     ):
         value = node.get(key)
         if (
-            any(_requires_host_schema(item) for item in value)
+            any(_has_open_map(item) for item in value)
             if isinstance(value, list)
-            else _requires_host_schema(value)
+            else _has_open_map(value)
         ):
             return True
     return any(
-        _requires_host_schema(item)
+        _has_open_map(item)
         for key in ("anyOf", "oneOf", "allOf", "prefixItems")
         for item in node.get(key, [])
     )
@@ -131,12 +102,12 @@ def _requires_host_schema(node: Any) -> bool:
 def response_format(schema: Any) -> tuple[dict, str]:
     """Use JSON mode only within the turn that owns exact host validation.
 
-    Azure's native subset cannot express dynamic maps or bounded fields. Do
-    not retry, switch provider, remove constraints or invent fields.
+    Azure's closed native objects cannot express Memory's dynamic maps. Do not
+    retry a rejected request, switch provider, invent fields or erase values.
     General callers without the owning validator remain refused before I/O.
     """
     document = schema_document(schema)
-    if not _requires_host_schema(document):
+    if not _has_open_map(document):
         return {
             "type": "json_schema",
             "name": "adk_response",
@@ -146,7 +117,7 @@ def response_format(schema: Any) -> tuple[dict, str]:
     owner = current_validated_output_schema()
     normalized = normalize_json_schema(document)
     if owner is None or owner != normalized:
-        raise ValueError("Azure response schema requires its original host validator")
+        raise ValueError("Azure open response schema requires its original host validator")
     instruction = "Return a JSON object matching this output schema:\n" + json.dumps(
         normalized, sort_keys=True, allow_nan=False
     )

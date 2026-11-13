@@ -84,11 +84,7 @@ async def test_sandbox_default_chat_and_ltm_use_azure_without_vertex(monkeypatch
     sent = client.requests[0]
     assert sent["model"] == "pwm-gpt-5-mini-eval"
     assert sent["store"] is False
-    assert sent["text"]["format"] == {"type": "json_object"}
-    assert (
-        json.loads(sent["instructions"].rsplit("\n", 1)[1])
-        == memory.RewriteMemoryResponse.model_json_schema()
-    )
+    assert sent["text"]["format"]["type"] == "json_schema"
     assert sent["max_output_tokens"] == 32768
     payload = json.loads(sent["input"][-1]["content"])
     assert [item["id"] for item in payload["new_messages"]] == ["new-42"]

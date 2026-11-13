@@ -400,40 +400,12 @@ async def test_actual_memory_gene_preserves_dynamic_maps_and_original_host_schem
 
 @pytest.mark.parametrize("mismatched", [False, True])
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize(
-    "schema",
-    [
-        {"type": "object", "properties": {"payload": {"type": "object"}}},
-        {"type": "object", "properties": {"text": {"type": "string", "maxLength": 160}}},
-        {
-            "type": "object",
-            "properties": {
-                "score": {"anyOf": [{"type": "integer", "maximum": 100}, {"type": "null"}]}
-            },
-        },
-        {
-            "type": "object",
-            "properties": {"items": {"type": "array", "items": {"type": "string"}, "maxItems": 5}},
-        },
-        {
-            "type": "object",
-            "properties": {"value": {"$ref": "#/$defs/bounded"}},
-            "$defs": {
-                "bounded": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": False,
-                    "maxProperties": 2,
-                }
-            },
-        },
-    ],
-)
-async def test_host_schema_without_matching_validation_fails_before_io(mismatched, stream, schema):
+async def test_open_response_without_matching_host_validation_fails_before_io(mismatched, stream):
     from contextlib import nullcontext
 
     from hushh_mcp.runtime_providers.json_schema import bind_validated_output_schema
 
+    schema = {"type": "object", "properties": {"payload": {"type": "object"}}}
     other = {"type": "object", "properties": {"different": {"type": "object"}}}
     adapter, client, factory, token = model([])
     with bind_validated_output_schema(other) if mismatched else nullcontext():
@@ -457,13 +429,7 @@ def test_response_maps_keep_schema_alternatives_and_ignore_example_values():
     assert response_format(closed)[0]["schema"]["properties"] == {}
     fixed = {
         "type": "object",
-        "properties": {
-            "minLength": {
-                "type": "string",
-                "enum": ["maximum"],
-                "examples": [{"type": "object", "maxItems": 5}],
-            }
-        },
+        "properties": {"name": {"type": "string", "examples": [{"type": "object"}]}},
     }
     assert response_format(fixed)[0]["type"] == "json_schema"
     original = {

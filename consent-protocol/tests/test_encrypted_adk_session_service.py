@@ -1016,11 +1016,7 @@ async def test_stm_azure_background_binds_owner_and_refuses_revoked_authority(mo
         await asyncio.sleep(0)
         service.commit_chat_summary.assert_awaited_once()
         assert len(client.requests) == 1
-        assert client.requests[0]["text"]["format"] == {"type": "json_object"}
-        assert (
-            json.loads(client.requests[0]["instructions"].rsplit("\n", 1)[1])
-            == stm.SummaryResult.model_json_schema()
-        )
+        assert client.requests[0]["text"]["format"]["type"] == "json_schema"
         assert client.requests[0]["store"] is False
         assert original.require_current is None  # Shared model was never mutated.
 

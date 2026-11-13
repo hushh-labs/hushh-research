@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 from google.adk.models.llm_request import LlmRequest
 from google.genai import types
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 
@@ -213,7 +213,7 @@ async def test_structured_contract_is_native_and_remains_subject_to_strict_host_
     class Output(BaseModel):
         model_config = ConfigDict(extra="forbid", strict=True)
         title: str
-        confidence: int
+        confidence: int = Field(ge=0, le=100)
 
     adapter, client, _, _ = model([response(message('{"title":"Observed","confidence":98}'))])
     adapter.text_verbosity = "low"
@@ -227,8 +227,9 @@ async def test_structured_contract_is_native_and_remains_subject_to_strict_host_
     assert wire["type"] == "json_schema" and wire["strict"] is True
     assert set(wire["schema"]["properties"]) == {"title", "confidence"}
     assert wire["schema"]["additionalProperties"] is False
+    assert wire["schema"]["properties"]["confidence"]["maximum"] == 100
     with pytest.raises(ValidationError):
-        Output.model_validate({"title": "Observed", "confidence": "98"})
+        Output.model_validate({"title": "Observed", "confidence": 101})
 
 
 @pytest.mark.parametrize(
@@ -307,10 +308,8 @@ async def test_real_adk_single_turn_decodes_output_from_manifest_with_injected_a
     assert result == expected
     import jsonschema
 
-    assert client.requests[0]["text"]["format"] == {"type": "json_object"}
-    owned_schema = json.loads(client.requests[0]["instructions"].rsplit("\n", 1)[1])
-    assert owned_schema == schema.model_json_schema()
-    jsonschema.validate(json.loads(expected.model_dump_json()), owned_schema)
+    wire_schema = client.requests[0]["text"]["format"]["schema"]
+    jsonschema.validate(json.loads(expected.model_dump_json()), wire_schema)
     assert client.requests[0]["instructions"].startswith(gene.system_instruction.strip())
     assert len(client.requests) == 1
 
