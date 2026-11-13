@@ -34,8 +34,9 @@ case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
     exit 1
     ;;
 esac
-if [[ "${_DEPLOY_ENV}" == uat && "${_MANAGED_READINESS_MODE:-full}" == core && "$(python3 scripts/ci/managed_provider_readiness.py configured-provider)" != vertex ]]; then
-  exit 0
+if [[ "${_DEPLOY_ENV}" == uat && "${_MANAGED_READINESS_MODE:-full}" == core ]]; then
+  core_provider="$(python3 scripts/ci/managed_provider_readiness.py qualification-provider)"
+  if [[ "${core_provider}" != vertex ]]; then exit 0; fi
 fi
 genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
