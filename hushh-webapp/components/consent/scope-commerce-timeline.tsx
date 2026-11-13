@@ -7,11 +7,11 @@ export function CommerceTime({ label, value }: { label: string; value?: string |
   return <div><dt data-consent-role="fact-label" className="text-muted-foreground">{label}</dt><dd data-consent-role="fact-value"><time dateTime={value}>{new Date(value).toLocaleString()}</time></dd></div>;
 }
 
-export function ScopeCommerceTimeline({ request }: { request: ScopeCommerceRequest }) {
+export function ScopeCommerceTimeline({ request, showProgress = true }: { request: ScopeCommerceRequest; showProgress?: boolean }) {
   const purchase = request.purchase;
   const completed = ({ awaiting_payment: 1, reserved: 2, preparing: 2, staged: 3, armed: 3, active: 4 } as Record<string, number>)[purchase?.status ?? ""];
   return <>
-    {completed !== undefined ? <ol key={purchase?.status} aria-label="Sharing progress" className="motion-step-enter mx-auto grid w-full max-w-md grid-cols-4 gap-2 py-2">
+    {showProgress && completed !== undefined ? <ol key={purchase?.status} aria-label="Sharing progress" className="motion-step-enter mx-auto grid w-full max-w-md grid-cols-4 gap-2 py-2">
       {["Approved", "Funds held", "Ready", "Access"].map((label, index) => {
         const complete = index < completed;
         const Icon = complete ? CheckCircle : index === completed ? Clock : CircleIcon;

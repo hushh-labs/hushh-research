@@ -475,6 +475,15 @@ function groupedHistoryListResponse() {
 }
 
 describe("ConsentCenterPage requestId deep links", () => {
+  it.each(["https://foreign.example/sharing", "x".repeat(129)])("ignores malformed paid agreement links and keeps consent review available (%s)", async value => {
+    mocks.pathname = "/one/consent";
+    mocks.search = `tab=pending&commerceRequestId=${encodeURIComponent(value)}`;
+    render(<ConsentCenterPage />);
+    await screen.findByRole("textbox");
+    expect(screen.queryByTestId("focused-sharing-agreement")).toBeNull();
+    expect(mocks.handleApproveBundle).not.toHaveBeenCalled();
+  });
+
   it("focuses a paid agreement without the generic inbox and retains native web fallback", async () => {
     mocks.pathname = "/one/consent"; mocks.nativeEnabled = true;
     mocks.search = "tab=active&page=3&q=food&commerceRequestId=one_person_paid";

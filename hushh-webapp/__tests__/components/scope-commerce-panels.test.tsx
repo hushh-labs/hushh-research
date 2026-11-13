@@ -61,6 +61,7 @@ describe("commerce session and review authority", () => {
   it.each([
     ["payer", "active", true], ["payer", "reserved", false],
     ["owner", "active", false], ["payer", "revoked", false],
+    ["payer", "expired", false], ["payer", "cancelled", false],
   ] as const)("opens shared information only for the active payer (%s/%s)", async (role, status, allowed) => {
     const person = "11111111-1111-4111-8111-111111111111";
     const request = ownerRequest();
@@ -73,6 +74,44 @@ describe("commerce session and review authority", () => {
     if (allowed) expect(link).toHaveAttribute("href", `/people/${person}`);
     else expect(link).toBeNull();
     expect(mocks.purchase).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner", "payer"] as const)("stops active presentation at known expiry despite failed refresh (%s)", async role => {
+    const expires = Date.now() + 60_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(expires - 1);
+    try {
+      const request = { ...ownerRequest(), role, counterpart_person_ref: "11111111-1111-4111-8111-111111111111",
+        purchase: { ...ownerRequest().purchase!, status: "active", expires_at: new Date(expires).toISOString() } };
+      mocks.scopeRequest.mockResolvedValue(request);
+      const view = render(<ScopeCommerceRequestPanel requestId={requestId} />);
+      await screen.findByText("Access is active.");
+      expect(screen.getByRole("list", { name: "Sharing progress" })).toBeInTheDocument();
+      if (role === "payer") expect(screen.getByRole("link", { name: "Open shared information" })).toBeInTheDocument();
+      clock.mockReturnValue(expires);
+      view.rerender(<ScopeCommerceRequestPanel requestId={requestId} />);
+      expect(screen.getByText("Access period ended. Check again for current status.")).toBeInTheDocument();
+      mocks.scopeRequest.mockRejectedValue(new Error("Status temporarily unavailable"));
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      await screen.findByText("Payment status could not be checked. Refresh before continuing.");
+      expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+      expect(screen.getByText("Access ends").parentElement!.querySelector("time")).toHaveAttribute("dateTime", request.purchase.expires_at);
+      expect(screen.queryByRole("link", { name: "Open shared information" })).toBeNull();
+      expect(screen.queryByText("Access is active.")).toBeNull();
+      expect(screen.queryByRole("heading", { name: role === "owner" ? "You’re sharing" : "Shared with you" })).toBeNull();
+      if (role === "owner") expect(screen.getByRole("button", { name: "End sharing", exact: true })).toBeEnabled();
+      expect(mocks.purchase).not.toHaveBeenCalled();
+      expect(mocks.revokePurchase).not.toHaveBeenCalled();
+      expect(mocks.exporter).not.toHaveBeenCalled();
+    } finally { clock.mockRestore(); }
+  });
+
+  it.each(["expired", "cancelled"])("keeps terminal owner earnings separate from access (%s)", async status => {
+    mocks.scopeRequest.mockResolvedValue({ ...ownerRequest(), purchase: { ...ownerRequest().purchase!, status, expires_at: "2099-01-01T00:00:00Z" } });
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("Check payment history for the latest earnings.");
+    expect(screen.queryByText("Earnings are pending until access ends. Bank payout is separate.")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "End sharing", exact: true })).toBeNull();
   });
 
   it("keeps confirmed end terminal when the next status read fails", async () => {
