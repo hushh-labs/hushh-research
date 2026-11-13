@@ -25,72 +25,55 @@ PostgreSQL acceptance establish the bounded behavior below; they do not establis
 complete Sandbox/live financial acceptance, native browser returns, or legal/tax
 approval. Both reviewers' signed funding settlements and platform capital on
 shared Dev and an automatic payout from matured terms are separately verified
-below; they do not prove complete paid delivery or the acceptance sequence.
+below. The current Dev section establishes one direct encrypted delivery and
+cold recovery; the complete financial/native acceptance sequence remains open.
 
-### Current Dev evidence — 2026-10-17 UTC
+### Current Dev evidence — 2026-11-12 UTC
 
-The governed [application release](https://github.com/hushh-labs/hushh-research/actions/runs/39050162065)
-and [backend/pod publication](https://github.com/hushh-labs/hushh-research/actions/runs/39052082764)
-completed successfully at `7b0d4c2a225d3093d5f5944201468480d3a5fba4`.
-Both shared Dev services independently served that exact source at 100% traffic.
-Its exact `CI Status Gate` passed. Memory → Saved exposes category and eligible
-whole-bundle **Sharing & price**; Payments and earnings retains separate purchase
-balance, information-access earnings and document/answer earnings.
+The requested product path is **approved information delivered directly**. The
+person selects the exact scope on the owner's profile, reviews its purpose and
+term, obtains owner approval, confirms the quote and receives a recipient-bound
+export encrypted by the owner's browser. The separate paid-question flow prepares
+an answer; it is not required for direct scope delivery.
 
-Existing signed funding remains $10.50 per reviewer and cumulative tagged capital
-is $15. Do not repeat those operations. The fresh canonical rehearsal obtained
-normal owner approvals, exact buyer confirmations, funded reservations and
-recipient-bound sealed exports for $0.01, $4.50 early revocation and $4.50 manual
-maturity. All three passed pre-activation retrieval denial. Their original terms
-have now ended without successful browser delivery proof. The one-cent term was
-`2026-10-17T18:06:07.720Z` through `2026-10-17T19:06:07.720Z`; timestamps and
-financial records remain unchanged. Buyer nonuse is not refundable. Exact browser
-delivery, revocation refunds and the manual/automatic acceptance sequence
-remain unverified. Fresh provider readback at `2026-10-17T22:37:41.482086Z`
-verified an $8.19 automatic weekly withdrawal from those matured terms, including
-its transfer, simulated bank payout and actual fee receipts. This proves that
-bounded payout, not successful UI delivery or live bank settlement.
-The [same-source admission pause](https://github.com/hushh-labs/hushh-research/actions/runs/39057104575)
-completed successfully, retaining reconciliation and access enforcement. A
-[governed same-source resume](https://github.com/hushh-labs/hushh-research/actions/runs/39074407311)
-completed successfully. One bounded fresh $0.01 delivery rehearsal reuses existing
-funds. Its first preflight stopped before creating a request or spending because
-the operator verifier expected payout-style `withdrawal_id` metadata on a transfer.
-The corrected verifier checks the production transfer's `scope_operation_id` and
-both saved/returned canonical transfer groups; it changes no provider records or
-financial writers. Actual receipt predicates, 23 nearest tests, an original-code
-failure control and independent source review establish that correction. Fresh
-provider/ledger readback verifies balanced liabilities, settled backing and fee
-conservation. The same rehearsal then reserved and sealed one cent, passed
-pre-activation denial, and became active at `2026-10-17T22:51:11.130Z`, with its
-original expiry at `2026-10-17T23:51:11.130Z`. Recipient delivery exposed a concrete
-read-projection defect: PostgreSQL returns a hyphenated UUID while authenticated
-AAD retains the same UUID's original compact spelling. The exact binding guard
-therefore suppresses the export. The source correction preserves the original AAD
-spelling only for matching v2 UUID identities; it never rewrites ciphertext, AAD,
-expiry or financial records. All 59 nearest tests pass, including different-ID
-denial without a read receipt; the original projection fails the regression.
-A read-only check of that actual Dev row passes every existing binding predicate
-with the corrected local projection. Deployment and browser decryption remain
-unverified. No replacement purchase was made for this diagnosis.
-Live activity remains disabled.
+[#9443](https://github.com/hushh-labs/hushh-research/pull/9443) restores reachable
+funding inside the existing payer review at
+`/one/consent?commerceRequestId=…`. The old Add funds link led to Payouts after its
+Information access section had been intentionally removed. The repair reuses
+`CommerceFundingControls`, `useScopeCommerceAccount` and the existing hosted return;
+it preserves the default Payouts screen and introduces no provider or ledger.
+Account/request/vault fences reject late returns. Funding blocks concurrent
+purchase actions, and its return refreshes state without purchasing automatically.
 
-Two rehearsal assumptions required correction: the informational release dialog
-must be acknowledged through its normal **Got it** control, and Profile deliberately
-collapses identical shared sections. The corrected verifier requires the same
-person and exact scope in the visible representative, then verifies the unchanged
-original purchase's request, term, recipient and exact decrypted payload separately.
-It preserves strict original-request checks without that crypto adapter. All 20
-nearest tests pass, including wrong-person/scope, revoked-original and missing-adapter
-negatives; the original representative assertion fails its regression control.
-The root checkpoint handoff preserves every byte and records its hash separately
-from the corrected verifier and unchanged application/crypto source bindings.
-This is verifier evidence, not completed financial acceptance or a new deployment.
+[CI 43324346999](https://github.com/hushh-labs/hushh-research/actions/runs/43324346999)
+and [Dev release 43326158280](https://github.com/hushh-labs/hushh-research/actions/runs/43326158280)
+passed. Frontend `00334-w9h` serves source `4b527052fd32` at 100%; backend
+`00383-l2q` / `297d6ac6d712` and the installed pod image are unchanged. The release
+built only the frontend. No CI policy, schema, UAT or production change occurred.
 
-The connector-domain repair at `4c1ab89ecc294f8c21a3f2162ed9d5d2e9d4b8ee`
-passed local core, 42 focused checks and all 25 hosted CI jobs. Its deployment is
-held until the financial rehearsal hands back the shared environment. One's
-owner OAuth and authenticated account/balance reads remain acceptance work.
+The retained reviewers completed one 50-cent Sandbox funding and a separate
+24-cent reservation for a 24-hour exact synthetic Role scope. Native records bind
+one processed signed checkout event, charge, balance transaction and funding lot;
+the journal balances. Owner preparation staged one encrypted export. After the
+scheduled start, the requester displayed exactly the approved Role field. A real
+reload removed the displayed value and locked the share; password unlock retrieved
+the same encrypted envelope and displayed-value hash. Keys and plaintext stayed
+in browser memory. Model-processing permission remained off.
+
+An early unpaid quote expired while the release was being qualified. Normal buyer
+cancellation closed it without a reservation or refund; the accepted replacement
+obtained fresh owner approval. Original timestamps and financial history were
+preserved. Native pre-start purchase readback denied access. The separate
+endpoint-level preactivation probe did not run in time because the recipient
+vault was locked; it is not new refusal evidence. Existing gate tests are retained.
+This rehearsal reused the existing exact-leaf tariff, rather than qualifying a
+new arbitrary leaf-price editor.
+
+This is bounded Dev web/Sandbox delivery and recovery acceptance. The older
+funding, capital and matured-term payout observations remain separately scoped.
+The broader financial lifecycle, real native returns, live payments and bank
+settlement are not established by this one exchange. The managed owner pilot
+remains paused. See the [current readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md#dev-pkm-scope-sharing--12-november-2026).
 
 ### Earlier Dev observations
 
