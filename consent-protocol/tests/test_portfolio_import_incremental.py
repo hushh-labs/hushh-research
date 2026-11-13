@@ -147,6 +147,23 @@ async def test_uncovered_csv_row_resets_before_whole_document_fallback(monkeypat
     fallback.assert_awaited_once()
 
 
+@pytest.mark.parametrize("separator", ["decimal_separator", "group_separator"])
+@pytest.mark.asyncio
+async def test_missing_csv_number_format_requests_whole_document_fallback(monkeypatch, separator):
+    mapping = layout()
+    mapping.pop(separator)
+    stream, _, fallback = extract(
+        monkeypatch,
+        [mapping],
+        csv=True,
+        content=b"Symbol,Qty,Value,Cost\nONE,1,10,\n",
+    )
+    events = [event async for event in stream]
+    assert [event["kind"] for event in events] == ["reset", "complete"]
+    assert events[-1]["fallback_reason"] == "csv_number_format_invalid"
+    fallback.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_pdf_each_call_has_exactly_one_page_preserves_identical_lots(monkeypatch):
     stream, calls, fallback = extract(monkeypatch, [page(), page()])

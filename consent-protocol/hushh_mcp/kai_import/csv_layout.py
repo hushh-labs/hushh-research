@@ -155,6 +155,8 @@ def decode_csv_batch(
             raise CsvLayoutUnsupported("csv_column_invalid")
         mapping[field] = _index(item.get("column"), 0, len(records[header]) - 1)
     decimal, grouping = layout.get("decimal_separator"), layout.get("group_separator")
+    if not isinstance(decimal, str) or not isinstance(grouping, str):
+        raise CsvLayoutUnsupported("csv_number_format_invalid")
 
     def value(cell: str, kind: str) -> Any:
         if kind == "number":
