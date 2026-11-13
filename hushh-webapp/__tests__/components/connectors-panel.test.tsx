@@ -1121,6 +1121,15 @@ describe("supported connector catalog", () => {
     }
   });
 
+  it("states that Mail is connected once, on the account line", async () => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
+    const mail = within(await screen.findByRole("region", { name: "Gmail" }));
+    expect(mail.getByText("Connected as mail@example.invalid")).toBeInTheDocument();
+    expect(mail.queryByText("Connected", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("retains each account while sign-in needs to be refreshed", async () => {
     state.gmailStatus = { connected: true, needs_reauth: true, google_email: "mail@example.invalid" };
     state.calendar = {

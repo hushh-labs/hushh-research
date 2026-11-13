@@ -1630,7 +1630,7 @@ function OwnerConnectorsPanel({
                   ? status.compose_permission_granted
                     ? "Gmail drafts enabled. Review your draft in Chat before saving."
                     : "Gmail drafts permission was not granted. Try again."
-                  : "Mail connected. You can send after reviewing each email."
+                  : ""
                 : "Mail is not connected yet. You can retry.",
             );
         }
@@ -2067,6 +2067,9 @@ function OwnerConnectorsPanel({
     (gmail.status?.connected || gmail.status?.needs_reauth)
       ? connectorAccountDetail(gmail.status.google_email, gmail.status.needs_reauth ? "needs_reauth" : "connected")
       : undefined;
+  // Connected / sign-in-needed lines that already name the account carry the
+  // state themselves; only then is the separate status line redundant.
+  const mailStatusInAccount = Boolean(mailAccountDetail && gmail.status?.google_email?.trim());
   const calendarAccountDetail = calendar.loaded && !calendar.error &&
     (calendar.connected || calendarNeedsReconnect)
       ? connectorAccountDetail(calendar.status?.google_email, calendarNeedsReconnect ? "needs_reauth" : "connected")
@@ -2678,11 +2681,16 @@ function OwnerConnectorsPanel({
               <h3 id="connection-mail-title" className="font-semibold">
                 Gmail
               </h3>
-              {mailAccountDetail ? (
+              {mailAccountDetail && !mailStatusInAccount ? (
                 <p className="break-all text-sm text-muted-foreground">{mailAccountDetail}</p>
               ) : null}
-              <p role="status" className="text-sm">
-                {mailDetail.status}
+              {/* "Connected as <email>" already says connected, so the status
+                  line carries the account instead of repeating the state. */}
+              <p
+                role="status"
+                className={mailStatusInAccount ? "break-all text-sm text-muted-foreground" : "text-sm"}
+              >
+                {mailStatusInAccount ? mailAccountDetail : mailDetail.status}
               </p>
               <div className="flex flex-wrap gap-2">
                 {(!gmail.status?.connected || gmail.status?.needs_reauth) && (
