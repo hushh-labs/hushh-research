@@ -24,7 +24,7 @@ export function CommerceFundingControls({ enabled, busy, amount, changeAmount, c
     <label data-consent-role="form-label" className="block space-y-[var(--app-form-field-gap)] text-sm">Add to balance (USD)
       <Input data-consent-input="true" inputMode="decimal" value={amount} onChange={event => changeAmount(event.target.value)} disabled={busy} />
     </label>
-    <p data-consent-role="helper" className="text-xs text-muted-foreground">$0.50–$1,000 per funding payment. Suggested: $10. Funding does not approve or buy access.</p>
+    <p data-consent-role="helper" className="text-xs text-muted-foreground">$0.50–$1,000 per payment. Adding funds doesn't buy access.</p>
     <Button data-consent-role="compact-action" disabled={busy} onClick={checkout}>Continue to secure checkout</Button>
   </div>;
 }

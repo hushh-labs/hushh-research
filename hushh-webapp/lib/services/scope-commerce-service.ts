@@ -346,20 +346,20 @@ export function parseCommerceDollarInput(value: string, minimum: number): number
 }
 
 const COMMERCE_STATUS_COPY: Record<string, string> = {
-  awaiting_payment: "Owner approved these terms. Payment confirmation is still required before information is released.",
-  reserved: "Payment reserved. The owner must prepare encrypted information before access starts.",
-  preparing: "The owner is preparing encrypted information. Access has not started.",
-  staged: "Encrypted information is prepared. Access starts at the verified activation time.",
-  armed: "Encrypted information is prepared. Access starts at the verified activation time.",
-  active: "Paid access is active for the agreed term.",
-  revoked: "Access ended early. Unused calendar time is being reconciled to the buyer balance.",
-  cancelled: "Sharing cancelled before activation. Reserved funds return to the buyer balance.",
-  expired: "The access term ended.",
-  approved_awaiting_payment: "Terms approved. Payment confirmation and encrypted preparation are still required.",
+  awaiting_payment: "Approved. Waiting for payment.",
+  reserved: "Payment reserved. Waiting for the owner to share.",
+  preparing: "Preparing information. Access hasn't started.",
+  staged: "Ready. Access starts at the scheduled time.",
+  armed: "Ready. Access starts at the scheduled time.",
+  active: "Access is active.",
+  revoked: "Access ended early. Refund for unused time is being checked.",
+  cancelled: "Sharing cancelled. Reserved funds return to the buyer's balance.",
+  expired: "Access has ended.",
+  approved_awaiting_payment: "Approved. Payment and sharing are still pending.",
 };
 export function scopeCommerceStatusCopy(status: unknown): string {
   return typeof status === "string" && Object.hasOwn(COMMERCE_STATUS_COPY, status)
-    ? COMMERCE_STATUS_COPY[status]! : "Review payment and encrypted preparation status.";
+    ? COMMERCE_STATUS_COPY[status]! : "Check access and payment status.";
 }
 
 export function commerceActivityStatusCopy(kind: string, status: string): string {
