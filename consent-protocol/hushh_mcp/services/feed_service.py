@@ -523,7 +523,20 @@ class FeedService:
                 count(*) FILTER (WHERE m.deleted_for_recipient_at IS NOT NULL),
                 max(m.deleted_for_recipient_at),
                 count(*) FILTER (WHERE m.deleted_for_everyone_at IS NOT NULL),
-                max(m.deleted_for_everyone_at))) AS history_revision
+                max(m.deleted_for_everyone_at),
+                (SELECT concat_ws(':', count(*), max(hidden.dismissed_at))
+                   FROM feed_events hidden
+                  WHERE hidden.user_id = :user_id AND hidden.dismissed_at IS NOT NULL),
+                (SELECT concat_ws(':', count(*), max(g.recipient_cleared_at))
+                   FROM one_location_share_grants g
+                  WHERE g.recipient_user_id = :user_id AND g.recipient_cleared_at IS NOT NULL),
+                (SELECT count(*) - count(DISTINCT peer.counterpart_user_id)
+                   FROM feed_events receipt
+                   JOIN feed_event_counterparts peer ON peer.feed_event_id = receipt.id
+                  WHERE receipt.user_id = :user_id AND receipt.source_domain = 'location'
+                    AND receipt.event_type = 'location_share_created'
+                    AND receipt.metadata->>'feed_audience' = 'recipient'
+                    AND receipt.metadata->>'share_kind' = 'sos'))) AS history_revision
             FROM feed_events f
             JOIN messages m ON m.id = CASE WHEN f.source_row_id ~*
               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -979,16 +992,12 @@ class FeedService:
             return False
 
     def _grouped_feed_sql(self, *, count):
-        wallet_messages = []
-        cte = (
-            _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
-        )
-        if cte == _WALLET_GROUPED_FEED_CTE:
-            wallet_messages.append("wg.id IS NOT NULL")
+        wallet_access = self._wallet_card_access_installed()
+        wallet_requests = self._wallet_card_requests_installed()
+        cte = _WALLET_GROUPED_FEED_CTE if wallet_access else _GROUPED_FEED_CTE
         if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
             cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
-        if self._wallet_card_requests_installed():
-            wallet_messages.append("wr.id IS NOT NULL")
+        if wallet_requests:
             cte = cte.replace(
                 "    WHEN f.source_domain = 'connections'",
                 "    WHEN wr.id IS NOT NULL THEN 'wallet-request:' || wr.id::text\n    WHEN f.source_domain = 'connections'",
@@ -997,7 +1006,7 @@ class FeedService:
                 "  LEFT JOIN wallet_card_requests wr ON wr.message_id=m.id AND wr.target_user_id=:user_id AND wr.requester_user_id=m.sender_user_id AND c.id IS NOT NULL\n  WHERE f.user_id = :user_id",
             )
         cte = apply_location_feed_policy(
-            cte, wallet_message=" OR ".join(wallet_messages) or "FALSE"
+            cte, wallet_access=wallet_access, wallet_requests=wallet_requests
         )
         return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
 
