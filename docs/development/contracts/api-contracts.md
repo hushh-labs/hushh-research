@@ -3903,6 +3903,15 @@ Selection precedes recipient clearing, so older incidents cannot reappear. These
 fields are computed by the server, not accepted from a client or exposed in owner
 grant state. Older servers may omit them.
 
+The existing `history_revision` also fences owner dismissals, recipient-side
+clears and repeated SMS supersession. A missed live hint cannot retain obsolete
+loaded pages after the next refresh. A first SMS from a different sender does not
+invalidate history; another recipient's clear never changes this owner's revision.
+Recipient Clear also hides the matching owned creation receipts in the same
+transaction, preserving the dismissal after short-lived Location rows are removed.
+Retention applies the same receipt write to legacy clears before pruning grants,
+including invalidation of older generic Feed Undo tokens.
+
 | Method | Path | Feed history contract |
 | ------ | ---- | --------------------- |
 | GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |

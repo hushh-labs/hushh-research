@@ -29,6 +29,10 @@ CREATE FUNCTION calendar_email_followup_grant_current(
 
 def add_followup_fence_relations(connection) -> None:
     connection.execute(text(_FOLLOWUP_FENCE_DDL))
+    add_feed_presentation_relations(connection)
+
+
+def add_feed_presentation_relations(connection) -> None:
     # Production counterpart and Circle ownership relations also fence the
     # important-incoming projection in hand-built Feed fixtures.
     connection.execute(
@@ -39,9 +43,10 @@ def add_followup_fence_relations(connection) -> None:
       CREATE TABLE IF NOT EXISTS one_location_circles (
         id UUID PRIMARY KEY, owner_user_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS one_location_share_grants (
-        id UUID PRIMARY KEY, recipient_cleared_at TIMESTAMPTZ);
+        id UUID PRIMARY KEY, recipient_user_id TEXT, recipient_cleared_at TIMESTAMPTZ);
       ALTER TABLE one_location_share_grants
-        ADD COLUMN IF NOT EXISTS recipient_cleared_at TIMESTAMPTZ;
+        ADD COLUMN IF NOT EXISTS recipient_cleared_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS recipient_user_id TEXT;
     """)
     )
 

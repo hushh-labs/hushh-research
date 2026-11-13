@@ -24,7 +24,26 @@ SELECT DISTINCT ON (peer.counterpart_user_id)
  ORDER BY peer.counterpart_user_id, receipt.created_at DESC, receipt.id DESC
 """
 
-_PRESENTATION_SOURCE = """
+_RECEIVED_GRANTS_TEMPLATE = """
+SELECT g.*,
+  CASE WHEN g.metadata->>'share_kind' = 'sos'
+    THEN latest_sms.grant_id = g.id::text END AS feed_latest_sms,
+  CASE WHEN g.metadata->>'share_kind' = 'sos' THEN
+    (COALESCE(latest_sms.grant_id = g.id::text, FALSE) OR g.latest_envelope_id IS NOT NULL)
+    END AS feed_sms_confirmed,
+  o.display_name AS owner_display_name, o.photo_url AS owner_photo_url,
+  o.custom_photo_url AS owner_custom_photo_url, o.phone_number AS owner_phone_number
+FROM one_location_share_grants g
+LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+LEFT JOIN ({latest_sms}) latest_sms ON latest_sms.sender_id = g.owner_user_id
+WHERE g.recipient_user_id = :user_id
+ORDER BY g.created_at DESC, g.id DESC
+LIMIT :source_limit
+"""
+# Compile authored templates once. Request values remain database bindings.
+RECEIVED_GRANTS_FEED_SQL = _RECEIVED_GRANTS_TEMPLATE.format(latest_sms=LATEST_SMS_RECEIPT_SQL)
+
+_PRESENTATION_TEMPLATE = """
 SELECT raw.*, peer.counterpart_user_id AS feed_peer,
   CASE
     WHEN raw.source_domain = 'location' AND raw.event_type = 'location_share_created'
@@ -97,11 +116,53 @@ LEFT JOIN one_location_share_grants grant_row ON grant_row.id = CASE
     AND raw.source_row_id ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$'
   THEN raw.source_row_id::uuid END
 WHERE raw.user_id = :user_id
-""".format(grant_key=_GRANT_KEY, latest_sms=LATEST_SMS_RECEIPT_SQL)
+"""
+_PRESENTATION_SOURCE = _PRESENTATION_TEMPLATE.format(
+    grant_key=_GRANT_KEY, latest_sms=LATEST_SMS_RECEIPT_SQL
+)
 
 
-def apply_location_feed_policy(cte: str, *, wallet_message: str = "FALSE") -> str:
+_CLEARED_RECEIPTS_SQL = """
+UPDATE feed_events AS f
+   SET dismissed_at = COALESCE(f.dismissed_at, candidate.cleared_at),
+       read_at = COALESCE(f.read_at, candidate.cleared_at),
+       dismissal_token = gen_random_uuid()
+  FROM feed_clear_candidates candidate
+ WHERE f.user_id = candidate.recipient_user_id
+   AND f.source_domain = 'location' AND f.event_type = 'location_share_created'
+   AND f.source_row_id = candidate.grant_id::TEXT
+RETURNING f.id
+"""
+
+
+def with_cleared_feed_receipts(template: str) -> str:
+    """Compose the fixed recipient preference write into a domain transaction.
+
+    Both callers provide authoritative ended/cleared grant candidates. Rotating
+    the token also prevents a stale generic Feed Undo from reversing an SOS Clear.
+    """
+    marker = "__CLEARED_FEED_RECEIPTS__"
+    if template.count(marker) != 1:
+        raise ValueError("Expected one authored Feed receipt write")
+    return template.replace(marker, _CLEARED_RECEIPTS_SQL)
+
+
+def apply_location_feed_policy(
+    cte: str, *, wallet_access: bool = False, wallet_requests: bool = False
+) -> str:
     """Extend the existing projection; preserve other DRIs' wallet message rows."""
+    # Callers select capabilities, never supply SQL expressions.
+    wallet_message = (
+        " OR ".join(
+            clause
+            for enabled, clause in (
+                (wallet_access, "wg.id IS NOT NULL"),
+                (wallet_requests, "wr.id IS NOT NULL"),
+            )
+            if enabled
+        )
+        or "FALSE"
+    )
     cte = cte.replace("  FROM feed_events f\n", f"  FROM ({_PRESENTATION_SOURCE}) f\n", 1)
     cte = cte.replace(
         "  SELECT f.*,",
