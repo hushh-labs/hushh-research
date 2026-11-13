@@ -158,7 +158,7 @@ class CircleChatService:
             ).encode()
         ).hexdigest()
 
-    def state(self, user: str, circle: str) -> dict:
+    def state(self, user: str, circle: str, *, include_messages: bool = False) -> dict:
         with self.db.engine.begin() as conn:
             membership = self._circle(conn, user, circle)
             roster = self._roster(conn, circle)
@@ -176,7 +176,7 @@ class CircleChatService:
                 "WHERE circle_id = CAST(:circle AS uuid) AND user_id = :user",
                 {"user": user, "circle": circle},
             )
-            return {
+            result = {
                 "notificationDevices": _rows(
                     conn,
                     """SELECT p.user_id AS "userId",
@@ -202,6 +202,12 @@ class CircleChatService:
                 "latestSequence": counts["latest"],
                 "muted": bool(prefs and prefs[0]["muted"]),
             }
+        if include_messages:
+            # Bootstrap the current transcript with the authorization snapshot so
+            # the client does not render an intermediate loading state or issue a
+            # second request before showing the latest Circle message.
+            result["latest"] = self.messages(user, circle)
+        return result
 
     def revision(self, user: str, circle: str) -> dict:
         """Reauthorize every long-poll response without loading keys or content."""
