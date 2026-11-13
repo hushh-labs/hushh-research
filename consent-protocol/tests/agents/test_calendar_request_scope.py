@@ -370,23 +370,24 @@ async def test_explicit_read_zone_overrides_browser_zone(monkeypatch):
     assert port.list_events.await_args.kwargs["start_at"] == "2026-11-06T00:00:00+05:30"
 
 
-@pytest.mark.parametrize("changed", [False, True])
+@pytest.mark.parametrize("changed", [False, True, "expired"])
 async def test_new_slot_coverage_is_rechecked_before_booking(monkeypatch, changed):
     from hushh_mcp.services.google_calendar_booking import check_opening
     from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
     port = calendar_port(monkeypatch)
+    day = "2000-11-06" if changed == "expired" else "2099-11-06"
     opening = {
-        "start_at": "2099-11-06T03:30:00Z",
-        "end_at": "2099-11-06T04:00:00Z",
-        "available_until": "2099-11-06T12:30:00Z",
+        "start_at": f"{day}T03:30:00Z",
+        "end_at": f"{day}T04:00:00Z",
+        "available_until": f"{day}T12:30:00Z",
     }
     selection = {
         "calendar_id": "primary",
         "calendar_ids": ["primary", "team"],
         "coverage_policy": "board_default",
-        "query_start": "2099-11-06T03:30:00Z",
-        "query_end": "2099-11-06T12:30:00Z",
+        "query_start": f"{day}T03:30:00Z",
+        "query_end": f"{day}T12:30:00Z",
         "duration_minutes": 30,
         "time_zone": "Asia/Kolkata",
         "slot": opening,
@@ -398,7 +399,13 @@ async def test_new_slot_coverage_is_rechecked_before_booking(monkeypatch, change
         "time_zone": "Asia/Kolkata",
         "opening_selection": selection,
     }
-    if changed:
+    if changed == "expired":
+        with pytest.raises(GoogleConnectionError, match="slot expired") as error:
+            await check_opening(port, user_id="owner", plan=plan, binding=("grant",))
+        assert error.value.status_code == 409
+        port.list_calendars.assert_not_awaited()
+        port.freebusy.assert_not_awaited()
+    elif changed:
         port.list_calendars.return_value["calendars"].append({"id": "new-calendar"})
         with pytest.raises(GoogleConnectionError) as error:
             await check_opening(port, user_id="owner", plan=plan, binding=("grant",))
