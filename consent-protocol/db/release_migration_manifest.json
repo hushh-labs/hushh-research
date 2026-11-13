@@ -386,7 +386,8 @@
     "450_one_attempt_email_outbox.sql",
     "451_one_attempt_email_feedback.sql",
     "452_direct_calls.sql",
-    "454_calendar_email_followup_temporal.sql"
+    "454_calendar_email_followup_temporal.sql",
+    "458_location_feed_confirmed_incidents.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -819,6 +820,7 @@
     "450_one_attempt_email_outbox.sql": "rollback/450_one_attempt_email_outbox.rollback.sql",
     "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql",
     "452_direct_calls.sql": "rollback/452_direct_calls.rollback.sql",
-    "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql"
+    "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql",
+    "458_location_feed_confirmed_incidents.sql": "rollback/458_location_feed_confirmed_incidents.rollback.sql"
   }
 }

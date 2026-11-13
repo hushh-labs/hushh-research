@@ -21,6 +21,12 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 def _isolate_list_state_dependencies(monkeypatch):
     """Keep this resilience suite DB-free as its module contract promises."""
 
+    # These executor doubles represent live accounts. Lifecycle filtering has
+    # its own database tests; do not reach the real directory from this suite.
+    monkeypatch.setattr(
+        OneLocationAgentService, "_live_location_account_ids", lambda self, ids: set(ids)
+    )
+
     monkeypatch.setattr(
         OneLocationAgentService,
         "get_auto_approve_preference",

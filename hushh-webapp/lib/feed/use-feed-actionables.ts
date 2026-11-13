@@ -854,21 +854,23 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   });
 
   // ── Location access requests (vault-gated read) ──
-  // Shares the canonical ONE_LOCATION_STATE cache with the Location workspace,
-  // so this loader write-throughs via OneLocationStateResource (which owns that
-  // key) rather than leaving the shared snapshot stale; useStaleResource only
-  // peeks the cache, so without the write the SWR warm-render never happens.
+  // Share publication and invalidation fences with the Location workspace.
+  const locationVaultEpoch = snapshotVaultSessionEpoch();
   const locationResource = useStaleResource({
     cacheKey: userId
       ? CACHE_KEYS.ONE_LOCATION_STATE(userId)
       : "one_location_state_guest",
     enabled: Boolean(userId) && Boolean(vaultOwnerToken),
+    requestScope: `location:${authGeneration}:${locationVaultEpoch}`,
+    retainOnInvalidate: true,
+    getRequestVersion: () => userId ? OneLocationStateResource.currentRevision(userId) : 0,
+    isRequestCurrent: () => getAuthSessionGeneration() === authGeneration &&
+      isVaultSessionEpochCurrent(locationVaultEpoch) && getVaultOwnerToken() === vaultOwnerToken,
     load: async () => {
-      if (!vaultOwnerToken)
+      if (!vaultOwnerToken || !userId || getAuthSessionGeneration() !== authGeneration ||
+        !isVaultSessionEpochCurrent(locationVaultEpoch) || getVaultOwnerToken() !== vaultOwnerToken)
         throw new Error("Unlock to review location requests");
-      const state = await OneLocationService.getState(vaultOwnerToken);
-      if (userId) OneLocationStateResource.write(userId, state);
-      return state;
+      return OneLocationStateResource.load(userId, () => OneLocationService.getState(vaultOwnerToken));
     },
   });
 
@@ -1376,6 +1378,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   // the list and the tab badge use.
   const refreshActionables = useCallback(async () => {
     if (!userId) return;
+    OneLocationStateResource.invalidate(userId);
     await Promise.all([
       consentSummaryRefresh({ force: true }),
       consentListRefresh({ force: true }),
@@ -1974,7 +1977,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
       const isLive = isActiveSmsEmergencyGrant(grant);
-      const sentAt = toDisplayTimestamp(grant.createdAt);
+      const sentAt = toDisplayTimestamp(grant.feedConfirmedAt ?? grant.createdAt);
       const status = isLive ? "Active" : grant.status === "revoked" ? "Revoked"
         : grant.status === "expired" ? "Expired" : "Ended";
       items.push({

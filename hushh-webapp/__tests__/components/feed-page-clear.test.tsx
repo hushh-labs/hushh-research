@@ -347,6 +347,30 @@ async function renderAfterAutomaticRead() {
 }
 
 describe("Feed history interactions", () => {
+  it("releases a quiet row's reading anchor when the raw refreshed page is accepted at the top", async () => {
+    const root = document.createElement("div");
+    root.dataset.appScrollRoot = "true";
+    document.body.append(root);
+    try {
+      const share = { ...mocks.data.items[0]!, id: "5", source_domain: "location",
+        event_type: "location_share_created", created_at: "2026-01-02T00:00:00Z",
+        metadata: { feed_group_key: "share-a", feed_audience: "recipient" } };
+      const other = { ...mocks.data.items[0]!, id: "4", created_at: "2026-01-03T00:00:00Z" };
+      mocks.data = { items: [other, share], next_cursor: null, unread_count: 0 };
+      const view = render(<FeedPage />);
+      await screen.findByText("row-5");
+      act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
+      const ended = { ...share, id: "6", event_type: "location_share_expired", created_at: "2026-01-04T00:00:00Z",
+        metadata: { ...share.metadata, feed_silent: true } };
+      mocks.data = { ...mocks.data, items: [ended, other] };
+      await act(async () => view.rerender(<FeedPage />));
+      expect(screen.getAllByText(/^row-/).map(node => node.textContent)).toEqual(["row-4", "row-6"]);
+      act(() => { root.scrollTop = 0; root.dispatchEvent(new Event("scroll")); });
+      mocks.data = { ...mocks.data, items: [{ ...ended }, other] };
+      await act(async () => view.rerender(<FeedPage />));
+      expect(screen.getAllByText(/^row-/).map(node => node.textContent)).toEqual(["row-6", "row-4"]);
+    } finally { root.remove(); }
+  });
   it("keeps loaded history usable while another lane is still loading", async () => {
     mocks.actionablesLoading = true;
     render(<FeedPage />);

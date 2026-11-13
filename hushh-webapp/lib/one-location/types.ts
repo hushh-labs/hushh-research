@@ -220,6 +220,8 @@ export type OneLocationGrant = {
   feedLatestSms?: boolean;
   /** False means no committed sharing receipt exists yet; never announce a draft. */
   feedSmsConfirmed?: boolean;
+  /** Recipient-only time of first confirmed SOS publication, never draft creation. */
+  feedConfirmedAt?: string | null;
 };
 
 export type OneLocationAccessRequest = {
