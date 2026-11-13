@@ -21,8 +21,8 @@ export function latestFeedSmsGrants(
     const newer = !previous ||
       (grant.feedLatestSms === true && previous.feedLatestSms !== true) ||
       ((grant.feedLatestSms === true) === (previous.feedLatestSms === true) && (
-        instant(grant.createdAt) > instant(previous.createdAt) ||
-        (instant(grant.createdAt) === instant(previous.createdAt) && grant.id > previous.id)
+        instant(grant.feedConfirmedAt ?? grant.createdAt) > instant(previous.feedConfirmedAt ?? previous.createdAt) ||
+        (instant(grant.feedConfirmedAt ?? grant.createdAt) === instant(previous.feedConfirmedAt ?? previous.createdAt) && grant.id > previous.id)
       ));
     if (newer) latest.set(grant.ownerUserId, grant);
   }

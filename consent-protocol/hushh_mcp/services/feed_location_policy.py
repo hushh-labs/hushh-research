@@ -13,21 +13,24 @@ _GRANT_KEY = """COALESCE(NULLIF(raw.metadata->>'grant_id',''),
 # Later revoke/expiry events of an older incident cannot make it current again.
 LATEST_SMS_RECEIPT_SQL = """
 SELECT DISTINCT ON (peer.counterpart_user_id)
-       peer.counterpart_user_id AS sender_id, receipt.source_row_id AS grant_id,
-       receipt.id AS receipt_id
+       peer.counterpart_user_id AS sender_id,
+       receipt.source_row_id AS grant_id,
+       receipt.id AS receipt_id, receipt.created_at AS confirmed_at
   FROM feed_events receipt
   JOIN feed_event_counterparts peer ON peer.feed_event_id = receipt.id
  WHERE receipt.user_id = :user_id AND receipt.source_domain = 'location'
    AND receipt.event_type = 'location_share_created'
    AND receipt.metadata->>'feed_audience' = 'recipient'
    AND receipt.metadata->>'share_kind' = 'sos'
+   AND receipt.metadata->'feed_sms_confirmed' = 'true'::jsonb
  ORDER BY peer.counterpart_user_id, receipt.created_at DESC, receipt.id DESC
 """
 
 _RECEIVED_GRANTS_TEMPLATE = """
 SELECT g.*,
   CASE WHEN g.metadata->>'share_kind' = 'sos'
-    THEN latest_sms.grant_id = g.id::text END AS feed_latest_sms,
+    THEN COALESCE(latest_sms.grant_id = g.id::text, FALSE) END AS feed_latest_sms,
+  CASE WHEN latest_sms.grant_id = g.id::text THEN latest_sms.confirmed_at END AS feed_confirmed_at,
   CASE WHEN g.metadata->>'share_kind' = 'sos' THEN
     (COALESCE(latest_sms.grant_id = g.id::text, FALSE) OR g.latest_envelope_id IS NOT NULL)
     END AS feed_sms_confirmed,
@@ -48,12 +51,12 @@ SELECT raw.*, peer.counterpart_user_id AS feed_peer,
   CASE
     WHEN raw.source_domain = 'location' AND raw.event_type = 'location_share_created'
       AND raw.metadata->>'share_kind' = 'sos' AND peer.counterpart_user_id IS NOT NULL
+      AND raw.metadata->'feed_sms_confirmed' = 'true'::jsonb
       THEN 'location-sms:' || peer.counterpart_user_id
     WHEN raw.source_domain = 'location'
       AND raw.event_type IN ('location_share_created','location_share_revoked',
         'location_share_shortened','location_share_duration_changed','location_share_expired')
-      AND NOT (COALESCE(raw.metadata->>'share_kind', origin.metadata->>'share_kind','') = 'sos'
-        AND raw.event_type <> 'location_share_created')
+      AND COALESCE(raw.metadata->>'share_kind', origin.metadata->>'share_kind','') <> 'sos'
       AND {grant_key} IS NOT NULL THEN 'location-share:' || {grant_key}
     WHEN raw.source_domain = 'location'
       AND raw.event_type IN ('circle_member_added','circle_membership_ended','circle_deleted')
@@ -75,10 +78,12 @@ SELECT raw.*, peer.counterpart_user_id AS feed_peer,
       (raw.event_type IN ('location_share_created','location_share_revoked',
           'location_share_shortened','location_share_duration_changed','location_share_expired')
         AND raw.metadata->>'feed_audience' = 'recipient'
+        AND COALESCE(raw.metadata->>'actor_is_self','false') <> 'true'
         AND (raw.event_type = 'location_share_created' OR
           COALESCE(raw.metadata->>'reason','') NOT IN ('recipient_revoke','recipient_shorten'))
         AND (raw.event_type <> 'location_share_created' OR
-          COALESCE(raw.metadata->>'share_kind', origin.metadata->>'share_kind','') <> 'sos' OR latest.grant_id = raw.source_row_id)
+          COALESCE(raw.metadata->>'share_kind', origin.metadata->>'share_kind','') <> 'sos' OR
+          (raw.metadata->'feed_sms_confirmed' = 'true'::jsonb AND latest.receipt_id = raw.id))
         AND (COALESCE(raw.metadata->>'share_kind', origin.metadata->>'share_kind','') <> 'sos' OR
           raw.event_type = 'location_share_created')
         AND (raw.event_type <> 'location_share_created' OR
@@ -114,8 +119,8 @@ LEFT JOIN LATERAL (
 ) origin ON TRUE
 LEFT JOIN one_location_share_grants grant_row ON grant_row.id = CASE
   WHEN raw.source_domain = 'location' AND raw.event_type = 'location_share_created'
-    AND raw.source_row_id ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$'
-  THEN raw.source_row_id::uuid END
+    AND {grant_key} ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$'
+  THEN ({grant_key})::uuid END
 WHERE raw.user_id = :user_id
 """
 _PRESENTATION_SOURCE = _PRESENTATION_TEMPLATE.format(
