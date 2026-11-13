@@ -2384,6 +2384,7 @@ class AccountService:
                     conn,
                     user_id=user_id,
                     include_pending_requests=True,
+                    include_location_audiences=True,
                     table_exists=lambda table_name: self._table_exists(conn, table_name),
                 )
                 self._clear_live_memory_source_journal(conn, user_id, results, permanent=True)

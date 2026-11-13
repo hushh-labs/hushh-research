@@ -226,6 +226,16 @@ export class PersonProfileNotFoundError extends Error {}
 export class PersonProfileService {
   private static readonly publicReads = new Map<string, object>();
 
+  private static requirePerson(personRef: string, response: Response): Response {
+    if (response.status === 404 || response.status === 410) {
+      const key = `person_public_${personRef}`;
+      this.publicReads.delete(key);
+      CacheService.getInstance().invalidate(key);
+      throw new PersonProfileNotFoundError("This profile is unavailable.");
+    }
+    return response;
+  }
+
   static invalidatePublicProfiles(): void {
     this.publicReads.clear();
     CacheService.getInstance().invalidatePattern("person_public_");
@@ -239,7 +249,7 @@ export class PersonProfileService {
     const response = await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}/relationship`, {
       method: "GET", cache: "no-store", headers: { Authorization: `Bearer ${idToken}` },
     });
-    const result = await jsonOrThrow<{ personRef: string; relationship: PersonRelationship }>(response);
+    const result = await jsonOrThrow<{ personRef: string; relationship: PersonRelationship }>(this.requirePerson(personRef, response));
     return result.relationship;
   }
   static async getRequestHistory(input: {
@@ -320,11 +330,7 @@ export class PersonProfileService {
       const response = await ApiService.apiFetch(`/api/public/people/${encodeURIComponent(personRef)}`, {
         cache: "no-store",
       });
-      if (response.status === 404 || response.status === 410) {
-        cache.invalidate(key);
-        throw new PersonProfileNotFoundError("This profile is unavailable.");
-      }
-      const profile = await jsonOrThrow<PublicPersonProfile>(response);
+      const profile = await jsonOrThrow<PublicPersonProfile>(this.requirePerson(personRef, response));
       if (this.publicReads.get(key) === read) cache.set(key, profile, CACHE_TTL.MEDIUM);
       return profile;
     } finally {
@@ -342,12 +348,11 @@ export class PersonProfileService {
     if (catalog?.revision) query.set("catalog_revision", catalog.revision);
     if (catalog?.query) query.set("catalog_query", catalog.query);
     if (catalog?.domain) query.set("catalog_domain", catalog.domain);
-    const result = await jsonOrThrow<ViewerPersonProfile>(
-      await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}${query.size ? `?${query}` : ""}`, {
+    const response = await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}${query.size ? `?${query}` : ""}`, {
         cache: "no-store",
         headers: { Authorization: `Bearer ${idToken}` },
-      }),
-    );
+      });
+    const result = await jsonOrThrow<ViewerPersonProfile>(this.requirePerson(personRef, response));
     if (result.personRef !== personRef) throw new Error("The selected person could not be verified.");
     return result;
   }

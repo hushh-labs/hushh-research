@@ -580,6 +580,48 @@ describe("P0 connection reconciliation", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
   });
 
+  it("repairs a deleted unrelated directory result when the visible directory becomes due", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({ items: [{ userId: "stranger", displayName: "Departing Stranger", relationship: "none" }], page: 1, hasMore: false });
+    render(<ConnectPageClient />);
+    await screen.findByText("Departing Stranger");
+    mocks.searchDirectory.mockResolvedValue({ items: [], page: 1, hasMore: false });
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_001);
+    try {
+      const repair = mocks.periodicTask.mock.calls.findLast(([id]) => id === "connect-directory-availability:me");
+      expect(repair?.[3]).toEqual({ enabled: true });
+      act(() => { repair?.[2](); });
+      await waitFor(() => expect(screen.queryByText("Departing Stranger")).toBeNull());
+    } finally { now.mockRestore(); }
+  });
+
+  it("fences stale directory responses while deletion roster reconciliation is still pending", async () => {
+    const activePage = { items: [{ userId: "active", displayName: "Active Directory Friend", relationship: "none" }], page: 1, hasMore: false };
+    let finishOld!: (value: typeof activePage) => void;
+    let finishRoster: ((value: unknown) => void) | undefined;
+    let finishOutgoing: ((value: unknown) => void) | undefined;
+    mocks.searchDirectory.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockResolvedValue(activePage);
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.listRequests).toHaveBeenCalled());
+    mocks.listConnectionsPage.mockImplementationOnce(() => new Promise(resolve => { finishRoster = resolve; }));
+    mocks.listRequests.mockImplementationOnce(() => new Promise(resolve => { finishOutgoing = resolve; }));
+    try {
+      act(() => dispatchConnectionGraphChanged("me", { broadcast: false }));
+      await screen.findByText("Active Directory Friend");
+      expect(finishRoster).toBeDefined();
+      expect(finishOutgoing).toBeDefined();
+      await act(async () => finishOld({ ...activePage, items: [{ userId: "retired", displayName: "Retired Directory Friend", relationship: "none" }] }));
+      expect(screen.queryByText("Retired Directory Friend")).toBeNull();
+      expect(screen.getByText("Active Directory Friend")).toBeVisible();
+    } finally {
+      await act(async () => {
+        finishRoster?.({ items: [], page: 1, hasMore: false, totalCount: 0, audience: "all" });
+        finishOutgoing?.([]);
+      });
+    }
+  });
+
   it.each(["live event", "foreground check"])(
     "removes a retired connection and updates the count through a %s",
     async (trigger) => {
