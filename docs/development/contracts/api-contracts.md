@@ -6190,6 +6190,18 @@ verified identity, owner epoch, explicit per-attempt choice and the separately
 qualified Matrix worker remain required. Keep the attempt key available for
 generation-bound unsubscribe even when new delivery is disabled.
 
+
+### Portfolio import incremental progress
+
+The import envelope remains `1.0`. Optional `progress.extraction_update` v1
+publishes immutable source units and known facts; `progress.extraction_reset`
+invalidates provisional units before the ambiguity fallback. See the canonical
+[streaming contract](../streaming/streaming-contract.md#incremental-portfolio-extraction).
+Final `complete` retains the portfolio, quality and explicit-save contract.
+Extraction diagnostics include unit count, source, fixed fallback reason,
+first-result latency (when a unit was published), and total duration. These are
+observations rather than a five-second SLA.
+
 ## Optional advisor service matching
 
 Finance advisor discovery's **All** tab offers **Recommend advisor**. The existing

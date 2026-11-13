@@ -6,6 +6,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
+import type { ImportExtractionProgress } from "@/lib/kai/import/extraction-progress";
 import { ImportReviewPlaceholder } from "./import-review-placeholder";
 import { AppStreamProgressMeter } from "@/components/app-ui/stream-progress-panel";
 
@@ -75,6 +76,7 @@ interface ImportProgressViewProps {
   /** Holdings the server has confirmed so far; they fill the placeholder list as they arrive. */
   liveHoldings?: readonly LiveHoldingPreview[];
   holdingsTotal?: number;
+  extractionProgress?: ImportExtractionProgress | null;
   onCancel?: () => void;
   onRetry?: () => void;
 }
@@ -104,7 +106,7 @@ export function ImportProgressStatus(props: ImportStatusProps) {
     : <ActiveImportStatus {...props} />;
 }
 
-export function ImportProgressView({ stage, errorMessage, fileName, fileSize, liveHoldings, holdingsTotal, onCancel, onRetry }: ImportProgressViewProps) {
+export function ImportProgressView({ stage, errorMessage, fileName, fileSize, liveHoldings, holdingsTotal, extractionProgress, onCancel, onRetry }: ImportProgressViewProps) {
   const failed = stage === "error";
   return <PortfolioReviewFrame
     status={<ImportProgressStatus stage={stage} fileName={fileName} fileSize={fileSize} errorMessage={errorMessage} />}
@@ -113,6 +115,6 @@ export function ImportProgressView({ stage, errorMessage, fileName, fileSize, li
       {failed && onRetry ? <Button size="compact" onClick={onRetry}>Try again</Button> : null}
     </div>}
   >
-    {!failed ? <ImportReviewPlaceholder rows={liveHoldings} total={holdingsTotal} /> : null}
+    {!failed ? <ImportReviewPlaceholder rows={liveHoldings} total={holdingsTotal} extraction={extractionProgress} /> : null}
   </PortfolioReviewFrame>;
 }

@@ -153,6 +153,7 @@ vi.mock("@/lib/services/api-service", () => ({
     cancelPortfolioImportRun: vi.fn(
       async () => new Response(null, { status: 404 }),
     ),
+    streamPortfolioImportRun: vi.fn(),
     getActivePortfolioImportRun: vi.fn(
       async () => new Response(JSON.stringify({ run: null }), { status: 200 }),
     ),
@@ -208,6 +209,8 @@ vi.mock("@/components/kai/views/analysis-view", () => ({
   AnalysisView: () => null,
 }));
 
+import { KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS } from "@/lib/services/kai-import-stream-config";
+import { ApiService } from "@/lib/services/api-service";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -295,6 +298,7 @@ describe.each<Platform>(["web", "native"])(
       setup.onSetupSourceSettled.mockClear();
       setup.syncOnboardingJourney.mockClear();
       importStream.mockReset();
+      vi.mocked(ApiService.streamPortfolioImportRun).mockReset();
       scrollReset.mockClear();
     });
 
@@ -302,6 +306,88 @@ describe.each<Platform>(["web", "native"])(
       setPlatform("web");
       window.sessionStorage.clear();
       window.localStorage.clear();
+    });
+
+    it("cancel during active-run precheck never cancels a late run or starts upload", async () => {
+      let resolvePrecheck!: (value: Response) => void;
+      vi.mocked(ApiService.getActivePortfolioImportRun).mockImplementationOnce(() => new Promise(resolve => { resolvePrecheck = resolve; }));
+      vi.mocked(ApiService.cancelPortfolioImportRun).mockClear();
+      renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await screen.findByRole("button", { name: "Cancel", exact: true });
+      await waitFor(() => expect(resolvePrecheck).toBeDefined());
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+      await act(async () => { resolvePrecheck(new Response(JSON.stringify({ run: { run_id: "late-run", status: "running" } }))); });
+      expect(importStream).not.toHaveBeenCalled();
+      expect(ApiService.cancelPortfolioImportRun).not.toHaveBeenCalled();
+      expect(screen.getByTestId("portfolio-import-chooser")).toBeVisible();
+    });
+
+    it("resume deadline stops loading and records failure for the same attempt", async () => {
+      seedCompletedImport(platform, "synthetic-resume");
+      const { storage, key } = snapshotStore(platform);
+      const snapshot = JSON.parse(storage.getItem(key)!);
+      snapshot.status = "running";
+      snapshot.streaming.stage = "extracting";
+      delete snapshot.parsedPortfolio;
+      storage.setItem(key, JSON.stringify(snapshot));
+      vi.mocked(ApiService.streamPortfolioImportRun).mockImplementation(({ signal }) => new Promise((_, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "AbortError")), { once: true });
+      }));
+      const timeoutSpy = vi.spyOn(window, "setTimeout");
+      const view = renderSetupImportFlow("synthetic-vault-key");
+      try {
+        await waitFor(() => expect(ApiService.streamPortfolioImportRun).toHaveBeenCalledOnce());
+        const timeout = timeoutSpy.mock.calls.find(([, delay]) => delay === KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS)?.[0];
+        expect(typeof timeout).toBe("function");
+        await act(async () => { (timeout as () => void)(); });
+        expect(await screen.findByText("Couldn’t resume reading your statement. Try importing it again.")).toBeVisible();
+        expect(JSON.parse(storage.getItem(key)!).status).toBe("failed");
+      } finally {
+        view.unmount();
+        timeoutSpy.mockRestore();
+      }
+    });
+
+    it("fresh upload keeps stream ownership across route updates", async () => {
+      vi.mocked(ApiService.streamPortfolioImportRun).mockClear();
+      let emit!: (text: string) => void;
+      const body = new ReadableStream<Uint8Array>({ start(controller) { emit = text => { controller.enqueue(new TextEncoder().encode(text)); if (text.startsWith("event: complete")) controller.close(); }; } });
+      importStream.mockResolvedValue(new Response(body));
+      renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await waitFor(() => expect(importStream).toHaveBeenCalledOnce());
+      await act(async () => nav.navigate(`${SETUP_PATH}?stage=importing&review_source=statement`));
+      const envelope = { schema_version: "1.0", stream_id: "synthetic-import", stream_kind: "portfolio_import", seq: 1,
+        event: "complete", terminal: true, payload: { portfolio_data_v2: syntheticParsedPortfolio() } };
+      await act(async () => emit(`event: complete\ndata: ${JSON.stringify(envelope)}\n\n`));
+      await screen.findByTestId("portfolio-review");
+      expect(ApiService.streamPortfolioImportRun).not.toHaveBeenCalled();
+    });
+
+    it("streams source facts in the review shell and excludes provisional values from recovery storage", async () => {
+      let emit!: (text: string) => void;
+      const body = new ReadableStream<Uint8Array>({ start(controller) { emit = text => { controller.enqueue(new TextEncoder().encode(text)); if (text.startsWith("event: complete")) controller.close(); }; } });
+      importStream.mockResolvedValue(new Response(body));
+      const view = renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await waitFor(() => expect(importStream).toHaveBeenCalledOnce());
+      const envelope = { schema_version: "1.0", stream_id: "synthetic-import", stream_kind: "portfolio_import", seq: 1, event: "progress", terminal: false,
+        payload: { holdings_preview: [{ symbol: "SENTINEL", name: "Sensitive provisional lot", quantity: 7 }],
+          extraction_update: { version: 1, revision: 1, unit_id: "pdf:1", unit_index: 1, units_total: 2, source_kind: "pdf",
+            rows: [{ source_id: "pdf:1:1", symbol: "SENTINEL", name: "Sensitive provisional lot", market_value: 17 }],
+            facts: { statement_details: { institution_name: "Synthetic broker", account_number: "SENSITIVE-ACCOUNT-TEST" } } } } };
+      await act(async () => emit(`event: progress\ndata: ${JSON.stringify(envelope)}\n\n`));
+      expect(await screen.findByText("SENSITIVE-ACCOUNT-TEST")).toBeVisible();
+      const { storage, key } = snapshotStore(platform);
+      const persisted = storage.getItem(key)!;
+      expect(persisted).not.toContain("SENSITIVE-ACCOUNT-TEST");
+      expect(persisted).not.toContain("Sensitive provisional lot");
+      expect(persisted).not.toContain("SENTINEL");
+      expect(screen.queryByTestId("portfolio-review")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+      expect(screen.queryByText("SENSITIVE-ACCOUNT-TEST")).toBeNull();
+      view.unmount();
     });
 
     it.each([false, true])("terminal import settles before review and cancellation wins (%s)", async (cancel) => {
