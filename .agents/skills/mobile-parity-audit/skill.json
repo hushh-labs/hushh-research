@@ -5,7 +5,7 @@
   "primary_scope": "mobile-parity-audit",
   "description": "Use when auditing mobile/native parity, release readiness, the native route inventory report, or platform-specific coverage gates across the Hussh app.",
   "owned_paths": [
-    "docs/reference/mobile",
+    "docs/development/mobile",
     "hushh-webapp/scripts/native",
     "hushh-webapp/ios/App/AppTests",
     "hushh-webapp/ios/App/AppUITests"
@@ -20,9 +20,9 @@
     "release-readiness"
   ],
   "required_reads": [
-    "docs/reference/mobile/README.md",
-    "docs/reference/mobile/capacitor-parity-audit.md",
-    "docs/reference/mobile/capacitor-parity-audit-report.md",
+    "docs/development/mobile/README.md",
+    "docs/development/mobile/capacitor-parity-audit.md",
+    "docs/development/mobile/capacitor-parity-audit-report.md",
     "hushh-webapp/docs/ios-native-surface-adoption.md",
     ".agents/skills/repo-operations/references/admin-release-sop.md"
   ],

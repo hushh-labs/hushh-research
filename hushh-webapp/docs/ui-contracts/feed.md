@@ -10,13 +10,34 @@ own owners after a handoff. Shared chrome and fonts are described in
 
 ## Visual Map
 
+### Important incoming Location and Connect activity
+
+The existing UI, section order, review controls and other subagents retain
+their owners. Location/Connections history is selected on the server before
+pagination and unread counts. Own share/SMS/check-in receipts, owner expiry,
+views, routine Circle roster changes and ordinary chat messages stay out.
+Pending location/connection requests use their current actionable store once;
+direct incoming location shares and connection outcomes remain visible.
+An incoming `circle_member_added` says who added the person and opens that
+Circle. Current member addition is direct; pending invitation controls support
+only retained legacy invitations, not a newly introduced product flow.
+
+Repeated SMS uses only the latest committed incident per sender/recipient.
+Selection happens before Clear; the latest cleared incident fences older ones.
+Different senders and different Circles stay independent. No older-SMS disclosure
+remains. Ordinary share and membership lifecycle rows use one opaque group key
+so realtime status changes update the existing interaction. Quiet terminal
+share changes do not introduce unread items or Feed chimes. Source audit and
+domain permissions are preserved. Wallet message cards belong to another DRI
+and retain their existing behavior.
+
 ```mermaid
 flowchart TD
   feed["Feed"] --> prompts["Push, sound and payment return"]
   feed --> live["Live"]
   feed --> needs["Needs you"]
   feed --> recentSms["Recent SMS alerts"]
-  live --> sms["Sender disclosure → incidents"]
+  live --> sms["Latest incident per sender"]
   recentSms --> sms
   feed --> upcoming["Coming up"]
   feed --> progress["In progress"]
@@ -140,9 +161,9 @@ owns their guards and handlers.
 | Requester answer payable | Pay $amount | Requires approved, staged, nonempty answer and known amount. Opens answer checkout; failure says checkout couldn't open and no charge was made. |
 | Other answer state | Write answer / Review question / Review price and pay / Open, or none | Selected `answer_request:<id>` pending Consent Center. Preparing or empty staged answers do not invent a payment action. |
 | Active received emergency SMS | Live sender group/incident | Sender title, original sent time, `Emergency SMS · Active`; only active incidents link selected Location grant. Cannot be cleared active. |
-| Ended received emergency SMS | Recent SMS alerts, or inside same sender’s Live group | Original sent time; Revoked/Expired/Ended; no map link. Root Clear owns dismissal. |
+| Ended received emergency SMS | Recent SMS alerts, only if this is the sender's latest incident | Original sent time; Revoked/Expired/Ended; no map link. Root Clear owns dismissal. |
 | Incoming pending location request | Desktop Deny / duration-specific Approve; phone Review | Desktop vault-token mutation preserves requested amount/manual mode. Review and row open `/one/location?requestId=<id>`. |
-| Incoming circle invitation | Desktop Decline / Accept; phone Review | Desktop vault-token membership decision. Review and row open `/one/location?circleInviteId=<id>`. |
+| Retained legacy circle invitation | Desktop Decline / Accept; phone Review | Compatibility only. Current direct additions instead show Added you to Circle in history. |
 | Scoped incoming connection | Review | Selected pending Consent Center; cannot inline-accept around scope review. |
 | Unscoped incoming connection | Decline / Confirm | Authenticated relationship reject/accept, graph/capability invalidation and refresh. |
 | Android unscoped connection | Phone Report / Review; desktop Report / Decline / Confirm | Additional two-tap Report declines/blocks. Review/row opens selected Consent Center. Report absent web/iOS or scoped-review branch. |
@@ -176,25 +197,20 @@ Owners: [consent decision hook](../../lib/consent/use-owner-consent-decision.ts)
 
 ### SMS sender grouping and original sent time
 
-Current source refresh at296d7769c adds presentation grouping only; existing
-Location state and Clear endpoints remain unchanged.
-[Grouping](../../lib/feed/feed-sms-grouping.ts) deduplicates incident IDs,
-keys by actual sender ID (unknown senders keep separate incident IDs), sorts
-incidents by original sent-time sortAt then ID, chooses newest active incident
-as group representative when any active exists, and sorts groups by that
-representative. Same display names never merge different owners. Only current
-recipient grants from another owner are included.
+[Selection](../../lib/feed/feed-sms-grants.ts) chooses the latest confirmed
+received incident per real sender before applying recipient Clear. Location
+state supplies recipient-only `feedLatestSms` and `feedSmsConfirmed` projections
+from durable Feed receipts. Older grants cannot resurface after newer grants
+are cleared or cleaned up. A draft cannot replace a confirmed incident.
+The existing grant fields remain intact for Location and Consent consumers.
 
-One incident renders its ordinary incident row directly. Multiple incidents
-render [inline details/summary](../../components/feed/feed-sms-alert-group.tsx),
-initially closed. Summary click/Enter/Space expands/collapses locally: **no
-API, approval, dismissal, route change or new overlay**. No dedicated Back
-layer is registered. A sender with any active incident stays in Live, including
-its ended incidents inside disclosure; a wholly ended sender appears in
-**Recent SMS alerts**, after Needs you and before Coming up. Ended alerts are
-not pending decisions and have no href/chevron; active incident opens its exact
-Location grant. Clear removes eligible ended incidents, including those inside
-a Live group, while retaining active incidents.
+[Grouping](../../lib/feed/feed-sms-grouping.ts) retains one current row per
+sender, including its original sent time. There is no expandable older-alert
+list. The current incident goes in Live while active and Recent SMS alerts
+when ended. A newer ended incident does not reveal an older active incident.
+Different senders with the same name remain separate. Ended incidents have no
+map link; only an active incident opens its exact grant. Clear remains scoped
+to ended received incidents and never revokes a share.
 
 Grant status from the server determines active/ended; device wall clock does
 not expire an SMS grant. Live grants add force-refresh every10 seconds through the existing
@@ -204,12 +220,8 @@ first-seen sorting but displays `Sent time unavailable`.
 [Sent-time renderer](../../components/feed/feed-sms-sent-time.tsx) always shows
 local year/month/day/hour/minute, including phones, with an ISO time datetime.
 
-The summary has min44px,flex gap12,px12/py12,compact person avatar,flexible
-copy,16px chevron rotating180° open. Copy spacing2px; child rows divide with
-hairlines and border-top. Incidents wrap name/status/sent time (py4), rather
-than ordinary Feed’s single inline truncating track; SMS has no separate
-trailing timestamp. Name still resolves13/15.86/400; status/sent time12/15.6/400.
-This is normal-flow disclosure, with no portal or new Z tier.
+The current incident reuses the existing FeedActionableRow, wrapped
+name/status/sent time and existing actions, with no new overlay or Z tier.
 
 ## Document price and review sheet
 
@@ -841,7 +853,7 @@ These identify test owners; execution is reported with the change.
 No real requests, file grants, checkout, notifications, or account mutations
 were triggered for this inventory. Run `./bin/hushh docs verify` for prose;
 implementation changes follow the existing
-[UI contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+[UI contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md).
 
 ### Background reads and return continuity
 

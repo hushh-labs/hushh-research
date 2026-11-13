@@ -10,7 +10,7 @@ the lowercase form was invisible to it.
 
 ``hushh`` remains correct and load-bearing as an *identifier* -- package names,
 bundle ids, domains, headers, env vars, storage keys. This module is only about
-prose a person reads. See ``docs/reference/operations/hussh-rebrand-classification.md``:
+prose a person reads. See ``docs/operations/hussh-rebrand-classification.md``:
 user-facing product copy is "public-brand prose" and reads ``Hussh``.
 """
 

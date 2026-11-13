@@ -343,7 +343,7 @@ CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
             "hushh-webapp/components/vault/vault-lock-guard.tsx",
             "hushh-webapp/components/profile/pkm-explorer-panel.tsx",
             "consent-protocol/docs/reference/personal-knowledge-model.md",
-            "docs/reference/architecture/cache-coherence.md",
+            "docs/development/contracts/cache-coherence.md",
         ),
         "summary": (
             "PKM/vault/memory changes overlap encrypted storage, metadata projection, "
@@ -441,8 +441,8 @@ CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
             "consent-protocol/hushh_mcp/consent/token.py",
             "consent-protocol/hushh_mcp/consent/scope_bundles.py",
             "consent-protocol/api/routes/consent.py",
-            "docs/reference/iam/consent-scope-catalog.md",
-            "docs/reference/iam/architecture.md",
+            "docs/architecture/identity/consent-scope-catalog.md",
+            "docs/architecture/identity/architecture.md",
         ),
         "summary": (
             "Consent/IAM changes overlap signed token semantics, scope bundles, and "
@@ -508,8 +508,8 @@ CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
             "consent-protocol/api/routes/kai/market_insights.py",
             "hushh-webapp/components/kai/views/kai-market-preview-view.tsx",
             "hushh-webapp/components/kai/cards/renaissance-market-list.tsx",
-            "docs/reference/kai/kai-accuracy-contract.md",
-            "docs/reference/kai/kai-change-impact-matrix.md",
+            "docs/architecture/finance/kai-accuracy-contract.md",
+            "docs/architecture/finance/kai-change-impact-matrix.md",
         ),
         "summary": (
             "Kai market or analysis changes overlap financial advice, accuracy, and "
@@ -536,7 +536,7 @@ CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
             "consent-protocol/hushh_mcp/services/ria_iam_service.py",
             "hushh-webapp/app/marketplace/page.tsx",
             "hushh-webapp/app/marketplace/ria/page-client.tsx",
-            "docs/reference/iam/marketplace-contract.md",
+            "docs/architecture/identity/marketplace-contract.md",
         ),
         "summary": (
             "RIA/marketplace changes overlap verified advisor access, relationship "
@@ -627,9 +627,9 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "hushh-webapp/app/ria/page.tsx",
         ),
         "docs": (
-            "docs/reference/iam/architecture.md",
-            "docs/reference/iam/runtime-surface.md",
-            "docs/reference/iam/README.md",
+            "docs/architecture/identity/architecture.md",
+            "docs/architecture/identity/runtime-surface.md",
+            "docs/architecture/identity/README.md",
         ),
     },
     {
@@ -648,8 +648,8 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "hushh-webapp/lib/services/consent-center-service.ts",
         ),
         "docs": (
-            "docs/reference/iam/architecture.md",
-            "docs/reference/architecture/api-contracts.md",
+            "docs/architecture/identity/architecture.md",
+            "docs/development/contracts/api-contracts.md",
             "consent-protocol/docs/reference/developer-api.md",
         ),
     },
@@ -666,8 +666,8 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "consent-protocol/tests/test_scope_bundle_contract.py",
         ),
         "docs": (
-            "docs/reference/iam/consent-scope-catalog.md",
-            "docs/reference/iam/architecture.md",
+            "docs/architecture/identity/consent-scope-catalog.md",
+            "docs/architecture/identity/architecture.md",
         ),
     },
     {
@@ -682,9 +682,9 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "hushh-webapp/lib/services/ria-service.ts",
         ),
         "docs": (
-            "docs/reference/iam/marketplace-contract.md",
-            "docs/reference/architecture/route-contracts.md",
-            "docs/reference/iam/architecture.md",
+            "docs/architecture/identity/marketplace-contract.md",
+            "docs/development/contracts/route-contracts.md",
+            "docs/architecture/identity/architecture.md",
         ),
     },
     {
@@ -698,7 +698,7 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "consent-protocol/tests/test_normalize_v2.py",
         ),
         "docs": (
-            "docs/reference/architecture/api-contracts.md",
+            "docs/development/contracts/api-contracts.md",
         ),
     },
     {
@@ -712,7 +712,7 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "hushh-webapp/lib/notifications/fcm-service.ts",
         ),
         "docs": (
-            "docs/reference/operations/env-and-secrets.md",
+            "docs/operations/configuration/env-and-secrets.md",
             "consent-protocol/docs/reference/fcm-notifications.md",
         ),
     },
@@ -728,8 +728,8 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "consent-protocol/api/routes/kai/support.py",
         ),
         "docs": (
-            "docs/reference/architecture/one-email-kyc.md",
-            "docs/reference/architecture/api-contracts.md",
+            "docs/architecture/one-email-kyc.md",
+            "docs/development/contracts/api-contracts.md",
         ),
     },
     {
@@ -753,10 +753,10 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "consent-protocol/api/routes/one/adk_live.py",
         ),
         "docs": (
-            "docs/reference/one/one-voice-runtime-architecture.md",
-            "docs/reference/one/one-voice-action-coverage-audit.md",
-            "docs/reference/kai/kai-action-gateway-vnext.md",
-            "docs/reference/one/one-voice-kai-compatibility-runtime.md",
+            "docs/architecture/one/one-voice-runtime-architecture.md",
+            "docs/architecture/one/one-voice-action-coverage-audit.md",
+            "docs/architecture/finance/kai-action-gateway-vnext.md",
+            "docs/architecture/one/one-voice-kai-compatibility-runtime.md",
         ),
     },
 )
@@ -796,22 +796,22 @@ PATH_SUMMARIES: dict[str, str] = {
     "hushh-webapp/components/kai/views/decision-card.tsx": "Canonical Kai decision-card renderer used by the current product flow.",
     "hushh-webapp/components/kai/views/history-detail-view.tsx": "History detail surface that composes the canonical decision-card family.",
     "hushh-webapp/components/kai/debate-stream-view.tsx": "Streaming Kai surface that feeds into the canonical decision-card path.",
-    "docs/reference/iam/architecture.md": "High-level IAM and consent architecture defining verified access and relationship boundaries.",
-    "docs/reference/iam/runtime-surface.md": "Runtime ownership map for IAM routes and services.",
-    "docs/reference/iam/README.md": "Index into the IAM reference set and canonical governance docs.",
-    "docs/reference/iam/ria-verification-policy.md": "Policy reference for RIA verification and fail-closed gating behavior.",
-    "docs/reference/iam/consent-scope-catalog.md": "Canonical catalog of consent scopes and scope-bundle semantics.",
-    "docs/reference/iam/marketplace-contract.md": "Marketplace contract defining investor/RIA request-entry and persona-aware behavior.",
-    "docs/reference/operations/env-and-secrets.md": "Operational contract for frontend and backend environment-secret handling.",
-    "docs/reference/architecture/api-contracts.md": "System-level API contract reference for shared route semantics.",
-    "docs/reference/architecture/route-contracts.md": "Frontend route and navigation contract reference for product surfaces.",
-    "docs/reference/architecture/pkm-storage-adr.md": "ADR describing PKM storage and canonical product-surface assumptions.",
-    "docs/reference/architecture/pkm-cutover-runbook.md": "Runbook for PKM product migration and current ownership path.",
+    "docs/architecture/identity/architecture.md": "High-level IAM and consent architecture defining verified access and relationship boundaries.",
+    "docs/architecture/identity/runtime-surface.md": "Runtime ownership map for IAM routes and services.",
+    "docs/architecture/identity/README.md": "Index into the IAM reference set and canonical governance docs.",
+    "docs/architecture/identity/ria-verification-policy.md": "Policy reference for RIA verification and fail-closed gating behavior.",
+    "docs/architecture/identity/consent-scope-catalog.md": "Canonical catalog of consent scopes and scope-bundle semantics.",
+    "docs/architecture/identity/marketplace-contract.md": "Marketplace contract defining investor/RIA request-entry and persona-aware behavior.",
+    "docs/operations/configuration/env-and-secrets.md": "Operational contract for frontend and backend environment-secret handling.",
+    "docs/development/contracts/api-contracts.md": "System-level API contract reference for shared route semantics.",
+    "docs/development/contracts/route-contracts.md": "Frontend route and navigation contract reference for product surfaces.",
+    "docs/architecture/pkm-storage-adr.md": "ADR describing PKM storage and canonical product-surface assumptions.",
+    "docs/architecture/pkm-cutover-runbook.md": "Runbook for PKM product migration and current ownership path.",
     "consent-protocol/docs/reference/personal-knowledge-model.md": "Current PKM storage contract: encrypted blobs/manifests are authoritative and pkm_index is discovery-only metadata.",
-    "docs/reference/architecture/cache-coherence.md": "Frontend cache coherence contract for local write-through, encrypted device cache, and mutation invalidation.",
-    "docs/reference/kai/kai-interconnection-map.md": "High-level Kai subsystem map including the canonical decision-card surface.",
-    "docs/reference/kai/kai-change-impact-matrix.md": "Kai change-governance matrix describing decision-card and stream-contract impacts.",
-    "docs/reference/architecture/one-email-kyc.md": "Current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.",
+    "docs/development/contracts/cache-coherence.md": "Frontend cache coherence contract for local write-through, encrypted device cache, and mutation invalidation.",
+    "docs/architecture/finance/kai-interconnection-map.md": "High-level Kai subsystem map including the canonical decision-card surface.",
+    "docs/architecture/finance/kai-change-impact-matrix.md": "Kai change-governance matrix describing decision-card and stream-contract impacts.",
+    "docs/architecture/one-email-kyc.md": "Current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.",
     "hushh-webapp/lib/voice/one-voice-transport.ts": "Connection-local One Voice transport that carries governed directives and correlated browser settlements.",
     "hushh-webapp/lib/kai/actions/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for One Voice/Kai compatibility actions.",
     "hushh-webapp/lib/agent/agent-action-runtime.ts": "Shared browser action runner for Agent Bar, Voice, and Search directives.",
@@ -819,10 +819,10 @@ PATH_SUMMARIES: dict[str, str] = {
     "hushh-webapp/components/kai/kai-command-bar-global.tsx": "Search adapter that delegates selected actions to the shared browser runner.",
     "consent-protocol/hushh_mcp/services/action_gateway.py": "Backend loader that validates generated action authority without semantic routing.",
     "consent-protocol/api/routes/one/adk_live.py": "Authenticated ADK Live relay that accepts runtime bootstrap and emits governed directives.",
-    "docs/reference/kai/kai-action-gateway-vnext.md": "Canonical generated-action contract for One Voice/Kai compatibility and typed action parity.",
-    "docs/reference/one/one-voice-runtime-architecture.md": "Product-facing One Voice runtime contract for shared state, context, and provider adapters.",
-    "docs/reference/one/one-voice-action-coverage-audit.md": "Current One Voice action and screen coverage audit.",
-    "docs/reference/one/one-voice-kai-compatibility-runtime.md": "One-owned Kai compatibility runtime architecture for voice flow, settlement, and action boundaries.",
+    "docs/architecture/finance/kai-action-gateway-vnext.md": "Canonical generated-action contract for One Voice/Kai compatibility and typed action parity.",
+    "docs/architecture/one/one-voice-runtime-architecture.md": "Product-facing One Voice runtime contract for shared state, context, and provider adapters.",
+    "docs/architecture/one/one-voice-action-coverage-audit.md": "Current One Voice action and screen coverage audit.",
+    "docs/architecture/one/one-voice-kai-compatibility-runtime.md": "One-owned Kai compatibility runtime architecture for voice flow, settlement, and action boundaries.",
 }
 
 
@@ -1054,9 +1054,9 @@ def _founder_wiki_probe(
     patch_text = "\n".join(patch_map.values())
     normalized = _normal_text(title, summary, patch_text, " ".join(files))
     path_trigger = any(
-        path.startswith("docs/vision/")
-        or path.startswith("docs/future/")
-        or path.startswith("docs/reference/architecture/")
+        path.startswith("docs/product/principles/")
+        or path.startswith("docs/roadmap/")
+        or path.startswith("docs/architecture/")
         or path.startswith("hushh-webapp/components/kai/")
         or path.startswith("hushh-webapp/app/kai/")
         or path.startswith("hushh-webapp/lib/voice/")
@@ -1384,8 +1384,8 @@ def _pkm_projection_authority_boundary_missing(
 
     proof_paths = {
         "consent-protocol/docs/reference/personal-knowledge-model.md",
-        "docs/reference/architecture/cache-coherence.md",
-        "docs/reference/kai/kai-interconnection-map.md",
+        "docs/development/contracts/cache-coherence.md",
+        "docs/architecture/finance/kai-interconnection-map.md",
         "hushh-webapp/lib/cache/cache-sync-service.ts",
         "hushh-webapp/lib/pkm/pkm-domain-resource.ts",
         "hushh-webapp/__tests__/services/cache-sync-mutation-cascade.test.ts",
@@ -2690,7 +2690,7 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                     or path == "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py"
                     or path in {
                         "consent-protocol/docs/reference/personal-knowledge-model.md",
-                        "docs/reference/architecture/cache-coherence.md",
+                        "docs/development/contracts/cache-coherence.md",
                         "hushh-webapp/lib/cache/cache-sync-service.ts",
                         "hushh-webapp/lib/pkm/pkm-domain-resource.ts",
                     }
@@ -4304,9 +4304,9 @@ def _devex_env_validation_unwired(files: list[str]) -> bool:
         path in files
         for path in (
             "bin/hushh",
-            "docs/guides/getting-started.md",
-            "docs/reference/operations/README.md",
-            "docs/reference/operations/env-and-secrets.md",
+            "docs/development/guides/getting-started.md",
+            "docs/operations/README.md",
+            "docs/operations/configuration/env-and-secrets.md",
         )
     )
     return touches_env_validation and not touches_canonical_entrypoint

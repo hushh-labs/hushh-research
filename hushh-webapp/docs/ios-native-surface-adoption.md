@@ -4803,8 +4803,8 @@ native controls, visual appearance or session continuity after installation.
 
 ### Current Candidate and Rollback
 
-The route inventory remains the generated [frontend/native surface map](../../docs/reference/architecture/frontend-native-surface-map.md)
-and its [parity audit](../../docs/reference/mobile/capacitor-parity-audit-report.md);
+The route inventory remains the generated [frontend/native surface map](../../docs/development/contracts/frontend-native-surface-map.md)
+and its [parity audit](../../docs/development/mobile/capacitor-parity-audit-report.md);
 this family inventory joins it without becoming another route authority. Chat,
 Back and presenter pilot families remain iPhone iOS 26 Debug candidates,
 explicitly rehearsed with `--hushh-native-chat-chrome`. Appearance and Accent are
@@ -5212,10 +5212,10 @@ than acquire separate native implementations.
 | Alerts and notifications — [AlertDialog](../components/ui/alert-dialog.tsx), [Alert](../components/ui/alert.tsx), [Sonner](../components/ui/sonner.tsx) | DOM confirmation / inline status / toast | Conditional for simple confirmations. Keep asynchronous acknowledgement and cancellation; retain nonblocking status instead of converting every toast to a modal. |
 | Route/local tabs — [TopShellTabs](../components/app-ui/top-shell-tabs.tsx), [WorkspaceTopTabs](../components/app-ui/workspace-top-tabs.tsx), [SegmentedTabs](../lib/morphy-ux/ui/segmented-tabs.tsx), [SwipeViews](../lib/morphy-ux/ui/swipe-views.tsx) | DOM selectors and mounted content pager | Conditional: native segmented selector. Route registry/query or local state remains the selected-value owner. Preserve swipe settlement and mounted panes; no second navigation controller. |
 | Buttons, groups and chips — [Button](../components/ui/button.tsx), [ButtonGroup](../components/ui/button-group.tsx), [Morphy button](../lib/morphy-ux/button.tsx) | DOM form/action controls | Selective toolbar candidates only. Retain ordinary form buttons, filters and content actions; no global native button replacement. |
-| Fields, input groups, inputs, textareas, checkbox/radio/switch | [Shared UI primitives](../components/ui/) | Retain form semantics. A bounded nonsecret native selector is conditional; glass is not a reason to move secret or arbitrary forms into Swift. |
-| Cards, tables, charts, avatars, badges, breadcrumbs, separators and typography | [Shared UI primitives](../components/ui/) and feature bodies | Retain content-first surfaces. Chat responses, holdings, Memory and consent records are not glass panels. |
-| Accordion, collapsible, carousel, pagination, sidebar and scroll area | [Shared UI primitives](../components/ui/) | Retain content/navigation semantics unless an individually justified native container is adopted. Do not change scroll ownership with a cosmetic primitive swap. |
-| Command, tooltip, keyboard hints, empty/loading/progress/status | [Shared UI primitives](../components/ui/) | Retain existing semantic feedback and keyboard/accessibility behavior; do not add independent native overlays for every state. |
+| Fields, input groups, inputs, textareas, checkbox/radio/switch | [Shared UI primitives](../components/ui) | Retain form semantics. A bounded nonsecret native selector is conditional; glass is not a reason to move secret or arbitrary forms into Swift. |
+| Cards, tables, charts, avatars, badges, breadcrumbs, separators and typography | [Shared UI primitives](../components/ui) and feature bodies | Retain content-first surfaces. Chat responses, holdings, Memory and consent records are not glass panels. |
+| Accordion, collapsible, carousel, pagination, sidebar and scroll area | [Shared UI primitives](../components/ui) | Retain content/navigation semantics unless an individually justified native container is adopted. Do not change scroll ownership with a cosmetic primitive swap. |
+| Command, tooltip, keyboard hints, empty/loading/progress/status | [Shared UI primitives](../components/ui) | Retain existing semantic feedback and keyboard/accessibility behavior; do not add independent native overlays for every state. |
 
 ### Next Stationary Family: Close
 

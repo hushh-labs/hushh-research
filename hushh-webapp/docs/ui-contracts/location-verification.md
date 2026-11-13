@@ -36,7 +36,7 @@ Production owners include the Location page, map/public route clients, onboardin
 
 <details><summary>Full candidate file list</summary>
 
-- `docs/reference/quality/design.md`
+- `docs/development/quality/design.md`
 - `hushh-webapp/__tests__/components/one-location-agent-page.test.tsx`
 - `hushh-webapp/__tests__/components/one-location-hub-hierarchy.contract.test.ts`
 - `hushh-webapp/__tests__/utils/top-shell-breadcrumbs.test.ts`

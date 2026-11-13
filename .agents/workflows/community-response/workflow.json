@@ -7,13 +7,13 @@
   "task_type": "community-response",
   "affected_surfaces": [
     ".agents/skills/comms-community",
-    "docs/reference/iam",
+    "docs/architecture/identity",
     "consent-protocol/docs/reference/developer-api.md"
   ],
   "required_reads": [
     ".agents/skills/comms-community/references/reply-rules.md",
     ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
-    "docs/reference/iam/README.md",
+    "docs/architecture/identity/README.md",
     "consent-protocol/docs/reference/developer-api.md"
   ],
   "required_commands": [

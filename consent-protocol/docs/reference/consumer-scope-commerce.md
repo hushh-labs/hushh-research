@@ -578,7 +578,7 @@ Sandbox pin. Shared Dev deployment does not install owner-pod software or repair
 its environment. At that observation, the qualification-only reuse pin published
 the earlier `e04b76c61433` image. The October 15 release preparation above removes
 that pin and qualifies its exact predecessor for the next build. Follow the canonical
-[pod update runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md)
+[pod update runbook](../../../docs/operations/hosting/dev-pod-first-light-runbook.md)
 to qualify the exact predecessor, remove the reuse pin for the next application
 image build, publish the immutable image and complete ordinary owner approval,
 Microsoft authorization and durable handoff. Do not patch Azure environment
@@ -1814,7 +1814,7 @@ This source addition does not establish a configured website sandbox, deployed
 support, successful funding, or encrypted information delivery. Website returns
 are refresh hints only; financial status must be read from the ledger.
 
-[Environment and secrets](../../../docs/reference/operations/env-and-secrets.md)
+[Environment and secrets](../../../docs/operations/configuration/env-and-secrets.md)
 owns configuration provenance. Nonsecret lowercase `scope_commerce_*` values travel
 in `BACKEND_RUNTIME_CONFIG_JSON`; country objects hydrate as JSON. SDK and webhook
 keys use distinct literal `SCOPE_COMMERCE_STRIPE_SECRET_KEY` and
@@ -1897,8 +1897,8 @@ the fresh dedicated database, supply the dedicated migration login through `DB_*
 in process memory. First attest that the dedicated database has no owner, vault,
 consent or commercial records. The historical foundation is required before the
 numbered release migrations; `--init` alone fails at migration 039 on a fresh
-database. Follow the existing [baseline procedure](../../../docs/reference/one/agent-chat-migration-baseline.md)
-and [controlled-bootstrap policy](../../../docs/reference/operations/migration-governance.md).
+database. Follow the existing [baseline procedure](../../../docs/architecture/one/agent-chat-migration-baseline.md)
+and [controlled-bootstrap policy](../../../docs/operations/releases/migration-governance.md).
 From `consent-protocol`, apply the exact selected revision's
 [legacy foundation](../../db/legacy/init_legacy_schema.sql) transactionally, then
 use the canonical runner:
@@ -2048,7 +2048,7 @@ with live read-only annotations may run. Account/API/analytics tools remain
 blocked until a reviewed authenticated provider contract can prove account and
 environment. The initial integration excludes payment writes and rejects SDK
 keys and account-impersonation headers as substitutes for OAuth. See
-[curated MCP connector ownership](../../../docs/reference/one/curated-mcp-connectors.md#stripe).
+[curated MCP connector ownership](../../../docs/architecture/one/curated-mcp-connectors.md#stripe).
 
 ## Verification boundary
 
@@ -2192,7 +2192,7 @@ preview selects one worker and one service/revision instance, checked before
 traffic promotion, to constrain process-local OAuth routing. These settings do
 not provide durable recovery across restarts or rollouts. Activation instructions
 and the remaining account/environment contract live in the
-[canonical Stripe connector reference](../../../docs/reference/one/curated-mcp-connectors.md#stripe).
+[canonical Stripe connector reference](../../../docs/architecture/one/curated-mcp-connectors.md#stripe).
 
 This continuation passed 131 frontend connector/OAuth/settings/handoff cases,
 55 deployment and connection-budget cases, 41 backend Stripe admission/OAuth
@@ -3553,7 +3553,7 @@ Sandbox and independently configured reviewer pair. Owner-bound challenges
 expire after ten minutes and invalidate after configuration rotation; the lane
 itself expires within 24 hours. The canonical actor identity service records the
 claim. Global Firebase phone registration and the unrelated default reviewer
-remain unchanged. See [IAM rollout policy](../../../docs/reference/iam/rollout-and-environments.md).
+remain unchanged. See [IAM rollout policy](../../../docs/architecture/identity/rollout-and-environments.md).
 
 The 45 focused account phone tests passed, including wrong-owner, wrong-phone,
 wrong-code, expired/rotated proof and production/deployment fencing checks.
@@ -3793,7 +3793,7 @@ before deployed acceptance.
 The unchanged branch architecture ratchet requires explicit review of incoming
 main's size findings. Its 225 exact reviewed slots retain both parent behaviors,
 duplicate occurrence ordering and future growth enforcement; the provenance is
-recorded in the [quality decision memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt).
+recorded in the [quality decision memo](../../../docs/operations/acceptance/private-agents.md#open-operational-obligations).
 The later bank-payout integration adds five exact reviewed size spans and one
 canonical-origin validation line. Their source hashes and before/after values
 are recorded in `architecture-fitness-baseline.json`; budgets, scanner and other

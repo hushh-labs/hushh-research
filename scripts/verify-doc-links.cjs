@@ -1,175 +1,171 @@
 #!/usr/bin/env node
 
-const fs = require("node:fs");
-const path = require("node:path");
+const fs = require('node:fs');
+const path = require('node:path');
 
-const repoRoot = path.resolve(__dirname, "..");
-const docTargets = [
-  "README.md",
-  "getting_started.md",
-  "TESTING.md",
-  "contributing.md",
-  "docs",
-  "consent-protocol/docs",
-  "hushh-webapp/docs",
-];
-const ignoredDirs = new Set([
-  "node_modules",
-  ".next",
-  "DerivedData",
-  ".pytest_cache",
-  ".git",
-  ".venv",
-  "dist",
-  "build",
-]);
-const pathPrefixes = ["bin/", "docs/", "consent-protocol/", "hushh-webapp/", "scripts/", "deploy/", "data/"];
-const fileLikeExt = /\.(md|ts|tsx|js|cjs|py|sh|yml|yaml|json|txt)$/i;
+const repoRoot = path.resolve(__dirname, '..');
+const docTargets = ['README.md', 'AGENTS.md', 'getting_started.md', 'TESTING.md',
+  'contributing.md', 'docs', '.agents', 'consent-protocol/docs', 'hushh-webapp/docs'];
+const ignoredDirs = new Set(['node_modules', '.next', 'DerivedData', '.pytest_cache',
+  '.git', '.venv', 'dist', 'build', '.local', 'imports']);
+const pathPrefixes = ['bin/', 'docs/', '.agents/', 'consent-protocol/', 'hushh-webapp/',
+  'scripts/', 'deploy/', 'data/'];
+const normalize = value => value.replace(/\\/g, '/');
 
-function normalize(p) {
-  return p.replace(/\\/g, "/");
+function walkMarkdown(root, target) {
+  const full = path.join(root, target);
+  if (!fs.existsSync(full)) return [];
+  if (fs.statSync(full).isFile()) return target.endsWith('.md') ? [target] : [];
+  return fs.readdirSync(full, { withFileTypes: true }).flatMap(entry => {
+    if (ignoredDirs.has(entry.name) || entry.isSymbolicLink()) return [];
+    return walkMarkdown(root, normalize(path.join(target, entry.name)));
+  });
 }
 
-function walkMarkdown(relTarget) {
-  const fullTarget = path.join(repoRoot, relTarget);
-  if (!fs.existsSync(fullTarget)) return [];
-  const stat = fs.statSync(fullTarget);
+function withoutFences(source) {
+  let fence;
+  return source.split(/\r?\n/).map(line => {
+    const match = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (match) {
+      if (!fence) fence = match[1];
+      else if (match[1][0] === fence[0] && match[1].length >= fence.length) fence = undefined;
+      return '';
+    }
+    return fence ? '' : line;
+  }).join('\n').replace(/<!--[\s\S]*?-->/g, '');
+}
 
-  if (stat.isFile()) {
-    return relTarget.endsWith(".md") ? [normalize(relTarget)] : [];
+// GitHub fragments are generated per document: punctuation is removed and
+// colliding headings receive suffixes. Explicit HTML anchors remain valid.
+function headingAnchors(source) {
+  const text = withoutFences(source);
+  const anchors = new Set();
+  for (const match of text.matchAll(/<(?:a|h[1-6])\b[^>]*\b(?:id|name)=["']([^"']+)["']/gi)) anchors.add(match[1]);
+  const used = new Set();
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    let heading = lines[i].match(/^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/)?.[1];
+    if (!heading && i + 1 < lines.length && /^\s{0,3}(?:=+|-+)\s*$/.test(lines[i + 1]) &&
+        lines[i].trim() && !lines[i].includes('|')) heading = lines[i];
+    if (!heading) continue;
+    const base = heading.replace(/<[^>]*>/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/&amp;/g, '&').replace(/&(?:lt|gt);/g, '').toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}_\-\s]/gu, '').replace(/\s/g, '-');
+    let slug = base;
+    let suffix = 0;
+    while (used.has(slug)) slug = `${base}-${++suffix}`;
+    used.add(slug); anchors.add(slug);
   }
+  return anchors;
+}
 
-  const out = [];
+function localTarget(root, file, token, historicalRevisions) {
+  let value = token.trim().replace(/^<(.+)>$/, '$1').replace(/\s+["'][^]*$/, '');
+  if (/^https?:/.test(value)) {
+    const match = value.match(/^https:\/\/github\.com\/hushh-labs\/hushh-research\/(?:blob|tree)\/([^/]+)\/(.*)$/);
+    if (!match) return null;
+    // Pinned history is evidence, not a promise that the old file exists in HEAD.
+    if (/^[a-f0-9]{7,40}$/.test(match[1])) {
+      historicalRevisions?.add(match[1]);
+      return null;
+    }
+    if (!['main', 'dev', 'uat'].includes(match[1])) return null;
+    value = '/' + match[2];
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return null;
+  const [target, ...parts] = value.split('#');
+  let decoded;
+  let fragment;
+  try { decoded = decodeURIComponent(target); fragment = decodeURIComponent(parts.join('#')); }
+  catch { return { error: 'invalid URL encoding' }; }
+  let full;
+  if (!decoded) full = path.join(root, file);
+  else if (decoded === './bin/hushh') full = path.join(root, 'bin/hushh');
+  else if (decoded.startsWith('/')) full = path.join(root, decoded.slice(1));
+  else {
+    full = path.resolve(root, path.dirname(file), decoded);
+    // Existing documentation also contains explicitly repository-root paths.
+    if (!fs.existsSync(full) && pathPrefixes.some(prefix => decoded.startsWith(prefix))) full = path.join(root, decoded);
+  }
+  if (!full.startsWith(root + path.sep) && full !== root) return { error: 'target leaves repository' };
+  return { full, fragment };
+}
 
-  const walk = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (ignoredDirs.has(entry.name)) continue;
-        walk(full);
+function checkLinks({ workspaceRoot = repoRoot, targets = docTargets, codePaths = true } = {}) {
+  const root = path.resolve(workspaceRoot);
+  const files = [...new Set(targets.flatMap(target => walkMarkdown(root, target)))].sort();
+  const errors = [];
+  const anchors = new Map();
+  const historicalRevisions = new Set();
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const text = withoutFences(source);
+    const prose = text.replace(/`[^`\n]+`/g, ' ').replace(/\\[\[\]]/g, '');
+    const tokens = [...prose.matchAll(/\[[^\]\n]*\]\((<[^>]+>|[^\s)]+)(?:\s+["'][^\n]*["'])?\)/g)].map(match => match[1]);
+    const definitions = new Map([...text.matchAll(/^\s{0,3}\[([^\]]+)\]:\s*(<[^>]+>|\S+)/gm)]
+      .map(match => [match[1].toLowerCase(), match[2]]));
+    for (const match of prose.matchAll(/\[([^\]\n]+)\]\[([^\]\n]*)\]/g)) {
+      const label = (match[2] || match[1]).toLowerCase();
+      if (definitions.has(label)) tokens.push(definitions.get(label));
+      // Undefined references are literal Markdown text, e.g. adjacent regex classes.
+    }
+    // Validate definitions even when their references use Markdown's shortcut form.
+    tokens.push(...definitions.values());
+    for (const token of tokens) {
+      const resolved = localTarget(root, file, token, historicalRevisions);
+      if (!resolved) continue;
+      if (resolved.error || !fs.existsSync(resolved.full)) {
+        errors.push(`${file}: broken markdown link -> ${token}${resolved.error ? ` (${resolved.error})` : ''}`);
         continue;
       }
-      if (entry.isFile() && entry.name.endsWith(".md")) {
-        out.push(normalize(path.relative(repoRoot, full)));
+      if (resolved.fragment && resolved.full.endsWith('.md')) {
+        if (!anchors.has(resolved.full)) anchors.set(resolved.full, headingAnchors(fs.readFileSync(resolved.full, 'utf8')));
+        if (!anchors.get(resolved.full).has(resolved.fragment)) errors.push(`${file}: missing heading -> ${token}`);
       }
     }
-  };
-
-  walk(fullTarget);
-  return out;
-}
-
-function shouldValidateLinkToken(token) {
-  if (!token) return false;
-  if (token.startsWith("http://") || token.startsWith("https://") || token.startsWith("mailto:")) return false;
-  if (token.startsWith("#")) return false;
-
-  const cleaned = token.split("#")[0].trim();
-  if (!cleaned) return false;
-
-  if (cleaned.startsWith("./") || cleaned.startsWith("../")) return true;
-  if (fileLikeExt.test(cleaned)) return true;
-  if (pathPrefixes.some((prefix) => cleaned.startsWith(prefix))) return true;
-  return false;
-}
-
-function resolveCandidate(baseFile, token) {
-  const cleaned = token.split("#")[0].trim();
-  const baseDir = path.dirname(path.join(repoRoot, baseFile));
-
-  if (cleaned === "./bin/hushh") {
-    return path.join(repoRoot, "bin/hushh");
-  }
-
-  if (cleaned.startsWith("./") || cleaned.startsWith("../")) {
-    return path.resolve(baseDir, cleaned);
-  }
-
-  return path.join(repoRoot, cleaned);
-}
-
-/**
- * `file.py:1357` and `file.py:478-489` are references to file.py. Stripping the
- * line suffix before resolving is what lets a doc cite a precise line, which is
- * the citation style this repo asks for. Without it the gate rejected the most
- * precise references and quietly rewarded vaguer ones.
- */
-function stripLineSuffix(token) {
-  return token.replace(/[),.;:]+$/g, "").replace(/:\d+(?:-\d+)?$/, "");
-}
-
-function shouldValidateCodePath(token) {
-  if (!token || token.includes(" ")) return false;
-  if (token.startsWith("http://") || token.startsWith("https://") || token.startsWith("mailto:")) return false;
-  if (token.startsWith("/")) return false; // route-like, not repo path
-  if (token.startsWith("~/")) return false;
-  if (token.includes("...")) return false;
-  if (token.includes("*")) return false;
-  if (token.includes("{") || token.includes("}") || token.includes("<") || token.includes(">")) return false;
-  if (!token.includes("/")) return false;
-
-  const cleaned = stripLineSuffix(token);
-  if (/^\.env(\.[A-Za-z0-9_-]+)?$/.test(path.basename(cleaned))) return false;
-  if (cleaned.includes(".env.local.d/")) return false;
-
-  if (cleaned.startsWith("./") || cleaned.startsWith("../")) return true;
-  return pathPrefixes.some((prefix) => cleaned.startsWith(prefix));
-}
-
-function resolveCodePath(baseFile, token) {
-  const cleaned = stripLineSuffix(token);
-  const baseDir = path.dirname(path.join(repoRoot, baseFile));
-
-  if (cleaned === "./bin/hushh") {
-    return [path.join(repoRoot, "bin/hushh")];
-  }
-
-  if (cleaned.startsWith("./") || cleaned.startsWith("../")) {
-    return [path.resolve(baseDir, cleaned)];
-  }
-
-  if (pathPrefixes.some((prefix) => cleaned.startsWith(prefix))) {
-    return [path.join(repoRoot, cleaned)];
-  }
-
-  return [path.join(repoRoot, cleaned)];
-}
-
-function main() {
-  const mdFiles = [...new Set(docTargets.flatMap((target) => walkMarkdown(target)))].sort();
-  const errors = [];
-
-  for (const relFile of mdFiles) {
-    const src = fs.readFileSync(path.join(repoRoot, relFile), "utf8");
-
-    const linkMatches = src.matchAll(/\[[^\]]*\]\(([^)]+)\)/g);
-    for (const m of linkMatches) {
-      const token = (m[1] || "").trim();
-      if (!shouldValidateLinkToken(token)) continue;
-      const resolved = resolveCandidate(relFile, token);
-      if (!fs.existsSync(resolved)) {
-        errors.push(`${relFile}: broken markdown link -> ${token}`);
-      }
-    }
-
-    const codeMatches = src.matchAll(/`([^`\n]+)`/g);
-    for (const m of codeMatches) {
-      const token = (m[1] || "").trim();
-      if (!shouldValidateCodePath(token)) continue;
-      const candidates = resolveCodePath(relFile, token);
-      if (!candidates.some((candidate) => fs.existsSync(candidate))) {
-        errors.push(`${relFile}: unresolved code path -> ${token}`);
-      }
+    if (!codePaths) continue;
+    for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+      const token = match[1];
+      if (/\s|\*|\.\.\.|[{}<>]/.test(token) || token.startsWith('/') || token.startsWith('~') ||
+          /^\w+:/.test(token) || /(?:^|\/)\.env(?:\.|$)/.test(token)) continue;
+      if (!pathPrefixes.some(prefix => token.startsWith(prefix)) && !token.startsWith('./') && !token.startsWith('../')) continue;
+      if (token.startsWith('.agents/.local/')) continue; // Optional ignored host state, never a source asset.
+      const cleaned = token.replace(/[),.;:]+$/g, '').replace(/:\d+(?:-\d+)?$/, '');
+      const resolved = localTarget(root, file, cleaned);
+      if (resolved?.error || !fs.existsSync(resolved.full)) errors.push(`${file}: unresolved code path -> ${token}`);
     }
   }
-
-  if (errors.length > 0) {
-    console.error("ERROR: docs integrity check failed");
-    for (const err of errors) console.error(`- ${err}`);
-    process.exit(1);
-  }
-
-  console.log("OK: docs integrity check passed");
+  return { files: files.length, errors, historicalRevisions: [...historicalRevisions] };
 }
 
-main();
+function selfTest() {
+  const os = require('node:os');
+  const assert = require('node:assert/strict');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hussh-doc-links-'));
+  const write = (file, text) => { const full = path.join(root, file); fs.mkdirSync(path.dirname(full), { recursive: true }); fs.writeFileSync(full, text); };
+  try {
+    write('AGENTS.md', '[Instructions](.agents/instructions.md#recovery-1)\n');
+    write('.agents/instructions.md', '# Recovery\n# Recovery\n[Module](../docs/module.md#new-heading)\n');
+    write('docs/module.md', '# New heading\n[Root](../AGENTS.md)\n[Same repo](https://github.com/hushh-labs/hushh-research/blob/main/AGENTS.md)\n');
+    assert.deepEqual(checkLinks({ workspaceRoot: root }).errors, []);
+    write('docs/module.md', '# Renamed\n[Missing](absent.md)\n');
+    const failed = checkLinks({ workspaceRoot: root }).errors;
+    assert(failed.some(error => error.includes('missing heading')));
+    assert(failed.some(error => error.includes('absent.md')));
+    assert(headingAnchors('# A\n# A\n# A-1\n# A\n```md\n# Ignored\n```').has('a-1-1'));
+    assert(!headingAnchors('```md\n# Ignored\n```').has('ignored'));
+    assert(headingAnchors('<a id="explicit"></a>\n# Héllo, **world**!').has('héllo-world'));
+    write('docs/module.md', '# New heading\n[relative][local]\n[local]: ../AGENTS.md\n');
+    assert.deepEqual(checkLinks({ workspaceRoot: root }).errors, []);
+    console.log('OK: doc links controls pass (moved file, agent guidance, headings, duplicates and reference links)');
+  } finally { fs.rmSync(root, { recursive: true }); }
+}
+
+module.exports = { checkLinks, headingAnchors };
+if (require.main === module) {
+  if (process.argv.includes('--self-test')) selfTest();
+  else {
+    const result = checkLinks();
+    if (result.errors.length) { console.error(result.errors.join('\n')); process.exitCode = 1; }
+    else console.log(`OK: docs integrity passed (${result.files} pages; paths and headings)`);
+  }
+}

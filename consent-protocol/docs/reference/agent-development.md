@@ -173,7 +173,7 @@ explicit invocation lifetimes; teardown joins before the update permit can close
 Its sealed checkpoint and owner review routes are source-qualified locally. The
 active registry remains Files-only until the remaining tool adapters and cloud
 delivery are qualified; constructor wiring is not installed acceptance. Follow
-the [Scheduled tasks runbook](../../../docs/reference/operations/private-files-library.md#scheduled-tasks--local-source-not-deployed-acceptance).
+the [Scheduled tasks runbook](../../../docs/operations/hosting/private-files-library.md#scheduled-tasks--local-source-not-deployed-acceptance).
 
 ## Architecture Review Questions
 
@@ -639,11 +639,11 @@ same-tab fallback, DOM inference, or another routing agent.
 
 Reference:
 
-- `./pkm-agent-north-star.md`
-- `./pkm-prompt-contract.md`
-- `./backend-semantic-boundary.md`
-- `../../../docs/reference/quality/morphy-agent-experience.md`
-- `../../../docs/reference/one/one-voice-runtime-architecture.md`
+- `pkm-agent-north-star.md`
+- `pkm-prompt-contract.md`
+- `backend-semantic-boundary.md`
+- `../../../docs/development/quality/morphy-agent-experience.md`
+- `../../../docs/architecture/one/one-voice-runtime-architecture.md`
 
 ### Step 3: Bind the Existing Runtime
 
@@ -708,7 +708,7 @@ uv run python scripts/verify_agent_hierarchy_contract.py
 ## Current Roster and Workflow Owners
 
 The generated [product-agent registry](../../../contracts/agents/product-agent-registry.v2.json)
-is the complete roster; [One Agent Hierarchy](../../../docs/reference/one/one-agent-hierarchy.md)
+is the complete roster; [One Agent Hierarchy](../../../docs/architecture/one/one-agent-hierarchy.md)
 owns the cross-surface roles. Keep this page on package-local agent, tool and
 operon implementation rules instead of maintaining a second roster table.
 

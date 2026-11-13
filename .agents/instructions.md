@@ -16,11 +16,11 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
 | `.agents/config.json` | Bounded engineering execution; host tools remain separately configured and verified |
 | `.agents/evals/`, `.agents/imports/` | Routing cases and pinned third-party resources |
-| `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
-| `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
-| `docs/future/personal-agent/` | Private-agent designs, parity matrix and divergence register; verify implementation claims against current source |
-| `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
-| `docs/reference/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
+| `docs/product/principles/private-agent-requirements.md` | Private-agent requirements and qualified implementation evidence |
+| `docs/operations/acceptance/private-agents.md` | Operational acceptance: source capabilities, installed verification and unresolved recovery obligations |
+| `docs/roadmap/personal-agent/` | Private-agent designs, parity matrix and divergence register; verify implementation claims against current source |
+| `docs/development/repository-map.md` | Orientation: components, package owners and implementation references |
+| `docs/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
 
 **One development tree.** Author skills, workflows and subagents only under
 `.agents`. Every coding agent starts with root `AGENTS.md` and reads these same
@@ -49,7 +49,7 @@ only through reviewed deployment configuration, never a task or silent fallback.
 Verify owner-scoped workload authority, normal broker policy, supervised cleanup,
 recovery and native model execution before enabling each cloud. No separate
 Browser service, VM migration or provider sandbox is required.
-Report measurable journey outcomes in the existing readiness memo. Reuse valid,
+Report measurable journey outcomes in the operational acceptance record. Reuse valid,
 unchanged evidence, finish the bounded implementation before freezing a candidate,
 and preserve the required verification and release gates below. Do not expand the
 product merely to work around a failed acceptance prerequisite.
@@ -96,7 +96,7 @@ Verification:
 6. Extend the nearest existing test file before creating a new one, and delete or merge a redundant test rather than keeping both.
 7. Test the changed contract with the nearest authoritative suite. Reuse unchanged evidence and remove demonstrated duplicate execution. Ordinary PR pushes need affected checks, not a mandatory full local core mirror. Release candidates use core journeys plus affected features; broaden only for changed dependencies or unresolved risk. Appearance, spacing, colors, icons and animation measurements are developer diagnostics, not required delivery checks. Preserve functional, consent, ownership and recovery boundaries through affected unit/service/API/database tests. Automated app-browser journeys and browser-engine qualification are explicit diagnostics, not required PR, queue or release checks. One’s Browser capability and its runtime authority tests are separate and remain required when affected.
 8. Push one completed, locally verified batch. A newer push cancels superseded PR validation. Diagnose the original failure, then retry failed jobs only when source is unchanged through the existing governed command. Independent validation commands should finish and report all failures together with a final nonzero result. Setup, invalid selection, cancellation and unsafe fixtures stop dependent work. Never apply collect-all behavior to authorization, migrations, candidate verification or traffic promotion.
-9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead. Core login, vault, information integrity, ownership, schema, active-model chat and rollback checks remain blocking. Secondary feature diagnostics report failures or not-run outcomes separately under the [CI readiness policy](../docs/reference/operations/ci.md#managed-provider-readiness-policy). Qualify policy-changing combined candidates once with retained functional/core checks plus affected boundaries; reuse unchanged evidence.
+9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead. Core login, vault, information integrity, ownership, schema, active-model chat and rollback checks remain blocking. Secondary feature diagnostics report failures or not-run outcomes separately under the [CI readiness policy](../docs/operations/releases/ci.md#managed-provider-readiness-policy). Qualify policy-changing combined candidates once with retained functional/core checks plus affected boundaries; reuse unchanged evidence.
 
 For a local core run, supply `CI_IMPACT_BASE_SHA` only when the actual PR target
 and its merge base are verified. The canonical selector then runs the PKM
@@ -113,7 +113,7 @@ Communication:
 
 Calibration standards: Margaret Hamilton for correctness under pressure, Grace Hopper for practical clarity, Barbara Liskov for contract discipline, Leslie Lamport for precision around distributed behavior, John Carmack for empirical simplicity, and Steve Jobs for refusal to ship sloppy UX.
 
-Durable persona rationale lives in `docs/reference/operations/hussh-code-persona.md`; keep this root file as the active operating contract and avoid duplicating the full kernel into every skill or agent prompt.
+Durable persona rationale lives in `docs/development/engineering-principles.md`; keep this root file as the active operating contract and avoid duplicating the full kernel into every skill or agent prompt.
 
 Repository rules, skills, workflow packs, tests, generated contracts, and runtime evidence override this kernel when they are more specific.
 
@@ -121,17 +121,17 @@ Repository rules, skills, workflow packs, tests, generated contracts, and runtim
 
 Back uses one hierarchy across shell, iOS edge gesture and Android system Back: top overlay, route-scoped feature layer, then authored route parent. Register local nested states with `useBackLayer`; reuse the feature's existing cancel/review-reset callback. Never fall back to raw history for application route Back. The narrowly reviewed pane/auth/error/map history owners are ratcheted against new bypasses.
 
-Every route declares `backVerification` in `hushh-webapp/lib/navigation/app-route-layout.contract.json`, including query parents or an explained entry/redirect/hidden boundary. Add behavior cases when changing query state or nested interactions. Before editing, read [the UI contract contributor scaffold](../docs/reference/architecture/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. After reviewing behavior, run `npm run build:ui-contracts` (Back before Search), then `npm run verify:ui-contracts` and the owning behavioral tests. The mandatory UI Contracts job and aggregate gates reject failures and skipped checks. A source stamp proves freshness, not the meaning of a new interaction.
+Every route declares `backVerification` in `hushh-webapp/lib/navigation/app-route-layout.contract.json`, including query parents or an explained entry/redirect/hidden boundary. Add behavior cases when changing query state or nested interactions. Before editing, read [the UI contract contributor scaffold](../docs/development/contracts/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. After reviewing behavior, run `npm run build:ui-contracts` (Back before Search), then `npm run verify:ui-contracts` and the owning behavioral tests. The mandatory UI Contracts job and aggregate gates reject failures and skipped checks. A source stamp proves freshness, not the meaning of a new interaction.
 
 Before adding or relocating a control, apply the existing
-[surface placement review](../docs/reference/quality/pr-impact-checklist.md#surface-placement-review):
+[surface placement review](../docs/development/quality/pr-impact-checklist.md#surface-placement-review):
 identify the person's job, owning screen, return destination and runtime availability.
 Keep technical settings out of primary task surfaces and verify locked, waiting,
 error and responsive states through the existing UI owners.
 
 ## Project-Wide Bacterial Software Architecture Gate
 
-Parent and child agents must apply [Bacterial Software Architecture](../docs/vision/bacterial-software-architecture.md) as a top-level engineering north star.
+Parent and child agents must apply [Bacterial Software Architecture](../docs/architecture/engineering-principles.md) as a top-level engineering north star.
 
 1. Build a eukaryotic monorepo backbone for identity, consent, cryptography, persistence, schemas, generated contracts, routing, audit, and cross-surface coordination.
 2. Maximize bacterial software inside that backbone:
@@ -163,9 +163,33 @@ These rules apply to parent sessions, subagents, verification workers and local 
 4. Finish or cancel agent-owned background jobs and release finished MCP clients through the host's supported lifecycle controls. Check that the selected workers exit, including descendants and temporary-resource cleanup. Explicitly hand off any runtime intentionally left running. Closing a visible chat or returning a final answer is not proof of teardown; preserve conversation history.
 5. Treat repeated process names or idle CPU as investigation signals, not proof of abandonment. Separate legitimate clients for active sessions from retained or orphaned processes using parentage, start time and available session/transport evidence. Stop another session's work only with user authorization or an explicit ownership handoff; never apply blanket `pkill` or keep only one global instance regardless of active clients.
 6. Use graceful shutdown first and a bounded wait. If authorized cleanup requires escalation, recheck process identity before forcing only the selected process tree to exit. Preserve unrelated apps, project servers and databases; verify temporary resources were reconciled. Record uncertain external action outcomes before any retry.
-7. Inspect startup, transport and shutdown failures separately from resource pressure. Keep credentials and full environments/request payloads out of diagnostics. If retention is in the IDE/MCP host, record the evidence and use supported configuration or a checkpointed reload; do not patch vendor caches or add a recurring process killer.
-8. Track temporary checkouts from creation. Reuse a suitable existing checkout first. Record its canonical path, base/head revision, owning task/session, purpose, owned process IDs and ports, and completion or handoff condition in the existing task handoff. A finished verification run is not a reason to retain a duplicate checkout indefinitely.
-9. Close finished temporary checkouts before task completion. Immediately before removal, verify commit or patch preservation on the primary branch or an explicitly retained active branch, dirty/untracked source, and required ignored evidence. Preserve unique work and necessary sanitized evidence outside the checkout, then apply the graceful shutdown and descendant/listener checks above. Remove registered checkouts with `git worktree remove` and apply the branch-preservation gate before deleting temporary refs. Never follow dependency symlinks into a retained checkout or remove active peer work. Report any retained checkout's owner, reason and next cleanup condition; report reclaimed disk separately from verified process or memory changes.
+7. Inspect startup, transport and shutdown failures separately from resource pressure. Keep credentials and full environments/request payloads out of diagnostics. Generated audit/review JSON, run reports, screenshots, traces and evaluation ledgers are ignored local or CI artifacts, never source commits. Preserve authored contracts, runtime mirrors, dependency locks, fixtures, required app assets and compact policy inputs. If retention is in the IDE/MCP host, record the evidence and use supported configuration or a checkpointed reload; do not patch vendor caches or add a recurring process killer.
+8. Track every task-created temporary worktree from creation in the existing task
+   handoff, which is its ownership register. Reuse a suitable existing checkout
+   first. Record its canonical path, base/head revision, owning task/session,
+   purpose, owned process IDs and ports, and completion or handoff condition. A
+   finished verification run is not a reason to retain a duplicate checkout.
+9. Permanently remove registered temporary worktrees after successful verification
+   and handoff. Before removal, verify final changes are integrated or durably
+   recoverable in another explicitly retained branch; inspect tracked, untracked,
+   and ignored paths for unique work and required evidence without opening
+   credential or `.env` contents; preserve needed work and sanitized evidence
+   outside the checkout; and confirm no active task or peer process has its cwd in
+   the checkout or holds files there open. Gracefully stop only task-owned
+   processes, then remove only the exact registered path with
+   `git worktree remove <path>` without `--force`. Only after actual checkout
+   removal, preview `git worktree prune --dry-run --verbose` and prune only if its
+   output is limited to this task's stale metadata. Do not remove preexisting or
+   active peer worktrees, unique uncommitted work, or required evidence. Delete
+   task-owned branch refs only when the branch-preservation gate permits it;
+   remove residual generated directories only when task-owned, safe, and
+   authorized. Never use broad recursive deletion or follow dependency symlinks
+   into retained checkouts. For failed or
+   interrupted runs, remove only proven-disposable resources; otherwise retain
+   and report the owner, reason, and next cleanup condition. If safe removal
+   cannot be established, retain the checkout and report the blocker. Verify
+   removed paths and metadata are gone, and report reclaimed checkout disk
+   separately from process or memory changes.
 10. Make agent-authored runtime and verification code release its resources on success, failure and cancellation: use context managers or `try/finally`, close files, sockets and database pools, cancel timers/subscriptions, and settle owned workers and temporary resources. Bound buffered results and retained artifacts. Verify the actual terminal state; returning a result, dropping a reference or deleting a cache does not prove that descendants exited or RAM was reclaimed.
 
 ## Project-Wide Agent Architecture Doctrine
@@ -174,7 +198,7 @@ These rules apply to parent sessions, subagents, verification workers and local 
 
 **Hussh is your personal agent for the digital world—trusted by design,
 consent-first by default, and accountable only to you.** The complete approved
-[Personal Data Agent framing](../docs/vision/agent-ontology.md#personal-data-agent-founder-identity)
+[Personal Data Agent framing](../docs/product/principles/agent-ontology.md#personal-data-agent-founder-identity)
 governs product decisions, agent instructions, GTM and policy: duty of care,
 discretion, restraint and the person's information as their private capital.
 Hussh names the platform; One is the person's private agent. Serve the owner,
@@ -188,13 +212,13 @@ These are the durable architecture principles for every Hussh product agent (One
 
 1. Statefulness follows runtime topology; owner isolation is permanent.
    - **Shared runtime:** an agent is a system prompt plus declared hands and tools, with no ambient cross-owner agent memory or privileged access. Supply context through owner-scoped, consented turn/session state, A2A task payloads, and scoped encrypted exports. Protected information arrives through a consent-gated channel. Durable scoped sessions do not authorize personal memory shared between owners.
-   - **Private pod:** one owner, persistent encrypted recovery state and explicit recall. Preserve this topology when integrating shared-runtime changes. The canonical requirements and deployment limits live in `docs/reference/architecture/private-agent-north-star.md`.
+   - **Private pod:** one owner, persistent encrypted recovery state and explicit recall. Preserve this topology when integrating shared-runtime changes. The canonical requirements and deployment limits live in `docs/product/principles/private-agent-requirements.md`.
    - **Separate authorities:** PKM owns the person's information; the pod's PKM working copy is a consented replica. Agent-experience memory holds conversational context and learned preferences, not a competing PKM store. Provider-derived memory has its own processing boundary; sealed recovery logs do not prove provider blindness.
    - **Required boundaries:** verify owner authority before information access, maintain public-only connector-key registration, ciphertext-only vault persistence, scoped exports, sanitized diagnostics and auditable recall. Implementation pointers and remaining custody/receipt gaps belong in the canonical north star; no helper or migration proves universal enforcement.
    - **Memory outcomes:** owner inspection, export, revocation and erasure are requirements. Retained resources and unverified recovery remain incomplete; never describe them as shipped solely because tests or scaffolding exist.
 2. Delegation is a wrapped function of current behavior. When One delegates to a specialist, the delegation wraps the existing dispatch contract without breaking it: same task in, same result out, with consent authority attached per hop. Delegation authority per hop is a scoped encrypted export whose domain is dynamic, identified by the structure agent, never a broad standing grant. Use ADK `task` mode for structured delegation within one runtime and official A2A Tasks across process or deployment boundaries, as specified in item 8; do not hand-build a parallel delegation envelope.
 3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) reconcile affected articles as part of the authorized change. Read-only audits do not grant publishing authority. When wiki maintenance is authorized in the current session, update the smallest verified section and read it back; otherwise record the exact drift and proposed correction. Never publish private evidence or promote a future proposal to current truth.
-4. Shared-state ownership follows the existing subsystem contract. Keep authoritative persistence in its declared store and shared mechanisms behind replaceable seams. Postgres-backed state coexists with configurable Redis rate limits and Places caching; an unset limiter URI uses process-local memory, not a cluster-wide budget. Verify the selected store and failure behavior per environment. Never infer distributed enforcement from a dependency or configuration example. See `consent-protocol/api/middlewares/rate_limit.py`, `consent-protocol/hushh_mcp/services/google_maps_service.py` and `docs/reference/operations/env-and-secrets.md`.
+4. Shared-state ownership follows the existing subsystem contract. Keep authoritative persistence in its declared store and shared mechanisms behind replaceable seams. Postgres-backed state coexists with configurable Redis rate limits and Places caching; an unset limiter URI uses process-local memory, not a cluster-wide budget. Verify the selected store and failure behavior per environment. Never infer distributed enforcement from a dependency or configuration example. See `consent-protocol/api/middlewares/rate_limit.py`, `consent-protocol/hushh_mcp/services/google_maps_service.py` and `docs/operations/configuration/env-and-secrets.md`.
 5. No second decision-maker. Each interaction surface has exactly one routing authority. One owns product semantic decisions within the generated action contract; the owning workflow routes engineering work. New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
 6. Product agents and engineering agents are separate namespaces. `.agents/subagents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
 7. `AgentManifestV2` YAML owns authored product-agent definitions and their generated registries/cards. Route, voice/action and native contracts retain their own declared sources; the runtime topology index joins them without taking execution authority. Keep projections reproducible from their owning sources; parallel agent manifests and prompt copies are prohibited.
@@ -250,13 +274,13 @@ relocation never grants their writers authority. Keep read-only lanes, workflow 
 package instructions and required gates unchanged when consolidating.
 
 All generated sources and source classifications are indexed by the existing
-[development topology contract](../docs/reference/architecture/runtime-topology-maintenance.md).
+[development topology contract](../docs/architecture/runtime-topology-maintenance.md).
 Do not create another authored fleet, prompt copy or routing authority.
 
 ## Project-Wide Routing Gate
 
 Route every non-trivial task before implementation or delegation. Use
-`docs/project_context_map.md` for location and `.agents/` for ownership.
+`docs/development/repository-map.md` for location and `.agents/` for ownership.
 
 Repository precedence:
 
@@ -375,4 +399,4 @@ existing custom hook configuration and resolve it through repo-operations.
 
 ## Search web contracts
 
-For changes to web screens, routes, layouts or their imported UI modules, review the owning `.voice-action-contract.json` actions, reachability and context defaults. Search reads these contracts automatically; do not add a separate Search catalog. Use [the UI contract contributor scaffold](../docs/reference/architecture/ui-contract-contributor-guide.md) before editing. Run `cd hushh-webapp && npm run ui:doctor`, review owning actions and Back cases, then `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The mandatory UI Contracts job and required CI Status Gate reject stale outputs and skipped checks. Source fingerprints do not replace semantic review of new actions.
+For changes to web screens, routes, layouts or their imported UI modules, review the owning `.voice-action-contract.json` actions, reachability and context defaults. Search reads these contracts automatically; do not add a separate Search catalog. Use [the UI contract contributor scaffold](../docs/development/contracts/ui-contract-contributor-guide.md) before editing. Run `cd hushh-webapp && npm run ui:doctor`, review owning actions and Back cases, then `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The mandatory UI Contracts job and required CI Status Gate reject stale outputs and skipped checks. Source fingerprints do not replace semantic review of new actions.

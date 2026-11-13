@@ -40,7 +40,7 @@
       "control_ids": ["one-setup-connections-terminal"],
       "state_exposure": ["AI connection selection state"],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ]
     }
   ],

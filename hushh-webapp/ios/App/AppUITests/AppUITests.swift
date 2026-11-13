@@ -6893,7 +6893,7 @@ final class AppUITests: XCTestCase {
     @discardableResult
     // MARK: - Render performance card
 
-    /// Drives the fixed gesture card from docs/reference/mobile/render-performance-charter.md
+    /// Drives the fixed gesture card from docs/development/mobile/render-performance-charter.md
     /// with the in-app frame-pacing probe switched on, and prints one
     /// `PERF_GESTURE name=<n> rep=<i> start_epoch_ms=<ms> end_epoch_ms=<ms>` line
     /// per gesture so the probe's windows can be joined to what the finger did.

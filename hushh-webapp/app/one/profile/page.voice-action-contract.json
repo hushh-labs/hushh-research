@@ -3,7 +3,7 @@
   "surface_id": "profile_account",
   "surface_title": "Profile Workspace",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "docs/architecture/finance/kai-action-gateway-vnext.md",
     "hushh-webapp/app/register-phone/page.voice-action-contract.json"
   ],
   "defaults": {
@@ -75,7 +75,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "speaker_persona": "one"
     },

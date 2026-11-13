@@ -19,15 +19,15 @@ from tests.helpers.calendar_meeting_artifact_fixtures import (
     EVENT,
     GRANT,
     RECORD,
-    freeze_library_clock,
+    freeze_meeting_clock,
     run,
     setup,
 )
 
 
 @pytest.fixture(autouse=True)
-def fixture_clock(monkeypatch):
-    freeze_library_clock(monkeypatch)
+def meeting_clock(monkeypatch):
+    freeze_meeting_clock(monkeypatch)
 
 
 def test_missing_meet_or_drive_scope_keeps_calendar_meetings_visible(monkeypatch):
@@ -386,3 +386,11 @@ def test_a_meet_scope_failure_asks_for_the_scope_and_never_a_file_state(monkeypa
     with pytest.raises(artifacts_module.ArtifactUnavailable) as caught:
         run(svc._meet("synthetic-token", "conferenceRecords"))
     assert caught.value.state == "permission_required"
+
+
+def test_fixed_clock_preserves_provider_retention_refusal(monkeypatch):
+    insights, _, _ = setup()
+    monkeypatch.setattr(artifacts_module, "inspect_token", AsyncMock(return_value=set()))
+    result = run(insights.library(user_id="owner", date="2026-09-01", time_zone="UTC"))
+    assert result["complete"] is False
+    assert "provider_retention" in result["limitations"]

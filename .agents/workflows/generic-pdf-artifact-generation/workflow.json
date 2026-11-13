@@ -13,7 +13,7 @@
   "required_reads": [
     ".agents/skills/founder-brief-curation/references/pdf-artifact-generation.md",
     ".agents/skills/founder-brief-curation/references/brief-curation-rules.md",
-    "docs/reference/operations/documentation-architecture-map.md"
+    "docs/development/documentation.md"
   ],
   "required_commands": [
     "python3 scripts/ops/verify_pdf_artifact_contract.py",

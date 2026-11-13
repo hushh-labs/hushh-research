@@ -18,7 +18,7 @@ Owned repo surfaces:
 1. `hushh-webapp/components/ui`
 2. `hushh-webapp/lib/morphy-ux`
 3. `hushh-webapp/components/app-ui`
-4. `docs/reference/quality/design-system.md`
+4. `docs/development/quality/design-system.md`
 
 Non-owned surfaces:
 
@@ -36,13 +36,13 @@ Non-owned surfaces:
 2. Native plugin or mobile parity work.
 3. Route-contract and package-convention work without a design-system rule change.
 ## Read First
-1. `docs/reference/quality/design.md`
-2. `docs/reference/quality/design-system.md`
-3. `docs/reference/quality/frontend-ui-architecture-map.md`
-4. `docs/reference/quality/app-surface-design-system.md`
-5. `docs/reference/quality/frontend-pattern-catalog.md`
+1. `docs/development/quality/design.md`
+2. `docs/development/quality/design-system.md`
+3. `docs/development/quality/frontend-ui-architecture-map.md`
+4. `docs/development/quality/app-surface-design-system.md`
+5. `docs/development/quality/frontend-pattern-catalog.md`
 6. `.agents/skills/frontend-design-system/references/design-review-kernel.md`
-7. `docs/reference/mobile/render-performance-charter.md`
+7. `docs/development/mobile/render-performance-charter.md`
 8. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
@@ -51,7 +51,7 @@ Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-nativ
 2. Decide the owning layer first: stock UI, Morphy UX, or app-ui.
 3. Keep route-container ownership with shared shells.
 4. Update docs or verification commands when the design rule itself changes. For native chrome, prove feasible layer composition and one renderer per control lifetime through the adoption reference; audit shared-family route coverage, computed CSS under negotiated capability states and transition frames. Bounded radio selectors share a primitive; route/swipe tabs retain their pager and routing owner, not a second selector authority.
-5. Keep persona-facing labels plain-language and route action ids aligned to One/Kai/Nav ownership. For One consent/vault copy, frame user-held knowledge/information as safewords and avoid generic `your information` onboarding language. Onboarding is One-first with downstream sub-onboardings (Kai/RIA/KYC): model every flow via the registry in `hushh-webapp/lib/navigation/onboarding-registry.ts` (One is the only account-scoped gate, reappearing only on reset/delete; subs are surface-scoped, independently re-enterable), gate on the authoritative store not the deprecated `kai_onboarding_required` cookie, and await server completion sync before navigating. See `docs/reference/quality/one-onboarding-architecture.md`. Follow *Shell and navigation ownership* in `docs/reference/quality/app-surface-design-system.md`: a `standard` route declares a breadcrumb, which is what mints its back control.
+5. Keep persona-facing labels plain-language and route action ids aligned to One/Kai/Nav ownership. For One consent/vault copy, frame user-held knowledge/information as safewords and avoid generic `your information` onboarding language. Onboarding is One-first with downstream sub-onboardings (Kai/RIA/KYC): model every flow via the registry in `hushh-webapp/lib/navigation/onboarding-registry.ts` (One is the only account-scoped gate, reappearing only on reset/delete; subs are surface-scoped, independently re-enterable), gate on the authoritative store not the deprecated `kai_onboarding_required` cookie, and await server completion sync before navigating. See `docs/development/quality/one-onboarding-architecture.md`. Follow *Shell and navigation ownership* in `docs/development/quality/app-surface-design-system.md`: a `standard` route declares a breadcrumb, which is what mints its back control.
 6. Keep consumer notifications, Email Helper rows, and background-task rows free of implementation diagnostics. Do not show `PKM`, manifests, schemas, tokens, thread ids, workflow ids, consent ids, hashes, timings, correlation ids, route names, raw errors, or dummy-save language outside developer-only surfaces.
 7. For signed-in route shell, header, search/filter, or hover changes, verify shared `AppPageShell`, `PageHeader`, and app-ui interaction contracts before adding route-local chrome.
 8. Use shadcn Sonner for transient success/error/loading feedback and shadcn AlertDialog for destructive confirmation. Do not add route-local inline error banners for row actions, saves, deletes, refreshes, or short-lived failures; reserve inline errors for stable page-blocking states. For async actionables that wait for a backend ack/status (deletes, resets, disconnects, sends), use the branded `morphyToast.promise` from `@/lib/morphy-ux/morphy` tied to the real action promise so one toast morphs loading -> success/error in place; never pair a manual loading toast with a separate success/error toast or fire success before the promise resolves. Confirmation buttons (`AlertDialogAction`/`AlertDialogCancel`) carry the shared Material ripple from `components/ui/alert-dialog.tsx`; do not swap them to the plain `@/components/ui/button` or strip the ripple host. See the Consumer Copy Contract and Ripple Ownership and Clipping sections in `app-surface-design-system.md`.

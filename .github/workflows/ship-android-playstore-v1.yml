@@ -8,7 +8,7 @@ name: Ship Android to Google Play Store
 # exact release SHA; this workflow never deploys infrastructure.
 #
 # iOS equivalent: .github/workflows/release-ios-appstore.yml (backend_target=uat).
-# Runbook & secret setup: docs/guides/mobile/ship-android-playstore.md
+# Runbook & secret setup: docs/operations/mobile/ship-android-playstore.md
 
 "on":
   workflow_dispatch:

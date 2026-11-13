@@ -12,7 +12,7 @@ import { assignWindowLocation } from "@/lib/utils/browser-navigation";
  * Starting the Microsoft sign-in that every Azure change rides on.
  *
  * Hussh holds no standing write authority in a person's subscription (see
- * `docs/reference/architecture/byoc-azure.md`, trust matrix), so setup and
+ * `docs/architecture/byoc-azure.md`, trust matrix), so setup and
  * every approved update go through the person's own just-in-time sign-in.
  * These helpers ask the hub for that sign-in address and navigate to it; the
  * Microsoft redirect lands on `/one/setup/cloud/azure/return`.

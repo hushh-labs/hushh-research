@@ -44,12 +44,12 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/quality/frontend-ui-architecture-map.md`
-2. `docs/reference/quality/design-system.md`
+1. `docs/development/quality/frontend-ui-architecture-map.md`
+2. `docs/development/quality/design-system.md`
 3. `hushh-webapp/components/README.md`
 4. `hushh-webapp/lib/services/README.md`
 5. `.agents/skills/frontend/references/browser-ux-runtime.md`
-6. `docs/reference/mobile/render-performance-charter.md`
+6. `docs/development/mobile/render-performance-charter.md`
 
 ## Workflow
 

@@ -45,9 +45,9 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/operations/README.md`
-2. `docs/reference/operations/ci.md`
-3. `docs/reference/operations/branch-governance.md`
+1. `docs/operations/README.md`
+2. `docs/operations/releases/ci.md`
+3. `docs/operations/releases/branch-governance.md`
 4. `.agents/skills/repo-operations/references/admin-release-sop.md`
 5. `.agents/skills/repo-operations/references/branch-runtime-ops.md`
 6. `.agents/skills/repo-operations/references/maintainer-branch-freshness.md`
@@ -56,12 +56,12 @@ Non-owned surfaces:
 
 ## Workflow
 
-Follow [Main-owned release control](../../../docs/reference/operations/ci.md#main-owned-release-control) for live-team authority, exact-source admission and protected secret pass-through. Workflow execution stays on Main; application sources remain isolated; a merge never deploys.
+Follow [Main-owned release control](../../../docs/operations/releases/ci.md#main-owned-release-control) for live-team authority, exact-source admission and protected secret pass-through. Workflow execution stays on Main; application sources remain isolated; a merge never deploys.
 
-For CI timing work, follow the runbook's [deployment-overhead policy](../../../docs/reference/operations/ci.md#deployment-overhead-and-retention-limits). Preserve normal worker rollout until complete accepted input/state proof and measured benefit qualify reuse; image equality alone is insufficient. Selected UAT SQL preservation does not repeat already-qualified source suites or install browser dependencies. Browser analytics remains explicit secondary diagnostics; failed restoration of any partially changed deployment template still blocks promotion. Keep measurements separate from the 10–15-minute routine design target.
+For CI timing work, follow the runbook's [deployment-overhead policy](../../../docs/operations/releases/ci.md#deployment-overhead-and-retention-limits). Preserve normal worker rollout until complete accepted input/state proof and measured benefit qualify reuse; image equality alone is insufficient. Selected UAT SQL preservation does not repeat already-qualified source suites or install browser dependencies. Browser analytics remains explicit secondary diagnostics; failed restoration of any partially changed deployment template still blocks promotion. Keep measurements separate from the 10–15-minute routine design target.
 
 For private pod hosting, owner updates and legacy bootstrap, follow the
-[Dev pod runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md).
+[Dev pod runbook](../../../docs/operations/hosting/dev-pod-first-light-runbook.md).
 It owns durable admission, spend, owner custody, release provenance and cleanup.
 
 1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
@@ -70,7 +70,7 @@ It owns durable admission, spend, owner custody, release provenance and cleanup.
 4. For merge or deploy work, follow `admin-release-sop.md` as the single state machine; verify pre-PR, DCO, current head SHA, required gates, queue state, landed SHA, post-merge smoke, and requested environment separately.
 5. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done. For iOS uploads or tester-visibility reports, apply `.agents/skills/release-ios-appstore/references/release-proof.md`, including live marketing-version and concurrent-release admission before treating a higher build number as the latest update.
 6. For merge/deploy requests, keep merge-to-main and deploy-to-UAT as separate operator cadences.
-7. For DB migration/contract changes, run the DB release gate before calling UAT ready. Where canonical replay coexists with pending-only overlays, verify affected installed constraints through a complete replay; matching ledger checksums alone do not prove semantic parity. Follow `docs/reference/operations/migration-governance.md` for the owning repair and rollback boundaries.
+7. For DB migration/contract changes, run the DB release gate before calling UAT ready. Where canonical replay coexists with pending-only overlays, verify affected installed constraints through a complete replay; matching ledger checksums alone do not prove semantic parity. Follow `docs/operations/releases/migration-governance.md` for the owning repair and rollback boundaries.
 8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, health-probe rules, and the native auth-health fallback retirement gate.
 9. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
 10. After creating, updating or retargeting a ready PR, run `./bin/hushh agents review-route --pr <number> --apply` for visible Team routing under the Admin SOP. It changes notifications only and adds no Actions run. Use a pull request and the authorized Admin SOP for a reviewed, exact-head merge when appropriate. Verify the current destination, required CI and applicable approvals; admin authority never grants permission to skip validation or deploy.
@@ -78,7 +78,7 @@ It owns durable admission, spend, owner custody, release provenance and cleanup.
 12. GitHub teams own access membership. Only authorized leadership accounts may manage membership; ordinary team members must not have team-maintainer or equivalent organization authority. Never run an old roster reconciler or restore revoked access from `config/ci-governance.json` username arrays. The current `apply-governance.py` manages safeguards and never writes team membership. During the live-team migration, distinguish the explicit Main release broker, native protected review and verified runtime enforcement; inspect the actual active admission before claiming every consumer uses current teams. No PR authority observer runs. Capability, permission and release-policy changes remain protected PRs. Follow `branch-governance.md` and the canonical Admin SOP; no merge or membership update deploys an application. Dev intake and direct exact-commit UAT qualification retain their independent boundaries. Governed maintainers may propose operations PRs directly into `main` by actor identity; CI, current reviews, combined-result evidence and landed smoke still apply.
 13. Resolve expensive PKM and reviewer-browser verification through `scripts/ci/resolve-uat-verification-plan.py`; it is the only changed-SHA selector for deterministic preservation checks in PR, queue, post-merge, and UAT. App-browser reviewer diagnostics require the explicit UAT input and do not run automatically. Preserve non-skippable authority, migration, provenance, health, and changed-surface gates. Do not add a second path classifier or run the PKM upgrade rehearsal for ordinary UI, consent, or MCP changes.
 14. When production GitHub WIF configuration is absent or drifted, use `deploy/iam/setup_production_github_wif.sh`; do not create a parallel provider, reuse UAT authority, or restore a JSON service-account key. Detect the drift with `python3 scripts/ci/verify-deploy-identity-provenance.py`, which compares that script's own literals — attribute mapping, attribute condition, deploy-account project roles — against live GCP. Its `--record-only` half needs no cloud and runs in `repo-governance-check.sh`; a refused live read reports `deploy_identity_unverifiable` and never a pass. Never restate the condition anywhere else: the setup script is the record, and a second copy is a second thing to drift.
-15. Batch CI pushes and reuse unchanged evidence; never restart a run merely to monitor it. Distinguish security workflow entries from actual alerts, and preserve credential isolation and exact-attempt authority when consolidating them. See `docs/reference/operations/ci.md`.
+15. Batch CI pushes and reuse unchanged evidence; never restart a run merely to monitor it. Distinguish security workflow entries from actual alerts, and preserve credential isolation and exact-attempt authority when consolidating them. See `docs/operations/releases/ci.md`.
 16. Use `./bin/hushh agents ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one exact-source validation retry. The authenticated user needs live repository write access, not pipeline-editor approval. The helper observes attempt `n+1` and never dispatches another workflow. Retry authority grants no merge, protected-edit or deployment permission. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
 
 The five governed destinations are `main`, `dev`, `uat`, `uat-isolated` and
@@ -141,7 +141,7 @@ owners. App-browser proof requires explicit diagnostics; hosted compilation and
 functional contracts do not certify live browser behavior. Use an exact-source, next-attempt retry after a
 diagnosed failure, and keep live authority and security gates blocking. Ordinary
 UAT uses core provider readiness; secondary features retain separate diagnostic
-outcomes. Follow the [CI policy](../../../docs/reference/operations/ci.md#managed-provider-readiness-policy)
+outcomes. Follow the [CI policy](../../../docs/operations/releases/ci.md#managed-provider-readiness-policy)
 and qualify a policy-changing combined candidate once before release.
 
 ```bash

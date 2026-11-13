@@ -77,7 +77,7 @@ python3 scripts/ops/generate_runtime_topology_index.py --check
 ## Naming note
 
 The `kai/` directory name is a preserved Kai-era compatibility identifier (see
-`docs/reference/operations/brand-and-compatibility-contract.md`). The runtime
+`docs/operations/brand-and-compatibility-contract.md`). The runtime
 these contracts drive is One Voice; renaming the directory is a coordinated
 migration across the generators, backend loaders, frontend imports, and
 `.codex` governance scripts, tracked separately from routine contract changes.

@@ -78,7 +78,7 @@ export type TopShellTitleSlot<TTitle> =
  * chip, and on Profile > Memory for a "Profile" chip, while Feed and Connect,
  * which have no page header to scroll away, never changed. One screen, one
  * title, and the trail's last crumb is that title
- * (docs/reference/quality/app-surface-design-system.md).
+ * (docs/development/quality/app-surface-design-system.md).
  */
 export function resolveTopShellTitleSlot<TTitle>(
   breadcrumb:

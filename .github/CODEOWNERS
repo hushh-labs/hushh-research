@@ -41,7 +41,7 @@
 /.agents/skills/codex-skill-authoring/ @hushh-labs/pipeline-editors
 /.agents/skills/verify-before-claim/ @hushh-labs/pipeline-editors
 /.agents/skills/docs-governance/ @hushh-labs/pipeline-editors
-/docs/vision/agent-ontology.md @hushh-labs/pipeline-editors
+/docs/product/principles/agent-ontology.md @hushh-labs/pipeline-editors
 /bin/hushh @hushh-labs/pipeline-editors
 /consent-protocol/.github/actions/setup-python-uv/ @hushh-labs/pipeline-editors
 /consent-protocol/scripts/ci/ @hushh-labs/pipeline-editors

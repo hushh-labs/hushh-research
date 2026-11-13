@@ -10,4 +10,4 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Back and Search before UI edits
 
-Read [the UI contract contributor scaffold](../docs/reference/architecture/ui-contract-contributor-guide.md) before changing routes, screens, layouts or imported UI. Run `npm run ui:doctor` first; update authored Back cases and Search actions, then `npm run build:ui-contracts` and `npm run verify:ui-contracts`. Generation runs Back before Search; a passing fingerprint is not behavioral proof.
+Read [the UI contract contributor scaffold](../docs/development/contracts/ui-contract-contributor-guide.md) before changing routes, screens, layouts or imported UI. Run `npm run ui:doctor` first; update authored Back cases and Search actions, then `npm run build:ui-contracts` and `npm run verify:ui-contracts`. Generation runs Back before Search; a passing fingerprint is not behavioral proof.

@@ -128,7 +128,7 @@ or diff churn; use them to identify delivery and the review/validation surface.
 
 ```bash
 cd hushh-webapp
-node scripts/reports/export-markdown-pdf.mjs \
+node hushh-webapp/scripts/reports/export-markdown-pdf.mjs \
   --input <artifact.md> --output <artifact.pdf> --html <artifact.html> \
   --theme light --profile executive
 ```

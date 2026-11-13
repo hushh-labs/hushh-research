@@ -20,7 +20,7 @@ Owned repo surfaces:
 
 1. `hushh-webapp/frontend-native-surface-map.generated.json`
 2. `hushh-webapp/scripts/architecture/generate-surface-map.mjs`
-3. `docs/reference/architecture/frontend-native-surface-map.md`
+3. `docs/development/contracts/frontend-native-surface-map.md`
 
 Non-owned surfaces:
 
@@ -46,9 +46,9 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/architecture/frontend-native-surface-map.md`
-2. `docs/reference/architecture/route-contracts.md`
-3. `docs/reference/mobile/capacitor-parity-audit.md`
+1. `docs/development/contracts/frontend-native-surface-map.md`
+2. `docs/development/contracts/route-contracts.md`
+3. `docs/development/mobile/capacitor-parity-audit.md`
 4. `hushh-webapp/frontend-native-surface-map.generated.json`
 
 ## Workflow

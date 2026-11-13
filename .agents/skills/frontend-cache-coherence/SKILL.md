@@ -23,8 +23,8 @@ Owned repo surfaces:
 3. `hushh-webapp/lib/cache/cache-sync-service.ts`
 4. `hushh-webapp/scripts/architecture/audit-cache-coherence.mjs`
 5. `hushh-webapp/cache-coherence-screen-manifest.generated.json`
-6. `docs/reference/architecture/cache-coherence.md`
-7. `docs/reference/quality/app-surface-design-system.md`
+6. `docs/development/contracts/cache-coherence.md`
+7. `docs/development/quality/app-surface-design-system.md`
 
 Non-owned surfaces:
 
@@ -47,8 +47,8 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/architecture/cache-coherence.md`
-2. `docs/reference/quality/app-surface-design-system.md`
+1. `docs/development/contracts/cache-coherence.md`
+2. `docs/development/quality/app-surface-design-system.md`
 3. `hushh-webapp/cache-coherence-screen-manifest.generated.json`
 4. `hushh-webapp/scripts/testing/verify-signed-in-routes.mjs`
 5. `hushh-webapp/lib/cache/use-stale-resource.ts`

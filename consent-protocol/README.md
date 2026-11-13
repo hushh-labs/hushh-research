@@ -210,7 +210,7 @@ consent-protocol/
 | [docs/README.md](docs/README.md) | Documentation entry point |
 | [docs/reference/agent-development.md](docs/reference/agent-development.md) | How to build agents and operons |
 | [docs/reference/personal-knowledge-model.md](docs/reference/personal-knowledge-model.md) | PKM storage and retrieval architecture |
-| [docs/reference/kai-agents.md](docs/reference/kai-agents.md) | Multi-agent financial analysis |
+| [docs/architecture/finance-agents.md](docs/architecture/finance-agents.md) | Multi-agent financial analysis |
 | [docs/reference/consent-protocol.md](docs/reference/consent-protocol.md) | Consent token lifecycle |
 | [docs/reference/fcm-notifications.md](docs/reference/fcm-notifications.md) | FCM push notifications |
 | [docs/mcp-setup.md](docs/mcp-setup.md) | MCP runtime and contributor-local technical companion |
@@ -237,7 +237,7 @@ Migration authority:
 
 - authoritative release lane: `db/migrations/` + `db/release_migration_manifest.json`
 - legacy/bootstrap SQL and one-off maintenance scripts are not release authority
-- see [`../docs/reference/operations/migration-governance.md`](../docs/reference/operations/migration-governance.md) when you need the cross-repo governance view
+- see [`../docs/operations/releases/migration-governance.md`](../docs/operations/releases/migration-governance.md) when you need the cross-repo governance view
 
 ```bash
 ./bin/consent-protocol lint         # Lint with ruff

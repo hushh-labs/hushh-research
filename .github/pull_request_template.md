@@ -3,7 +3,7 @@
 Briefly explain what you changed and why.
 
 Before requesting review, read
-[`docs/reference/quality/pr-contributor-readiness.md`](docs/reference/quality/pr-contributor-readiness.md).
+[`docs/development/quality/pr-contributor-readiness.md`](../docs/development/quality/pr-contributor-readiness.md).
 Green CI is intake only; merge readiness also requires a reachable attach point,
 production-code proof, and a title/body that match the diff.
 
@@ -32,7 +32,7 @@ production-code proof, and a title/body that match the diff.
 - Live Memory source impact (when changing durable owner information):
   - [ ] No durable owner data is created, changed, or deleted; reason listed below
   - [ ] Existing admitted source covers the data; kind, change signal, and focused test listed below
-  - [ ] New source is declared in `docs/reference/architecture/live-memory-source-contract.md` with authority, complete bounded read, owner fence, deletion rule, exposure, retention, and focused test
+  - [ ] New source is declared in `docs/architecture/live-memory-source-contract.md` with authority, complete bounded read, owner fence, deletion rule, exposure, retention, and focused test
   - [ ] Data should remain outside Live Memory; reason and owner-facing behavior listed below
   <!-- Optional review context. Source registration, owner isolation and journal parity are checked independently of this prose. For existing/new sources, identify the kind, change signal and affected test. -->
   - Live Memory evidence (source kind and test, or no-impact reason):

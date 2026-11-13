@@ -12,7 +12,7 @@
   "required_reads": [
     ".agents/skills/puppy-one-harness/references/judging-contract.md",
     ".agents/subagents/local_model_judge.md",
-    "docs/reference/ai/puppy-one-on-device.md"
+    "docs/architecture/ai/puppy-one-on-device.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task puppy-one-harness",

@@ -164,8 +164,8 @@ def _route_family(skills: list[dict[str, Any]]) -> OrderedDict[str, Any]:
         contract_route_count=route_entries,
         docs=_existing(
             [
-                "docs/reference/architecture/route-contracts.md",
-                "docs/reference/quality/app-surface-design-system.md",
+                "docs/development/contracts/route-contracts.md",
+                "docs/development/quality/app-surface-design-system.md",
             ]
         ),
         verification_commands=[
@@ -197,7 +197,7 @@ def build_schematics() -> OrderedDict[str, Any]:
             _skill_by_id(skills, "security-audit"),
             "pkm-vault-runtime",
             [
-                "docs/reference/architecture/cache-coherence.md",
+                "docs/development/contracts/cache-coherence.md",
                 "consent-protocol/db/contracts/uat_integrated_schema.json",
             ],
         ),
@@ -219,9 +219,9 @@ def build_schematics() -> OrderedDict[str, Any]:
             _skill_by_id(skills, "one-voice-governance"),
             "kai-finance-runtime",
             [
-                "docs/reference/kai/kai-accuracy-contract.md",
-                "docs/reference/kai/kai-change-impact-matrix.md",
-                "docs/reference/streaming/streaming-contract.md",
+                "docs/architecture/finance/kai-accuracy-contract.md",
+                "docs/architecture/finance/kai-change-impact-matrix.md",
+                "docs/development/streaming/streaming-contract.md",
                 "consent-protocol/api/routes/kai/market_insights.py",
                 "consent-protocol/api/routes/kai/stream.py",
                 "hushh-webapp/lib/kai/kai-financial-resource.ts",

@@ -8,12 +8,12 @@
   "affected_surfaces": [
     "packages/hushh-mcp",
     "consent-protocol/docs/mcp-setup.md",
-    "docs/reference/operations/coding-agent-mcp.md"
+    "docs/operations/coding-agent-mcp.md"
   ],
   "required_reads": [
     "packages/hushh-mcp/README.md",
     "consent-protocol/docs/mcp-setup.md",
-    "docs/reference/operations/coding-agent-mcp.md"
+    "docs/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
     "cd packages/hushh-mcp && npm run print-config",
