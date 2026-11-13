@@ -2,6 +2,11 @@ import { getLocalMarketPreviewPayload } from "../../components/kai/shared/local-
 import { useEffect, useState } from "react";
 import type { KaiMarketNewsPage } from "../../lib/services/api-service";
 
+export const ApiService = {
+  getKaiStockPriceHistory: async () => ({ points: [], stale: true, retrievedAt: null }),
+  getKaiMarketNews: async () => ({ items: [] }),
+};
+
 export const getTickerUniverseSnapshot = () => [];
 export const preloadTickerUniverse = async () => [];
 export const searchTickerUniverse = () => [];

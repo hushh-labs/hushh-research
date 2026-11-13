@@ -68,6 +68,16 @@ button.portfolioListRow { min-height: 44px; }
 }
 
 .insightCard { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.performanceDistribution { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.performanceRing { position: relative; width: 112px; height: 112px; flex: none; }
+.performanceRing > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; pointer-events: none; }
+.performanceRing small { font-size: 11px; font-weight: 400; color: var(--muted-foreground); }
+.performanceLegend { flex: 1; min-width: 0; font-size: 12px; line-height: 18px; }
+.performanceLegend > div { display: flex; justify-content: space-between; gap: 8px; padding-block: 3px; }
+.performanceLegend i { display: inline-block; width: 7px; height: 7px; margin-inline-end: 6px; border-radius: 50%; }
+.performanceMovers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.performanceMovers > div { min-width: 0; }
+.performanceMovers > div > span { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
 .cardFooter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; }
 .insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .insightFacts { margin: 0; }
@@ -147,8 +157,9 @@ button.interactiveRow::before {
   min-width: 0;
   table-layout: fixed;
 }
-.reviewTable th:first-child { width: 36%; }
-.reviewTable th:last-child { width: 56px; }
+.reviewTable th:nth-child(1) { width: 84px; }
+.reviewTable th:nth-child(2) { width: 30%; }
+.reviewTable th:nth-child(5) { width: 112px; }
 .reviewTable :is(th, td) {
   white-space: normal;
   overflow-wrap: anywhere;

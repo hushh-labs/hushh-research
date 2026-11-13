@@ -4048,7 +4048,10 @@ Each benchmark row includes `symbol`, `as_of` (provider quote time, nullable),
 `delta_pct` stays null when the previous close is missing. Unknown delay stays
 null; a delay flag may also reflect a quote over ten minutes old during its
 reported regular session. Closed sessions are labeled separately. Index
-sparklines use the same response's observed intraday closes; missing history
+sparklines use the same response's observed intraday closes; optional
+`sparkline_points: [{t, p}]` carries matching Unix-second timestamps and prices.
+India index intraday samples are separate from its monthly sector history. Clients
+must not manufacture times when the point series is absent or mismatched. Missing history
 remains unavailable. Cached levels retain their original quote time and are
 labeled as cached. Server home v5, macro v2 and client market-home v5 cache
 names exclude earlier ETF snapshots. Web and native use the same response
@@ -4073,12 +4076,22 @@ debt/equity, or the provider company description. Unknown ratios are null.
 Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
 Provider retrieval time and financial period end remain separate.
 
+The owner-scoped market-news endpoint also accepts `market=IN` with one symbol
+from the NSE mover roster. It searches the India news feed for that symbol and
+returns at most the requested page size; a provider can return fewer articles or
+no summary. India company news uses its own bounded cache key. Market home news
+has a separate cache lifecycle so a news-only failure cannot freeze an otherwise
+healthy India home response for the full aggregate TTL.
+
 Stock detail reads `GET /api/kai/market/history/{user_id}?symbol=AAPL`
 through the existing Kai catch-all proxy and platform-aware `ApiService`.
 Firebase authentication must match the path owner before any cache/provider
 work. One uppercase symbol (at most 16 characters) and a recognized US exchange
-in the symbol master are required; unsupported listings return 422.
-The response contains `symbol`, `currency: "USD"`, `interval: "1d"`,
+in the symbol master are required; unsupported listings return 422. The optional
+`market=IN` admits only the existing NSE large-cap mover roster, requests the
+corresponding `.NS` provider symbol, uses an independent India cache key, and
+returns `currency: "INR"`. The default US response uses `currency: "USD"`.
+The response contains `symbol`, `currency`, `interval: "1d"`,
 `points: [{t, p}]` (Unix seconds and observed closes), `retrieved_at`, `stale`,
 and `unavailable`. At most 32 observations are returned from the existing
 month history fetcher. This is daily history, independent of the spot quote;

@@ -33,7 +33,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
     closeHistory();
     return true;
   }, { tab: "analysis" });
-  const { payload, loading, refreshing, error, activePickSource, handlePickSourceChange, loadInsights } = useKaiMarketHome();
+  const { payload, loading, refreshing, error, activePickSource, handlePickSourceChange, loadInsights, loadCompanyNews } = useKaiMarketHome();
   const rows = useMemo(() => (payload?.renaissance_list ?? payload?.pick_rows ?? []).filter(row => Boolean(row?.symbol)), [payload]);
   const busy = loading || refreshing;
   const loadCompanyFacts = useCallback((symbols: string[]) => {
@@ -64,6 +64,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
       activeSourceId={activePickSource} onSourceChange={handlePickSourceChange}
       controlMode="adaptive-surface" loadCompanyFacts={active ? loadCompanyFacts : undefined}
       loadHistory={active ? loadHistory : undefined} toolbarActions={historyButton}
+      loadCompanyNews={active ? loadCompanyNews : undefined}
       loadQuote={active ? loadPublicStockQuote : undefined}
       onSelectedSymbolChange={onSelectedSymbolChange}
       onAnalyze={onAnalyze ? symbol => onAnalyze(symbol, activePickSource) : undefined} /> : <div className="flex justify-end">{historyButton}</div>}

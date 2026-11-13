@@ -243,7 +243,11 @@
   font-size: var(--type-row-label-size, 14px);
   line-height: var(--type-row-label-line, 21px);
   padding-block: 0 0.5rem;
+  min-height: 3.5rem;
 }
+.detailedQuestion .choice { min-height: 3.375rem; }
+.assessmentActions { margin-top: 1rem; min-height: 44px; }
+.assessmentActions > button { min-width: 110px; min-height: 44px; }
 .detailedQuestion label {
   font-size: var(--type-row-label-size, 14px);
 }

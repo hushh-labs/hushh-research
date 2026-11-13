@@ -14,7 +14,7 @@ import styles from "@/components/kai/shared/finance-workspace.module.css";
 
 type HistoryActions = {
   onOpen: (entry: AnalysisHistoryEntry) => void;
-  onVersions: (ticker: string) => void;
+  versionsFor: (ticker: string) => HistoryEntryWithVersion[];
   onDelete: (entry: AnalysisHistoryEntry) => void;
   onDeleteTicker: (ticker: string) => void;
 };
@@ -32,7 +32,13 @@ export function HistoryEntryRow({ entry, ...actions }: { entry: HistoryEntryWith
       {entry.companyName ? <span className={styles.description}>{entry.companyName}</span> : null}
       <span className={styles.description}>{date} · {confidence} · Version {entry.version}</span>
     </button>
-    <ShellActionSurface variant="pill" onClick={() => actions.onVersions(entry.ticker)} aria-label={`Versions for ${entry.ticker}`}>Versions</ShellActionSurface>
+    <DropdownMenu><DropdownMenuTrigger asChild><ShellActionSurface variant="pill" aria-label={`Versions for ${entry.ticker}`}>Versions</ShellActionSurface></DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className={`${styles.detail} max-h-80 overflow-y-auto`}>
+        {actions.versionsFor(entry.ticker).map(version => <DropdownMenuItem key={`${version.ticker}-${version.timestamp}`} onSelect={() => actions.onOpen(version)}>
+          Version {version.version} · {Number.isFinite(Date.parse(version.timestamp)) ? new Date(version.timestamp).toLocaleString() : "Date unavailable"}
+        </DropdownMenuItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
     <DropdownMenu><DropdownMenuTrigger asChild><ShellActionSurface variant="icon" aria-label={`Actions for ${entry.ticker}`}><MoreHorizontal className="h-4 w-4" /></ShellActionSurface></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={styles.detail}>
         <DropdownMenuItem onSelect={() => actions.onDelete(entry)}><Trash2 className="mr-2 h-4 w-4" />Delete this version</DropdownMenuItem>

@@ -73,7 +73,7 @@ export function TodoAddItemSheet({
     >
       <SheetContent
         side="bottom"
-        className="mx-auto max-w-xl gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
+        className="mx-auto max-w-none gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
         showCloseButton={!saving}
       >
         <form onSubmit={(event) => void submit(event)}>

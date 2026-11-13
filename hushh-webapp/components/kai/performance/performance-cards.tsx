@@ -4,6 +4,7 @@ import { useState } from "react";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ChevronRight } from "@/components/icons";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import type {
@@ -36,7 +37,14 @@ export function ConcentrationCard({ data, label }: { data: readonly Concentratio
         <div className={styles.rows}>
           {data.map((row) => (
             <div key={row.symbol} className={styles.row}>
-              <span className={styles.rowLabel} title={row.name}>{row.symbol}</span>
+              <Popover>
+                <PopoverTrigger className={cn(styles.rowLabel, styles.concentrationName)} title={`${row.symbol} · ${row.name}`} aria-label={`Show full name for ${row.symbol}`}>
+                  <span>{row.symbol}</span>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-auto max-w-[min(20rem,calc(100vw-2rem))] break-words text-sm">
+                  <p className="font-semibold">{row.name}</p><p className="text-muted-foreground">{row.symbol}</p>
+                </PopoverContent>
+              </Popover>
               <span className={styles.track} aria-hidden="true"><span className={styles.fill} style={{ width: `${(row.weightPct / widest) * 100}%` }} /></span>
               <span className={styles.end}>
                 <span className={cn("block", styles.rowLabel, styles.number)}>{row.weightPct.toFixed(1)}%</span>
@@ -135,7 +143,7 @@ export function IncomeFeesCard({ metrics }: { metrics: DashboardSummaryMetrics }
   if (!tiles.length) return null;
   return (
     <SurfaceCard className={cn("min-w-0", financeStyles.detail)} aria-label="Income and fees">
-      <SurfaceCardContent className={financeStyles.insightCard}>
+      <SurfaceCardContent className={cn(financeStyles.insightCard, styles.incomeLayout)}>
         <p className="ui-text-section-label">Income and fees</p>
         <dl className={styles.tiles}>
           {tiles.map((tile) => (

@@ -26,7 +26,6 @@ import { PortfolioOverview } from "../../components/kai/views/portfolio-overview
 import { PortfolioBriefing } from "../../components/kai/views/portfolio-briefing";
 import { FinancePortfolioSharing } from "../../components/kai/sharing/finance-portfolio-sharing";
 import { AnalysisHistoryList } from "../../components/kai/views/analysis-history-list";
-import { VersionOptions } from "../../components/kai/views/analysis-history-version-options";
 import { AnalysisSummaryView } from "../../components/kai/views/analysis-summary-view";
 import { StockComparisonPreview } from "../../components/kai/cards/stock-comparison-preview";
 import { PortfolioAllocationBar } from "../../components/kai/charts/portfolio-allocation-bar";
@@ -39,6 +38,7 @@ import type { PortfolioData } from "../../components/kai/types/portfolio";
 import type { HoldingsListItem } from "../../components/kai/holdings/holding-view-model";
 import { groupHoldingPositions, prepareHoldingEntryEdit } from "../../lib/kai/holding-positions";
 import { EditHoldingModal } from "../../components/kai/modals/edit-holding-modal";
+import { SwipeViews } from "../../lib/morphy-ux/ui/swipe-views";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
 import type { StockQuoteLoader } from "../../lib/services/public-stock-quote";
 
@@ -106,6 +106,7 @@ function GroupedHoldingsFixture() {
 }
 
 function Fixture() {
+  const [swipeTab, setSwipeTab] = useState("market");
   const [holdingOpen, setHoldingOpen] = useState(false);
   const [updated, setUpdated] = useState(false);
   const [action, setAction] = useState("");
@@ -150,8 +151,7 @@ function Fixture() {
       <DataTable columns={holdingTableColumns(24680.42)} data={samplePortfolio.holdings!.map((row, index) => ({ ...row, client_id: `sample-${index}` }))} tableClassName="w-full [&_th]:px-2 [&_td]:px-2 [&_td]:align-middle" />
     </section>
     <section data-testid="finance-history-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
-      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onVersions={() => setAction("Open versions")} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
-      <VersionOptions entries={[savedEntry]} onOpen={() => setAction("Open version 3")} onDelete={() => setAction("Delete version 3")} />
+      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} versionsFor={() => [savedEntry]} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
     </section>
     <section data-testid="finance-subpages-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full space-y-5`}>
       <PortfolioAllocationBar data={sampleModel.allocation} totalValue={sampleModel.hero.totalValue} />
@@ -187,6 +187,14 @@ function Fixture() {
         },
       })}>Open {label} detail</button>)}
       <MarketIndexDetailSurface metric={indexMetric} open={Boolean(indexMetric)} onOpenChange={(open) => { if (!open) setIndexMetric(null); }} />
+    </section>
+    <section data-testid="finance-swipe-gap" className="mt-8 w-full">
+      <button onClick={() => setSwipeTab("market")}>Swipe market</button><button onClick={() => setSwipeTab("portfolio")}>Swipe portfolio</button>
+      <SwipeViews tabSetId="finance-gap-fixture" activeValue={swipeTab} onSelectionChange={setSwipeTab} panelGap={24} heightMode="active"
+        options={[{ value: "market", label: "Market" }, { value: "portfolio", label: "Portfolio" }]}>
+        <div data-testid="swipe-card-market" style={{ height: 180, width: "100%", background: "#ddd" }}>Market</div>
+        <div data-testid="swipe-card-portfolio" style={{ height: 180, width: "100%", background: "#aaa" }}>Portfolio</div>
+      </SwipeViews>
     </section>
   </main>;
 }

@@ -76,6 +76,7 @@ export function RiaPicksList({
   loadQuote,
   toolbarActions,
   news = [],
+  loadCompanyNews,
 }: {
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
@@ -89,6 +90,7 @@ export function RiaPicksList({
   loadQuote?: StockQuoteLoader;
   toolbarActions?: ReactNode;
   news?: KaiHomeNewsItem[];
+  loadCompanyNews?: (symbol: string, signal: AbortSignal) => Promise<KaiHomeNewsItem[]>;
 }) {
   const isMobile = useIsMobile();
   void controlMode;
@@ -348,7 +350,7 @@ export function RiaPicksList({
           onAnalyze(symbol);
         }}>Analyze {selectedRow.symbol}</Button></div> : undefined}
       >
-        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} /> : null}
+        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} loadCompanyNews={loadCompanyNews} /> : null}
       </KaiControlSurface>
     </div>
   );

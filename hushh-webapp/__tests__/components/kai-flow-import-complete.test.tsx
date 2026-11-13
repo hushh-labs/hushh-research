@@ -34,6 +34,12 @@ const setup = vi.hoisted(() => ({
   onSetupSourceSettled: vi.fn(async () => true),
   syncOnboardingJourney: vi.fn(),
 }));
+const importStream = vi.hoisted(() => vi.fn());
+const scrollReset = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/services/kai-token-guard", () => ({
+  ensureKaiVaultOwnerToken: vi.fn(async () => "synthetic-owner-token"),
+}));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
@@ -125,12 +131,14 @@ vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
 }));
 
 vi.mock("@/lib/navigation/use-scroll-reset", () => ({
-  useScrollReset: () => undefined,
+  useScrollReset: scrollReset,
   scrollAppToTop: () => undefined,
 }));
 
 vi.mock("@/lib/services/app-background-task-service", () => ({
   AppBackgroundTaskService: {
+    hasRunningTask: vi.fn(() => false),
+    getState: vi.fn(() => ({ tasks: [] })),
     dismissTask: vi.fn(),
     startTask: vi.fn(() => "task-synthetic"),
     updateTask: vi.fn(),
@@ -141,6 +149,7 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
+    importPortfolioStream: importStream,
     cancelPortfolioImportRun: vi.fn(
       async () => new Response(null, { status: 404 }),
     ),
@@ -169,11 +178,14 @@ vi.mock("@/components/kai/views/portfolio-import-view", () => ({
   PortfolioImportView: ({
     onPreloadSchema,
     onConnectPlaid,
+    onFileSelect,
   }: {
     onPreloadSchema?: () => void;
     onConnectPlaid?: () => void;
+    onFileSelect?: (file: File) => void;
   }) => (
     <div data-testid="portfolio-import-chooser">
+      <button type="button" onClick={() => onFileSelect?.(new File(["%PDF synthetic"], "statement.pdf", { type: "application/pdf" }))}>Upload statement</button>
       <button type="button" onClick={() => onPreloadSchema?.()}>
         Load sample brokerage
       </button>
@@ -258,12 +270,13 @@ function seedCompletedImport(platform: Platform, runId: string | null) {
   );
 }
 
-function renderSetupImportFlow() {
+function renderSetupImportFlow(vaultKey?: string) {
   return render(
     <KaiFlow
       userId={USER_ID}
       mode="import"
       vaultOwnerToken="synthetic-owner-token"
+      vaultKey={vaultKey}
       onSetupSourceSettled={setup.onSetupSourceSettled}
       deferSensitiveActionsUntilSetupFinalized
       voicePublisherRole="chrome"
@@ -281,12 +294,35 @@ describe.each<Platform>(["web", "native"])(
       setPlatform(platform);
       setup.onSetupSourceSettled.mockClear();
       setup.syncOnboardingJourney.mockClear();
+      importStream.mockReset();
+      scrollReset.mockClear();
     });
 
     afterEach(() => {
       setPlatform("web");
       window.sessionStorage.clear();
       window.localStorage.clear();
+    });
+
+    it.each([false, true])("terminal import settles before review and cancellation wins (%s)", async (cancel) => {
+      const envelope = { schema_version: "1.0", stream_id: "synthetic-import", stream_kind: "portfolio_import", seq: 1,
+        event: "complete", terminal: true, payload: { portfolio_data_v2: syntheticParsedPortfolio() } };
+      importStream.mockResolvedValue(new Response(`event: complete\ndata: ${JSON.stringify(envelope)}\n\n`, { status: 200 }));
+      renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await screen.findByText("Ready to review");
+      const readingScrollKey = scrollReset.mock.lastCall?.[0];
+      expect(screen.queryByTestId("portfolio-review")).toBeNull();
+      if (cancel) {
+        fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+        await screen.findByTestId("portfolio-import-chooser");
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 500)); });
+        expect(screen.queryByTestId("portfolio-review")).toBeNull();
+      } else {
+        await screen.findByTestId("portfolio-review");
+        expect(scrollReset.mock.lastCall?.[0]).toBe(readingScrollKey);
+        expect(screen.queryByRole("button", { name: "Cancel", exact: true })).toBeNull();
+      }
     });
 
     it.each([null, "/circle/join?invite=opaque_token", "https://outside.invalid"])(

@@ -448,6 +448,39 @@ async def test_stock_history_closed_backfill_cache_fences_and_stale_fallback(mon
         )
 
 
+@pytest.mark.asyncio
+async def test_india_stock_history_is_owner_checked_and_nse_roster_scoped(monkeypatch):
+    from fastapi import HTTPException
+
+    from api.routes.kai import price_history
+    from hushh_mcp.operons.kai import fetchers
+
+    calls = []
+
+    async def fetch(symbols, *, range_period):
+        calls.append((symbols, range_period))
+        return [
+            {
+                "sparkline_points": [{"t": 1762000000, "p": 100}, {"t": 1762086400, "p": 101}],
+                "source": "fixture",
+                "fetched_at": "2026-11-12T10:00:00Z",
+            }
+        ]
+
+    monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", fetch)
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    with pytest.raises(HTTPException) as wrong_owner:
+        await price_history.get_stock_price_history("owner", "TCS", "other", "IN")
+    assert wrong_owner.value.status_code == 403
+    with pytest.raises(HTTPException) as invalid:
+        await price_history.get_stock_price_history("owner", "UNKNOWN", "owner", "IN")
+    assert invalid.value.status_code == 422 and calls == []
+    result = await price_history.get_stock_price_history("owner", "TCS", "owner", "IN")
+    assert result["currency"] == "INR" and len(result["points"]) == 2
+    assert calls == [(["TCS.NS"], "1mo")]
+
+
 def test_daily_snapshot_keeps_only_real_observations():
     from hushh_mcp.market_data.history import daily_history_snapshot
     from hushh_mcp.market_data.ports import MarketDataUnavailable
