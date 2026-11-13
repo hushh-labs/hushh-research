@@ -4303,6 +4303,7 @@ export function OneLocationAgentPageContent({
       // began before the removal/acceptance cannot restore the old person.
       OneLocationStateResource.invalidate(owner);
       clearLocationWorkspaceMemory(owner);
+      smsRosterRevision.current += 1;
       recipientPageRequestRef.current += 1;
       shareRecipientPageRequestRef.current += 1;
       setRecipientPageRows(null);

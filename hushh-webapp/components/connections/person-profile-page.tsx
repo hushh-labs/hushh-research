@@ -2,7 +2,7 @@
 import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
 import { PersonNetworkSummary } from "./person-network-summary";
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, useId } from "react";
 
 import {
   isPeopleGraphChange,
@@ -13,6 +13,7 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
 import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -173,6 +174,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       : "loading";
   const [publicReloadToken, setPublicReloadToken] = useState(0);
   const publicReadGeneration = useRef(0);
+  const availabilityInstance = useId();
   const [viewerLoadError, setViewerLoadError] = useState<{
     personRef: string; viewerUid: string;
   } | null>(null);
@@ -286,35 +288,54 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (initialProfile?.personRef === resolvedPersonRef && publicReloadToken === 0) return;
-    let active = true;
+  const retireProfile = useCallback(() => {
+    publicReadGeneration.current += 1;
+    requestGeneration.current += 1;
+    viewerReadGeneration.current += 1;
+    relationshipReadGeneration.current += 1;
+    setProfileState({ personRef: resolvedPersonRef, profile: null, missing: true });
+    setViewerProfileState((current) => ({ ...current, profile: null }));
+    setDisplayState((current) => ({ ...current, profile: null }));
+    setRelationshipState(null);
+    setSelectedScopeRefs(new Set());
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
+    setReviewOpen(false);
+  }, [resolvedPersonRef]);
+
+  const revalidatePublicProfile = useCallback(async () => {
     const generation = ++publicReadGeneration.current;
-    const isCurrent = () => active && publicReadGeneration.current === generation;
+    const isCurrent = () => publicReadGeneration.current === generation;
     setPublicReadFailed(false);
-    void PersonProfileService.getPublic(resolvedPersonRef)
+    await PersonProfileService.getPublic(resolvedPersonRef)
       .then((value) => {
         if (isCurrent()) setProfileState({ personRef: resolvedPersonRef, profile: value });
       })
       .catch((error: unknown) => {
         if (!isCurrent()) return;
         if (error instanceof PersonProfileNotFoundError) {
-          requestGeneration.current += 1;
-          viewerReadGeneration.current += 1;
-          relationshipReadGeneration.current += 1;
-          setProfileState({ personRef: resolvedPersonRef, profile: null, missing: true });
-          setViewerProfileState((current) => ({ ...current, profile: null }));
-          setDisplayState((current) => ({ ...current, profile: null }));
-          setRelationshipState(null);
-          setReviewOpen(false);
+          retireProfile();
           return;
         }
         setPublicReadFailed(true);
       });
+  }, [resolvedPersonRef, retireProfile]);
+
+  useEffect(() => {
+    if (initialProfile?.personRef !== resolvedPersonRef || publicReloadToken !== 0) {
+      void revalidatePublicProfile();
+    }
     return () => {
-      active = false;
+      publicReadGeneration.current += 1;
     };
-  }, [resolvedPersonRef, publicReloadToken, initialProfile]);
+  }, [resolvedPersonRef, publicReloadToken, initialProfile, revalidatePublicProfile]);
+
+  // A public visitor may have no relationship to receive a targeted graph
+  // event. Repair that open profile without rereading the private catalog.
+  usePeriodicTask(`person-profile-availability:${resolvedPersonRef}:${availabilityInstance}`, 30_000, async () => {
+    if (navigator.onLine !== false) await revalidatePublicProfile();
+  }, { enabled: !profileMissing });
 
   const [viewerReloadToken, setViewerReloadToken] = useState(0);
   useEffect(() => {
@@ -324,9 +345,12 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     setRelationshipState(null);
     void user.getIdToken().then((token) => PersonProfileService.getRelationship(resolvedPersonRef, token))
       .then((value) => { if (current && generation === relationshipReadGeneration.current) setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value }); })
-      .catch(() => { /* The independent full response may still establish eligibility. */ });
+      .catch((error: unknown) => {
+        if (current && generation === relationshipReadGeneration.current && error instanceof PersonProfileNotFoundError) retireProfile();
+        // A transient failure may still be resolved by the full response.
+      });
     return () => { current = false; };
-  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken, retireProfile]);
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
@@ -378,8 +402,12 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
           setSelectedScopeRefs((selected) => new Set([...selected].filter((ref) => availableRefs.has(ref))));
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (active && generation === viewerReadGeneration.current) {
+          if (error instanceof PersonProfileNotFoundError) {
+            retireProfile();
+            return;
+          }
           setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
           // Do not present an older eligibility catalog as current authority.
           setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
@@ -388,7 +416,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     return () => {
       active = false;
     };
-  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken, retireProfile]);
 
   // One Voice changed a relationship: re-read this profile's relationship
   // state from the server rather than trusting the spoken outcome. The two
@@ -516,8 +544,11 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       }
       setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
       setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
-    } catch {
-      if (generation === requestGeneration.current) setCatalogError(true);
+    } catch (error: unknown) {
+      if (generation === requestGeneration.current) {
+        if (error instanceof PersonProfileNotFoundError) retireProfile();
+        else setCatalogError(true);
+      }
     } finally {
       if (generation === requestGeneration.current) {
         catalogInFlight.current = false;

@@ -1,5 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
+vi.mock("@/lib/perf/use-periodic-task", async (original) => ({ ...await original<typeof import("@/lib/perf/use-periodic-task")>(), usePeriodicTask: vi.fn() }));
 const state = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "token") }, generation: 1,
   list: vi.fn(), mutuals: vi.fn(), summary: vi.fn(), visibility: vi.fn(), update: vi.fn(), connect: vi.fn(), invalidate: vi.fn(),
@@ -21,6 +23,7 @@ const row = (ref: string) => ({ publicPersonRef: ref, displayName: ref, photoUrl
 const page = (number = 1) => ({ person: { publicPersonRef: "target", displayName: "Target" }, items: [row(`Person ${number}`)], page: number, hasMore: number === 1 });
 describe("network permission and journey return @feature_connected_profiles", () => {
   beforeEach(() => {
+    vi.mocked(usePeriodicTask).mockClear();
     state.generation++;
     state.user.getIdToken.mockReset().mockResolvedValue("token");
     state.list.mockReset().mockImplementation(async (opts: { page: number }) => page(opts.page));
@@ -28,6 +31,16 @@ describe("network permission and journey return @feature_connected_profiles", ()
     state.connect.mockReset(); state.invalidate.mockReset();
   });
   afterEach(cleanup);
+
+  it("repairs an unrelated retired profile in an idle open network list", async () => {
+    state.list.mockResolvedValue({ ...page(), hasMore: false });
+    render(<NetworkPeopleList mode="discovery" visitKey="availability-repair" />);
+    await screen.findByText("Person 1");
+    state.list.mockResolvedValue({ ...page(), items: [], hasMore: false });
+    const repair = vi.mocked(usePeriodicTask).mock.calls.findLast(([id]) => id.startsWith("network-people-availability:"));
+    await act(async () => { await repair?.[2](); });
+    await waitFor(() => expect(screen.queryByText("Person 1")).toBeNull());
+  });
 
   it.each(["token", "response"])("retires a Connect action after reauthentication while awaiting %s", async stage => {
     state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Person"), relationship: "none" }] });

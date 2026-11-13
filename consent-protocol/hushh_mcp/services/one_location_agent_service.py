@@ -9322,6 +9322,12 @@ class OneLocationAgentService:
                 **({"require_complete": True} if require_complete else {}),
             )
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            if getattr(exc, "code", None) == "DIRECTORY_IDENTITY_UNAVAILABLE":
+                raise OneLocationAgentError(
+                    "DIRECTORY_IDENTITY_UNAVAILABLE",
+                    str(getattr(exc, "message", "Directory identity is temporarily unavailable.")),
+                    status_code=503,
+                ) from None
             if require_complete:
                 raise
             logger.warning(
@@ -9607,8 +9613,11 @@ class OneLocationAgentService:
                 (received_grants, "owner_user_id"),
                 (requests, "owner_user_id"),
                 (requests, "requester_user_id"),
+                (requests, "referred_by_user_id"),
                 (network_connections, "trusted_user_id"),
                 (sms_contacts, "contact_user_id"),
+                (public_submissions, "owner_user_id"),
+                (public_submissions, "matched_user_id"),
             ]
             peer_ids = {
                 str(row[key])
@@ -9628,11 +9637,18 @@ class OneLocationAgentService:
                 for row in requests
                 if row.get("owner_user_id") in active_ids
                 and row.get("requester_user_id") in active_ids
+                and (not row.get("referred_by_user_id") or row["referred_by_user_id"] in active_ids)
             ]
             network_connections = [
                 row for row in network_connections if row.get("trusted_user_id") in active_ids
             ]
             sms_contacts = [row for row in sms_contacts if row.get("contact_user_id") in active_ids]
+            public_submissions = [
+                row
+                for row in public_submissions
+                if row.get("owner_user_id") in active_ids
+                and (not row.get("matched_user_id") or row["matched_user_id"] in active_ids)
+            ]
         my_recipient_key_rows = _sections.get("my_recipient_key", [])
         my_recipient_key = None
         if my_recipient_key_rows:

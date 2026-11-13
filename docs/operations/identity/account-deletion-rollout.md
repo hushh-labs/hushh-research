@@ -1334,6 +1334,35 @@ not authority for broad follow-on deletes or removal of append-only evidence.
 Shared backups and any separately retained evidence remain subject to their
 existing retention review; this operation is not a claim of legal clearance.
 
+## Deletion visibility and realtime reconciliation
+
+Committed full-account admission makes the exact owner unavailable immediately
+through its tombstone. It publishes the existing metadata-only connection-graph
+event in that same transaction. Foreground web and native clients consume it
+through the shared feed stream. Failed admission or rollback emits no update.
+Provider cleanup may remain pending; visibility retirement is not an
+erasure-completion receipt.
+
+Capture affected peers before removing relationships: mutual/trusted connections,
+pending requests, Circle members and pending invitees, direct Location shares,
+access requests and referrers, SMS contacts, and matched public-link submissions.
+UI invitation/submission projections exclude retired identities while their
+cleanup inventory remains intact. Reconciliation uses exact application owners;
+a recreated account generation does not inherit the departed owner's graph.
+
+Clients fence older profile, directory and SMS-roster reads when reconciliation
+starts. Authoritative profile 404/410 clears identity and actions, including during
+catalog pagination. A temporary provider/read failure remains retryable. Resume
+and reconnect repair missed updates; offline devices reconcile when they return.
+Unrelated public-profile viewers also revalidate the lightweight public record
+every 30 seconds. Visible directory reads become eligible after two minutes and
+are checked on the shared 30-second clock; network browsing repairs on the
+two-minute clock. These are fallback freshness bounds, not immediate
+subscriber notifications for unrelated strangers.
+Notification delivery is best-effort, while every subsequent server read enforces
+the committed retirement barrier. Existing native push remains at final erasure;
+provider fan-out does not delay deletion admission.
+
 ## Deletion completion: early drain and owner notice
 
 A committed full-account admission (self, lost-vault or phone-linked deletion)
@@ -1341,10 +1370,11 @@ wakes the serving instance's in-process cleanup loop, so erasure starts at once
 instead of at the next 60 s tick. The wake only shortens the wait: the same
 release admission, `SKIP LOCKED` lease and single erasure transaction run, and
 the `*/2` scheduler drain stays the authority. Done means the committed
-`erasure_phase='erased'` transition. Every full-account erasure then settles as
-`quarantined` with `firebase_shared_identity_retained`, in every environment,
-because the sign-in identity is retained; that is the designed success state,
-not a failure.
+`erasure_phase='erased'` transition. The shared Firebase identity policy settles
+as `quarantined` with `firebase_shared_identity_retained`; that is the designed
+retained-identity success state. Isolated Dev identity erasure follows its
+separately qualified Firebase journal. Start-fresh eligibility comes from the
+verified server outcome for the selected environment.
 
 After that commit, and outside release admission, the worker sends the
 `account_deleted` notice from `one@hushh.ai` to the retained sign-in's verified

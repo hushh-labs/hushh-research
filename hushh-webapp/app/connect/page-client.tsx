@@ -779,6 +779,7 @@ export default function ConnectPageClient() {
   }, [mutualPersonRef, userId]);
   const directoryLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const directoryRequestPendingRef = useRef(false);
+  const directoryReadGenerationRef = useRef(0);
   const [directoryRetryNonce, setDirectoryRetryNonce] = useState(0);
   const pageSize = DEFAULT_PAGE_SIZE;
   const [error, setError] = useState<string | null>(null);
@@ -1204,7 +1205,11 @@ export default function ConnectPageClient() {
       // A prior read can still be in flight against a worker with a warm
       // account-status cache. Reject it and recheck provider authority.
       ++connectionsRequestRef.current;
-      void reconcileConnectionSurfaces({ ensureAfterCurrent: true, verifyAccounts: true });
+      ++directoryReadGenerationRef.current;
+      // Directory reads must be fenced immediately too: roster or outgoing
+      // reconciliation can be slow while an older directory page completes.
+      setDirectoryRefreshNonce((nonce) => nonce + 1);
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true, verifyAccounts: true, refreshDirectory: false });
     });
     const directoryIsDueForPassiveRefresh = () =>
       Date.now() - lastDirectoryReadAtRef.current >=
@@ -1386,6 +1391,13 @@ export default function ConnectPageClient() {
   }, [inviteToOneShare]);
 
   const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
+  usePeriodicTask(`connect-directory-availability:${userId ?? ""}`, 30_000, () => {
+    if (navigator.onLine === false || directoryRequestPendingRef.current) return;
+    if (isNative() && appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+    if (Date.now() - lastDirectoryReadAtRef.current < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return;
+    ++directoryReadGenerationRef.current;
+    setDirectoryRefreshNonce((nonce) => nonce + 1);
+  }, { enabled: Boolean(userId && surface === "all" && connectionView === "discover" && !mutualPersonRef && tab !== "nearby") });
   const directoryScopeKey = `${userId ?? ""}:${directoryAudience}:${pageSize}:${trimmedQuery}`;
   const resultSetKey = `${directoryScopeKey}:${directoryRefreshNonce}`;
   const [renderedDirectoryScopeKey, setRenderedDirectoryScopeKey] =
@@ -1418,6 +1430,8 @@ export default function ConnectPageClient() {
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++directoryReadGenerationRef.current;
+    const isCurrent = () => !cancelled && generation === directoryReadGenerationRef.current;
     async function run() {
       if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
       try {
@@ -1429,6 +1443,7 @@ export default function ConnectPageClient() {
         setDirectoryRefused(false);
         lastDirectoryReadAtRef.current = Date.now();
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return;
         const firstPage = restoreDirectoryReadRef.current ? 1 : currentPage;
         const restoredPeople: DirectoryPerson[] = [];
         let page;
@@ -1438,10 +1453,10 @@ export default function ConnectPageClient() {
             ...(trimmedQuery ? { typedSearch: true } : {}),
           });
           restoredPeople.push(...page.items);
-          if (!page.hasMore || cancelled) break;
+          if (!page.hasMore || !isCurrent()) break;
         }
         if (!page) return;
-        if (!cancelled) {
+        if (isCurrent()) {
           restoreDirectoryReadRef.current = false;
           // Keep server order and a single row per user when an offset page
           // overlaps after a directory update. Page one replaces the generation.
@@ -1474,7 +1489,7 @@ export default function ConnectPageClient() {
           // before anything is sent, so nothing is promised unseen.
         }
       } catch (loadError) {
-        if (!cancelled) {
+        if (isCurrent()) {
           // A refused or failed refresh of a list that is already on screen
           // changes nothing the person can see: the people they were shown are
           // still the best answer, and an error row (or a retry button to
@@ -1499,7 +1514,7 @@ export default function ConnectPageClient() {
           }
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent()) {
           directoryRequestPendingRef.current = false;
           setLoading(false);
         }
