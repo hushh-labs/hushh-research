@@ -1688,6 +1688,42 @@ async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dic
     return user_id, None
 
 
+async def _information_read_user_id(
+    tool_context: ToolContext,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Admit catalogue metadata, never consent writes or granted values.
+
+    Private chat uses its live owner-bound turn and the existing metadata
+    broker. Backend-direct mutations retain their separate confirmation gate.
+    """
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if not pod_mode():
+        return await _read_tool_user_id(tool_context)
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+    from hushh_mcp.services.pod_session_authority import PodSessionRefused
+
+    try:
+        scope = current_mcp_turn()
+        admitted = (
+            scope.vault_only
+            and tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+            and await scope.owner_is_admitted(tool_context)
+        )
+    except (ExternalMcpError, HTTPException, PodSessionRefused):
+        admitted = False
+    if not admitted:
+        return None, {
+            "status": "blocked",
+            "message": "Unlock your private agent, then try again.",
+        }
+    return tool_context.user_id, None
+
+
 def _publish_tool_trace(
     tool_context: ToolContext, tool_name: str, *, kind: str, payload: dict[str, Any]
 ) -> None:
@@ -2028,32 +2064,47 @@ async def discover_person_information(
     reads a granted value. Requests use the existing proposal and explicit
     browser confirmation, in Chat or Profile.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
 
     try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        private_discovery = private_information_discovery(user_id)
         try:
             person_ref, resolved_name = await asyncio.to_thread(
                 _resolve_person_for_information,
-                ConnectionsService(),
+                private_discovery or ConnectionsService(),
                 user_id,
                 person,
                 tool_context,
                 selection_handle,
             )
         except ConsentLifecycleError as exc:
+            if private_discovery:
+                _, blocked = await _information_read_user_id(tool_context)
+                if blocked is not None:
+                    return blocked
             return _information_person_error(exc, tool_context, user_id)
         connection = {"displayName": resolved_name}
-        profile = await PersonProfileService().get_viewer_profile(
-            viewer_user_id=user_id,
-            public_person_ref=person_ref,
-            catalog_page=page,
-            catalog_revision=catalog_revision,
-            catalog_domain=domain.strip(),
+        profile = (
+            await asyncio.to_thread(private_discovery.catalog, person_ref)
+            if private_discovery
+            else await PersonProfileService().get_viewer_profile(
+                viewer_user_id=user_id,
+                public_person_ref=person_ref,
+                catalog_page=page,
+                catalog_revision=catalog_revision,
+                catalog_domain=domain.strip(),
+            )
         )
+        if private_discovery:
+            _, blocked = await _information_read_user_id(tool_context)
+            if blocked is not None:
+                return blocked
         if profile.get("personRef") != person_ref:
             return {
                 "status": "failed",
@@ -2088,7 +2139,7 @@ async def discover_person_information(
             }
             for g in active_grants
         ]
-        return {
+        result = {
             "status": "ok",
             "person": {
                 "displayName": profile.get("displayName")
@@ -2112,6 +2163,15 @@ async def discover_person_information(
                 "Keep the selected person for the proposal; open their profile only if requested."
             ),
         }
+        if private_discovery:
+            # The broker publishes requestable metadata, not grant evidence.
+            for key in ("sharedWithYou", "sharedCount", "scopeCatalog"):
+                result.pop(key)
+            result["nextStep"] = (
+                "Let the card present the available fields and ask for the purpose and duration. "
+                "Keep the selected person for the proposal. Nothing has been requested yet."
+            )
+        return result
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
         return {"status": "failed", "message": str(exc)}
     except Exception:  # noqa: BLE001 - consumer-safe boundary
@@ -3003,7 +3063,7 @@ async def propose_information_request(
     secure key is not ready and nothing can be asked for yet; tell them to
     unlock their private agent and try again.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
@@ -3029,6 +3089,10 @@ async def propose_information_request(
                 public_person_ref=person_ref,
             )
         )
+        if private_discovery:
+            _, blocked = await _information_read_user_id(tool_context)
+            if blocked is not None:
+                return blocked
         if profile.get("personRef") != person_ref:
             return {
                 "status": "failed",
@@ -3099,6 +3163,10 @@ async def propose_information_request(
         # the same person, One said "tap Send" on a fresh card. What is
         # already waiting is reported as waiting, with its living card.
         waiting = await _already_pending(user_id, person_ref, matched, read_port=private_discovery)
+        if private_discovery:
+            _, blocked = await _information_read_user_id(tool_context)
+            if blocked is not None:
+                return blocked
         if waiting is not None:
             pending_refs = set(waiting["scopeRefs"])
             if all(str(item.get("scopeRef")) in pending_refs for item in matched):
@@ -3206,6 +3274,9 @@ async def propose_information_request(
         }
         return result
     except ConsentLifecycleError as exc:
+        _, blocked = await _information_read_user_id(tool_context)
+        if blocked is not None:
+            return blocked
         return _information_person_error(exc, tool_context, user_id)
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
         return {"status": "failed", "message": str(exc)}
