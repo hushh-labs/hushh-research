@@ -71,6 +71,7 @@ async def reserve_reviewer_funding(
     buyer_app_id: str | None,
     funding_id: str,
     amount_cents: int,
+    conn: Any = None,
 ) -> dict[str, Any]:
     if payer_user_id not in policy.reviewer_user_ids:
         raise CommerceProviderError("provider_sandbox_reviewer_required")
@@ -105,4 +106,8 @@ async def reserve_reviewer_funding(
             conn=connection,
         )
 
-    return await store._transaction(reserve)
+    return (
+        await store._transaction(reserve, conn)
+        if conn is not None
+        else await store._transaction(reserve)
+    )

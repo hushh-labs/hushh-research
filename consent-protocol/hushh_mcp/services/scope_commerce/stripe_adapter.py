@@ -241,6 +241,7 @@ class StripeScopeCommerceAdapter:
         metadata = expected["metadata"]
         amount = expected["amount_cents"]
         mode = expected["livemode"]
+        payment_method_type = expected.get("payment_method_type")
         if (
             type(amount) is not int
             or not 50 <= amount <= 100_000
@@ -265,6 +266,10 @@ class StripeScopeCommerceAdapter:
             or charge.get("currency") != "usd"
             or charge.get("amount") != amount
             or charge.get("amount_captured") != amount
+            or (
+                payment_method_type is not None
+                and (charge.get("payment_method_details") or {}).get("type") != payment_method_type
+            )
             or charge.get("paid") is not True
             or charge.get("captured") is not True
             or (

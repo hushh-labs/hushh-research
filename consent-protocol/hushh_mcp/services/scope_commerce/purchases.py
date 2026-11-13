@@ -13,23 +13,43 @@ from .domain import (
     fingerprint,
     public,
 )
+from .provider_contracts import _derived_id
 
 
 class PurchaseReservations:
     async def reserve_purchase(
-        self, *, payer_user_id, quote_id, idempotency_key, on_reserved=None, conn=None
+        self,
+        *,
+        payer_user_id,
+        quote_id,
+        idempotency_key,
+        on_reserved=None,
+        conn=None,
+        bank_funding_id=None,
     ):
         self._admit()
 
         async def operation(c):
             return await self._tx_reserve_purchase(
-                c, payer_user_id, quote_id, idempotency_key, on_reserved
+                c,
+                payer_user_id,
+                quote_id,
+                idempotency_key,
+                on_reserved,
+                bank_funding_id=bank_funding_id,
             )
 
         return await self._transaction(operation, conn)
 
     async def _tx_reserve_purchase(
-        self, c: Any, payer_user_id: Any, quote_id: Any, idempotency_key: Any, on_reserved: Any
+        self,
+        c: Any,
+        payer_user_id: Any,
+        quote_id: Any,
+        idempotency_key: Any,
+        on_reserved: Any,
+        *,
+        bank_funding_id: str | None = None,
     ) -> Any:
         await self._environment(c)
         p = await self._row(
@@ -50,6 +70,8 @@ class PurchaseReservations:
             p["purchase_id"],
         )
         if old:
+            if bank_funding_id is not None and old["idempotency_key"] != bank_funding_id:
+                raise CommerceError("purchase_unavailable")
             if old["status"] == "released":
                 raise CommerceError("reservation_closed")
             return public(p)
@@ -59,7 +81,17 @@ class PurchaseReservations:
         quote_expiry = await c.fetchval(
             "SELECT expires_at FROM scope_commerce_quotes WHERE quote_id=$1", p["quote_id"]
         )
-        if now >= quote_expiry:
+        direct_funding_id = UUID(_derived_id(str(p["quote_id"]), "bank_checkout"))
+        if bank_funding_id is None:
+            pending = await c.fetchval(
+                "SELECT status FROM scope_commerce_fundings WHERE funding_id=$1",
+                direct_funding_id,
+            )
+            if pending == "reserved":
+                raise CommerceError("bank_payment_pending")
+        elif UUID(bank_funding_id) != direct_funding_id:
+            raise CommerceError("funding_binding_mismatch")
+        if bank_funding_id is None and now >= quote_expiry:
             raise CommerceError("quote_expired")
         if p["price_cents"]:
             await self._environment(c, seller_user_id=p["owner_user_id"])
@@ -81,7 +113,7 @@ class PurchaseReservations:
             idempotency_key,
             fingerprint([quote_id, payer_user_id]),
         )
-        fee = await self._allocate_purchase_funding(c, p, required)
+        fee = await self._allocate_purchase_funding(c, p, required, bank_funding_id)
         await self._post(
             c,
             f"reserve:{p['purchase_id']}",
@@ -121,11 +153,14 @@ class PurchaseReservations:
             ):
                 raise CommerceError("payer_request_binding_required")
 
-    async def _allocate_purchase_funding(self, c: Any, p: dict[str, Any], required: int):
+    async def _allocate_purchase_funding(
+        self, c: Any, p: dict[str, Any], required: int, bank_funding_id: str | None
+    ):
         lots = await c.fetch(
-            "SELECT * FROM scope_commerce_funding_lots WHERE wallet_id=$1 AND NOT frozen AND available_micro_usd>0 AND livemode=$2 ORDER BY created_at,lot_id FOR UPDATE",
+            "SELECT * FROM scope_commerce_funding_lots WHERE wallet_id=$1 AND NOT frozen AND available_micro_usd>0 AND livemode=$2 AND ($3::uuid IS NULL OR funding_id=$3) ORDER BY created_at,lot_id FOR UPDATE",
             p["wallet_id"],
             self._config().livemode,
+            UUID(bank_funding_id) if bank_funding_id else None,
         )
         remaining, fee = required, 0
         for lot in lots:
