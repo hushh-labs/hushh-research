@@ -7,7 +7,7 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
 
-Package count: 1296
+Package count: 1298
 
 ### License summary
 
@@ -26,7 +26,7 @@ Package count: 1296
 - `EPL-2.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 930
+- `MIT`: 932
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
@@ -222,6 +222,8 @@ Package count: 1296
 - `@grpc/grpc-js` `1.14.5` — Apache-2.0
 - `@grpc/grpc-js/@grpc/proto-loader` `0.8.1` — Apache-2.0
 - `@grpc/proto-loader` `0.7.15` — Apache-2.0
+- `@hpke/common` `1.10.1` — MIT
+- `@hpke/core` `1.9.0` — MIT
 - `@humanfs/core` `0.19.2` — Apache-2.0
 - `@humanfs/node` `0.16.8` — Apache-2.0
 - `@humanfs/types` `0.15.0` — Apache-2.0
@@ -1336,7 +1338,7 @@ Package count: 1296
 
 ## Backend Python packages
 
-Package count: 219
+Package count: 222
 
 ### License summary
 
@@ -1353,7 +1355,7 @@ Package count: 219
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
 - `Apache-2.0 OR MIT`: 1
-- `BSD License`: 18
+- `BSD License`: 19
 - `BSD-2-Clause`: 2
 - `BSD-3-Clause`: 21
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
@@ -1364,13 +1366,14 @@ Package count: 219
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
 - `MIT`: 56
+- `MIT AND PSF-2.0`: 1
 - `MIT License`: 32
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
-- `Python Software Foundation License`: 2
+- `Python Software Foundation License`: 3
 
 ### Package inventory
 
@@ -1407,6 +1410,7 @@ Package count: 219
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
 - `cloudpickle` `3.1.2` — BSD License
+- `colorama` `0.4.6` — BSD License
 - `coverage` `7.13.5` — Apache-2.0
 - `cryptography` `50.0.1` — Apache-2.0 OR BSD-3-Clause
 - `curl_cffi` `0.15.0` — MIT
@@ -1438,6 +1442,7 @@ Package count: 219
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
+- `greenlet` `3.4.0` — MIT AND PSF-2.0
 - `grpc-google-iam-v1` `0.14.5` — Apache Software License
 - `grpcio` `1.76.0` — Apache Software License
 - `grpcio-status` `1.76.0` — Apache Software License
@@ -1541,6 +1546,7 @@ Package count: 219
 - `python-dotenv` `1.2.2` — BSD-3-Clause
 - `python-multipart` `0.0.32` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
+- `pywin32` `311` — Python Software Foundation License
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
@@ -1560,7 +1566,7 @@ Package count: 219
 - `six` `1.17.0` — MIT License
 - `slowapi` `0.1.9` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
-- `soupsieve` `4.1` — MIT
+- `soupsieve` `2.9` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
 - `sse-starlette` `3.3.4` — BSD-3-Clause
 - `starlette` `1.3.1` — BSD-3-Clause
@@ -1571,7 +1577,7 @@ Package count: 219
 - `threadpoolctl` `3.6.0` — BSD License
 - `tokenizers` `0.22.2` — Apache Software License
 - `toolz` `1.2.0` — BSD-3-Clause
-- `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+- `torch` `2.14.0+cpu` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT
