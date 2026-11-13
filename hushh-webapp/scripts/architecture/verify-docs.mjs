@@ -11,15 +11,15 @@ const packageJson = JSON.parse(
 const scripts = new Set(Object.keys(packageJson.scripts || {}));
 
 const docsToScan = [
-  "../docs/reference/architecture/ui-contract-contributor-guide.md",
+  "../docs/development/contracts/ui-contract-contributor-guide.md",
   "README.md",
   "components/README.md",
   "components/app-ui/README.md",
-  "../docs/reference/quality/README.md",
-  "../docs/reference/quality/design-system.md",
-  "../docs/reference/quality/frontend-pattern-catalog.md",
-  "../docs/reference/quality/frontend-ui-architecture-map.md",
-  "../docs/reference/quality/app-surface-design-system.md",
+  "../docs/development/quality/README.md",
+  "../docs/development/quality/design-system.md",
+  "../docs/development/quality/frontend-pattern-catalog.md",
+  "../docs/development/quality/frontend-ui-architecture-map.md",
+  "../docs/development/quality/app-surface-design-system.md",
 ];
 
 const forbiddenMentions = [

@@ -6,7 +6,7 @@ router makes Plaid HTTP calls on behalf of the device and forgets everything
 the moment the response is sent.
 
 Guarantees this module must keep (see
-``docs/reference/kai/plaid-vault-passthrough.md``):
+``docs/architecture/finance/plaid-vault-passthrough.md``):
 
 - NO database reads or writes and NO item/token persistence. There is no
   server registry of connections for this flow, and no webhook: refresh

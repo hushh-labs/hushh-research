@@ -27,7 +27,7 @@ name: Release iOS to App Store
 # key for notifications to deliver — see the runbook.
 #
 # TestFlight sibling: .github/workflows/ship-ios-testflight.yml
-# Runbook + secret/IAM setup: docs/guides/mobile/release-ios-appstore.md
+# Runbook + secret/IAM setup: docs/operations/mobile/release-ios-appstore.md
 
 on:
   workflow_dispatch:
@@ -547,7 +547,7 @@ jobs:
             echo "Missing GCP secret IOS_GOOGLESERVICE_INFO_PLIST_B64 in ${GCP_PROJECT_ID}." >&2
             echo "Create it from the UAT iOS GoogleService-Info.plist:" >&2
             echo "  base64 -i GoogleService-Info.plist | gcloud secrets create IOS_GOOGLESERVICE_INFO_PLIST_B64 --data-file=- --project=${GCP_PROJECT_ID}" >&2
-            echo "See docs/guides/mobile/release-ios-appstore.md." >&2
+            echo "See docs/operations/mobile/release-ios-appstore.md." >&2
             exit 1
           fi
           gcloud secrets versions access latest --secret=IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" \
@@ -924,7 +924,7 @@ jobs:
             RELEASE_TYPE=AFTER_APPROVAL
           fi
           if [ "${{ github.event.inputs.submit_for_review }}" = "true" ]; then
-            echo "::warning title=Public App Store submission::submit_for_review=true -> this run will SUBMIT the build for public Apple review (IRREVERSIBLE). Confirm the publish-safety checklist in docs/guides/mobile/release-ios-appstore.md (led by PrivacyInfo.xcprivacy privacy-label reconciliation) is cleared, and that ASC metadata/screenshots/age rating/pricing are set for this version."
+            echo "::warning title=Public App Store submission::submit_for_review=true -> this run will SUBMIT the build for public Apple review (IRREVERSIBLE). Confirm the publish-safety checklist in docs/operations/mobile/release-ios-appstore.md (led by PrivacyInfo.xcprivacy privacy-label reconciliation) is cleared, and that ASC metadata/screenshots/age rating/pricing are set for this version."
             echo "submit_for_review=true: will set What's New, attach the build, and SUBMIT for public App Store review."
             SUBMIT_ARGS+=(--submit)
           else
@@ -1028,7 +1028,7 @@ jobs:
               echo "> \`submit_for_review=true\` to submit for public Apple review in one click"
               echo "> (screenshots / age rating / pricing are reused from the existing ASC"
               echo "> listing and stay stable across versions — see the runbook). Confirm the"
-              echo "> publish-safety checklist (docs/guides/mobile/release-ios-appstore.md) first."
+              echo "> publish-safety checklist (docs/operations/mobile/release-ios-appstore.md) first."
             elif [ "${{ github.event.inputs.submit_for_review }}" = "true" ] && [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
               echo "> Set What's New, attached the build, and SUBMITTED for public App Store"
               echo "> review. Track the review state in App Store Connect."

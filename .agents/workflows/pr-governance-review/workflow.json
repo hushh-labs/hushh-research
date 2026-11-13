@@ -18,9 +18,9 @@
   "required_reads": [
     "AGENTS.md",
     "README.md",
-    "docs/reference/operations/ci.md",
-    "docs/reference/quality/pr-impact-checklist.md",
-    "docs/reference/architecture/api-contracts.md",
+    "docs/operations/releases/ci.md",
+    "docs/development/quality/pr-impact-checklist.md",
+    "docs/development/contracts/api-contracts.md",
     ".agents/skills/pr-governance-review/references/review-axes.md",
     ".agents/skills/pr-governance-review/references/runtime-schematics-contract.md",
     ".agents/skills/pr-governance-review/references/operator-batch-output-contract.md",

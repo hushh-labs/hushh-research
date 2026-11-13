@@ -481,7 +481,7 @@ describe("observability schema", () => {
 });
 
 const EVENT_MATRIX = path.resolve(
-  __dirname, "../../../docs/reference/operations/observability-event-matrix.md",
+  __dirname, "../../../docs/operations/observability/observability-event-matrix.md",
 );
 /** Every key the Live Memory emitter sends. The matrix must document each one. */
 const LIVE_MEMORY_SOURCE_PARAMS = [

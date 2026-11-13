@@ -7,7 +7,7 @@
   "owned_paths": [
     "hushh-webapp/native-route-inventory.json",
     "hushh-webapp/scripts/native/verify-native-static-parity.mjs",
-    "docs/reference/mobile/tri-flow-parity.md"
+    "docs/development/mobile/tri-flow-parity.md"
   ],
   "non_owned_paths": [
     "hushh-webapp/ios",
@@ -19,7 +19,7 @@
     "new-feature-tri-flow"
   ],
   "required_reads": [
-    "docs/reference/mobile/tri-flow-parity.md",
+    "docs/development/mobile/tri-flow-parity.md",
     ".agents/skills/tri-flow-parity/references/reason-contract.md"
   ],
   "required_commands": [

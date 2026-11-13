@@ -7,7 +7,7 @@
         "top_k": 3
       },
       {
-        "prompt": "write a planning-only R&D note under docs/future with promotion criteria for this concept",
+        "prompt": "write a planning-only R&D note under docs/roadmap with promotion criteria for this concept",
         "top_k": 3
       },
       {

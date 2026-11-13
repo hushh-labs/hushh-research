@@ -8,9 +8,9 @@
   "affected_surfaces": [
     "contracts/kai",
     "consent-protocol/hushh_mcp/services/action_gateway.py",
-    "docs/reference/one/one-voice-runtime-architecture.md",
-    "docs/reference/one/one-voice-kai-compatibility-runtime.md",
-    "docs/reference/kai",
+    "docs/architecture/one/one-voice-runtime-architecture.md",
+    "docs/architecture/one/one-voice-kai-compatibility-runtime.md",
+    "docs/architecture/finance",
     "hushh-webapp/lib/voice",
     "hushh-webapp/scripts/voice",
     "hushh-webapp/components/kai",
@@ -21,9 +21,9 @@
     ".agents/skills/one-voice-governance"
   ],
   "required_reads": [
-    "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/reference/one/one-voice-runtime-architecture.md",
-    "docs/reference/one/one-voice-kai-compatibility-runtime.md",
+    "docs/architecture/finance/kai-action-gateway-vnext.md",
+    "docs/architecture/one/one-voice-runtime-architecture.md",
+    "docs/architecture/one/one-voice-kai-compatibility-runtime.md",
     ".agents/skills/one-voice-governance/references/voice-review-checklist.md"
   ],
   "required_commands": [

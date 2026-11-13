@@ -7,7 +7,7 @@
   "owned_paths": [
     "hushh-webapp/frontend-native-surface-map.generated.json",
     "hushh-webapp/scripts/architecture/generate-surface-map.mjs",
-    "docs/reference/architecture/frontend-native-surface-map.md"
+    "docs/development/contracts/frontend-native-surface-map.md"
   ],
   "non_owned_paths": [
     "frontend",
@@ -22,9 +22,9 @@
     "api-contract-change"
   ],
   "required_reads": [
-    "docs/reference/architecture/frontend-native-surface-map.md",
-    "docs/reference/architecture/route-contracts.md",
-    "docs/reference/mobile/capacitor-parity-audit.md",
+    "docs/development/contracts/frontend-native-surface-map.md",
+    "docs/development/contracts/route-contracts.md",
+    "docs/development/mobile/capacitor-parity-audit.md",
     "hushh-webapp/frontend-native-surface-map.generated.json"
   ],
   "required_commands": [

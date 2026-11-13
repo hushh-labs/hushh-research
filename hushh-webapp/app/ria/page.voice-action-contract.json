@@ -3,7 +3,7 @@
   "surface_id": "ria_home",
   "surface_title": "RIA Workspace Home",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "defaults": {
     "reachability": {
@@ -63,7 +63,7 @@
         "active client count"
       ],
       "docs_references": [
-        "docs/reference/iam/runtime-surface.md",
+        "docs/architecture/identity/runtime-surface.md",
         "hushh-webapp/app/ria/page.tsx"
       ],
       "workflow": {

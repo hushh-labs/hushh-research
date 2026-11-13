@@ -18,7 +18,7 @@ description: Use when auditing mobile/native parity, release readiness, the nati
 
 Owned repo surfaces:
 
-1. `docs/reference/mobile`
+1. `docs/development/mobile`
 2. `hushh-webapp/scripts/native`
 3. `hushh-webapp/ios/App/AppTests`
 4. `hushh-webapp/ios/App/AppUITests`
@@ -43,9 +43,9 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/mobile/README.md`
-2. `docs/reference/mobile/capacitor-parity-audit.md`
-3. `docs/reference/mobile/capacitor-parity-audit-report.md`
+1. `docs/development/mobile/README.md`
+2. `docs/development/mobile/capacitor-parity-audit.md`
+3. `docs/development/mobile/capacitor-parity-audit-report.md`
 4. `hushh-webapp/docs/ios-native-surface-adoption.md`
 5. `.agents/skills/repo-operations/references/admin-release-sop.md`
 

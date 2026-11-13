@@ -50,7 +50,7 @@ and combined-result proof.
 Other Dev/UAT maintainers use the queue above; a refusal from the owner command
 does not mean their ordinary PR needs a personal review. Main has its own
 merger cohort and code-owner review requirements, described in the
-[branch governance runbook](../../../../docs/reference/operations/branch-governance.md).
+[branch governance runbook](../../../../docs/operations/releases/branch-governance.md).
 
 An owner direct merge advances the destination and can invalidate in-flight
 queue checks. Prefer the queue for ordinary work and inspect active queue work

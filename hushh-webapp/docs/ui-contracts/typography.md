@@ -10,7 +10,7 @@ the cross-product usage map, not another Mail token authority.
 Calendar's mounted workspace now uses the product family and scoped Connect
 roles; its former Inter exception is a [historical baseline](./calendar.md#prior-inspected-font-baseline-superseded).
 The current heading cascade, controls, overlays and responsive dimensions are
-recorded in the [Calendar reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026).
+recorded in the [Calendar reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026-updated-29-october).
 
 Drive's Profile-context typography, portaled confirmations, packet/share cards,
 native differences and phone/desktop measurements are recorded in the
@@ -20,7 +20,7 @@ from the scoped rules that resolve them.
 Status: current source-backed usage map, checked against revision
 `296d7769c83176739e4db8d3ad549b0521894f52` on 20 October 2026. Owner: frontend design system. Classification:
 `canonical`, package-local. This answers **when to use what** in these product
-surfaces. The existing [design system](../../../docs/reference/quality/design-system.md)
+surfaces. The existing [design system](../../../docs/development/quality/design-system.md)
 and executable tokens remain authoritative; this page does not introduce a
 second font schema.
 

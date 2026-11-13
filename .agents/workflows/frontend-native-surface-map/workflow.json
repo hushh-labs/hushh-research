@@ -11,12 +11,12 @@
     "hushh-webapp/lib/services",
     "hushh-webapp/native-route-inventory.json",
     "hushh-webapp/frontend-native-surface-map.generated.json",
-    "docs/reference/architecture/frontend-native-surface-map.md"
+    "docs/development/contracts/frontend-native-surface-map.md"
   ],
   "required_reads": [
-    "docs/reference/architecture/frontend-native-surface-map.md",
-    "docs/reference/architecture/route-contracts.md",
-    "docs/reference/mobile/capacitor-parity-audit.md",
+    "docs/development/contracts/frontend-native-surface-map.md",
+    "docs/development/contracts/route-contracts.md",
+    "docs/development/mobile/capacitor-parity-audit.md",
     "hushh-webapp/frontend-native-surface-map.generated.json"
   ],
   "required_commands": [

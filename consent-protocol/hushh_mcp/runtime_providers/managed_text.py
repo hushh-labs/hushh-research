@@ -102,6 +102,7 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
     processing_fingerprint: str | None = None
     vertex_thinking_level: Literal["low", "high"] | None = None
     vertex_max_output_tokens: int | None = None
+    retry_vertex_timeout: bool = False
     primary_seconds: float = Field(default=30, gt=0, le=60)
     fallback_seconds: float = Field(default=20, gt=0, le=30)
 
@@ -192,30 +193,58 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
         )
         # Only an unobserved model call may move to the declared alternate.
         # Responses include function calls, so tools and partial answers cannot replay.
-        if not self.allow_fallback:
+        retry_vertex = (
+            self.retry_vertex_timeout
+            and self.primary_provider == "vertex"
+            and not self.allow_fallback
+        )
+        loop = asyncio.get_running_loop()
+        first_output_deadline = None
+        if retry_vertex:
+            providers = ("vertex", "vertex")
+            first_output_deadline = loop.time() + self.primary_seconds
+        elif not self.allow_fallback:
             providers = providers[:1]
         fallback = None
         for index, provider in enumerate(providers):
             from hushh_mcp.runtime_providers.managed_text_attempt import prepare_text_attempt
 
-            observed = completed = False
+            received = observed = completed = False
             source, model_name, location, seconds, owned_vertex = await prepare_text_attempt(
                 self, llm_request, provider, index, current, stream
             )
+            attempt_deadline = first_output_deadline
+            if attempt_deadline is not None:
+                if not index:
+                    attempt_deadline = min(attempt_deadline, loop.time() + self.primary_seconds / 2)
+                seconds = attempt_deadline - loop.time()
             logger.info(
                 "managed_text.selection scope=%s policy=%s provider=%s attempt=%s first_output_budget_ms=%s",
                 self.processing_scope,
                 self.policy_generation,
                 provider,
                 index + 1,
-                int(seconds * 1000),
+                max(0, int(seconds * 1000)),
             )
             try:
-                if index:
+                if seconds <= 0:
+                    raise TimeoutError("Managed model first-output budget exhausted")
+                if index and first_output_deadline is None:
                     await current()
-                async with asyncio.timeout(seconds) as deadline:
+                timeout = (
+                    asyncio.timeout_at(attempt_deadline)
+                    if attempt_deadline is not None
+                    else asyncio.timeout(seconds)
+                )
+                async with timeout as deadline:
+                    if index and first_output_deadline is not None:
+                        await current()
                     async with aclosing(source) as responses:
                         async for response in responses:
+                            if not received and first_output_deadline is not None:
+                                # A response ends the shorter wait for the first chunk.
+                                deadline.reschedule(first_output_deadline)
+                            received = True
                             terminal, publish = await self._observe_response(
                                 response,
                                 stream=stream,
@@ -251,17 +280,32 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
             except Exception as error:
                 reason = fallback_reason(error)
                 logger.info(
-                    "managed_text.attempt scope=%s provider=%s status=failed reason=%s error_type=%s observed=%s",
+                    "managed_text.attempt scope=%s provider=%s status=failed reason=%s error_type=%s observed=%s received=%s",
                     self.processing_scope,
                     provider,
                     reason or "non_retryable",
                     type(error).__name__,
                     observed,
+                    received,
                 )
-                if observed or reason is None or index or not self.allow_fallback:
+                if observed or reason is None or index or len(providers) == 1:
                     raise
-                fallback = reason
-                record_text_fallback(self.processing_scope, provider, providers[1], reason)
+                if first_output_deadline is not None:
+                    # A response awaiting owner revalidation must also fence retries.
+                    if received or reason != "timeout" or loop.time() >= first_output_deadline:
+                        raise
+                    from hushh_mcp.one_adk.queued_input import current_run
+
+                    active = current_run()
+                    logger.info(
+                        "managed_text.retry scope=%s provider=%s reason=timeout attempt=2 run=%s",
+                        self.processing_scope,
+                        provider,
+                        active.run_id[:8] if active is not None else "unbound",
+                    )
+                else:
+                    fallback = reason
+                    record_text_fallback(self.processing_scope, provider, providers[1], reason)
             finally:
                 if owned_vertex is not None:
                     from hushh_mcp.runtime_providers.lifecycle import close_owned_adk_model
@@ -349,6 +393,8 @@ def one_chat_root_model(model: Any) -> Any:
     """Select only One's root; specialist and ordinary Search models stay intact."""
     if not isinstance(model, ManagedPrimaryTextModel) or model.processing_scope != "one_text_chat":
         return model
+    if model.primary_provider == "vertex" and not model.allow_fallback:
+        return model.model_copy(update={"retry_vertex_timeout": True})
     binding = model.runtime_binding
     if binding is None:
         return model

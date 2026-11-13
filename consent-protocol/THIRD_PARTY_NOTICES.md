@@ -351,7 +351,7 @@ Package count: 1
 
 ### Package inventory
 
-- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](consent-protocol/browser_runtime/azure_host/LICENSE.moby); [Upstream notice](consent-protocol/browser_runtime/azure_host/NOTICE.moby)
+- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](browser_runtime/azure_host/LICENSE.moby); [Upstream notice](browser_runtime/azure_host/NOTICE.moby)
 
 ## Vendored Email execution resources
 
@@ -364,6 +364,6 @@ Package count: 3
 
 ### Package inventory
 
-- `theposch/gmail-mcp` `f4c8affe8c08b0fb3deb33570251ed0596e73d9d` — GPL-3.0-only; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/theposch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
-- `langchain-ai/executive-ai-assistant` `758db7174223da7864feea7c9f8d1aba12923037` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/eaia/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
-- `langchain-ai/agents-from-scratch` `603fc7a4ac6119004f43894395e504a1fefcc6c0` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/agents_from_scratch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `theposch/gmail-mcp` `f4c8affe8c08b0fb3deb33570251ed0596e73d9d` — GPL-3.0-only; [License](hushh_mcp/services/email_oss/vendor/theposch/original/LICENSE); [Upstream notice](hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/executive-ai-assistant` `758db7174223da7864feea7c9f8d1aba12923037` — MIT; [License](hushh_mcp/services/email_oss/vendor/eaia/original/LICENSE); [Upstream notice](hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/agents-from-scratch` `603fc7a4ac6119004f43894395e504a1fefcc6c0` — MIT; [License](hushh_mcp/services/email_oss/vendor/agents_from_scratch/original/LICENSE); [Upstream notice](hushh_mcp/services/email_oss/vendor/PROVENANCE.md)

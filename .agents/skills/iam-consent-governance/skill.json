@@ -5,7 +5,7 @@
   "primary_scope": "iam-consent-governance",
   "description": "Use when changing IAM, consent scopes, actor model, verification policy, or marketplace access contracts inside the security-audit owner family.",
   "owned_paths": [
-    "docs/reference/iam",
+    "docs/architecture/identity",
     "consent-protocol/api/routes/iam.py",
     "consent-protocol/api/routes/consent.py",
     "hushh-webapp/lib/consent",
@@ -22,11 +22,11 @@
     "new-feature-tri-flow"
   ],
   "required_reads": [
-    "docs/reference/iam/README.md",
-    "docs/reference/iam/architecture.md",
-    "docs/reference/iam/consent-scope-catalog.md",
-    "docs/reference/iam/agent-delegation-boundary.md",
-    "docs/reference/iam/validation-checklist.md",
+    "docs/architecture/identity/README.md",
+    "docs/architecture/identity/architecture.md",
+    "docs/architecture/identity/consent-scope-catalog.md",
+    "docs/architecture/identity/agent-delegation-boundary.md",
+    "docs/architecture/identity/validation-checklist.md",
     ".agents/skills/iam-consent-governance/references/anti-rationalization.md"
   ],
   "required_commands": [

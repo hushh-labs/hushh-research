@@ -20,7 +20,7 @@ flowchart TD
 
 This directory is the package-local documentation home for backend and protocol contributors.
 
-Public architecture prose in this docs home follows the Hussh brand contract, while exact compatibility identifiers stay literal when they name the actual package, CLI, env vars, or runtime surfaces. See [../../docs/reference/operations/brand-and-compatibility-contract.md](../../docs/reference/operations/brand-and-compatibility-contract.md).
+Public architecture prose in this docs home follows the Hussh brand contract, while exact compatibility identifiers stay literal when they name the actual package, CLI, env vars, or runtime surfaces. See [../../docs/operations/brand-and-compatibility-contract.md](../../docs/operations/brand-and-compatibility-contract.md).
 
 Use the package root README for:
 
@@ -60,8 +60,8 @@ It does not own:
 | Browse every backend reference doc | [reference/README.md](./reference/README.md) |
 | Configure app-review mode for a store submission | [app-review-mode-config.md](./app-review-mode-config.md) |
 | Learn the 3-agent debate system | [reference/kai-agents.md](./reference/kai-agents.md) |
-| Understand the product-facing One Voice contract | [../../docs/reference/one/one-voice-runtime-architecture.md](../../docs/reference/one/one-voice-runtime-architecture.md) |
-| Understand the current One Voice Kai compatibility runtime | [../../docs/reference/one/one-voice-kai-compatibility-runtime.md](../../docs/reference/one/one-voice-kai-compatibility-runtime.md) |
+| Understand the product-facing One Voice contract | [../../docs/architecture/one/one-voice-runtime-architecture.md](../../docs/architecture/one/one-voice-runtime-architecture.md) |
+| Understand the current One Voice Kai compatibility runtime | [../../docs/architecture/one/one-voice-kai-compatibility-runtime.md](../../docs/architecture/one/one-voice-kai-compatibility-runtime.md) |
 | Implement consumer scope pricing and payments | [reference/consumer-scope-commerce.md](./reference/consumer-scope-commerce.md) |
 | Understand the consent token model | [reference/consent-protocol.md](./reference/consent-protocol.md) |
 | Implement the Hermes trusted-device vault handoff | [reference/trusted-device-vault-handoff.md](./reference/trusted-device-vault-handoff.md) |
@@ -75,4 +75,4 @@ It does not own:
 
 - Package orientation: [../README.md](../README.md)
 - Cross-cutting docs home: [../../docs/README.md](../../docs/README.md)
-- Documentation governance: [../../docs/reference/operations/docs-governance.md](../../docs/reference/operations/docs-governance.md)
+- Documentation governance: [../../docs/development/documentation.md](../../docs/development/documentation.md)

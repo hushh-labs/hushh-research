@@ -18,7 +18,7 @@ description: Use when changing cross-surface verification policy, contract-test 
 
 Owned repo surfaces:
 
-1. `docs/reference/quality`
+1. `docs/development/quality`
 2. `hushh-webapp/__tests__`
 3. `consent-protocol/tests`
 
@@ -42,11 +42,11 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/quality/README.md`
-2. `docs/reference/quality/pr-impact-checklist.md`
-3. `docs/reference/kai/kai-runtime-smoke-checklist.md`
+1. `docs/development/quality/README.md`
+2. `docs/development/quality/pr-impact-checklist.md`
+3. `docs/architecture/finance/kai-runtime-smoke-checklist.md`
 4. `.agents/skills/quality-contracts/references/browser-verification-contract.md`
-5. `docs/reference/quality/definition-of-done.md`
+5. `docs/development/quality/definition-of-done.md`
 
 ## Workflow
 
@@ -77,7 +77,7 @@ Diagnostic runs the historical full set. Missing change metadata stays
 conservative. Explicit browser diagnostics own browser proof, and native changes require native
 verification. Keep live security, consent, schema and core deployment gates blocking.
 Secondary feature diagnostics report their actual outcome separately; no diagnostic
-run is not a pass. Follow the [CI readiness policy](../../../docs/reference/operations/ci.md#managed-provider-readiness-policy).
+run is not a pass. Follow the [CI readiness policy](../../../docs/operations/releases/ci.md#managed-provider-readiness-policy).
 
 ```bash
 cd hushh-webapp && npm run test:ci

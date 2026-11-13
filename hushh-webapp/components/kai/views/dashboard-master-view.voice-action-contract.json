@@ -3,7 +3,7 @@
   "surface_id": "kai_portfolio_dashboard",
   "surface_title": "Kai Portfolio Dashboard",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "defaults": {
     "reachability": {
@@ -47,7 +47,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "speaker_persona": "kai"
     },
@@ -87,7 +87,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "speaker_persona": "kai"
     }

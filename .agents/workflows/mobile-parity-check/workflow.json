@@ -10,12 +10,12 @@
     "hushh-webapp/android",
     "hushh-webapp/lib/capacitor",
     "hushh-webapp/scripts",
-    "docs/reference/mobile"
+    "docs/development/mobile"
   ],
   "required_reads": [
-    "docs/reference/mobile/README.md",
-    "docs/reference/mobile/capacitor-parity-audit.md",
-    "docs/project_context_map.md"
+    "docs/development/mobile/README.md",
+    "docs/development/mobile/capacitor-parity-audit.md",
+    "docs/development/repository-map.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task mobile-parity-check",

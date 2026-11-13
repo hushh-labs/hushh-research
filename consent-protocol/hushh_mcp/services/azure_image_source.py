@@ -13,7 +13,7 @@ grant must be Artifact Registry reader on the repository holding the pod release
 On a ``gcr.io/<project>`` source that repository also holds the hub and web
 images, so the token can pull them too: logged on every preflight as
 ``reader_on_shared_repository`` and recorded under Known gaps in
-``docs/reference/architecture/byoc-azure.md``. The token is minted at the moment
+``docs/architecture/byoc-azure.md``. The token is minted at the moment
 of the import call and exists only in that request body.
 
 * A Google token is only ever offered to a Google registry host; a foreign registry

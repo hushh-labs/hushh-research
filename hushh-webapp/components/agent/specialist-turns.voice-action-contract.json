@@ -3,9 +3,9 @@
   "surface_id": "one_specialist_turns",
   "surface_title": "One Specialist Turns",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/reference/one/one-agent-hierarchy.md",
-    "docs/reference/one/one-voice-runtime-architecture.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md",
+    "docs/architecture/one/one-agent-hierarchy.md",
+    "docs/architecture/one/one-voice-runtime-architecture.md"
   ],
   "defaults": {
     "speaker_persona": "one",
@@ -78,7 +78,7 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "goal": {
         "goal_id": "goal.email.chat.turn",
@@ -195,7 +195,7 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "goal": {
         "goal_id": "goal.location.chat.turn",
@@ -333,7 +333,7 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "goal": {
         "goal_id": "goal.connections.chat.turn",
@@ -447,7 +447,7 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "goal": {
         "goal_id": "goal.consent.chat.turn",
@@ -556,7 +556,7 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "goal": {
         "goal_id": "goal.connected_systems.chat.turn",

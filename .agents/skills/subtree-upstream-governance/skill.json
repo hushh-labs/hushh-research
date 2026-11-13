@@ -5,7 +5,7 @@
   "primary_scope": "subtree-upstream-governance-intake",
   "description": "Use when changing optional-mirror coordination, subtree sync policy, or maintainer-only subtree governance between consent-protocol and hushh-research.",
   "owned_paths": [
-    "docs/reference/operations/subtree-maintainers.md",
+    "docs/operations/subtree-maintainers.md",
     "scripts/ci/subtree-sync-check.sh",
     ".agents/skills/subtree-upstream-governance"
   ],
@@ -20,7 +20,7 @@
     "subtree-upstream-governance"
   ],
   "required_reads": [
-    "docs/reference/operations/subtree-maintainers.md",
+    "docs/operations/subtree-maintainers.md",
     "scripts/ci/subtree-sync-check.sh",
     "consent-protocol/README.md",
     "contributing.md"

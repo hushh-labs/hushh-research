@@ -522,7 +522,7 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
 fi
 append_optional_env "HUSSH_ONE_POD_SERVICE_ACCOUNT" "${pod_sa}"
 
-# The pod -> hub data path (docs/future/personal-agent/POD-HUB-DATA-PATH.md).
+# The pod -> hub data path (docs/roadmap/personal-agent/pod-hub-data-path.md).
 # A pod holds no Postgres credential, so it reads the data plane through the
 # hub; render_deploy_config passes HUSSH_HUB_BASE_URL down to every pod it
 # renders, which means the HUB has to know its own origin. The URL is derived
@@ -642,7 +642,7 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # Offers Files setup only; each existing pod still requires exact owner approval.
   pod_files_enabled="true"
   # The simulation opt-in. hussh-managed pods are the SIMULATION tier under
-  # docs/reference/architecture/private-agent-north-star.md, so GcpBackend now
+  # docs/product/principles/private-agent-requirements.md, so GcpBackend now
   # calls require_simulation_permitted() before any live create and REFUSES when
   # this is unset. It is a second, independent switch on top of the deploy lane
   # precisely so a container that lost its lane cannot infer permission -- the

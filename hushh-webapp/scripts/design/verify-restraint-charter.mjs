@@ -3,7 +3,7 @@
 /**
  * verify-restraint-charter — give the Restraint Charter teeth.
  *
- * The charter (docs/reference/quality/design.md, Visual Language rule 1; ported to
+ * The charter (docs/development/quality/design.md, Visual Language rule 1; ported to
  * the frontend-design-system review kernel) said one title per screen, one primary
  * action, and no decorative badges. Until this guard existed it was prose competing
  * with ~30 machine-checked build contracts, and additive bias won by default: the
@@ -49,7 +49,7 @@ const FIRST_RUN_SURFACES = [
   { path: "components/connections/azure-upgrade-progress.tsx", singleCard: false },
 ];
 
-const CHARTER = "Restraint Charter (docs/reference/quality/design.md, Visual Language 1)";
+const CHARTER = "Restraint Charter (docs/development/quality/design.md, Visual Language 1)";
 
 // Surfaces that carry legitimate state badges (a real "Saved"/"Selected"/"Locked"
 // state) or morphy-ux buttons whose primary reading is a variant, not the absence of

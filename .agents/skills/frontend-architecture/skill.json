@@ -8,7 +8,7 @@
     "hushh-webapp/lib/navigation",
     "hushh-webapp/scripts/architecture",
     "hushh-webapp/package.json",
-    "docs/reference/architecture/route-contracts.md"
+    "docs/development/contracts/route-contracts.md"
   ],
   "non_owned_paths": [
     "frontend",
@@ -23,10 +23,10 @@
   "required_reads": [
     "hushh-webapp/package.json",
     "scripts/ci/web-check.sh",
-    "docs/reference/operations/ci.md",
-    "docs/reference/quality/frontend-ui-architecture-map.md",
-    "docs/reference/architecture/route-contracts.md",
-    "docs/reference/architecture/ui-contract-contributor-guide.md"
+    "docs/operations/releases/ci.md",
+    "docs/development/quality/frontend-ui-architecture-map.md",
+    "docs/development/contracts/route-contracts.md",
+    "docs/development/contracts/ui-contract-contributor-guide.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:docs",

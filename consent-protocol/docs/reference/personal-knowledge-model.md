@@ -11,7 +11,7 @@ The approved product direction is One-owned relationship memory with specialist 
 
 - One owns cross-domain relationship memory such as context, preferences, trusted people, decisions, and previously answered questions.
 - Kai owns finance memory and finance reasoning over the protected finance lane.
-- Nav owns privacy, consent, vault, deletion, and scope-review memory once Nav runtime surfaces are implemented.
+- Nav is the bounded privacy and consent specialist; privacy, vault, deletion and scope-review access still follows the owning service and token contracts.
 
 On vault unlock, the client decrypts `one_memory` into process memory. Concurrent
 loads coalesce; ordinary turns reuse this document without cloud reads or

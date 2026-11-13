@@ -5,7 +5,7 @@ Maps the coordinate-free DTO returned by
 shape consumed by the ``/one/consent`` Consent Manager (Requests / Active Access /
 History tabs) and the notification bell summary.
 
-Design rules (see docs/future/one-location-consent-center-integration-plan.md):
+Design rules (see docs/roadmap/one-location-consent-center-integration-plan.md):
 
 * Reuse the Location service projections -- do NOT issue raw SQL here.
   ``list_state`` already assembles every location surface and never returns

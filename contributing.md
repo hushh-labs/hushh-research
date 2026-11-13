@@ -19,7 +19,7 @@ Choose the narrowest lane that matches the work:
 - app contributor: stay in the monorepo root and use `./bin/hushh web` with `./bin/hushh terminal backend --mode local --reload`
 - backend contributor: stay in the monorepo root and use `./bin/hushh terminal backend --mode local --reload`
 - standalone backend contributor: use the aligned path in [consent-protocol/README.md](./consent-protocol/README.md)
-- maintainer/operator: use [docs/reference/operations/README.md](./docs/reference/operations/README.md)
+- maintainer/operator: use [docs/operations/README.md](./docs/operations/README.md)
 
 ## The Product Contract
 
@@ -53,7 +53,7 @@ Use these first:
 `./bin/hushh web` defaults to `local`. Use `--mode uat` only when you explicitly want the local frontend against the deployed UAT backend.
 `./bin/hushh bootstrap` also defaults to `local`.
 
-Repo-level workflows should go through `./bin/hushh`. Do not teach alternate root task surfaces in contributor docs.
+Repo-level workflows should go through `bin/hushh`. Do not teach alternate root task surfaces in contributor docs.
 
 The only setup truth surfaces are:
 
@@ -77,14 +77,14 @@ If you want a zero-setup editor path, use `.devcontainer/devcontainer.json`.
 - Main holds release approval and allows governed maintainer operations or hotfixes.
 - Production deployment is a separate authorized operation.
 
-See [docs/reference/operations/branch-governance.md](./docs/reference/operations/branch-governance.md) for the canonical delivery rules.
+See [docs/operations/releases/branch-governance.md](./docs/operations/releases/branch-governance.md) for the canonical delivery rules.
 
 ## Docs You Actually Need
 
 - [README.md](./README.md)
-- [docs/guides/getting-started.md](./docs/guides/getting-started.md)
-- [docs/guides/environment-model.md](./docs/guides/environment-model.md)
-- [docs/reference/architecture/architecture.md](./docs/reference/architecture/architecture.md)
+- [docs/development/guides/getting-started.md](./docs/development/guides/getting-started.md)
+- [docs/operations/environments.md](./docs/operations/environments.md)
+- [docs/architecture/system.md](./docs/architecture/system.md)
 
 Everything else is either deeper reference or maintainer/operator material.
 
@@ -96,11 +96,11 @@ The repo still contains maintainer concerns such as:
 - release/migration governance
 - deep operator scripts
 
-Those are real, but they are not part of the normal first-PR path. If you need them, use the maintainer docs under `docs/reference/operations/`.
+Those are real, but they are not part of the normal first-PR path. If you need them, use the maintainer docs under `docs/operations/`.
 
 ## PR Expectations
 
-- before opening a PR, use [docs/reference/quality/pr-contributor-readiness.md](./docs/reference/quality/pr-contributor-readiness.md) as the review-ready contract
+- before opening a PR, use [docs/development/quality/pr-contributor-readiness.md](./docs/development/quality/pr-contributor-readiness.md) as the review-ready contract
 - keep changes small and explainable
 - wire new helpers, components, services, routes, agents, or scripts to an existing caller, package export, generated contract, or documented devex entrypoint
 - for test-only PRs, import and exercise production code; local mock-only tests do not prove the app contract
@@ -135,4 +135,4 @@ Legacy `Hussh` identifiers may still exist in:
 
 Treat those as compatibility details, not public branding.
 
-See [docs/reference/operations/naming-policy.md](./docs/reference/operations/naming-policy.md) for the current rename boundary.
+See [docs/operations/configuration/naming-policy.md](./docs/operations/configuration/naming-policy.md) for the current rename boundary.

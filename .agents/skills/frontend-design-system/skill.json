@@ -8,7 +8,7 @@
     "hushh-webapp/components/ui",
     "hushh-webapp/lib/morphy-ux",
     "hushh-webapp/components/app-ui",
-    "docs/reference/quality/design-system.md"
+    "docs/development/quality/design-system.md"
   ],
   "non_owned_paths": [
     "frontend",
@@ -21,13 +21,13 @@
     "bug-triage"
   ],
   "required_reads": [
-    "docs/reference/quality/design.md",
-    "docs/reference/quality/design-system.md",
-    "docs/reference/quality/frontend-ui-architecture-map.md",
-    "docs/reference/quality/app-surface-design-system.md",
-    "docs/reference/quality/frontend-pattern-catalog.md",
+    "docs/development/quality/design.md",
+    "docs/development/quality/design-system.md",
+    "docs/development/quality/frontend-ui-architecture-map.md",
+    "docs/development/quality/app-surface-design-system.md",
+    "docs/development/quality/frontend-pattern-catalog.md",
     ".agents/skills/frontend-design-system/references/design-review-kernel.md",
-    "docs/reference/mobile/render-performance-charter.md",
+    "docs/development/mobile/render-performance-charter.md",
     "hushh-webapp/docs/ios-native-surface-adoption.md"
   ],
   "required_commands": [

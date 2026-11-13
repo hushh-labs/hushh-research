@@ -21,7 +21,7 @@ Owned repo surfaces:
 1. `hushh-webapp/lib/navigation`
 2. `hushh-webapp/scripts/architecture`
 3. `hushh-webapp/package.json`
-4. `docs/reference/architecture/route-contracts.md`
+4. `docs/development/contracts/route-contracts.md`
 
 Non-owned surfaces:
 
@@ -45,10 +45,10 @@ Non-owned surfaces:
 
 1. `hushh-webapp/package.json`
 2. `scripts/ci/web-check.sh`
-3. `docs/reference/operations/ci.md`
-4. `docs/reference/quality/frontend-ui-architecture-map.md`
-5. `docs/reference/architecture/route-contracts.md`
-6. `docs/reference/architecture/ui-contract-contributor-guide.md`
+3. `docs/operations/releases/ci.md`
+4. `docs/development/quality/frontend-ui-architecture-map.md`
+5. `docs/development/contracts/route-contracts.md`
+6. `docs/development/contracts/ui-contract-contributor-guide.md`
 
 ## Workflow
 

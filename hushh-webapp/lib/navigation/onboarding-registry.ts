@@ -22,7 +22,7 @@
  * docs all read from ONE place so the hierarchy can never silently drift. Do not
  * hand-roll per-flow onboarding gating outside this contract — add/extend an
  * `OnboardingDefinition` instead. See
- * `docs/reference/quality/one-onboarding-architecture.md`.
+ * `docs/development/quality/one-onboarding-architecture.md`.
  */
 
 import {

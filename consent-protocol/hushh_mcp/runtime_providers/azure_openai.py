@@ -2,7 +2,7 @@
 
 Topology, never behaviour. The hub renders ``AZURE_OPENAI_ENDPOINT`` and
 ``AZURE_OPENAI_DEPLOYMENT`` into an Azure pod, exactly as listed in
-``docs/reference/architecture/byoc-azure.md`` ("Agent environment contract"). The pod
+``docs/architecture/byoc-azure.md`` ("Agent environment contract"). The pod
 reaches that deployment as its OWN user-assigned identity: no key exists anywhere, the
 bill is the person's, and nothing in this module may fall back to a Hussh-managed
 identity. A topology that is half rendered or malformed refuses; it never guesses.

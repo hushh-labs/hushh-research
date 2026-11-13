@@ -2,8 +2,8 @@
 
 ## Visual Context
 
-Use the [Founder/CTO diagram guide](../../../docs/reference/architecture/README.md#founder-and-cto-diagram-guide)
-and [private-agent runtime map](../../../docs/reference/architecture/private-agent-north-star.md)
+Use the [module diagrams](../../../docs/architecture/README.md#modules)
+and [private-agent runtime map](../../../docs/product/principles/private-agent-requirements.md)
 for the owner, hub and cloud boundary. This reference owns the Browser execution
 mode, exact qualification and installed-journey evidence.
 
@@ -58,7 +58,7 @@ POST succeeded. The corrected executor joins only explicit Chromium successor
 requests under their original scope, refuses unknown parents, waits for final
 navigation and closes on cancellation. Its delayed-redirect negative control fails
 on the old code. Historical failures remain evidence and cannot qualify new images.
-The [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
+The [readiness memo](../../../docs/operations/acceptance/private-agents.md)
 separates source, application deployment and installed-owner results.
 
 ## Historical component evidence
@@ -122,10 +122,10 @@ connected executor's earlier post-reply check and installed acceptance remain op
 
 
 The [agent-development procedure](./agent-development.md) owns registration;
-the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
+the [readiness memo](../../../docs/operations/acceptance/private-agents.md)
 owns acceptance. Source checks are not installed-owner or deployment evidence.
 
-The [Browser completion plan](../../../docs/future/personal-agent/browser-completion-plan.md)
+The [Browser completion plan](../../../docs/roadmap/personal-agent/browser-completion-plan.md)
 specifies the remaining native Gemini/Azure and headless/takeover acceptance.
 The public pilot refuses login, typed disclosures, PKM exports and remembered
 sessions until their separate boundaries are qualified.
@@ -133,7 +133,7 @@ sessions until their separate boundaries are qualified.
 GCP Browser resolves the same owner inference binding as chat. An explicitly
 configured dev bridge verifies the attached pod identity while retaining owner
 custody and sealed BYOK precedence; it does not authorize Browser execution.
-The [model project runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md#model-project-ownership)
+The [model project runbook](../../../docs/operations/hosting/dev-pod-first-light-runbook.md#model-project-ownership)
 owns this exception and its installed-access checks.
 
 ## Capacity observations

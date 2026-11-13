@@ -89,9 +89,7 @@ def test_runtime_data_plane_declares_the_scheduled_payload_and_display_columns()
     table the governed contract once described as holding no subject at all. The
     contract must say so, or an audit reads a false trust boundary."""
     contract = json.loads(
-        (
-            ROOT.parent / "docs/reference/architecture/runtime-db-data-plane-contract.json"
-        ).read_text()
+        (ROOT.parent / "docs/architecture/runtime-db-data-plane-contract.json").read_text()
     )
     family = next(
         item for item in contract["table_families"] if item["id"] == "gmail_owner_approved_delivery"

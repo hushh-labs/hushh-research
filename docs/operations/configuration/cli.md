@@ -1,0 +1,91 @@
+# Root CLI
+
+The `hushh` root CLI is the only supported repo-level command surface.
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](../README.md). Use that map for the full operations surface; this page is the command contract for repo-level work.
+
+Use package-local commands only when you are working inside a package on purpose:
+
+- `hushh-webapp/` uses npm
+- `packages/hushh-mcp/` uses npm
+- `consent-protocol/` has its own local shell wrapper for standalone backend work
+
+## Core Commands
+
+```bash
+<repo-root>/bin/hushh bootstrap
+<repo-root>/bin/hushh doctor --mode uat
+<repo-root>/bin/hushh agents onboard
+<repo-root>/bin/hushh agents route-task repo-orientation
+<repo-root>/bin/hushh agents impact repo-orientation
+<repo-root>/bin/hushh agents pre-pr
+<repo-root>/bin/hushh agents ci-status --watch
+<repo-root>/bin/hushh agents data-model-audit
+<repo-root>/bin/hushh web
+<repo-root>/bin/hushh web --mode uat
+<repo-root>/bin/hushh proxy --mode local
+<repo-root>/bin/hushh backend --mode local --reload
+<repo-root>/bin/hushh terminal proxy --mode local
+<repo-root>/bin/hushh terminal backend --mode local --reload
+<repo-root>/bin/hushh terminal web --mode local
+<repo-root>/bin/hushh terminal web --mode uat
+<repo-root>/bin/hushh backend
+<repo-root>/bin/hushh compose up dev
+<repo-root>/bin/hushh native ios --mode local --fresh
+<repo-root>/bin/hushh lint
+<repo-root>/bin/hushh test
+<repo-root>/bin/hushh ci
+<repo-root>/bin/hushh docs verify
+```
+
+## Operational Commands
+
+```bash
+<repo-root>/bin/hushh agents scan summary
+<repo-root>/bin/hushh agents scan section skills
+<repo-root>/bin/hushh agents list-workflows
+<repo-root>/bin/hushh agents pre-pr --include-advisory
+<repo-root>/bin/hushh agents ci-status
+<repo-root>/bin/hushh agents data-model-audit
+<repo-root>/bin/hushh agents audit
+<repo-root>/bin/hushh agents rca --surface runtime
+<repo-root>/bin/hushh agents rca --surface uat
+<repo-root>/bin/hushh env bootstrap
+<repo-root>/bin/hushh env use --mode prod
+<repo-root>/bin/hushh db init-iam
+<repo-root>/bin/hushh db verify-iam-schema
+<repo-root>/bin/hushh db verify-release-contract
+<repo-root>/bin/hushh db verify-uat-schema
+<repo-root>/bin/hushh db verify-dev-schema
+<repo-root>/bin/hushh db report-prod-posture
+<repo-root>/bin/hushh compose init
+<repo-root>/bin/hushh compose up backend
+<repo-root>/bin/hushh compose up cache
+<repo-root>/bin/hushh compose up mail
+<repo-root>/bin/hushh compose up db
+<repo-root>/bin/hushh compose down
+<repo-root>/bin/hushh protocol sync
+<repo-root>/bin/hushh protocol push
+<repo-root>/bin/hushh protocol setup
+<repo-root>/bin/hushh sync check-main
+<repo-root>/bin/hushh sync main
+```
+
+## Notes
+
+- Do not document root `npm run ...` commands.
+- Do not document `make`.
+- Keep helper output and runbooks aligned with this CLI.
+- Contributor and agent onboarding should start with `./bin/hushh agents onboard`, not direct internal script paths.
+- `./bin/hushh web` defaults to `local`; use `--mode uat`, `--mode dev`, or `--mode prod` only when you explicitly want a hosted backend target.
+- Local runtime uses three separate terminals (one component each): `./bin/hushh proxy --mode local`, `./bin/hushh backend --mode local --reload`, and `./bin/hushh web --mode local`. There is no combined `stack` command.
+- Use `./bin/hushh terminal proxy|backend|web --mode <mode>` only when you explicitly want visible OS terminal windows instead of in-session terminals.
+- Use `./bin/hushh compose ...` only for opt-in local container support. It does not replace the default frontend/backend development flow.
+- The `dev` compose profile starts backend + Redis + Mailhog. The local Postgres profile is standalone unless an operator explicitly changes backend env values.
+- Use `uv` as the canonical Python install surface for `consent-protocol`; `requirements*.txt` are generated compatibility artifacts, not contributor commands.
+- Treat `./bin/hushh db verify-release-contract`, `./bin/hushh db verify-uat-schema`, `./bin/hushh db verify-dev-schema`, and `./bin/hushh db report-prod-posture` as the authoritative DB governance surface.
+- Use `./bin/hushh agents data-model-audit` before treating new tables, durable caches, or runtime DB family changes as production-ready.
+- Use `./bin/hushh agents rca --surface runtime|uat|ci` as the canonical machine-readable RCA surface for core runtime, CI, and UAT release failures.
+- Use `./bin/hushh agents pre-pr` as the canonical pre-PR local mirror of `PR Validation` and `CI Status Gate`; add `--include-advisory` only when you intentionally want the wider readiness lane.

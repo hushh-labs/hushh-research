@@ -15,7 +15,7 @@
   ],
   "required_reads": [
     "consent-protocol/docs/reference/agent-development.md",
-    "docs/reference/one/one-agent-hierarchy.md",
+    "docs/architecture/one/one-agent-hierarchy.md",
     "AGENTS.md"
   ],
   "required_commands": [
