@@ -1611,7 +1611,7 @@ SOFTWARE.
 - `six` `1.17.0` — MIT License
 - `slowapi` `0.1.9` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
-- `soupsieve` `2.9` — MIT
+- `soupsieve` `4.1` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
 - `sse-starlette` `3.3.4` — BSD-3-Clause
 - `starlette` `1.3.1` — BSD-3-Clause
