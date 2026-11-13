@@ -29,41 +29,42 @@ export function ScopeCommerceRequestPanel({ requestId }: { requestId: string }) 
   ));
   const quoteExpired = Boolean(quote && Date.parse(quote.expires_at) <= now);
   if (!user) return null;
-  return <SectionCard title={free ? "Free sharing review" : "Sharing request review"} className="consent-presentation-surface">
+  return <SectionCard title={free ? "Free access" : "Information access"} className="consent-presentation-surface">
     <div className="space-y-4" data-consent-presentation="commerce-review">
       {message ? <p data-consent-role="status" role="status" className="text-sm">{message}</p> : null}
       {request ? <>
         <dl data-consent-facts className="grid gap-3 text-sm sm:grid-cols-2">
-          <div><dt data-consent-role="fact-label" className="text-muted-foreground">Sharing section</dt><dd data-consent-role="fact-value">{request.scope_label || "Approved information section"}</dd></div>
+          <div><dt data-consent-role="fact-label" className="text-muted-foreground">Information</dt><dd data-consent-role="fact-value">{request.scope_label || "Approved information"}</dd></div>
           <div><dt data-consent-role="fact-label" className="text-muted-foreground">{request.role === "owner" ? "Recipient" : "Information owner"}</dt><dd data-consent-role="fact-value">{request.counterpart_label || "Approved person"}</dd></div>
-          {request.recipient_label ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Receiving application</dt><dd data-consent-role="fact-value">{request.recipient_label}</dd></div> : null}
+          {request.recipient_label ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Receiving app</dt><dd data-consent-role="fact-value">{request.recipient_label}</dd></div> : null}
           <div><dt data-consent-role="fact-label" className="text-muted-foreground">Purpose</dt><dd data-consent-role="fact-value">{request.purpose}</dd></div>
-          <div><dt data-consent-role="fact-label" className="text-muted-foreground">Access term</dt><dd data-consent-role="fact-value">{request.duration_seconds / 3600} hours</dd></div>
-          {request.refresh_policy ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Refresh policy</dt><dd data-consent-role="fact-value">{request.refresh_policy}</dd></div> : null}
+          <div><dt data-consent-role="fact-label" className="text-muted-foreground">Duration</dt><dd data-consent-role="fact-value">{request.duration_seconds / 3600} hours</dd></div>
+          {request.refresh_policy ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Updates</dt><dd data-consent-role="fact-value">{request.refresh_policy === "snapshot" ? "Not included" : request.refresh_policy === "continuous_until_expiry" ? "Until access ends" : "Not confirmed"}</dd></div> : null}
+          {request.role === "payer" && purchase && purchase.status !== "awaiting_payment" ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Price</dt><dd data-consent-role="fact-value">{money(purchase.amount_cents)}</dd></div> : null}
         </dl>
         <ScopeCommerceTimeline request={request} />
-        <p data-consent-role="status" role="status" className="text-sm">{ended ? "Sharing ended. The server confirmed the change and reconciled the buyer balance." : purchase ? scopeCommerceStatusCopy(purchase.status) : free ? "This request is free. Access follows the owner's consent; check Consent for its current status. No Stripe account or funded balance is needed." : "Waiting for the owner to approve exact sharing terms."}</p>
-        {!purchase && request.role === "owner" ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={`/one/consent?requestId=${encodeURIComponent(requestId)}`}>Review this request in Consent</Link> : null}
-        {!free && !enabled ? <div className="space-y-2 text-sm"><p data-consent-role="body">{commerceReadinessCopy(state.readiness)}</p><ProfilePaymentsLink className="inline-flex min-h-11 items-center underline">Review payment availability in Payments and earnings</ProfilePaymentsLink></div> : null}
-        {purchase && ["staged", "armed"].includes(purchase.status) ? <p data-consent-role="body" className="text-sm">Preparation is complete. Access remains unavailable until the scheduled start shown above.</p> : null}
-        {request.tariff ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Base price {money(request.tariff.price_cents)} for {request.tariff.base_duration_seconds / 3600} hours. The final approved term is prorated by the server.</p> : null}
+        <p data-consent-role="status" role="status" className="text-sm">{ended ? "Sharing ended. Check payment history for any refund." : purchase ? scopeCommerceStatusCopy(purchase.status) : free ? "Free access follows the owner's approval. Check Consent for its status." : "Waiting for owner approval."}</p>
+        {!purchase && request.role === "owner" ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={`/one/consent?requestId=${encodeURIComponent(requestId)}`}>Review request</Link> : null}
+        {!free && !enabled ? <div className="space-y-2 text-sm"><p data-consent-role="body">{commerceReadinessCopy(state.readiness)}</p><ProfilePaymentsLink className="inline-flex min-h-11 items-center underline">Payments and earnings</ProfilePaymentsLink></div> : null}
+        {request.tariff && !purchase ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Rate: {money(request.tariff.price_cents)} per {request.tariff.base_duration_seconds / 3600} hours. Review the total before confirming.</p> : null}
+        {request.role === "owner" && purchase?.expires_at ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Earnings are pending until access ends. Bank payout is separate.</p> : null}
         {request.role === "owner" && !ended ? <ScopeCommerceOwnerReview key={purchase?.id || requestId} request={request} busy={busy} unlocked={Boolean(vaultKey)} prepare={state.prepare} /> : null}
         {!ended && request.role === "payer" && purchase?.status === "awaiting_payment" ? <ScopeCommerceBuyerReview key={`${user.uid}:${requestId}`} requestId={requestId} refreshRequest={state.refresh} quote={quote} balance={state.availableBalance} expired={quoteExpired} busy={busy} enabled={enabled} reviewPrice={state.reviewPrice} purchase={state.purchase} /> : null}
-        {canEnd ? <Button data-consent-role="compact-action" variant="outline" disabled={busy || (request.role === "owner" && !vaultKey)} onClick={() => setEndReview(true)}>{request.role === "owner" ? "End sharing" : "Cancel before activation"}</Button> : null}
+        {canEnd ? <Button data-consent-role="compact-action" variant="outline" disabled={busy || (request.role === "owner" && !vaultKey)} onClick={() => setEndReview(true)}>{request.role === "owner" ? "End sharing" : "Cancel request"}</Button> : null}
       </> : null}
       <AlertDialog open={endReview} onOpenChange={setEndReview}>
         <AlertDialogContent className="consent-presentation-surface"><AlertDialogHeader>
-          <AlertDialogTitle>{request?.role === "owner" ? "End this sharing agreement?" : "Cancel before access starts?"}</AlertDialogTitle>
-          <AlertDialogDescription>Before activation, the full reserved amount returns to the buyer balance. After activation, owner revocation refunds unused calendar time. Nonuse does not create a refund. The owner bears unrecovered processing costs, which may reduce earnings or create debt.</AlertDialogDescription>
+          <AlertDialogTitle>{request?.role === "owner" ? "End sharing?" : "Cancel this request?"}</AlertDialogTitle>
+          <AlertDialogDescription>{request?.role === "payer" ? "The full reserved amount returns to your balance." : beforeActivation ? "The full reserved amount returns to the buyer's balance. Unrecovered payment fees remain your responsibility and may leave an amount owed." : "The buyer is refunded for unused time. Unrecovered payment fees remain your responsibility and may leave an amount owed. Not using access doesn't create a refund."}</AlertDialogDescription>
         </AlertDialogHeader><AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Keep sharing</AlertDialogCancel>
+          <AlertDialogCancel disabled={busy}>{request?.role === "owner" ? "Keep sharing" : "Keep request"}</AlertDialogCancel>
           <AlertDialogAction disabled={busy || !canEnd} onClick={event => {
             event.preventDefault();
             void state.end().then(() => setEndReview(false));
-          }}>Confirm end of sharing</AlertDialogAction>
+          }}>{request?.role === "owner" ? "End sharing" : "Cancel request"}</AlertDialogAction>
         </AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
-      <Button data-consent-role="compact-action" disabled={busy} variant="ghost" data-consent-quiet-action="true" onClick={() => void state.refresh()}>Refresh sharing request</Button>
+      <Button data-consent-role="compact-action" disabled={busy} variant="ghost" data-consent-quiet-action="true" onClick={() => void state.refresh()}>Check again</Button>
     </div>
   </SectionCard>;
 }

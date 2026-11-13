@@ -8,9 +8,10 @@ export function CommerceTime({ label, value }: { label: string; value?: string |
 export function ScopeCommerceTimeline({ request }: { request: ScopeCommerceRequest }) {
   const purchase = request.purchase;
   return <dl data-consent-facts className="grid gap-3 text-sm sm:grid-cols-2">
-    <CommerceTime label="Request deadline" value={request.request_deadline} />
-    <CommerceTime label="Prepare by" value={purchase?.fulfillment_deadline} />
-    <CommerceTime label="Scheduled access starts" value={purchase?.activation_at} />
-    <CommerceTime label="Access ends / earnings mature" value={purchase?.expires_at} />
+    {!purchase ? <CommerceTime label="Respond by" value={request.request_deadline} /> : null}
+    {purchase?.status === "reserved" ? <CommerceTime label="Share by" value={purchase.fulfillment_deadline} /> : null}
+    {purchase?.status === "preparing" ? <CommerceTime label="Complete sharing by" value={purchase.activation_at} /> : null}
+    <CommerceTime label="Access starts" value={purchase?.activation_at} />
+    <CommerceTime label="Access ends" value={purchase?.expires_at} />
   </dl>;
 }

@@ -11,4 +11,4 @@ export function verifyCommerceSandbox(value: unknown, expectedOrigin: string): t
   return true;
 }
 
-export const COMMERCE_SANDBOX_COPY = "Sandbox test — funds are simulated. Displayed reserves do not verify live business pricing.";
+export const COMMERCE_SANDBOX_COPY = "Sandbox test — funds are simulated.";

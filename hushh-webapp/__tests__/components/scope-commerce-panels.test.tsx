@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
 import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
+import { ScopeCommerceTimeline } from "@/components/consent/scope-commerce-timeline";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
@@ -57,6 +58,22 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("commerce session and review authority", () => {
+  it("shows the earlier staging deadline and removes completed preparation deadlines", () => {
+    const request = ownerRequest();
+    const purchase = { ...request.purchase!, status: "preparing", activation_at: "2099-01-01T01:00:00Z", fulfillment_deadline: "2099-01-01T02:00:00Z", expires_at: "2099-01-02T01:00:00Z" };
+    const { rerender } = render(<ScopeCommerceTimeline request={{ ...request, request_deadline: "2099-01-01T00:00:00Z", purchase }} />);
+    expect(screen.getByText("Complete sharing by").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.activation_at);
+    expect(screen.queryByText("Respond by")).toBeNull();
+    expect(screen.queryByText("Share by")).toBeNull();
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "reserved" } }} />);
+    expect(screen.getByText("Share by").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.fulfillment_deadline);
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "active" } }} />);
+    expect(screen.queryByText("Share by")).toBeNull();
+    expect(screen.queryByText("Complete sharing by")).toBeNull();
+    expect(screen.getByText("Access starts").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.activation_at);
+    expect(screen.getByText("Access ends").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.expires_at);
+  });
+
   it("labels simulated funds only after owner-bound Sandbox verification", async () => {
     render(<ScopeCommerceAccountPanel />);
     await screen.findByText(/1 Hussh coin/);
@@ -121,14 +138,14 @@ describe("commerce session and review authority", () => {
     const prepare = vi.fn(async () => undefined);
     const request = ownerRequest();
     const { rerender } = render(<ScopeCommerceOwnerReview request={request} busy={false} unlocked prepare={prepare} />);
-    expect(screen.getByRole("button", { name: "Prepare encrypted information" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Share approved information" })).toBeDisabled();
     expect(prepare).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Prepare encrypted information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Share approved information" }));
     expect(prepare).toHaveBeenCalledWith({ version: 1, binding: "a".repeat(64), acknowledged: true });
     rerender(<ScopeCommerceOwnerReview request={{ ...request, negative_net_acknowledgement: { ...request.negative_net_acknowledgement!, binding: "b".repeat(64) } }} busy={false} unlocked prepare={prepare} />);
     expect(screen.getByRole("checkbox")).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "Prepare encrypted information" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Share approved information" })).toBeDisabled();
   });
 
   it("allows one-cent reviewed purchase only on a human click with sufficient balance", () => {
@@ -495,8 +512,8 @@ describe("free sharing independent of payment setup", () => {
     mocks.account.mockRejectedValue(new Error("provider unavailable"));
     mocks.scopeRequest.mockResolvedValue({ ...ownerRequest(), purchase: null, tariff: null, negative_net_acknowledgement: null });
     render(<ScopeCommerceRequestPanel requestId={requestId} />);
-    await screen.findByText(/This request is free/);
-    expect(screen.getByRole("link", { name: "Review this request in Consent" })).toHaveAttribute("href", `/one/consent?requestId=${requestId}`);
+    await screen.findByText(/Free access follows the owner's approval/);
+    expect(screen.getByRole("link", { name: "Review request" })).toHaveAttribute("href", `/one/consent?requestId=${requestId}`);
     expect(screen.queryByRole("button", { name: /Confirm .* from balance/ })).not.toBeInTheDocument();
     expect(mocks.account).not.toHaveBeenCalled();
   });
