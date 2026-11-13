@@ -23,9 +23,9 @@ Founder-language note: this audit is one of the concrete proofs behind the platf
 - Route governance reference: `docs/reference/architecture/route-contracts.md`
 - Frontend/native surface map: `hushh-webapp/frontend-native-surface-map.generated.json`
 - Native route inventory: `hushh-webapp/native-route-inventory.json`
-- Native route evidence (generated, ignored local files or sanitized CI artifacts; never commit run reports):
-  - `hushh-webapp/native-ios-parity-report.json`
-  - `hushh-webapp/native-android-parity-report.json`
+- Native route evidence (generated output filenames in the app package, retained as ignored local files or sanitized CI artifacts; never commit run reports):
+  - `native-ios-parity-report.json`
+  - `native-android-parity-report.json`
 - Mobile parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
 - Docs/runtime verification: `bash scripts/ci/docs-parity-check.sh`
 - Full CI lane: `bash scripts/ci/orchestrate.sh all`

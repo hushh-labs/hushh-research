@@ -19,40 +19,52 @@ retains its disclosed boundary.
 
 ## Dev PKM scope sharing — 12 November 2026
 
-**The private writer is installed; paid-answer acceptance remains open.**
-[Dev release 43217475937](https://github.com/hushh-labs/hushh-research/actions/runs/43217475937)
-serves exact-tested application `94284e3344c5` on backend `00380-ccc` at 100%.
-Schema, candidate identity, runtime parity and settlement-scheduler checks passed.
-The pod image remains `da9e0dc9c1a1`, source `9368735abdac`; this release built
-only the backend. Migration 989 and the private composition implementation are
-already deployed, rather than an unshipped follow-up.
+**Direct approved-information delivery is ready for bounded human review on Dev.**
+The requested journey is scope selection, owner approval, a reviewed price and
+access term, then recipient-bound encrypted information. It does not compose an
+answer or use a Drive document worker.
 
-The actual two-account interface verified isolated Dev identity, normal unlock,
-one synthetic PKM question and exact-leaf eligibility. Its current approval names
-Azure OpenAI / `one-chat` and a $10 sandbox price. GCP uses Gemini; Shared uses its
-configured runtime. The owner's answer-payout account is ready in Stripe test
-mode. No checkout has been attempted and answer payments remain disabled.
+[#9443](https://github.com/hushh-labs/hushh-research/pull/9443) repairs the real
+funding dead end: Payouts had intentionally removed Information access, while the
+scope buyer still linked there. The existing funding controls now live inside the
+payer's scope review. Default Payouts stays unchanged. Funding, purchase
+confirmation and owner encryption remain separate actions; a checkout return
+only refreshes authoritative state.
 
-Two integration defects were repaired: [#9378](https://github.com/hushh-labs/hushh-research/pull/9378)
-preserves independently verified direct admission during Azure publication;
-[#9407](https://github.com/hushh-labs/hushh-research/pull/9407) carries public
-owner-feed verifier keys through the existing approved update configuration.
-The retained Azure update is verified. A separately qualified same-image
-maintenance installed the missing public verifier, retained identity and custody,
-and released its lease after native readiness. Its temporary operator grant is
-removed. The installed image and processing provider were not changed.
+[Exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/43324346999)
+and the [frontend-only Dev release](https://github.com/hushh-labs/hushh-research/actions/runs/43326158280)
+passed. Native readback confirms frontend `00334-w9h`, source `4b527052fd32`, at
+100% traffic. Backend `00383-l2q` / `297d6ac6d712` and pod image `da9e0dc9c1a1`
+are unchanged; no pod image was built.
 
-Actual private answer preparation, checkout, signed settlement, requester-only
-decryption and cold-session recovery still need acceptance. The current cold
-browser rehearsal is held before session hydration; it does not prove lost
-Firebase identity or vault information. Source CI and native readiness alone do
-not establish a completed purchase.
+| Interface outcome | Verified result |
+| --- | --- |
+| Identity and consent | Both retained reviewers used isolated Dev Auth; `dev.id.hussh.ai` callback, existing application generation and exact synthetic Role scope retained. Recipient model permission remained off. |
+| Payment | One 50-cent Stripe Sandbox funding, processed signed event and native charge/balance receipts; separate 24-cent reservation for 24 hours; balanced journal. No live charge or bank payout claim. |
+| Delivery | Owner encrypted the selected field in the browser. After scheduled activation, the requester received one matching encrypted export and displayed exactly one Role field. |
+| Recovery | A real reload cleared the displayed value and locked the share. Password unlock recovered the same encrypted envelope and the same displayed-value hash; plaintext stayed in browser memory. |
 
-Canonical tasks: [paid scope sharing #7587](https://github.com/hushh-labs/hushh-research/issues/7587)
+The first unpaid quote expired during release checks and was normally cancelled
+without a reservation or refund. Its replacement used fresh owner approval; no
+immutable term was extended. Pre-start native readback reported access denied.
+A separate authorized exports probe missed that window while the vault was
+locked, so this run does not claim a new endpoint-level preactivation refusal.
+Existing access-enforcement tests remain unchanged. The retained exact-leaf tariff
+was reused; arbitrary leaf-price authoring through Memory is not qualified here.
+
+The separate paid-question lane also passed its retained Sandbox preparation,
+checkout, signed settlement, recipient decryption and cold recovery. Its private
+writer uses Azure OpenAI / `one-chat`; GCP uses Gemini and Shared follows its
+configuration. [#8765](https://github.com/hushh-labs/hushh-research/pull/8765)
+remains a separate incoming PR, and the answer-ready UI follow-up
+[#9431](https://github.com/hushh-labs/hushh-research/pull/9431) is held unmerged after
+the direct-information clarification. Neither is this scope-delivery workflow.
+
+Canonical tasks: [paid sharing #7587](https://github.com/hushh-labs/hushh-research/issues/7587)
 and [owner pods #5507](https://github.com/hushh-labs/hushh-research/issues/5507).
-This is PKM scope sharing, not Drive/document sharing. Managed-pilot acceptance
-remains paused at 0/2; no UAT/production deployment or production-readiness claim
-is included.
+Broader financial/native acceptance, deletion and production promotion remain
+separate. Managed pilot stays paused at 0/2. This work changed no UAT/production
+runtime, identity, CI policy or cloud placement.
 
 ## Current decision — 9 November 2026
 
