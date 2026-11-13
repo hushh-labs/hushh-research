@@ -61,4 +61,33 @@ describe("TodoRows presentation", () => {
 
     expect(sections[2]).toHaveTextContent("Tomorrow task");
   });
+
+  it("keeps Open and Join actions compact on mobile while restoring the touch-safe desktop size", () => {
+    const task: TodoItem = {
+      id: "calendar-1",
+      title: "Demo call",
+      date: "2099-01-01",
+      status: "pending",
+      type: "calendar",
+      sourceAgent: "calendar",
+      link: "https://calendar.google.com/event/demo",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+
+    const { getByRole } = render(
+      <TodoRows
+        tasks={[task]}
+        savingTaskId={null}
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    const action = getByRole("link", { name: "Join Demo call" });
+    expect(action).toHaveClass("max-sm:!h-9");
+    expect(action).toHaveClass("max-sm:!min-h-9");
+    expect(action).toHaveClass("max-sm:!px-1.5");
+    expect(action).toHaveClass("min-h-11");
+  });
 });
