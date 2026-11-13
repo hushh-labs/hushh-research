@@ -105,7 +105,12 @@ def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
     collector, expected, document, label, entries, build = _provider_capture_fixture(
         monkeypatch, azure, vertex, configured, mode
     )
-    preferred = configured if (azure if configured == "azure_openai" else vertex) else None
+    # Both authored core text scopes use Vertex, independently of fleet flags.
+    preferred = (
+        (configured if vertex else None)
+        if mode == "core"
+        else (configured if (azure if configured == "azure_openai" else vertex) else None)
+    )
     calls = []
 
     def read(arguments, deadline):
@@ -119,10 +124,31 @@ def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
         result = collector.collect(expected, document, read=read)
         assert result["selection_verified"] is True
         assert result["readiness"]["selected_provider"] == preferred
+        if mode == "core" and configured == "azure_openai":
+            assert result["readiness"]["core_provider"] == "vertex"
         assert len(result["collection"]["logs"]) == 3
         assert collector.check_build(build, expected) == label
     assert calls[0][2] == expected["build_id"]
     assert expected["build_id"] in calls[1][2]
+
+
+@pytest.mark.parametrize("defect", ["core_provider", "fleet_selection", "missing_vertex"])
+def test_scoped_core_receipt_refuses_forged_route_or_missing_proof(monkeypatch, defect):
+    collector, expected, document, label, entries, _ = _provider_capture_fixture(
+        monkeypatch, azure=False, vertex=True, configured="azure_openai", mode="core"
+    )
+    for entry in entries[:2]:
+        value = json.loads(entry["textPayload"][len(label) + 2 :])
+        aggregate = value["managed_provider_readiness"]
+        if defect == "core_provider":
+            aggregate["core_provider"] = "azure_openai"
+        elif defect == "fleet_selection":
+            aggregate["selected_provider"] = "vertex"
+        else:
+            aggregate["providers"]["vertex"]["ready"] = False
+        entry["textPayload"] = label + ": " + json.dumps(value)
+    with pytest.raises(collector.ReceiptError):
+        collector.from_entries(entries, expected, document, label)
 
 
 @pytest.mark.parametrize(
