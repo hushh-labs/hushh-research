@@ -66,7 +66,9 @@ SELECT raw.*, peer.counterpart_user_id AS feed_peer,
       OR (raw.event_type = 'location_access_denied' AND raw.metadata->>'feed_audience' = 'requester')
       OR (raw.event_type IN ('location_sms_contact_added','location_sms_contact_removed')
         AND raw.metadata->>'feed_audience' = 'recipient')
-      OR raw.event_type IN ('circle_member_added','circle_membership_ended','circle_invite_declined')
+      OR (raw.event_type = 'circle_member_added'
+        AND peer.counterpart_user_id IS DISTINCT FROM raw.user_id)
+      OR raw.event_type IN ('circle_membership_ended','circle_invite_declined')
       OR (raw.event_type = 'circle_deleted' AND EXISTS (
         SELECT 1 FROM one_location_circles circle
          WHERE circle.id::text = raw.source_row_id AND circle.owner_user_id <> raw.user_id))
