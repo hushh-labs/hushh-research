@@ -980,6 +980,7 @@ function MailDetail({
     typeof result.offer_revision === "number" ? result.offer_revision : null;
   const conversationId = text(result.conversation_id);
   const opener = isDrafts ? onOpenDraft : onOpenMail;
+  const items = rows(result.items);
   const canOpen =
     Boolean(opener) && offerRevision !== null && Boolean(conversationId);
 
@@ -989,6 +990,13 @@ function MailDetail({
       settle?: (status: "opened" | "failed", reason?: string) => void,
     ) => {
       const ref = `${refPrefix}${ordinal}`;
+      const rowExists = items.some((item) => text(item.source_ref) === ref);
+      if (!rowExists) {
+        // Refused as not offered before any request: a position outside the
+        // list never reaches the network and cannot close whatever is on screen.
+        settle?.("failed", "not_offered");
+        return;
+      }
       const ticket = ++requestRef.current;
       setOpenRef(ref);
       setMessage(null);
@@ -1039,6 +1047,7 @@ function MailDetail({
     [
       conversationId,
       isDrafts,
+      items,
       offerRevision,
       onOpenDraft,
       onOpenMail,
@@ -1122,7 +1131,6 @@ function MailDetail({
     return () => window.removeEventListener(eventName, onDirective);
   }, [conversationId, isDrafts, offerRevision, openAt]);
 
-  const items = rows(result.items);
   const cited = new Set(
     rows(result.sources)
       .map((row) => text(row.source_ref))
