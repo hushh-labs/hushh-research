@@ -2119,6 +2119,20 @@ def test_core_provider_requires_complete_scoped_policies_and_preserves_full_mode
     assert gate.qualification_provider(document, "uat", "core") == "azure_openai"
 
 
+def test_core_provider_preserves_historical_unscoped_runtime(monkeypatch):
+    gate = _managed_provider_gate()
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    contract = gate._runtime_contract()
+    monkeypatch.delattr(contract, "load_scoped_text_policy")
+    monkeypatch.setattr(gate, "_runtime_contract", lambda: contract)
+    for key in ("one_chat_text_uat", "drive_text_uat"):
+        document.pop(key)
+    assert gate.qualification_provider(document, "uat", "core") == "azure_openai"
+    document["one_chat_text_uat"] = {"provider": "vertex"}
+    with pytest.raises(ValueError, match="does not support declared scoped"):
+        gate.qualification_provider(document, "uat", "core")
+
+
 @pytest.mark.parametrize("provider", ["vertex", "azure_openai"])
 @pytest.mark.parametrize("mode", ["core", "full"])
 def test_probe_dispatch_uses_scoped_core_policy(provider, mode):
