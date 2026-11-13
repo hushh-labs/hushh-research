@@ -9323,7 +9323,11 @@ class OneLocationAgentService:
             )
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
             if getattr(exc, "code", None) == "DIRECTORY_IDENTITY_UNAVAILABLE":
-                raise OneLocationAgentError(exc.code, exc.message, status_code=503) from None
+                raise OneLocationAgentError(
+                    "DIRECTORY_IDENTITY_UNAVAILABLE",
+                    str(getattr(exc, "message", "Directory identity is temporarily unavailable.")),
+                    status_code=503,
+                ) from None
             if require_complete:
                 raise
             logger.warning(
