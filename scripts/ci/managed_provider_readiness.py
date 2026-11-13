@@ -77,8 +77,6 @@ def qualification_provider(document, environment="uat", mode="full"):
         contract.load_scoped_text_policy(scope, environment=environment, document=document)
         for scope in sorted(SCOPES)
     ]
-    if not any(policies):
-        return configured
     if not all(policies):
         raise ValueError("Core readiness requires complete scoped text policies")
     providers = {policy["provider"] for policy in policies}
