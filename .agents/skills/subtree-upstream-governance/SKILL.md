@@ -18,7 +18,7 @@ description: Use when changing optional-mirror coordination, subtree sync policy
 
 Owned repo surfaces:
 
-1. `docs/reference/operations/subtree-maintainers.md`
+1. `docs/operations/subtree-maintainers.md`
 2. `scripts/ci/subtree-sync-check.sh`
 3. `.agents/skills/subtree-upstream-governance`
 
@@ -45,7 +45,7 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/operations/subtree-maintainers.md`
+1. `docs/operations/subtree-maintainers.md`
 2. `scripts/ci/subtree-sync-check.sh`
 3. `consent-protocol/README.md`
 4. `contributing.md`

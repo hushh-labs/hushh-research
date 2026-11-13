@@ -12,9 +12,9 @@
     ".agents/skills"
   ],
   "required_reads": [
-    "docs/project_context_map.md",
-    "docs/reference/operations/README.md",
-    "docs/reference/operations/coding-agent-mcp.md"
+    "docs/development/repository-map.md",
+    "docs/operations/README.md",
+    "docs/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
     "./bin/hushh agents scan summary",

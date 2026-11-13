@@ -49,7 +49,7 @@ Non-owned surfaces:
 
 1. `.agents/skills/repo-context/references/index-contract.md`
 2. `.agents/skills/repo-context/references/ownership-map.md`
-3. `docs/project_context_map.md`
+3. `docs/development/repository-map.md`
 
 ## Workflow
 

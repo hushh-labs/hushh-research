@@ -27,7 +27,7 @@ const contractPath = path.join(
 );
 const outputPath = path.join(
   repoRoot,
-  "docs/reference/architecture/back-navigation-graph.generated.md",
+  "docs/development/contracts/back-navigation-graph.generated.md",
 );
 
 function readJson(filePath) {

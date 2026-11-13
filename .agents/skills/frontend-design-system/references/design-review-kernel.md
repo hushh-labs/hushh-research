@@ -27,7 +27,7 @@ as a review aid, not a new Hussh architecture or a demand for more abstraction:
    testable? Duplication is sometimes preferable to a premature shared seam.
 
 These qualities trade off; document the material choice when they conflict.
-The Hussh [Pixel Grid And Symmetry Contract](../../../../docs/reference/quality/app-surface-design-system.md#pixel-grid-and-symmetry-contract)
+The Hussh [Pixel Grid And Symmetry Contract](../../../../docs/development/quality/app-surface-design-system.md#pixel-grid-and-symmetry-contract)
 owns geometry. Review the first and last visible cells, headings, card insets,
 focus rings, long text, and table overflow at phone and desktop widths; do
 not infer pixel accuracy from code inspection alone.
@@ -48,7 +48,7 @@ and [table row links](https://github.com/toss/frontend-fundamentals/blob/161d3d6
 3. Keep one primary summary card per read and make secondary surfaces additive.
 4. Avoid duplicate headers, stacked framing chrome, repeated title treatment,
    and card-inside-card composition unless it adds semantic separation.
-5. Apply the Restraint Charter (`docs/reference/quality/design.md` Visual
+5. Apply the Restraint Charter (`docs/development/quality/design.md` Visual
    Language rule 1) as a hard checklist, in precedence order:
    - **One title per screen** — a single card under a `PageHeader` must not pass
      a `SettingsGroup`/section `title` or `description`; that double-headers by
@@ -111,7 +111,7 @@ charter. Do not turn a jsdom class-name assertion into pixel evidence.
 7. Consumer auth, onboarding, and verification copy should avoid provider names,
    backend systems, token formats, and protocol terms.
 8. Keep supporting copy to one short line that directly helps the next action.
-9. Apply the [Concise Product Copy Contract](../../../../docs/reference/quality/app-surface-design-system.md#concise-product-copy-contract)
+9. Apply the [Concise Product Copy Contract](../../../../docs/development/quality/app-surface-design-system.md#concise-product-copy-contract)
    to group, row, and button labels; retain required vault-export warnings.
 
 ## One/Kai/Nav Copy

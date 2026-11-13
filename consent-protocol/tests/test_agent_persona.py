@@ -35,7 +35,7 @@ def test_voice_boundary_present_in_every_tier():
         assert "public/app knowledge fetches" in text
         assert "never save inferred memory directly" in text
         # The finance boundary is stated without naming the internal runtime:
-        # "Kai" is not a name a person reads (docs/vision/agent-ontology.md).
+        # "Kai" is not a name a person reads (docs/product/principles/agent-ontology.md).
         assert "you speak as One over the finance specialist contract" in text
         assert "Kai" not in text
 

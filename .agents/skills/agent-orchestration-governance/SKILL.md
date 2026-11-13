@@ -23,8 +23,8 @@ Owned repo surfaces:
 3. `.agents/skills/agent-orchestration-governance`
 4. `.agents/workflows/agent-orchestration-governance`
 5. `AGENTS.md`
-6. `docs/reference/operations/README.md`
-7. `docs/reference/operations/coding-agent-mcp.md`
+6. `docs/operations/README.md`
+7. `docs/operations/coding-agent-mcp.md`
 8. `.agents/routing`
 9. `.agents/instructions.md`
 10. `.agents/README.md`
@@ -56,7 +56,7 @@ Non-owned surfaces:
 2. `.agents/skills/agent-orchestration-governance/references/delegation-contract.md`
 3. `.agents/skills/codex-skill-authoring/references/skill-contract.md`
 4. `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
-5. `docs/reference/operations/coding-agent-mcp.md`
+5. `docs/operations/coding-agent-mcp.md`
 6. `.agents/skills/agent-orchestration-governance/references/anti-rationalization.md`
 
 ## Workflow

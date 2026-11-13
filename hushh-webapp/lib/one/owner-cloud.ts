@@ -46,7 +46,7 @@ export function ownerCloudProvider(target: unknown): OwnerCloudProvider | null {
  * Whether a person may choose Azure as a NEW home on this build.
  *
  * Azure becomes selectable only once each admission gate has live evidence
- * (`docs/reference/architecture/byoc-azure.md`, admission bar), so the choice
+ * (`docs/architecture/byoc-azure.md`, admission bar), so the choice
  * ships dark. It is admitted on a localhost build that sets
  * `NEXT_PUBLIC_AZURE_BYOC_SELECTABLE=1`, and on the hosted dev lane, whose web
  * build is compiled with `NEXT_PUBLIC_APP_ENV=dev` (exactly; UAT and production

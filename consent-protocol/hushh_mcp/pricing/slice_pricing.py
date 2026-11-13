@@ -17,7 +17,7 @@ The shape is grounded in published data-market research:
 - purchasing-power/buying-mood, freshness, exclusivity, geography as the primary
   marketplace price drivers (arXiv 2111.04427).
 
-See docs/future/pkm-slice-marketplace-plan.md for the full rationale.
+See docs/roadmap/pkm-slice-marketplace-plan.md for the full rationale.
 """
 
 from __future__ import annotations

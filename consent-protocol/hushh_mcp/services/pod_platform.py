@@ -3,7 +3,7 @@
 Cloud Run sets ``K_SERVICE`` and ``K_REVISION``. Azure Container Apps sets
 ``CONTAINER_APP_NAME``, ``CONTAINER_APP_REVISION`` and
 ``CONTAINER_APP_REPLICA_NAME``. Hussh renders none of those native service fields
-(``docs/reference/architecture/byoc-azure.md``, agent environment contract).
+(``docs/architecture/byoc-azure.md``, agent environment contract).
 The disabled VM qualification instead uses an installation registered against
 fixed provider metadata before custody. Its revision is the verified installation
 generation; publishing that generation still requires lifecycle-controller proof.

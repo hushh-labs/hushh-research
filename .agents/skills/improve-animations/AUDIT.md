@@ -116,7 +116,7 @@ cost every frame in the app, not just the animated element. Hunt for:
 `cd hushh-webapp && npm run verify:render-performance` finds all of these
 statically; `?perf=1` (web) or `-CapacitorStorage.hushh_perf_probe 1` (iOS
 launch argument) measures them. Bar and instruments:
-`docs/reference/mobile/render-performance-charter.md`.
+`docs/development/mobile/render-performance-charter.md`.
 
 ## 6. Accessibility
 

@@ -19,7 +19,7 @@ description: Use when changing Morphy AX shared agent-experience state, semantic
 Owned repo surfaces:
 
 1. `hushh-webapp/lib/morphy-ax`
-2. `docs/reference/quality/morphy-agent-experience.md`
+2. `docs/development/quality/morphy-agent-experience.md`
 
 Non-owned surfaces:
 
@@ -41,11 +41,11 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/quality/design.md`
-2. `docs/reference/quality/morphy-agent-experience.md`
-3. `docs/reference/one/one-voice-runtime-architecture.md`
-4. `docs/reference/quality/frontend-ui-architecture-map.md`
-5. `docs/reference/kai/kai-action-gateway-vnext.md`
+1. `docs/development/quality/design.md`
+2. `docs/development/quality/morphy-agent-experience.md`
+3. `docs/architecture/one/one-voice-runtime-architecture.md`
+4. `docs/development/quality/frontend-ui-architecture-map.md`
+5. `docs/architecture/finance/kai-action-gateway-vnext.md`
 
 ## Workflow
 

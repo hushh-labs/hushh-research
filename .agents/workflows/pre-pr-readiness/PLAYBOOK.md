@@ -38,4 +38,4 @@ Run the same local blocking CI surface that GitHub expects for `PR Validation` a
 
 ## UI contract preflight
 
-Before route or UI edits, follow the [Back/Search contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. Review authored cases/actions before `npm run build:ui-contracts`; finish with `npm run verify:ui-contracts` and the owning behavioral tests.
+Before route or UI edits, follow the [Back/Search contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. Review authored cases/actions before `npm run build:ui-contracts`; finish with `npm run verify:ui-contracts` and the owning behavioral tests.

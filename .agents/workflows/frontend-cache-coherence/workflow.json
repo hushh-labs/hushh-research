@@ -13,13 +13,13 @@
     "hushh-webapp/lib/cache/cache-sync-service.ts",
     "hushh-webapp/cache-coherence-screen-manifest.generated.json",
     "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
-    "docs/reference/architecture/cache-coherence.md",
-    "docs/reference/quality/app-surface-design-system.md"
+    "docs/development/contracts/cache-coherence.md",
+    "docs/development/quality/app-surface-design-system.md"
   ],
   "required_reads": [
     ".agents/skills/frontend-cache-coherence/SKILL.md",
-    "docs/reference/architecture/cache-coherence.md",
-    "docs/reference/quality/app-surface-design-system.md",
+    "docs/development/contracts/cache-coherence.md",
+    "docs/development/quality/app-surface-design-system.md",
     "hushh-webapp/cache-coherence-screen-manifest.generated.json",
     "hushh-webapp/scripts/testing/verify-signed-in-routes.mjs"
   ],

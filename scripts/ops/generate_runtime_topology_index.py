@@ -32,7 +32,7 @@ INPUTS = {
     "a2a_scope_map": REPO_ROOT / "consent-protocol/hushh_mcp/adk_bridge/delegation.py",
     "in_process_dispatch": REPO_ROOT / "consent-protocol/hushh_mcp/adk_bridge/__init__.py",
     "one_specialist_tools": REPO_ROOT / "consent-protocol/hushh_mcp/one_adk/action_tools.py",
-    "data_plane": REPO_ROOT / "docs/reference/architecture/runtime-db-data-plane-contract.json",
+    "data_plane": REPO_ROOT / "docs/architecture/runtime-db-data-plane-contract.json",
     "world_model_compat": REPO_ROOT / "consent-protocol/api/routes/world_model.py",
 }
 

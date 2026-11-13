@@ -4,13 +4,13 @@
  * Two tiers, deliberately. When a network's official artwork is present in
  * `public/brand/cards/`, it is rendered unmodified in a transparent cell, the
  * same handling the runtime provider marks follow
- * (docs/reference/one/runtime-provider-brand-inventory.md). Until an asset is
+ * (docs/architecture/one/runtime-provider-brand-inventory.md). Until an asset is
  * recorded in `CARD_MARK_ASSETS`, a known brand uses its readable short name;
  * an unknown brand uses a generic card icon. The RuPay reference was supplied by the user.
  *
  * The asset map is the only thing that changes when artwork arrives: drop the
  * file into `public/brand/cards/`, add one line here, record the source in
- * docs/reference/one/card-network-brand-inventory.md. No other file moves.
+ * docs/architecture/one/card-network-brand-inventory.md. No other file moves.
  *
  * Visa, Mastercard, American Express, Discover, RuPay, JCB, UnionPay, Mir, Elo,
  * Diners Club and Verve are trademarks of their owners. Showing a network's

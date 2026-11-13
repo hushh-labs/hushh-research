@@ -1,0 +1,251 @@
+# Ship iOS to TestFlight
+
+[Mobile](README.md)
+
+Use this workflow to make one normal UAT-backed TestFlight build available to
+the configured internal and external tester groups. It does not create an App
+Store version or submit the app for public App Store review.
+
+## Visual Context
+
+Canonical visual owner: [Mobile Guide](../../development/guides/mobile.md). This guide owns the
+TestFlight release branch beneath that mobile build-and-release flow: one
+UAT-backed archive, automated safety gates, then internal and external beta
+distribution without a public App Store submission.
+
+## What testers receive
+
+The workflow uploads one exact build from a green `main` SHA. Before packaging or
+diagnosing tester visibility, follow [live version and concurrent-release admission](../../../.agents/skills/release-ios-appstore/references/release-proof.md#live-version-and-concurrent-release-admission):
+an increasing build number does not advance the marketing version or prove the default update.
+
+- Internal group eligibility requires Apple `VALID` processing and the correct
+  group assignment; neither proves device installation or notification delivery.
+- The same build is assigned to the external group and includes the required
+  beta-review contact and notes.
+- External availability remains pending until an authorized beta-review submission
+  is approved, then becomes `active`. A `NOT_SUBMITTED` review state means no review
+  request exists; it is not waiting for an Apple decision. This workflow does not
+  submit beta review implicitly.
+
+This is a TestFlight-only operation. Assigning a build to an external group is
+not a public App Store submission.
+
+## What the workflow proves before upload
+
+`Ship iOS to TestFlight` requires an exact green `main` SHA and a UAT backend
+revision with the same provenance. The normal archive job then runs:
+
+```text
+UAT configuration and native Firebase materialization
+→ One Voice safety, generated-action, and Capacitor plugin checks
+→ privacy-manifest, App Intent, archive-asset, and symbol checks
+→ ordinary Gemini transcription and semantic model access against the matching UAT backend
+→ optional focused iOS App Intent/action smoke tests (full AppTests remain in change-aware CI)
+→ optional physical-iPhone capture evidence when requested
+→ automatic archive, distribution IPA export and production APNs/profile guard
+→ existing Xcode TestFlight upload from the same archive/signing options
+→ Apple VALID processing check
+→ attach the same build to internal and external groups
+```
+
+The physical-device job is an optional evidence lane. Set the dispatch input
+`require_hardware: true` for voice or device-sensitive changes when you want the
+dedicated self-hosted macOS runner with an attached iOS 17+ iPhone to prove
+device capture behavior. It uses UI automation to bootstrap microphone
+permission, performs at least 30 repetitions through the production microphone
+owner, and accepts only a redacted aggregate result when all of these are true:
+
+- p95 `time_to_capture_ms` is below 300 ms;
+- every repetition observes its first frame;
+- no initial frames are lost;
+- no microphone/session ownership is duplicated.
+
+When `require_hardware` is `false` (the default), the physical job is skipped
+and the release summary records `not requested`; the workflow makes no
+physical-device claim. If the lane is requested, a missing device, permission,
+metric, or result remains a release failure. The One Voice privacy,
+generated-action, and Capacitor checks remain required on every run; the
+compile-heavy simulator XCTest gate is opt-in through `run_core_tests`.
+
+The Location command repair additionally requires the complete spoken onboarding
+journey on web, a physical iPhone and a physical Android phone before release.
+The capture benchmark alone does not prove that journey, and an optional-device
+skip cannot satisfy this acceptance requirement. Track the remaining evidence in
+the [owning runtime contract](../../architecture/one/one-voice-runtime-architecture.md).
+
+When the `run_core_tests` dispatch input is `true`, the release simulator step
+runs five tests that prove the shipped App Intent surface: the ten-shortcut
+registration contract, the generated action catalog, both direct intent-factory
+mappings, and the non-mutating destination adapters. The default skips this
+compile-heavy duplicate; the change-aware CI workflow continues to run the
+complete `AppTests` suite and the targeted UI recovery test.
+This keeps the release job focused while preserving broad regression coverage.
+
+## One-time release configuration
+
+GitHub Actions uses GitHub OIDC Workload Identity Federation. Do not create,
+upload, or restore a GCP service-account JSON key for this release path.
+
+The `uat` GitHub environment needs these non-secret variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub OIDC provider resource |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | Federated deployment identity |
+| `IOS_VOICE_DEVICE_TIER` | Redacted identifier for the attached iPhone tier; required only when `require_hardware: true` |
+
+The federated identity needs read access to the UAT build contract, App Store
+Connect material and Firebase configuration in
+`hushh-pda-uat`. It must not use a long-lived key file.
+
+Before upload, the workflow fails closed unless Secret Manager contains:
+
+| Secret | Purpose |
+| --- | --- |
+| `APPSTORE_CONNECT_API_KEY_P8_B64` | Runner-local App Store Connect signing key |
+| `APPSTORE_CONNECT_KEY_ID` / `APPSTORE_CONNECT_ISSUER_ID` | App Store Connect identity metadata |
+| `APPSTORE_CONNECT_INTERNAL_TESTFLIGHT_GROUP_ID` | Internal beta group |
+| `APPSTORE_CONNECT_EXTERNAL_TESTFLIGHT_GROUP_ID` | External beta group |
+| `APPSTORE_CONNECT_BETA_REVIEW_CONTACT_JSON` | Required external beta-review contact |
+| `APPSTORE_CONNECT_BETA_REVIEW_NOTES` | Required external beta-review notes and What's New text |
+| `APPSTORE_CONNECT_PRIVACY_DECLARATION_CONTRACT_VERSION` | Must equal `one-voice-privacy-v2` (rotated for One Live Voice: audio is relayed to Gemini Live on Vertex; re-answer the App Store privacy questions) |
+| `APPSTORE_CONNECT_EXPORT_COMPLIANCE_APPROVED` | Must be exactly `true` |
+| `APPSTORE_CONNECT_VOICE_PROVIDER_PRIVACY_APPROVED` | Must be exactly `true` |
+
+The `OneVoicePrivacyContract.v1.json`, `OneVoiceModelNotices.json`,
+`Info.plist`, `PrivacyInfo.xcprivacy`, and built archive are reconciled before
+upload. Location commands use bounded recording and ordinary Gemini transcription
+and semantic planning. One Live Voice, when the server flag is on, relays live
+audio to Gemini Live on Vertex ADC through the app's own backend and plays the
+generated audio back without storing it; there is no provider fallback and no
+background audio. The app ships no local ASR/intent model packs. The model-pack
+publisher and its registry release gate are retired. Historical artifacts remain
+historical evidence.
+
+Build a fresh static export and sync it into both native apps before packaging.
+Verify that the packaged assets contain the command capture worklet and the
+One Live Voice capture worklet, and that every Live request goes to the app's
+backend origin (never `googleapis.com`). Device acceptance must separately prove
+final-word capture, cancellation, real permission continuation, explicit resume,
+and that a Live session ends when the app is backgrounded.
+
+## Run the normal build
+
+Follow the [admin release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md)
+for branch authority, required review, rollback, and deployment escalation. This
+guide adds the TestFlight-specific gates; it does not replace that release
+authority contract.
+
+1. Land the reviewed source on `main` and wait for the required post-merge
+   checks to pass.
+2. Deploy the matching backend to UAT.
+3. Verify ordinary Gemini transcription and semantic model access against the matching backend.
+4. If device evidence is desired, verify the self-hosted iPhone runner is
+   connected and registered with the `ios-voice-device` label.
+5. In GitHub Actions, run **Ship iOS to TestFlight** from `main`. Leave `sha`
+   blank for the latest eligible SHA, or supply that exact SHA. Set
+   `require_hardware: true` for the optional physical-device evidence lane;
+   leave it `false` for the normal release path. Set `run_core_tests: true`
+   only when you want the focused simulator App Intent/action gate in this
+   release; the default is `false` because the full suite already runs in
+   change-aware CI.
+   A blank manual `marketing_version` now uses the existing read-only live Apple
+   train resolver in Ubuntu preflight, before a macOS runner is allocated. Explicit
+   overrides keep their existing packaging-only scope. The same resolved version
+   flows into the app, extensions and upload receipt.
+   When the committed marketing version is behind the intended tester version,
+   supply `marketing_version` (`x.y.z`) after checking live Apple version history
+   and concurrent uploads. This is packaging metadata only: the exact source SHA
+   and matching UAT backend stay unchanged. The archive's app and extensions must
+   agree, and recovery receipts record the archived version, not the source default.
+   This option does not create, submit, publish or replace a public App Store version.
+6. Use `dry_run: true` only when you want a signed archive without uploading.
+   It follows the same `require_hardware` choice. The signed IPA is retained for
+   14 live days in the dedicated `hushh-native-uat` project's private
+   `hushh-native-uat-artifacts` bucket, after the
+   workflow verifies bucket privacy and upload integrity. GitHub Actions keeps
+   only a redacted receipt, not the IPA. The bucket also has a separate 7-day
+   private soft-delete recovery window after lifecycle deletion. The helper
+   checks the project-attached `native-uat-artifact-read` deny policy before and
+   after upload; that policy blocks inherited organization-level object reads
+   and the developers group's object mutations. The operator service account
+   belongs to that group, so it is explicitly exempted in both independent
+   deny rules; the UAT deployer remains exempted only from the broad read rule.
+   Its reviewed source is
+   `deploy/storage/native-artifact-deny-policy.json`.
+
+The run summary reports the source SHA, the physical capture p95 when that lane
+was requested (otherwise `not requested`), build number, and whether external
+access is active or awaiting Apple beta review. Artifacts are limited to
+redacted readiness, distribution, and timing evidence; keys,
+review-contact details, signed URLs, audio, transcripts, Vault material, and
+model bytes are removed or never uploaded.
+
+### Ship an accepted UAT candidate
+
+Use `source_branch=uat` or `source_branch=uat-isolated` and supply the full SHA
+of that protected branch tip. Dispatch from `main` after the scoped UAT release
+has completed. The deployment must have accepted the backend for that branch
+and SHA using exact UAT CI. Set `verify_candidate_before_promotion=true` on the
+`uat` deployment when candidate health and text recovery must complete before
+traffic changes. The Ubuntu preflight verifies the current successful UAT
+deployment attempt, the retained acceptance artifact, and the revision and image
+serving all backend traffic. It also compares the native release controls with
+the Main dispatch commit and uses the graph verifier from the accepted CI
+authority. The archive uses the selected application SHA and
+checks the serving revision again before export. This mode supports the
+standard build with `require_hardware=false`.
+
+Exact UAT upload receipts record their source branch. Existing upload recovery
+continues from the original build and source even after UAT traffic moves.
+
+For an individual access check, configure `TESTFLIGHT_TESTER_EMAIL` in the
+protected UAT environment and dispatch with `verify_tester_access=true`.
+The distribution receipt records a redacted eligibility result for the exact
+build and configured groups. It does not include the address or tester ID.
+
+## Common failures
+
+| Failure | Meaning and safe response |
+| --- | --- |
+| No connected iPhone / missing timing result | If `require_hardware: true`, restore the dedicated runner or permission bootstrap and rerun. If physical evidence is not needed, rerun with `require_hardware: false` after the mandatory simulator and native gates pass. |
+| UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
+| Connect Drive fails before Google sign-in opens | Confirm `ios:prepare:uat` bundled `NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN=https://api.uat.hushh.ai`; the OAuth and Picker callbacks must match the UAT Drive registry. Keep native API traffic on its configured backend host and rebuild the app. |
+| Transcription or semantic model access fails | Restore the configured non-Live provider access and verify it against the matching backend; local model packs are retired. |
+| Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
+| External beta review `NOT_SUBMITTED` / `READY_FOR_BETA_SUBMISSION` | Group assignment is not submission. Use a separately authorized beta-review submission; do not claim Apple is reviewing it. |
+| External beta review submitted and awaiting a decision | Wait for Apple's beta-review decision; verify internal eligibility independently. |
+| External beta review rejected | Correct the reviewer-facing issue and dispatch a new build; the workflow fails closed. |
+| `App Store Connect ... failed with HTTP 400` after processing | The binary is already uploaded and `VALID`; inspect the endpoint in the step error. The workflow prepares review metadata before group attachment, treats an unsubmitted external review as pending, and never creates a beta-review submission implicitly. |
+
+Public App Store submission remains a separate, explicitly authorized workflow.
+
+### Recover a processed upload without rebuilding
+
+If Apple processing finishes after the wait expires, or metadata/distribution fails,
+use **Ship iOS to TestFlight** (`ship-ios-testflight.yml`) from `main`,
+with only `upload_run_id` set to the original upload run. Leave build options at
+their defaults; recovery rejects source/version changes and dry-run/build flags.
+It reads the upload receipt,
+validates its source is on main, reconciles the same version/build with Apple,
+and repeats the idempotent group assignment. It does not archive, upload another
+binary, run App Intent tests, or submit beta review. A still-processing build can
+be reconciled again later with the same run ID. Original failed runs remain failed;
+the recovery run records the recovered distribution separately.
+
+Receipts are preserved immediately after successful uploads for 90 days. Runs
+before this receipt was introduced require an operator to verify the existing
+build's bundle ID, version, number and source before using the distribution CLI;
+do not rebuild merely to recover metadata. The normal release's `run_core_tests`
+flag remains `false` by default.
+
+The localization relationship GET accepts `limit`, not `filter[locale]`. Locale
+selection follows all pages locally; localization PATCH sends only `whatsNew`.
+The test double rejects unsupported query parameters and checks update payloads.
+
+UAT TestFlight registers new passkeys under `uat.one.hushh.ai`, matching its app
+origin. CI supplies this RP ID explicitly to native archive preparation. Existing
+passkey wrappers keep
+their recorded RP IDs and the parent-domain entitlement remains for compatible
+unlock; credentials are not renamed, deleted, or silently migrated.

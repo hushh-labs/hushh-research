@@ -216,5 +216,5 @@ final handoff linking the source PR, public record, and landing PR/commit.
 ## Contributor Feedback Loop
 
 When repeated contributor-side blockers appear, tighten
-`docs/reference/quality/pr-contributor-readiness.md` and mirror actionable
+`docs/development/quality/pr-contributor-readiness.md` and mirror actionable
 submission-time checklist items in `.github/pull_request_template.md`.

@@ -248,6 +248,22 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
         if path == "hushh-webapp/package.json":
             assert "release-controller-contracts" not in selected.check_ids
 
+    for path in (".gitignore", "hussh-mega-map.gen.py", "hussh-mega-map-v2.gen.py"):
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+    unknown = build_selection(
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "unknown-root/runtime.py"}
+    )
+    assert unknown.error is not None
+
+    for path in (
+        "scripts/ci/docs-parity-check.sh", "scripts/ci/provision_wallet_pass_certificate.py",
+        "scripts/ci/verify-runtime-config-contract.py", "scripts/ops/data_model_audit.py",
+        "scripts/verify-doc-links.cjs", "scripts/verify-doc-runtime-parity.cjs",
+    ):
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+        assert "release-controller-contracts" in selected.check_ids
     for path in ("scripts/ci/apply-governance-teams.py", "scripts/ci/test_apply_governance_teams.py"):
         selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
         assert "governance-teams" in selected.check_ids

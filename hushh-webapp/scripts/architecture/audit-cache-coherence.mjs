@@ -669,7 +669,7 @@ function buildManifest() {
       route_layout_contract: "lib/navigation/app-route-layout.contract.json",
       surface_map: "frontend-native-surface-map.generated.json",
       native_inventory: "native-route-inventory.json",
-      cache_reference: "../docs/reference/architecture/cache-coherence.md",
+      cache_reference: "../docs/development/contracts/cache-coherence.md",
     },
     summary: {
       total_screens: screens.length,

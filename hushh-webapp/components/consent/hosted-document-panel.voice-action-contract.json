@@ -3,7 +3,7 @@
   "surface_id": "one_document_delivery",
   "surface_title": "Protected document delivery",
   "docs_references": [
-    "docs/reference/architecture/api-contracts.md"
+    "docs/development/contracts/api-contracts.md"
   ],
   "defaults": {
     "reachability": {

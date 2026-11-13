@@ -94,7 +94,7 @@ def _one_location_consent_center_enabled() -> bool:
     ``_location_buckets`` is wrapped in try/except, so a location failure can
     never destabilize the consent surface. Set the env var to a falsey value
     ("0"/"false"/"off") to explicitly disable.
-    See docs/future/one-location-consent-center-integration-plan.md.
+    See docs/roadmap/one-location-consent-center-integration-plan.md.
     """
     raw = os.getenv("ONE_LOCATION_CONSENT_CENTER_ENABLED", "").strip().lower()
     if raw in {"0", "false", "no", "off"}:

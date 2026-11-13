@@ -12,10 +12,10 @@ Create planning-only future-state docs that stay grounded in Hussh north stars, 
 2. Read the current north-star docs and docs-home map before drafting.
 3. Classify the idea explicitly as `vision`, `future roadmap`, or `execution`.
 4. Capture current overlap, missing primitives, edge risks, and promotion criteria.
-5. Keep the final artifact under `docs/future/` unless the concept is already approved for execution.
+5. Keep the final artifact under `docs/roadmap/` unless the concept is already approved for execution.
 
 ## Common Drift Risks
 
-1. letting speculative roadmap ideas pollute `docs/vision/`
+1. letting speculative roadmap ideas pollute `docs/product/principles/`
 2. skipping trust, BYOK, PKM, or consent edge analysis
 3. writing execution detail into planning-only docs

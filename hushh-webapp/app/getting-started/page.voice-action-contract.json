@@ -3,8 +3,8 @@
   "surface_id": "onboarding",
   "surface_title": "Onboarding",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/reference/one/one-voice-runtime-architecture.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md",
+    "docs/architecture/one/one-voice-runtime-architecture.md"
   ],
   "defaults": {
     "reachability": {

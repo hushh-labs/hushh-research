@@ -10,13 +10,13 @@
     "hushh-webapp/__tests__",
     "consent-protocol/api",
     "consent-protocol/tests",
-    "docs/reference/quality",
+    "docs/development/quality",
     "scripts/ci"
   ],
   "required_reads": [
-    "docs/project_context_map.md",
-    "docs/reference/quality/pr-impact-checklist.md",
-    "docs/reference/kai/kai-runtime-smoke-checklist.md"
+    "docs/development/repository-map.md",
+    "docs/development/quality/pr-impact-checklist.md",
+    "docs/architecture/finance/kai-runtime-smoke-checklist.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task bug-triage",

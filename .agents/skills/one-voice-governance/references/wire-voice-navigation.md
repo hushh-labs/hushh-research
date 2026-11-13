@@ -30,7 +30,7 @@ cancels, or calls an external API. "Send this email", "cancel the analysis",
 separate list for a person to design: each needs a considered `execution_policy`
 (`allow_direct` / `confirm_required` / `manual_only`), `guard_ids`, and — critically
 — an actual backend handler to call. Point them at
-`docs/reference/kai/kai-action-gateway-vnext.md` for the authoring rules and at
+`docs/architecture/finance/kai-action-gateway-vnext.md` for the authoring rules and at
 this same domain's existing wired actions (e.g. `analysis.start` in
 `app/one/kai/analysis/page.voice-action-contract.json`) as a worked example of
 what a real action contract looks like, including its `goal` block for

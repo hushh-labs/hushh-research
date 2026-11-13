@@ -20,7 +20,7 @@ Owned repo surfaces:
 
 1. `consent-protocol/api/routes`
 2. `hushh-webapp/app/api`
-3. `docs/reference/architecture/api-contracts.md`
+3. `docs/development/contracts/api-contracts.md`
 
 Non-owned surfaces:
 
@@ -42,8 +42,8 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/architecture/api-contracts.md`
-2. `docs/guides/new-feature.md`
+1. `docs/development/contracts/api-contracts.md`
+2. `docs/development/guides/new-feature.md`
 3. `consent-protocol/api/routes`
 
 ## Workflow

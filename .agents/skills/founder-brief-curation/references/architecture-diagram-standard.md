@@ -44,7 +44,7 @@ Keep one abstraction level per figure. Prefer context plus one dynamic flow. Add
 
 1. Diagram color is owned by the single source, not the diagram. For a PDF, the canonical
    formatter (`hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` via
-   `scripts/reports/export-markdown-pdf.mjs`) themes every Mermaid figure from
+   `hushh-webapp/scripts/reports/export-markdown-pdf.mjs`) themes every Mermaid figure from
    `hushh-webapp/app/globals.css`: edges / actors / signals take the accent
    (`--app-accent-deep`, iOS Blue `#007aff` default; Molten Gold a variant), surfaces and
    notes take the Foundation ground, in both light and dark.

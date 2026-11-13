@@ -9,7 +9,7 @@
     "README.md",
     "contributing.md",
     ".devcontainer",
-    "docs/guides/getting-started.md",
+    "docs/development/guides/getting-started.md",
     "scripts/env",
     "consent-protocol/README.md",
     "consent-protocol/CONTRIBUTING.md"
@@ -17,7 +17,7 @@
   "required_reads": [
     "README.md",
     "contributing.md",
-    "docs/guides/getting-started.md",
+    "docs/development/guides/getting-started.md",
     "scripts/env/bootstrap.sh",
     "scripts/env/doctor.sh",
     "consent-protocol/CONTRIBUTING.md"

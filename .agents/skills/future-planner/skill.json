@@ -5,7 +5,7 @@
   "primary_scope": "future-roadmap-plan-intake",
   "description": "Use when evaluating future roadmap ideas, creating planning-only architecture docs, or assessing R&D concepts against Hussh north stars, trust boundaries, and current repo reality.",
   "owned_paths": [
-    "docs/future",
+    "docs/roadmap",
     ".agents/skills/future-planner",
     ".agents/workflows/future-roadmap-plan"
   ],
@@ -13,15 +13,15 @@
     "docs-governance",
     "planning-board",
     "repo-context",
-    "docs/vision"
+    "docs/product/principles"
   ],
   "task_types": [
     "future-roadmap-plan"
   ],
   "required_reads": [
-    "docs/vision/README.md",
-    "docs/future/README.md",
-    "docs/reference/operations/documentation-architecture-map.md",
+    "docs/product/principles/README.md",
+    "docs/roadmap/README.md",
+    "docs/development/documentation.md",
     "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],
   "required_commands": [

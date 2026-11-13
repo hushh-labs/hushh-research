@@ -13,14 +13,14 @@
     "hushh-webapp/ios",
     "hushh-webapp/android",
     "consent-protocol/api",
-    "docs/reference/architecture/api-contracts.md"
+    "docs/development/contracts/api-contracts.md"
   ],
   "required_reads": [
-    "docs/guides/new-feature.md",
-    "docs/project_context_map.md",
-    "docs/reference/quality/pr-impact-checklist.md",
-    "docs/reference/architecture/api-contracts.md",
-    "docs/reference/architecture/ui-contract-contributor-guide.md"
+    "docs/development/guides/new-feature.md",
+    "docs/development/repository-map.md",
+    "docs/development/quality/pr-impact-checklist.md",
+    "docs/development/contracts/api-contracts.md",
+    "docs/development/contracts/ui-contract-contributor-guide.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task new-feature-tri-flow",

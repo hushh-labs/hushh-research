@@ -5,7 +5,7 @@
   "primary_scope": "streaming-contracts",
   "description": "Use when changing SSE events, streaming payload contracts, parser behavior, degraded-state handling, or provider-specific streaming notes.",
   "owned_paths": [
-    "docs/reference/streaming",
+    "docs/development/streaming",
     "hushh-webapp/lib/streaming",
     "hushh-webapp/__tests__/streaming",
     "consent-protocol/api/routes/sse.py",
@@ -23,9 +23,9 @@
     "release-readiness"
   ],
   "required_reads": [
-    "docs/reference/streaming/streaming-contract.md",
-    "docs/reference/streaming/streaming-implementation-guide.md",
-    "docs/reference/streaming/vertex-ai-streaming-notes.md"
+    "docs/development/streaming/streaming-contract.md",
+    "docs/development/streaming/streaming-implementation-guide.md",
+    "docs/development/streaming/vertex-ai-streaming-notes.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts",

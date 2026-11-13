@@ -69,8 +69,8 @@
       "surface_id": "onboarding",
       "surface_title": "Onboarding",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/getting-started/page.voice-action-contract.json",
       "defaults": {
@@ -95,7 +95,7 @@
       "surface_id": "login",
       "surface_title": "One sign in",
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/login/page.voice-action-contract.json",
       "defaults": {
@@ -120,8 +120,8 @@
       "surface_id": "one_calendar",
       "surface_title": "Calendar",
       "docs_references": [
-        "docs/reference/one/one-calendar-knowledge-graph.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-calendar-knowledge-graph.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/one/calendar/page.voice-action-contract.json",
       "defaults": {
@@ -248,7 +248,7 @@
       "surface_id": "one_files",
       "surface_title": "Files",
       "docs_references": [
-        "docs/reference/operations/private-files-library.md"
+        "docs/operations/hosting/private-files-library.md"
       ],
       "contract_file": "hushh-webapp/app/one/files/page.voice-action-contract.json",
       "defaults": {
@@ -278,7 +278,7 @@
       "surface_id": "gmail",
       "surface_title": "Gmail",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
       "defaults": {
@@ -302,7 +302,7 @@
       "surface_id": "kai_analysis",
       "surface_title": "Stocks and Analysis Workspace",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
       "defaults": {
@@ -444,8 +444,8 @@
       "surface_id": "one_agents",
       "surface_title": "One",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/one/page.voice-action-contract.json",
       "defaults": {
@@ -496,7 +496,7 @@
       "surface_id": "profile_account",
       "surface_title": "Profile Workspace",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json"
       ],
       "contract_file": "hushh-webapp/app/one/profile/page.voice-action-contract.json",
@@ -521,7 +521,7 @@
       "surface_id": "profile_world_model",
       "surface_title": "Personal World Model",
       "docs_references": [
-        "docs/reference/one/personal-world-model.md"
+        "docs/architecture/one/personal-world-model.md"
       ],
       "contract_file": "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
       "defaults": {},
@@ -570,8 +570,8 @@
       "surface_id": "one_setup_calendar",
       "surface_title": "Calendar Setup",
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/one/setup/calendar/page.voice-action-contract.json",
       "defaults": {
@@ -728,8 +728,8 @@
       "surface_id": "one_setup_gmail",
       "surface_title": "Gmail Setup",
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/one/setup/gmail/page.voice-action-contract.json",
       "defaults": {
@@ -757,8 +757,8 @@
       "surface_id": "kai_setup_wizard",
       "surface_title": "Kai Investor Preferences Wizard",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
       "defaults": {
@@ -874,7 +874,7 @@
       "surface_id": "one_wallet",
       "surface_title": "One Cards",
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "contract_file": "hushh-webapp/app/one/wallet/page.voice-action-contract.json",
       "defaults": {
@@ -904,8 +904,8 @@
       "surface_id": "one_intro",
       "surface_title": "Claim your One",
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md",
-        "docs/reference/one/one-voice-onboarding-journey.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md",
+        "docs/architecture/one/one-voice-onboarding-journey.md"
       ],
       "contract_file": "hushh-webapp/app/page.voice-action-contract.json",
       "defaults": {
@@ -956,8 +956,8 @@
       "surface_id": "phone_mandate",
       "surface_title": "Phone Verification",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/register-phone/page.voice-action-contract.json",
       "defaults": {
@@ -985,7 +985,7 @@
       "surface_id": "ria_claim",
       "surface_title": "RIA Claim Profile",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/claim/page.voice-action-contract.json",
       "defaults": {
@@ -1008,7 +1008,7 @@
       "surface_id": "ria_clients",
       "surface_title": "RIA Client Roster",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
       "defaults": {
@@ -1031,7 +1031,7 @@
       "surface_id": "ria_onboarding",
       "surface_title": "RIA Professional Onboarding",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/onboarding/page.voice-action-contract.json",
       "defaults": {
@@ -1054,7 +1054,7 @@
       "surface_id": "ria_home",
       "surface_title": "RIA Workspace Home",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/page.voice-action-contract.json",
       "defaults": {
@@ -1077,7 +1077,7 @@
       "surface_id": "ria_picks",
       "surface_title": "RIA Picks Workspace",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/picks/page.voice-action-contract.json",
       "defaults": {
@@ -1105,7 +1105,7 @@
       "surface_id": "ria_profile",
       "surface_title": "RIA Profile",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json"
       ],
       "contract_file": "hushh-webapp/app/ria/profile/page.voice-action-contract.json",
@@ -1129,7 +1129,7 @@
       "surface_id": "ria_requests_compat",
       "surface_title": "RIA Requests Compatibility Route",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
       "defaults": {
@@ -1152,7 +1152,7 @@
       "surface_id": "ria_settings_compat",
       "surface_title": "RIA Settings Compatibility Route",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
       "defaults": {
@@ -1175,7 +1175,7 @@
       "surface_id": "ria_workspace_compat",
       "surface_title": "RIA Workspace Compatibility Route",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
       "defaults": {
@@ -1244,7 +1244,7 @@
       "surface_id": "one_career_chat",
       "surface_title": "Careers in Agent One chat",
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "contract_file": "hushh-webapp/components/agent/career-chat-actions.voice-action-contract.json",
       "defaults": {
@@ -1274,9 +1274,9 @@
       "surface_id": "one_specialist_turns",
       "surface_title": "One Specialist Turns",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
       "defaults": {
@@ -1311,8 +1311,8 @@
       "surface_id": "one_wallet_widgets",
       "surface_title": "One Wallet Widgets",
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "contract_file": "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
       "defaults": {
@@ -1347,7 +1347,7 @@
       "surface_id": "consents",
       "surface_title": "Consent Center",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
       "defaults": {
@@ -1371,7 +1371,7 @@
       "surface_id": "one_document_delivery",
       "surface_title": "Protected document delivery",
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "contract_file": "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
       "defaults": {
@@ -1404,7 +1404,7 @@
       "surface_id": "kai_analysis_controls",
       "surface_title": "Kai Analysis Controls",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
       "defaults": {
@@ -1468,7 +1468,7 @@
       "surface_id": "kai_command_bar",
       "surface_title": "Kai Global Command Bar",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
       "defaults": {
@@ -1523,7 +1523,7 @@
       "surface_id": "kai_market_news",
       "surface_title": "Kai Market News",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/kai/kai-market-news-page.voice-action-contract.json",
       "defaults": {
@@ -1546,7 +1546,7 @@
       "surface_id": "kai_portfolio_detail",
       "surface_title": "Kai Portfolio Detail",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/kai/kai-portfolio-detail-page.voice-action-contract.json",
       "defaults": {
@@ -1569,7 +1569,7 @@
       "surface_id": "kai_portfolio_dashboard",
       "surface_title": "Kai Portfolio Dashboard",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
       "defaults": {
@@ -1592,7 +1592,7 @@
       "surface_id": "kai_market",
       "surface_title": "Kai Market Home",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
       "defaults": {
@@ -1647,8 +1647,8 @@
       "surface_id": "one_setup_hub",
       "surface_title": "One Setup Hub",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "contract_file": "hushh-webapp/components/onboarding/setup/one-setup-hub.voice-action-contract.json",
       "defaults": {
@@ -1699,7 +1699,7 @@
       "surface_id": "ria_client_account_detail",
       "surface_title": "RIA Client Account Detail",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/ria/ria-client-account-detail.voice-action-contract.json",
       "defaults": {
@@ -1722,7 +1722,7 @@
       "surface_id": "ria_client_request_detail",
       "surface_title": "RIA Client Request Detail",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/ria/ria-client-request-detail.voice-action-contract.json",
       "defaults": {
@@ -1745,7 +1745,7 @@
       "surface_id": "ria_client_workspace",
       "surface_title": "RIA Client Workspace",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json",
       "defaults": {
@@ -1819,8 +1819,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -1925,8 +1925,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2034,8 +2034,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2148,8 +2148,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2255,7 +2255,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2357,7 +2357,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2458,7 +2458,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2559,7 +2559,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2663,7 +2663,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -2760,8 +2760,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-calendar-knowledge-graph.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/architecture/one/one-calendar-knowledge-graph.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "components/calendar/calendar-agent-page.tsx"
       ],
       "workflow": null,
@@ -2859,8 +2859,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-calendar-knowledge-graph.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/architecture/one/one-calendar-knowledge-graph.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "components/calendar/calendar-agent-page.tsx"
       ],
       "workflow": null,
@@ -2973,8 +2973,8 @@
         "vault_ready"
       ],
       "docs_references": [
-        "docs/reference/one/one-calendar-knowledge-graph.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/architecture/one/one-calendar-knowledge-graph.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "consent-protocol/hushh_mcp/one_voice/tools/calendar.py",
         "consent-protocol/hushh_mcp/services/google_calendar_service.py"
       ],
@@ -3094,8 +3094,8 @@
         "vault_ready"
       ],
       "docs_references": [
-        "docs/reference/one/one-calendar-knowledge-graph.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-calendar-knowledge-graph.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -3213,7 +3213,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -3325,7 +3325,7 @@
         "connection count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -3436,7 +3436,7 @@
         "connection count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -3549,7 +3549,7 @@
         "connection count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -3657,7 +3657,7 @@
         "active connect tab"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -3769,7 +3769,7 @@
         "directory result count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -3891,7 +3891,7 @@
         "connection count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4015,7 +4015,7 @@
         "pending outgoing request count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4138,7 +4138,7 @@
         "pending incoming request count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4263,7 +4263,7 @@
         "pending incoming request count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4387,7 +4387,7 @@
         "connection count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4499,7 +4499,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4600,7 +4600,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4704,7 +4704,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/operations/private-files-library.md"
+        "docs/operations/hosting/private-files-library.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4811,7 +4811,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/gmail/gmail-recent-receipts.tsx",
         "lib/mail/receipt-merchant-registry.ts"
       ],
@@ -4914,7 +4914,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "app/one/gmail/page.tsx",
         "components/gmail/gmail-receipts-page.tsx"
       ],
@@ -5026,7 +5026,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "app/one/gmail/gmail-page-client.tsx",
         "components/gmail/gmail-receipts-page.tsx",
         "components/gmail/mail-kyc-connect-entry.tsx"
@@ -5131,7 +5131,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/gmail/gmail-verification-onboarding.tsx",
         "components/onboarding/setup/kyc-identity-preface.tsx"
       ],
@@ -5234,7 +5234,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
@@ -5341,7 +5341,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
@@ -5448,7 +5448,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
@@ -5554,7 +5554,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/gmail/receipt-sync-toolbar.tsx"
       ],
       "workflow": null,
@@ -5654,7 +5654,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/gmail/receipt-sync-toolbar.tsx"
       ],
       "workflow": null,
@@ -5754,7 +5754,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "app/kai/analysis/page.tsx"
       ],
       "workflow": null,
@@ -5856,8 +5856,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -5962,8 +5962,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6100,8 +6100,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6205,8 +6205,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6319,7 +6319,7 @@
         "SMS system alarm permission"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6436,7 +6436,7 @@
         "active location tab"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6550,7 +6550,7 @@
         "active location tab"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6662,7 +6662,7 @@
         "active location tab"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6778,7 +6778,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6893,7 +6893,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7014,7 +7014,7 @@
         "selected request owner count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7159,7 +7159,7 @@
         "selected request owner count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7308,7 +7308,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7423,7 +7423,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7538,7 +7538,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7654,7 +7654,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7773,7 +7773,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -7890,7 +7890,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8008,7 +8008,7 @@
         "emergency contact count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8125,7 +8125,7 @@
         "location permission state"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8241,7 +8241,7 @@
         "active share count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8357,7 +8357,7 @@
         "granted share count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8475,7 +8475,7 @@
         "pending request count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8596,7 +8596,7 @@
         "matched contact count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8708,7 +8708,7 @@
         "connection count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8821,7 +8821,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8935,7 +8935,7 @@
         "location data state"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9051,7 +9051,7 @@
         "location sharing paused"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9173,7 +9173,7 @@
         "selected recipient count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9321,7 +9321,7 @@
         "share duration"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9470,7 +9470,7 @@
         "active share count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9596,7 +9596,7 @@
         "pending request count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9722,7 +9722,7 @@
         "pending request count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9848,7 +9848,7 @@
         "active share count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -9989,7 +9989,7 @@
         "active sos incident"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -10105,7 +10105,7 @@
         "automatic approval enabled"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -10256,7 +10256,7 @@
         "emergency contact count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -10383,7 +10383,7 @@
         "emergency contact count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -10511,7 +10511,7 @@
         "location sharing paused"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -10636,7 +10636,7 @@
         "circle names"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -10769,7 +10769,7 @@
         "circle member count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -10922,7 +10922,7 @@
         "circle member count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11061,7 +11061,7 @@
         "circle names"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11192,7 +11192,7 @@
         "circle kind"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11310,7 +11310,7 @@
         "circle member count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11442,7 +11442,7 @@
         "circle member count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11569,7 +11569,7 @@
         "circle member count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11695,7 +11695,7 @@
         "circle names"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11822,7 +11822,7 @@
         "saved place names"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -11947,7 +11947,7 @@
         "saved place names"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12072,7 +12072,7 @@
         "active share count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12190,7 +12190,7 @@
         "nearby place candidates"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12374,7 +12374,7 @@
         "check-in duration"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12529,7 +12529,7 @@
         "nearby presence status"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12640,7 +12640,7 @@
         "active sos incident"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12763,7 +12763,7 @@
         "active sos incident"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12884,7 +12884,7 @@
         "active sos incident"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -12991,7 +12991,7 @@
         "map presence mode"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13114,7 +13114,7 @@
         "active public links"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13236,7 +13236,7 @@
         "active public links"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13340,7 +13340,7 @@
         "active public links"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13446,7 +13446,7 @@
         "active location tab"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13555,7 +13555,7 @@
         "active location flow"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13667,7 +13667,7 @@
         "location sharing state"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13773,7 +13773,7 @@
         "location precision"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13877,7 +13877,7 @@
         "location setup step"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -13984,7 +13984,7 @@
         "location setup step"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14090,7 +14090,7 @@
         "location setup step"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14192,7 +14192,7 @@
         "location setup step"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14289,7 +14289,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14392,7 +14392,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14497,8 +14497,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14605,8 +14605,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "app/profile/profile-workspace-page.tsx"
       ],
       "workflow": null,
@@ -14716,8 +14716,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14824,8 +14824,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -14937,8 +14937,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15045,8 +15045,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "app/one/feed/page.tsx"
       ],
       "workflow": null,
@@ -15155,9 +15155,9 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
-        "docs/reference/operations/private-files-library.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
+        "docs/operations/hosting/private-files-library.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15257,7 +15257,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15357,7 +15357,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15457,7 +15457,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15557,7 +15557,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15657,7 +15657,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15757,7 +15757,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -15866,7 +15866,7 @@
         "whether sharing price review is open"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16001,7 +16001,7 @@
         "whether sharing price review is open"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16104,7 +16104,7 @@
         "whether bundle sharing review is open"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16210,7 +16210,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "components/profile/profile-workspace-page.tsx"
       ],
@@ -16311,9 +16311,9 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16415,7 +16415,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "components/profile/profile-workspace-page.tsx"
       ],
@@ -16524,7 +16524,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/one/profile/my-data/page.tsx"
       ],
@@ -16634,7 +16634,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/one/profile/world-model/page.tsx"
       ],
@@ -16744,7 +16744,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/one/profile/request-pricing/page.tsx"
       ],
@@ -16850,7 +16850,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "components/profile/net-worth-score-card.tsx"
       ],
@@ -16964,7 +16964,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/one/profile/payouts/page.tsx"
       ],
@@ -17075,7 +17075,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -17185,7 +17185,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -17290,7 +17290,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -17398,7 +17398,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -17508,7 +17508,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -17615,7 +17615,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/pkm/page.tsx"
       ],
@@ -17725,7 +17725,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -17830,7 +17830,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -17935,7 +17935,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -18039,7 +18039,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -18146,7 +18146,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -18250,7 +18250,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "app/profile/profile-workspace-page.tsx"
       ],
@@ -18352,7 +18352,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json"
       ],
       "workflow": null,
@@ -18455,7 +18455,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json"
       ],
       "workflow": null,
@@ -18553,7 +18553,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json"
       ],
       "workflow": null,
@@ -18659,7 +18659,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "components/consent/document-hashcoins.tsx"
       ],
@@ -18766,7 +18766,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "components/consent/document-hashcoins.tsx"
       ],
@@ -18866,7 +18866,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-fact-row.tsx",
         "components/profile/world-model-fact-sheet.tsx"
@@ -18967,7 +18967,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-fact-row.tsx",
         "components/profile/world-model-fact-sheet.tsx"
@@ -19068,7 +19068,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-fact-row.tsx",
         "components/profile/world-model-fact-sheet.tsx"
@@ -19170,7 +19170,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-fact-sheet.tsx"
       ],
@@ -19271,7 +19271,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-fact-sheet.tsx"
       ],
@@ -19373,7 +19373,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-options.tsx"
       ],
@@ -19473,7 +19473,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/world-model-options.tsx"
       ],
       "workflow": null,
@@ -19572,7 +19572,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/world-model-options.tsx"
       ],
       "workflow": null,
@@ -19671,7 +19671,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx"
       ],
       "workflow": null,
@@ -19771,7 +19771,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/world-model-options.tsx",
         "components/profile/world-model-sources.tsx"
       ],
@@ -19872,7 +19872,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/world-model-options.tsx",
         "components/profile/world-model-invitations.tsx"
       ],
@@ -19972,7 +19972,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-claim-invitation.tsx"
       ],
@@ -20072,7 +20072,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
         "components/profile/world-model-claim-invitation.tsx"
       ],
@@ -20174,7 +20174,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/personal-world-model.md",
+        "docs/architecture/one/personal-world-model.md",
         "components/profile/world-model-options.tsx",
         "components/profile/world-model-sources.tsx"
       ],
@@ -20273,7 +20273,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -20383,8 +20383,8 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "components/calendar/calendar-agent-page.tsx",
         "app/one/setup/calendar/calendar-onboarding-setup-client.tsx"
       ],
@@ -20493,8 +20493,8 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
         "components/onboarding/setup/setup-completion-footer.tsx"
       ],
@@ -20606,8 +20606,8 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
         "components/onboarding/setup/setup-completion-footer.tsx"
       ],
@@ -20725,7 +20725,7 @@
         "Verified hosting choice and saved AI access"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -20837,7 +20837,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -20945,7 +20945,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -21058,7 +21058,7 @@
         "AI connection selection state"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -21170,7 +21170,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -21278,7 +21278,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -21389,7 +21389,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -21497,7 +21497,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -21608,8 +21608,8 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "components/gmail/gmail-receipts-page.tsx",
         "app/one/setup/gmail/gmail-onboarding-setup-client.tsx"
       ],
@@ -21723,8 +21723,8 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
         "components/onboarding/setup/setup-completion-footer.tsx"
       ],
@@ -21836,8 +21836,8 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
         "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
         "components/onboarding/setup/setup-completion-footer.tsx"
       ],
@@ -21946,8 +21946,8 @@
         "selected investment preferences"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
       ],
       "workflow": null,
@@ -22063,8 +22063,8 @@
         "selected investment preferences"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
       ],
       "workflow": null,
@@ -22180,8 +22180,8 @@
         "selected investment preferences"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
       ],
       "workflow": null,
@@ -22300,8 +22300,8 @@
         "selected investment preferences"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/app/one/setup/kai/page.tsx"
       ],
       "workflow": null,
@@ -22430,7 +22430,7 @@
         "categorical place choice"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -22580,7 +22580,7 @@
         "verified settlement readiness"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -22694,7 +22694,7 @@
         "bounded Location onboarding run status"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -22809,7 +22809,7 @@
         "Location introduction completion readiness"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -22919,7 +22919,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23025,7 +23025,7 @@
         "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23126,7 +23126,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23234,7 +23234,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23343,8 +23343,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md",
-        "docs/reference/one/one-voice-onboarding-journey.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md",
+        "docs/architecture/one/one-voice-onboarding-journey.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23472,7 +23472,7 @@
         "relationship state"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23580,7 +23580,7 @@
         "selected request field count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23685,7 +23685,7 @@
         "relationship state"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23789,7 +23789,7 @@
         "relationship state"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -23895,7 +23895,7 @@
         "request history count"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -24114,7 +24114,7 @@
         "connection status"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -24222,7 +24222,7 @@
         "connection status"
       ],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -24323,7 +24323,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -24431,8 +24431,8 @@
         "selected country code"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -24546,8 +24546,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -24656,8 +24656,8 @@
         "verification step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -24776,8 +24776,8 @@
         "verification step"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -24894,8 +24894,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-conflict-recovery.tsx"
       ],
       "workflow": null,
@@ -25005,8 +25005,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25116,8 +25116,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25227,8 +25227,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25338,8 +25338,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25449,8 +25449,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25560,8 +25560,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25671,8 +25671,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25783,8 +25783,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -25894,8 +25894,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -26005,8 +26005,8 @@
         "phone recovery step only"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
       "workflow": null,
@@ -26120,7 +26120,7 @@
         "matched firm and adviser candidates"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/claim/page.tsx"
       ],
       "workflow": {
@@ -26261,7 +26261,7 @@
         "visible client count"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/clients/page.tsx",
         "hushh-webapp/components/app-ui/top-shell-tabs.tsx",
         "hushh-webapp/lib/navigation/top-shell-tabs.ts"
@@ -26377,7 +26377,7 @@
         "visible client relationship states"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/clients/page.tsx",
         "hushh-webapp/lib/navigation/routes.ts"
       ],
@@ -26487,7 +26487,7 @@
         "selected clients view"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/clients/page.tsx",
         "hushh-webapp/components/ria/nearby/nearby-around-you.tsx"
       ],
@@ -26598,7 +26598,7 @@
         "shortlisted state"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/nearby/nearby-record-sheet.tsx",
         "hushh-webapp/lib/services/nws-nearby-service.ts"
       ],
@@ -26708,7 +26708,7 @@
         "advisor verification state"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/onboarding/page.tsx"
       ],
       "workflow": {
@@ -26856,7 +26856,7 @@
         "verification provider result summary"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/onboarding/page.tsx"
       ],
       "workflow": null,
@@ -26972,7 +26972,7 @@
         "public profile headline and strategy summary"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/onboarding/page.tsx"
       ],
       "workflow": null,
@@ -27086,7 +27086,7 @@
         "dev bypass allowlist state"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/onboarding/page.tsx"
       ],
       "workflow": null,
@@ -27196,8 +27196,8 @@
         "active client count"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/iam/runtime-surface.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/identity/runtime-surface.md",
         "hushh-webapp/app/ria/page.tsx"
       ],
       "workflow": {
@@ -27340,7 +27340,7 @@
         "visible priority item next actions"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/page.tsx"
       ],
       "workflow": null,
@@ -27446,7 +27446,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx",
         "hushh-webapp/components/app-ui/top-shell-tabs.tsx",
         "hushh-webapp/lib/navigation/top-shell-tabs.ts"
@@ -27556,7 +27556,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -27666,7 +27666,7 @@
         "advisor package metadata"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -27774,7 +27774,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -27882,7 +27882,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -27990,7 +27990,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28105,7 +28105,7 @@
         "current advisor package draft"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28219,7 +28219,7 @@
         "validation issues"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28334,7 +28334,7 @@
         "current advisor package avoid and screening context"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28447,7 +28447,7 @@
         "current advisor draft"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28556,7 +28556,7 @@
         "unsaved advisor package draft"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28678,7 +28678,7 @@
         "editable advisor package rows"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28782,7 +28782,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
       ],
       "workflow": null,
@@ -28894,7 +28894,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "hushh-webapp/app/ria/profile/page.tsx"
       ],
@@ -29005,7 +29005,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
         "hushh-webapp/app/ria/profile/page.tsx",
         "hushh-webapp/components/ria/profile/ria-profile-section.tsx"
@@ -29115,7 +29115,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/requests/page.tsx"
       ],
       "workflow": null,
@@ -29226,7 +29226,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/settings/page.tsx"
       ],
       "workflow": null,
@@ -29344,7 +29344,7 @@
         "legacy workspace query parameters"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/workspace/page.tsx",
         "hushh-webapp/lib/navigation/routes.ts"
       ],
@@ -29758,7 +29758,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -29866,7 +29866,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -29970,7 +29970,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30073,7 +30073,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30178,7 +30178,7 @@
         "open hussh roles"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30282,7 +30282,7 @@
         "application reference and status link"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md"
+        "docs/architecture/one/one-agent-hierarchy.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30401,9 +30401,9 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30546,9 +30546,9 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30714,9 +30714,9 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30858,9 +30858,9 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -30997,9 +30997,9 @@
         "allowed_action_ids"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31131,8 +31131,8 @@
         "card metadata (nickname, brand, last4, expiry, region)"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31241,8 +31241,8 @@
         "whether the secure add form is open"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31357,8 +31357,8 @@
         "which stored card was shown (nickname and last4 only)"
       ],
       "docs_references": [
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/one/one-agent-hierarchy.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31469,8 +31469,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31588,8 +31588,8 @@
         "pending request count"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31721,8 +31721,8 @@
         "pending request count"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31854,8 +31854,8 @@
         "pending request count"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -31988,8 +31988,8 @@
         "pending request count"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/iam/consent-scope-catalog.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/identity/consent-scope-catalog.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32096,7 +32096,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32197,7 +32197,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32298,7 +32298,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32399,7 +32399,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32500,7 +32500,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32601,7 +32601,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32702,7 +32702,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32803,7 +32803,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -32904,7 +32904,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33005,7 +33005,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33106,7 +33106,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33207,7 +33207,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33308,7 +33308,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33409,7 +33409,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33511,7 +33511,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33612,7 +33612,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33713,7 +33713,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33814,7 +33814,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -33915,7 +33915,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -34017,7 +34017,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -34121,7 +34121,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -34223,7 +34223,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -34321,7 +34321,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/one/kai/analysis/page.tsx"
       ],
       "workflow": null,
@@ -34421,7 +34421,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/one/kai/analysis/page.tsx"
       ],
       "workflow": null,
@@ -34521,7 +34521,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/one/kai/analysis/page.tsx"
       ],
       "workflow": null,
@@ -34621,7 +34621,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/one/kai/analysis/page.tsx"
       ],
       "workflow": null,
@@ -34726,7 +34726,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/one/kai/analysis/page.tsx"
       ],
       "workflow": null,
@@ -34932,7 +34932,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/lib/agent/agent-action-runtime.ts"
       ],
       "workflow": null,
@@ -35032,7 +35032,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/kai/kai-market-news-page.tsx"
       ],
       "workflow": null,
@@ -35137,7 +35137,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/kai/kai-portfolio-detail-page.tsx"
       ],
       "workflow": null,
@@ -35241,7 +35241,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/kai/kai-portfolio-detail-page.tsx"
       ],
       "workflow": null,
@@ -35346,7 +35346,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/kai/kai-portfolio-detail-page.tsx"
       ],
       "workflow": null,
@@ -35452,7 +35452,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/kai/kai-portfolio-detail-page.tsx"
       ],
       "workflow": null,
@@ -35560,7 +35560,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "components/kai/kai-portfolio-detail-page.tsx"
       ],
       "workflow": null,
@@ -35662,8 +35662,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -35766,8 +35766,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -35867,8 +35867,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -35975,8 +35975,8 @@
         "selected sector performance period"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/api-contracts.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36079,8 +36079,8 @@
         "selected sector performance period"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/api-contracts.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/contracts/api-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36182,8 +36182,8 @@
         "selected sector list size"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/route-contracts.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/contracts/route-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36285,8 +36285,8 @@
         "selected sector list size"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/route-contracts.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/contracts/route-contracts.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36494,8 +36494,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36608,8 +36608,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36718,8 +36718,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36829,8 +36829,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -36942,8 +36942,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -37056,8 +37056,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -37167,8 +37167,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -37278,8 +37278,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -37393,8 +37393,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -37505,8 +37505,8 @@
         "capabilities completed count"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
         "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
       ],
       "workflow": null,
@@ -37610,7 +37610,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -37722,7 +37722,7 @@
         "selected account branch identifier"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-account-detail.tsx",
         "hushh-webapp/lib/navigation/routes.ts"
       ],
@@ -37839,7 +37839,7 @@
         "current client identifier"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-account-detail.tsx"
       ],
       "workflow": null,
@@ -37957,7 +37957,7 @@
         "selected request identifier"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-request-detail.tsx",
         "hushh-webapp/lib/navigation/routes.ts"
       ],
@@ -38074,7 +38074,7 @@
         "current client identifier"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-request-detail.tsx"
       ],
       "workflow": null,
@@ -38190,7 +38190,7 @@
         "selected client identifier"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx",
         "hushh-webapp/lib/navigation/routes.ts"
       ],
@@ -38311,7 +38311,7 @@
         "selected client identifier"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
       ],
       "workflow": null,
@@ -38433,7 +38433,7 @@
         "granted scope labels"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
       ],
       "workflow": null,
@@ -38557,7 +38557,7 @@
         "portfolio readiness state"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
       ],
       "workflow": null,
@@ -38681,7 +38681,7 @@
         "available information domains"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
       ],
       "workflow": null,
@@ -38804,7 +38804,7 @@
         "selected account branch identifier"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx",
         "hushh-webapp/lib/navigation/routes.ts"
       ],
@@ -38916,7 +38916,7 @@
         "current workspace return route"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
       ],
       "workflow": null,
@@ -39046,7 +39046,7 @@
         "client-visible request note"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
       ],
       "workflow": null,
@@ -39168,7 +39168,7 @@
         "relationship status"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
       ],
       "workflow": null,

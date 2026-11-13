@@ -43,8 +43,8 @@ Non-owned surfaces:
 
 1. `.agents/skills/planning-board/references/engineering-core-board.md`
 2. `.agents/skills/planning-board/references/action-items-board.md`
-3. `docs/project_context_map.md`
-4. `docs/reference/operations/coding-agent-mcp.md`
+3. `docs/development/repository-map.md`
+4. `docs/operations/coding-agent-mcp.md`
 
 ## Workflow
 
