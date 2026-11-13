@@ -100,7 +100,7 @@ export function PortfolioAgentReview({
           ? "The review timed out."
           : error instanceof AdvisorReviewError && error.status === 429
             ? "The review service is busy."
-            : "The private agent couldn’t finish this review.";
+            : "AgentOne couldn’t finish this review.";
         setSettled({ digest: input.digest, attempt, review: null, error: message });
       }
     })();
@@ -154,7 +154,7 @@ export function PortfolioAgentReview({
             <p role="status" className="ui-text-helper-text">Opening your saved review…</p>
           ) : (
             <div className={styles.row}>
-              <p id={disclosureId} className="ui-text-helper-text">Allow the private agent to review this portfolio summary as you save changes. The latest review stays on this device.</p>
+              <p id={disclosureId} className="ui-text-helper-text">Allow AgentOne to review this portfolio summary as you save changes. The latest review stays on this device.</p>
               <ShellActionSurface variant="pill" aria-describedby={disclosureId} onClick={() => {
                 if (input && context.isCurrent()) {
                   const next = { scope, sourceFence: input.sourceFence };

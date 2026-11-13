@@ -183,7 +183,7 @@ export function registerAdvisorReviewChecks(
       await expect(page.locator("body")).toHaveAttribute(calls, "1");
       await page.evaluate(() => { document.body.dataset.portfolioReviewFailed = "true"; });
       await page.getByRole("button", { name: "Update sample portfolio" }).click();
-      await expect(review.getByText("The private agent couldn’t finish this review.")).toBeVisible();
+      await expect(review.getByText("AgentOne couldn’t finish this review.")).toBeVisible();
       await expect(page.locator("body")).toHaveAttribute(calls, "2");
       await expect(review.getByText("72 / 100")).toHaveCount(0);
 

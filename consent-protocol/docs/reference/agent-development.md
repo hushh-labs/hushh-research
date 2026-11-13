@@ -148,22 +148,25 @@ own input and completed receipts. The no-history current-turn selector cannot
 find their transient task input. Explicit bounded specialist history is projected
 only at its root callback; never inherit it into isolated child agents.
 
-### Azure response schemas with dynamic fields
+### Azure response schemas with dynamic or bounded fields
 
 Memory's structure gene returns dynamic payload, summary and sensitivity maps.
-Azure's native strict output format cannot represent those open fields. The
+Azure's native strict output format cannot represent those open fields or
+constraints such as Portfolio review's score and text-length bounds. The
 single-turn runner binds its original output contract while it executes and
 validates the final result. Within that exact validation scope, the Azure
 response adapter uses JSON object mode and sends the original normalized schema
 as output instructions. It never closes a dynamic map to an empty object.
-Direct typed open-schema calls without a matching owning validator fail before
-model I/O. Closed response schemas retain native strict output; tool schemas and
+Typed calls requiring the host schema fail before model I/O without a matching
+owning validator. Compatible closed schemas retain native strict output; tool schemas and
 tool authority are unchanged. No additional call, provider fallback, persistence
 or confirmation is introduced. The original decoder still rejects invalid
 output before returning it to the caller.
 
 The actual Memory manifest/ADK roundtrip and invalid-output/pre-I/O controls are
-covered in `tests/test_hushh_adk_single_turn.py`; the existing Azure adapter
+covered in `tests/test_hushh_adk_single_turn.py`; Portfolio review's successful
+roundtrip and rejected scores/text are in `tests/services/test_one_portfolio_review.py`.
+The existing Azure adapter
 suite retains its closed-schema and tool-boundary cases. These checks prove the source
 contract; a released image still needs genuine UAT task and save verification.
 
