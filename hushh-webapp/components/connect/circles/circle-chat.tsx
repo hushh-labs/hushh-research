@@ -40,6 +40,10 @@ const foreground = () => document.visibilityState === "visible" && appInteractio
 // Coalesce busy-group doorbells within a quarter-second refresh cadence.
 // Four sessions at four refreshes/sec fit the API's 1200/min owner read budget.
 const REFRESH_CADENCE_MS = 250;
+// A doorbell, lifecycle resume, and the long-poll stream already make the
+// thread current promptly. The fallback is only a missed-event repair and
+// must not continuously rescan a long Circle history every five seconds.
+const REFRESH_REPAIR_INTERVAL_MS = 15_000;
 function cadence(signal: AbortSignal, earliest: number): Promise<void> {
   const delay = earliest - performance.now();
   if (delay <= 0 || signal.aborted) return Promise.resolve();
@@ -119,7 +123,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     const resume = () => { if (!paneActiveRef.current || !foreground()) abort?.abort(); else void listen(); };
     resumeWait.current = resume;
     void listen();
-    const timer = window.setInterval(resume, 5000);
+    const timer = window.setInterval(resume, REFRESH_REPAIR_INTERVAL_MS);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(resume);
     document.addEventListener("visibilitychange", resume); window.addEventListener("online", resume);
     return () => { active = false; abort?.abort(); clearInterval(timer); removeLifecycle();
@@ -170,7 +174,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       }
     });
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 15000);
+    const timer = window.setInterval(() => void refresh(), REFRESH_REPAIR_INTERVAL_MS);
     window.addEventListener(CIRCLE_CHAT_CHANGED, onEvent);
     window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
@@ -478,7 +482,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
+    const timer = window.setInterval(() => void refresh(), REFRESH_REPAIR_INTERVAL_MS);
     window.addEventListener(CIRCLE_CHAT_CHANGED, event); window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => { void refresh(); });
