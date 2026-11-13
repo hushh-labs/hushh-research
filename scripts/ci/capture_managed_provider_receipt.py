@@ -163,20 +163,32 @@ def from_entries(entries, expected, document, step_label):
             if selecting
             else readiness.configured_provider(document, expected["environment"])
         )
-        preferred = (
-            readiness.qualified_provider(
+        if hasattr(readiness, "qualified_selection"):
+            preferred = readiness.qualified_selection(
+                providers,
+                document,
+                expected,
+                trust_failed=aggregate.get("pwm_trust") == "failed",
+            )
+        elif hasattr(readiness, "qualified_provider"):
+            preferred = readiness.qualified_provider(
                 providers,
                 configured,
                 trust_failed=aggregate.get("pwm_trust") == "failed",
             )
-            if hasattr(readiness, "qualified_provider")
-            else configured
-            if providers[configured]["ready"]
-            else None
-        )
+        else:
+            preferred = configured if providers[configured]["ready"] else None
     else:
         # Historical candidate tooling had an Azure-only release contract.
         preferred = "azure_openai" if providers["azure_openai"]["ready"] else None
+    if hasattr(readiness, "qualification_provider"):
+        carrier = readiness.qualification_provider(
+            document, expected["environment"], expected.get("qualification_mode", "full")
+        )
+        require(
+            aggregate.get("core_provider") == (carrier if carrier != configured else None),
+            "core_provider_mismatch",
+        )
     require(
         preferred is not None
         and aggregate.get("ready") is True
@@ -240,6 +252,8 @@ def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness
     }
     result["qualification_mode"] = aggregate.get("qualification_mode", "full")
     result["secondary_diagnostics"] = aggregate.get("secondary_diagnostics", "reported")
+    if "core_provider" in aggregate:
+        result["core_provider"] = aggregate["core_provider"]
     result["providers"] = {
         p: {
             "ready": providers[p]["ready"],
