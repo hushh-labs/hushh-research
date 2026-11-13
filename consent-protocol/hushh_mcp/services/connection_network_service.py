@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from hushh_mcp.services.connection_discovery_sql import PUBLIC_RECOMMENDATION_FILTER_SQL
 from hushh_mcp.services.connection_network_sql import (
     QUALIFIED_DEGREES_SQL,
     QUALIFIED_SUMMARY_SQL,
@@ -27,8 +28,19 @@ if TYPE_CHECKING:
 
 MAX_NETWORK_NODES = 4000
 MAX_NETWORK_EDGES = 12000
-SUGGESTION_LIMIT = 4
 SHARED_CONNECTION_COUNT_LIMIT = 501
+
+_EXTENDED_QUALIFICATION_SQL = f"""
+WITH graph AS ({QUALIFIED_DEGREES_SQL})
+SELECT user_id, degree, overflow FROM graph
+WHERE overflow OR (degree = 3 AND user_id = ANY(CAST(:extended_network_user_ids AS TEXT[])))
+UNION ALL
+SELECT profile.user_id, NULL::INTEGER AS degree, FALSE AS overflow
+FROM actor_profiles profile
+WHERE profile.user_id = ANY(CAST(:candidates AS TEXT[]))
+  AND profile.user_id <> ALL(CAST(:extended_network_user_ids AS TEXT[]))
+  AND ({PUBLIC_RECOMMENDATION_FILTER_SQL})
+"""  # nosec B608 -- module-owned SQL only; all request values are bound.
 
 # Each frontier is admitted before it can expand. UNION uses both indexed
 # endpoint columns, rather than scanning the whole graph with an OR join.
@@ -392,36 +404,6 @@ class ConnectionNetworkService:
             "visibleConnectionCount": visible_count,
         }
 
-    def suggested_people(
-        self, viewer: str, query: str, network_ids: list[str]
-    ) -> list[dict[str, Any]]:
-        query = query.strip()
-        if query and not any(character.isalnum() for character in query):
-            return []
-        people = self.directory().search_directory_candidates(
-            owner_user_id=viewer,
-            query=query,
-            audience="all" if query else "ria",
-            name_only=True,
-            exclude_network_user_ids=network_ids,
-            include_recommendations=False,
-            limit=SUGGESTION_LIMIT,
-        )["items"]
-        people = [person for person in people if person.get("publicPersonRef")]
-        metadata = ConnectionRowMetadata(self.connections, viewer, people, self.profiles).settle()
-        return [
-            {
-                "publicPersonRef": person["publicPersonRef"],
-                "displayName": person.get("displayName"),
-                "photoUrl": person.get("photoUrl"),
-                "relationship": row["relationship"],
-                "suggestionReason": "name_match" if query else "verified_advisor",
-            }
-            for person in people
-            if (row := metadata[str(person["userId"])])["relationship"] != "connected"
-            and row["mutualConnectionCount"] == 0
-        ]
-
     def browse(
         self,
         viewer: str,
@@ -447,24 +429,20 @@ class ConnectionNetworkService:
         else:
             degrees = self.degrees(viewer, max_degree=degree or 3)
             ids = sorted(degrees)
-        suggestions = (
-            self.suggested_people(viewer, query, ids)
-            if include_suggestions and target is None and degree == 3 and page == 1
-            else None
-        )
+        extended = include_suggestions and target is None and degree == 3
         if degree:
             ids = [uid for uid in ids if degrees.get(uid) == degree]
         result = (
             self.directory().search_directory_candidates(
                 owner_user_id=viewer,
-                network_user_ids=ids,
+                **({"extended_network_user_ids": ids} if extended else {"network_user_ids": ids}),
                 query=query,
                 name_only=True,
                 page=page,
                 limit=limit,
                 include_recommendations=False,
             )
-            if ids
+            if ids or extended
             else {"items": [], "page": page, "hasMore": False}
         )
         # Directory/auth reads may be slow. A permission observed before them
@@ -484,18 +462,20 @@ class ConnectionNetworkService:
             )
         else:
             payloads = metadata.settle(
-                QUALIFIED_DEGREES_SQL,
+                _EXTENDED_QUALIFICATION_SQL if extended else QUALIFIED_DEGREES_SQL,
                 {
                     "viewer": viewer,
                     "admitted": self._admitted,
                     "candidates": page_ids,
                     "max_degree": degree or 3,
                     "edge_limit": MAX_NETWORK_EDGES + 1,
+                    "extended_network_user_ids": ids if extended else [],
                 },
             )
-        final_degrees = {uid: int(value["networkDegree"]) for uid, value in payloads.items()}
+        final_degrees = {uid: value["networkDegree"] for uid, value in payloads.items()}
         if set(final_degrees) != set(page_ids) or (
-            degree and any(d != degree for d in final_degrees.values())
+            degree
+            and any(d != degree and not (extended and d is None) for d in final_degrees.values())
         ):
             raise self.unavailable()
         degrees = final_degrees
@@ -510,11 +490,15 @@ class ConnectionNetworkService:
                     "photoUrl": p.get("photoUrl"),
                     "networkDegree": degrees.get(str(p["userId"])),
                     **payloads[str(p["userId"])],
+                    **(
+                        {"suggestionReason": "name_match" if query.strip() else "public_profile"}
+                        if extended and degrees.get(str(p["userId"])) is None
+                        else {}
+                    ),
                 }
                 for p in result["items"]
                 if p.get("publicPersonRef")
             ],
             "page": result["page"],
             "hasMore": result["hasMore"],
-            **({"suggestions": suggestions} if suggestions is not None else {}),
         }

@@ -3209,7 +3209,7 @@
         "second degree",
         "third degree"
       ],
-      "meaning": "Opens viewer-relative network discovery with exact 1st, 2nd and 3rd degree filters. Only consented paths qualify; mutual connections remain people directly connected to both you and a target.",
+      "meaning": "Opens viewer-relative network discovery with My connections, Through connections and Extended network filters. Extended network pages through qualified third-degree connections and eligible public people, including people without mutual connections. Only consented graph paths receive a degree; suggestions never claim a graph relationship. Mutual connections remain people directly connected to both you and a target.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
